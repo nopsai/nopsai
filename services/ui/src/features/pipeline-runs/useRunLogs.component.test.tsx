@@ -76,3 +76,32 @@ test('cleans stale filters and lines when the selected run changes', async () =>
   });
   expect(fetchRunLogsMock).toHaveBeenLastCalledWith('run-2', 0);
 });
+
+test('explicit task log opens override stale hash filters and filter by task metadata', async () => {
+  window.location.hash =
+    '#/pipelineruns/events/run-1/logs/deploy/error/wrap/unstructured/all/full?search=stale&task=publish';
+  fetchRunLogsMock.mockResolvedValueOnce([
+    { id: 1, timestamp: '2026-06-11T10:00:00Z', line: '{"level":"info","step":"build","task":"compile","message":"compile"}' },
+    { id: 2, timestamp: '2026-06-11T10:00:01Z', line: '{"level":"info","step":"build","task":"test","message":"test"}' },
+    { id: 3, timestamp: '2026-06-11T10:00:02Z', line: '{"level":"info","step":"deploy","task":"compile","message":"deploy"}' },
+  ]);
+
+  const { result } = renderHook(() =>
+    useRunLogs({
+      runID: 'run-1',
+      initialStep: 'build',
+      initialTask: 'compile',
+      initialSearch: null,
+    })
+  );
+
+  await waitFor(() => {
+    expect(Array.from(result.current.selectedSteps)).toEqual(['build']);
+    expect(Array.from(result.current.selectedTasks)).toEqual(['compile']);
+    expect(result.current.searchText).toBe('');
+    expect(result.current.visibleLines.map(line => line.id)).toEqual([1]);
+  });
+  expect(window.location.hash).toBe(
+    '#/pipelineruns/events/run-1/logs/build/all/unwrap/unstructured/all/short?task=compile'
+  );
+});

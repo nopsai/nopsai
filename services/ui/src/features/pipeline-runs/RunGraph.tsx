@@ -31,6 +31,7 @@ const STEP_HEADER_HEIGHT = 44;
 const INNER_PADDING = 12;
 const MIN_GRAPH_SCALE = 0.4;
 const MAX_GRAPH_SCALE = 1.4;
+const GRAPH_FOCUS_PADDING = 72;
 
 function activateWithKeyboard(event: KeyboardEvent<SVGElement>, action: () => void) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -43,6 +44,7 @@ export function StepsGraph({
   steps,
   selectedStep,
   onSelectStep,
+  onOpenStepLogs,
   onOpenTaskLogs,
   onOpenStepDetail,
   childRuns,
@@ -56,6 +58,7 @@ export function StepsGraph({
   steps: StepDetail[];
   selectedStep: string | null;
   onSelectStep: (name: string | null) => void;
+  onOpenStepLogs?: (stepName: string) => void;
   onOpenTaskLogs?: (stepName: string, taskName: string) => void;
   onOpenStepDetail?: (stepName: string) => void;
   childRuns: RunListItem[];
@@ -73,20 +76,12 @@ export function StepsGraph({
   const [startPan, setStartPan] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const interactedRef = useRef(false);
+  const pendingFocusStepRef = useRef<string | null>(null);
+  const focusStepInViewportRef = useRef<(stepId: string) => void>(() => undefined);
+  const focusRequestVersionRef = useRef(0);
+  const lastSelectedStepRef = useRef<string | null>(null);
   const prevStepStatusesRef = useRef<Map<string, GraphStatus>>(new Map());
-
-  useEffect(() => {
-    if (!selectedStep) return undefined;
-    const frame = requestAnimationFrame(() =>
-      setExpandedSteps(prev => {
-        if (prev.has(selectedStep)) return prev;
-        const next = new Set(prev);
-        next.add(selectedStep);
-        return next;
-      })
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [selectedStep]);
+  const pendingFitRef = useRef(false);
 
   const stepDefMap = useMemo(() => {
     const map = new Map<string, StepConfiguration>();
@@ -110,17 +105,22 @@ export function StepsGraph({
       const includeLabel = step.configuration?.include
         ? `Included ${step.configuration.include.toLowerCase().includes('pipeline') ? 'Pipeline' : 'Step'}`
         : '';
-      const tasks: GraphTask[] = (step.tasks || []).map(task => {
-        const def = stepDef?.tasks?.find(t => t.name === task.task_name);
-        const status = deriveTaskGraphStatus(task, step.status);
-        return {
-          id: task.task_name,
-          name: task.task_name,
-          status,
-          duration: formatTaskDuration(task, status),
-          dependsOn: def?.depends_on || [],
-        };
-      });
+      const stepTaskDefs = stepDef?.tasks || [];
+      const rawTasks = step.tasks || [];
+      const tasks: GraphTask[] = rawTasks
+        .filter(task => isDisplayableGraphTask(task, step.name, stepTaskDefs, rawTasks.length))
+        .map(task => {
+          const taskName = task.task_name.trim();
+          const def = stepTaskDefs.find(t => t.name === taskName);
+          const status = deriveTaskGraphStatus(task, step.status);
+          return {
+            id: taskName,
+            name: taskName,
+            status,
+            duration: formatTaskDuration(task, status),
+            dependsOn: def?.depends_on || [],
+          };
+        });
       return {
         id: step.name,
         name: step.name,
@@ -185,6 +185,63 @@ export function StepsGraph({
     setTransform({ x: nextX, y: nextY, k: nextScale });
   }, [mainLayout.height, mainLayout.width]);
 
+  const focusStepInViewport = useCallback(
+    (stepId: string) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const { clientWidth, clientHeight } = container;
+      if (!clientWidth || !clientHeight) return;
+      const focusBounds = getStepNeighborhoodBounds(mainLayout, stepId);
+      if (!focusBounds) return;
+      const scaleX = (clientWidth - GRAPH_FOCUS_PADDING * 2) / focusBounds.width;
+      const scaleY = (clientHeight - GRAPH_FOCUS_PADDING * 2) / focusBounds.height;
+      const nextScale = Math.min(MAX_GRAPH_SCALE, Math.max(MIN_GRAPH_SCALE, Math.min(scaleX, scaleY)));
+      const centerX = focusBounds.x + focusBounds.width / 2;
+      const centerY = focusBounds.y + focusBounds.height / 2;
+      setTransform({
+        x: clientWidth / 2 - centerX * nextScale,
+        y: clientHeight / 2 - centerY * nextScale,
+        k: nextScale,
+      });
+    },
+    [mainLayout]
+  );
+
+  useEffect(() => {
+    focusStepInViewportRef.current = focusStepInViewport;
+  }, [focusStepInViewport]);
+
+  useEffect(() => {
+    if (!selectedStep) {
+      focusRequestVersionRef.current += 1;
+      lastSelectedStepRef.current = null;
+      return undefined;
+    }
+    if (lastSelectedStepRef.current === selectedStep) return undefined;
+    lastSelectedStepRef.current = selectedStep;
+    const focusRequestVersion = focusRequestVersionRef.current + 1;
+    focusRequestVersionRef.current = focusRequestVersion;
+    const frame = requestAnimationFrame(() => {
+      if (focusRequestVersionRef.current !== focusRequestVersion) return;
+      let alreadyExpanded = false;
+      pendingFocusStepRef.current = selectedStep;
+      setExpandedSteps(prev => {
+        if (prev.has(selectedStep)) {
+          alreadyExpanded = true;
+          return prev;
+        }
+        const next = new Set(prev);
+        next.add(selectedStep);
+        return next;
+      });
+      if (alreadyExpanded) {
+        pendingFocusStepRef.current = null;
+        focusStepInViewportRef.current(selectedStep);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selectedStep]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -196,7 +253,13 @@ export function StepsGraph({
     }
   }, [mainLayout.height, mainLayout.width]);
 
-  const pendingFitRef = useRef(false);
+  const clearSelectedFocusForManualNavigation = useCallback(() => {
+    interactedRef.current = true;
+    focusRequestVersionRef.current += 1;
+    pendingFocusStepRef.current = null;
+    pendingFitRef.current = false;
+    if (selectedStep) onSelectStep(null);
+  }, [onSelectStep, selectedStep]);
 
   useEffect(() => {
     const nextStatusMap = new Map<string, GraphStatus>();
@@ -207,51 +270,73 @@ export function StepsGraph({
   }, [graphSteps]);
 
   useEffect(() => {
+    if (pendingFocusStepRef.current) {
+      const stepId = pendingFocusStepRef.current;
+      pendingFocusStepRef.current = null;
+      focusStepInViewport(stepId);
+      return;
+    }
     if (pendingFitRef.current) {
       pendingFitRef.current = false;
       fitGraphToViewport();
     }
-  }, [expandedLayouts, expandedSteps, fitGraphToViewport, mainLayout.height, mainLayout.width]);
+  }, [expandedLayouts, expandedSteps, fitGraphToViewport, focusStepInViewport, mainLayout.height, mainLayout.width]);
 
-  const toggleStep = useCallback(
-    (id: string) => {
-      pendingFitRef.current = true;
+  const activateStep = useCallback(
+    (step: GraphStep) => {
+      interactedRef.current = true;
+      if (!step.tasks.length && onOpenStepLogs) {
+        focusRequestVersionRef.current += 1;
+        pendingFocusStepRef.current = null;
+        pendingFitRef.current = false;
+        if (selectedStep) onSelectStep(null);
+        onOpenStepLogs(step.name);
+        return;
+      }
+      const id = step.id;
+      const wasExpanded = expandedSteps.has(id);
+      pendingFocusStepRef.current = wasExpanded ? null : id;
       setExpandedSteps(prev => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         return next;
       });
-      onSelectStep(id);
+      onSelectStep(wasExpanded ? null : id);
     },
-    [onSelectStep]
+    [expandedSteps, onOpenStepLogs, onSelectStep, selectedStep]
   );
   const expandAll = useCallback(() => {
+    clearSelectedFocusForManualNavigation();
     pendingFitRef.current = true;
     setExpandedSteps(new Set(steps.map(step => step.name)));
-  }, [steps]);
+  }, [clearSelectedFocusForManualNavigation, steps]);
   const collapseAll = useCallback(() => {
+    clearSelectedFocusForManualNavigation();
     pendingFitRef.current = true;
     setExpandedSteps(new Set());
-  }, []);
+  }, [clearSelectedFocusForManualNavigation]);
 
-  const handleWheel = useCallback((event: React.WheelEvent | WheelEvent) => {
-    interactedRef.current = true;
-    event.stopPropagation();
-    event.preventDefault();
-    const deltaY = 'deltaY' in event ? event.deltaY : 0;
-    const scaleSens = 0.001;
-    setTransform(prev => {
-      const nextScale = Math.min(MAX_GRAPH_SCALE, Math.max(MIN_GRAPH_SCALE, prev.k - deltaY * scaleSens));
-      return { ...prev, k: nextScale };
-    });
-  }, []);
+  const handleWheel = useCallback(
+    (event: React.WheelEvent | WheelEvent) => {
+      clearSelectedFocusForManualNavigation();
+      event.stopPropagation();
+      event.preventDefault();
+      const deltaY = 'deltaY' in event ? event.deltaY : 0;
+      const scaleSens = 0.001;
+      setTransform(prev => {
+        const nextScale = Math.min(MAX_GRAPH_SCALE, Math.max(MIN_GRAPH_SCALE, prev.k - deltaY * scaleSens));
+        return { ...prev, k: nextScale };
+      });
+    },
+    [clearSelectedFocusForManualNavigation]
+  );
 
   const handleMouseDown = (event: MouseEvent) => {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest('[data-graph-node]')) return;
-    interactedRef.current = true;
+    clearSelectedFocusForManualNavigation();
     setIsDragging(true);
     setStartPan({ x: event.clientX - transform.x, y: event.clientY - transform.y });
   };
@@ -264,11 +349,11 @@ export function StepsGraph({
   const handleMouseUp = () => setIsDragging(false);
 
   const zoomIn = () => {
-    interactedRef.current = true;
+    clearSelectedFocusForManualNavigation();
     setTransform(prev => ({ ...prev, k: Math.min(prev.k + 0.2, 3) }));
   };
   const zoomOut = () => {
-    interactedRef.current = true;
+    clearSelectedFocusForManualNavigation();
     setTransform(prev => ({ ...prev, k: Math.max(prev.k - 0.2, 0.4) }));
   };
 
@@ -297,7 +382,7 @@ export function StepsGraph({
     return () => el.removeEventListener('wheel', listener);
   }, [handleWheel]);
 
-  const totalTasks = useMemo(() => steps.reduce((sum, step) => sum + (step.tasks?.length || 0), 0), [steps]);
+  const totalTasks = useMemo(() => graphSteps.reduce((sum, step) => sum + step.tasks.length, 0), [graphSteps]);
 
   return (
     <div
@@ -307,7 +392,7 @@ export function StepsGraph({
       aria-describedby="pipeline-run-graph-instructions"
     >
       <p id="pipeline-run-graph-instructions" className="sr-only">
-        Use Tab to reach graph controls and step nodes. Press Enter or Space to expand a step or open task logs.
+        Use Tab to reach graph controls and step nodes. Press Enter or Space to expand task steps or open logs for empty steps.
       </p>
       <div className="flex flex-wrap items-center gap-2 px-2 text-sm text-[var(--text-secondary)]">
         <span className="px-2.5 py-1 text-[11px] uppercase tracking-[0.08em] rounded-full bg-[var(--bg-secondary)] text-[var(--text-primary)]">
@@ -403,23 +488,24 @@ export function StepsGraph({
               );
             })}
 
-      {mainLayout.nodes.map(node => (
-      <StepNodeRenderer
-        key={node.data.id}
-        node={node}
-        expanded={expandedSteps.has(node.data.id)}
-        selected={selectedStep === node.data.id}
-        onToggle={() => toggleStep(node.data.id)}
-        onTaskClick={onOpenTaskLogs}
-        onOpenDetail={onOpenStepDetail}
-        onPreview={handleShowPreview}
-        onPreviewEnd={handleHidePreview}
-        innerLayout={expandedLayouts.get(node.data.id)}
-        statusVariant={statusVariant}
-        statusColorOverride={stepStatusColorOverride || statusColorOverride}
-        taskStatusColorOverride={taskStatusColorOverride}
-      />
-      ))}
+            {mainLayout.nodes.map(node => (
+              <StepNodeRenderer
+                key={node.data.id}
+                node={node}
+                expanded={expandedSteps.has(node.data.id)}
+                selected={selectedStep === node.data.id}
+                onActivate={() => activateStep(node.data)}
+                opensStepLogs={Boolean(onOpenStepLogs && !node.data.tasks.length)}
+                onTaskClick={onOpenTaskLogs}
+                onOpenDetail={onOpenStepDetail}
+                onPreview={handleShowPreview}
+                onPreviewEnd={handleHidePreview}
+                innerLayout={expandedLayouts.get(node.data.id)}
+                statusVariant={statusVariant}
+                statusColorOverride={stepStatusColorOverride || statusColorOverride}
+                taskStatusColorOverride={taskStatusColorOverride}
+              />
+            ))}
           </g>
         </svg>
 
@@ -453,11 +539,50 @@ export function StepsGraph({
   );
 }
 
+function getStepNeighborhoodBounds(layout: GraphLayout<GraphStep>, stepId: string) {
+  const focusIds = new Set([stepId]);
+  layout.edges.forEach(edge => {
+    if (edge.from === stepId) focusIds.add(edge.to);
+    if (edge.to === stepId) focusIds.add(edge.from);
+  });
+  const nodes = layout.nodes.filter(node => focusIds.has(node.data.id));
+  if (!nodes.length) return null;
+
+  const points = layout.edges
+    .filter(edge => focusIds.has(edge.from) && focusIds.has(edge.to))
+    .flatMap(edge => edge.points);
+  const xs = nodes.flatMap(node => [node.x, node.x + node.width]).concat(points.map(point => point.x));
+  const ys = nodes.flatMap(node => [node.y, node.y + node.height]).concat(points.map(point => point.y));
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
+function isDisplayableGraphTask(
+  task: StepDetail['tasks'][number],
+  stepName: string,
+  stepTaskDefs: NonNullable<StepConfiguration['tasks']>,
+  rawTaskCount: number
+) {
+  const taskName = task.task_name?.trim();
+  if (!taskName) return false;
+  const hasMatchingDefinition = stepTaskDefs.some(def => def.name === taskName);
+  return !(rawTaskCount === 1 && taskName === stepName && !hasMatchingDefinition);
+}
+
 function StepNodeRenderer({
   node,
   expanded,
   selected,
-  onToggle,
+  onActivate,
+  opensStepLogs,
   onTaskClick,
   onOpenDetail,
   onPreview,
@@ -470,7 +595,8 @@ function StepNodeRenderer({
   node: GraphLayoutNode<GraphStep>;
   expanded: boolean;
   selected: boolean;
-  onToggle: () => void;
+  onActivate: () => void;
+  opensStepLogs: boolean;
   onTaskClick?: (stepName: string, taskName: string) => void;
   onOpenDetail?: (stepName: string) => void;
   onPreview?: (step: GraphStep, evt: MouseEvent) => void;
@@ -484,6 +610,9 @@ function StepNodeRenderer({
   const titleColor = selected ? statusColor : 'var(--text-primary)';
   const durationLabel = node.data.duration || '0s';
   const showDuration = Boolean(durationLabel && durationLabel !== '0s');
+  const stepActionLabel = opensStepLogs
+    ? `Open logs for ${node.data.name} step, ${getGraphStatusLabel(node.data.status)}`
+    : `${expanded ? 'Collapse' : 'Expand'} ${node.data.name} step, ${getGraphStatusLabel(node.data.status)}`;
   const nameWidthEstimate = node.data.name.length * 6.6;
   const infoX = Math.min(node.width - 22, 28 + nameWidthEstimate);
   const durationX = infoX + 4 + 6;
@@ -503,7 +632,7 @@ function StepNodeRenderer({
       className="cursor-pointer"
       onClick={event => {
         event.stopPropagation();
-        onToggle();
+        onActivate();
       }}
       onMouseDown={event => event.stopPropagation()}
       data-graph-node
@@ -516,9 +645,9 @@ function StepNodeRenderer({
         fill="transparent"
         role="button"
         tabIndex={0}
-        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${node.data.name} step, ${getGraphStatusLabel(node.data.status)}`}
+        aria-label={stepActionLabel}
         aria-expanded={expanded}
-        onKeyDown={event => activateWithKeyboard(event, onToggle)}
+        onKeyDown={event => activateWithKeyboard(event, onActivate)}
       />
 
       <g transform={`translate(${INNER_PADDING}, 10)`}>
@@ -594,13 +723,13 @@ function StepNodeRenderer({
             />
           ))}
           {innerLayout.nodes.map(task => (
-          <TaskNodeRenderer
-            key={task.data.id}
-            task={task}
-            stepName={node.data.name}
-            onTaskClick={onTaskClick}
-            statusColorOverride={taskStatusColorOverride}
-          />
+            <TaskNodeRenderer
+              key={task.data.id}
+              task={task}
+              stepName={node.data.name}
+              onTaskClick={onTaskClick}
+              statusColorOverride={taskStatusColorOverride}
+            />
           ))}
         </g>
       )}

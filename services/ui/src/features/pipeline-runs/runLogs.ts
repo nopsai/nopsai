@@ -25,6 +25,7 @@ export type EnrichedRunLogLine = RunLogLine & {
 
 export type RunLogsHashState = {
   steps: string[];
+  tasks: string[];
   levels: Set<string>;
   wrap: boolean;
   structured: boolean;
@@ -35,6 +36,7 @@ export type RunLogsHashState = {
 
 export type RunLogFilter = {
   selectedSteps: Set<string>;
+  selectedTasks?: Set<string>;
   selectedLevels: Set<string>;
   agentOnly: boolean;
   searchText: string;
@@ -117,9 +119,11 @@ export function getPresentRunLogLevels(lines: EnrichedRunLogLine[]): Set<string>
 
 export function filterRunLogLines(lines: EnrichedRunLogLine[], filter: RunLogFilter): EnrichedRunLogLine[] {
   const stepFilterActive = filter.selectedSteps.size > 0;
+  const taskFilterActive = Boolean(filter.selectedTasks?.size);
   const searchTerm = filter.searchText.trim().toLowerCase();
   return lines.filter(line => {
     if (stepFilterActive && (!line.step || !filter.selectedSteps.has(line.step))) return false;
+    if (taskFilterActive && (!line.task || !filter.selectedTasks?.has(line.task))) return false;
     if (filter.agentOnly && !isAgentRunLogLine(line)) return false;
     if (filter.selectedLevels.size > 0 && !filter.selectedLevels.has(normalizeRunLogLevel(line.level))) return false;
     if (searchTerm && !(line.line || '').toLowerCase().includes(searchTerm)) return false;
@@ -151,14 +155,19 @@ export function parseRunLogsHash(
   const order = new Map(levelOrder.map((level, index) => [level, index]));
   levels.sort((left, right) => (order.get(left) ?? levelOrder.length) - (order.get(right) ?? levelOrder.length));
 
+  const query = queryPart ? new URLSearchParams(queryPart) : new URLSearchParams();
+  const tasksSegment = query.get('task') || query.get('tasks') || '';
+  const tasks = tasksSegment ? tasksSegment.split(',').filter(Boolean) : [];
+
   return {
     steps,
+    tasks,
     levels: new Set(levels),
     wrap: wrapSegment !== 'unwrap',
     structured: structuredSegment !== 'unstructured',
     agentOnly: agentSegment === 'agent',
     shortView: shortSegment !== 'full',
-    search: queryPart ? new URLSearchParams(queryPart).get('search') || '' : '',
+    search: query.get('search') || '',
   };
 }
 
@@ -166,6 +175,7 @@ export function buildRunLogsHash({
   currentHash,
   runID,
   selectedSteps,
+  selectedTasks = new Set(),
   selectedLevels,
   wrap,
   structured,
@@ -177,6 +187,7 @@ export function buildRunLogsHash({
   currentHash: string;
   runID: string;
   selectedSteps: Set<string>;
+  selectedTasks?: Set<string>;
   selectedLevels: Set<string>;
   wrap: boolean;
   structured: boolean;
@@ -206,7 +217,10 @@ export function buildRunLogsHash({
     agentOnly ? 'agent' : 'all',
     shortView ? 'short' : 'full',
   ].join('/')}`;
-  return `${hashPath}${searchText ? `?search=${encodeURIComponent(searchText)}` : ''}`;
+  const queryParts = [];
+  if (searchText) queryParts.push(`search=${encodeURIComponent(searchText)}`);
+  if (selectedTasks.size) queryParts.push(`task=${encodeURIComponent(Array.from(selectedTasks).join(','))}`);
+  return `${hashPath}${queryParts.length ? `?${queryParts.join('&')}` : ''}`;
 }
 
 export function formatRunLogDownload(lines: EnrichedRunLogLine[]): string {
