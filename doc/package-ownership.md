@@ -109,13 +109,21 @@ release model logic.
   release-manifest rendering, and image-lock rendering.
 - `deploy/` owns deployment-only Compose, the NopsAI Helm chart, and the
   release image overlay used to create digest-pinned chart packages.
+<<<<<<< Updated upstream
 - `.github/workflows/enterprise-gates.yml` owns unprivileged validation and
   preview composition; `.github/workflows/platform-release.yml` owns release
   package validation plus GHCR, OCI Helm, CLI, deployment bundle, and GitHub
   Release publication.
+=======
+- `doc/sample-config-repo/global-repo/triggers/hosein-yousefii/pre-nopsai.yaml`
+  owns the GitHub App main-branch release trigger.
+- `doc/sample-config-repo/global-repo/pipelines/platform/prod/nopsai-platform-release.yaml`
+  owns release package validation plus GHCR, OCI Helm, CLI, deployment bundle,
+  and GitHub Release publication.
+>>>>>>> Stashed changes
 
-Workflow YAML should orchestrate these owners rather than duplicate their model
-or rendering logic inline.
+GitOps pipeline and trigger YAML should orchestrate these owners rather than
+duplicate their model or rendering logic inline.
 
 ## Provider Clients
 
