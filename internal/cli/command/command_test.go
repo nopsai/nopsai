@@ -305,18 +305,21 @@ func TestAPIRequestParameterMapFollowsWizardOrder(t *testing.T) {
 		t.Fatal("runtime-config watch route not found")
 	}
 	fields := apiRequestFields(route, apiRequestOptions{})
-	parameters := requestFieldParameterMap(fields)
-	want := []string{
-		"path: service",
-		"query: version",
-		"query: since_version",
-		"additional query values",
-		"response format",
-		"attach bearer token",
-		"send request",
+	names := make([]string, 0, len(fields))
+	for _, field := range fields {
+		names = append(names, field.Name)
 	}
-	if strings.Join(parameters, ",") != strings.Join(want, ",") {
-		t.Fatalf("parameter map = %#v; want %#v", parameters, want)
+	want := []string{
+		"path.service",
+		"query.version",
+		"query.since_version",
+		"query.extra",
+		"accept",
+		"auth",
+		"send",
+	}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("request fields = %#v; want %#v", names, want)
 	}
 }
 

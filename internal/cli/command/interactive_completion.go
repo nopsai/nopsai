@@ -76,6 +76,7 @@ func chooseInteractiveCompletionShell(prompter *interactive.Prompter) (string, e
 
 func completionShellScreenOptions() interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home", "Completion"},
 		Title:      "Completion",
 		Header:     []string{"Generate shell completion files without modifying shell startup files automatically."},
 		LeftTitle:  "Shells",
@@ -98,6 +99,7 @@ func completionShellScreenOptions() interactive.ScreenOptions {
 
 func completionFormScreenOptions(shell string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb:  []string{"Home", "Completion", shell},
 		Title:       "Completion",
 		Header:      []string{"Shell: " + shell + " | File: " + completionFilename(shell)},
 		LeftTitle:   "Completion Steps",
@@ -110,8 +112,9 @@ func completionFormScreenOptions(shell string) interactive.ScreenOptions {
 
 func completionResultScreenOptions(shell string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
-		Title:  "Completion Result",
-		Header: []string{"Shell: " + shell + " | Startup files are not modified automatically."},
-		Footer: []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter home | Esc home | Ctrl+C quit"},
+		Breadcrumb: []string{"Home", "Completion", shell, "Result"},
+		Title:      "Completion Result",
+		Header:     []string{"Shell: " + shell + " | Startup files are not modified automatically."},
+		Footer:     []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter home | Esc home | Ctrl+C quit"},
 	}
 }

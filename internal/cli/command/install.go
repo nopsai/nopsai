@@ -265,8 +265,9 @@ func defaultKubernetesInstallOptions(root *rootOptions) *installKubernetesOption
 
 func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home", "Install"},
 		Title:      "Install",
-		Header:     []string{"Version default: " + valueOrDefault(defaultPlatformVersion(root), "not embedded; version is required")},
+		Header:     []string{"Version: " + valueOrDefault(defaultPlatformVersion(root), "not embedded; version is required")},
 		LeftTitle:  "Targets",
 		RightTitle: "Install Detail",
 		LeftWidth:  38,
@@ -321,8 +322,9 @@ func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 
 func installFormScreenOptions(target, version string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb:  []string{"Home", "Install", target},
 		Title:       target + " Install",
-		Header:      []string{"Version default: " + valueOrDefault(version, "not embedded; version is required")},
+		Header:      []string{"Version: " + valueOrDefault(version, "not embedded; version is required")},
 		LeftTitle:   "Install Steps",
 		RightTitle:  "Values & Details",
 		LeftWidth:   64,
@@ -336,9 +338,10 @@ func installFormScreenOptions(target, version string) interactive.ScreenOptions 
 
 func installResultScreenOptions(target string, root *rootOptions) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
-		Title: target + " Install Result",
+		Breadcrumb: []string{"Home", "Install", target + " Result"},
+		Title:      target + " Install Result",
 		Header: []string{
-			"Version default: " + valueOrDefault(defaultPlatformVersion(root), "not embedded"),
+			"Version: " + valueOrDefault(defaultPlatformVersion(root), "not embedded"),
 			"Generated files stay local/GitOps friendly; no release manifest is required for install generation.",
 		},
 		Footer: []string{

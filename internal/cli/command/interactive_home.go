@@ -846,9 +846,10 @@ func runInteractiveDoctor(command *cobra.Command, options *rootOptions) error {
 
 func doctorScreenOptions(options *rootOptions) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
-		Title:  "Doctor",
-		Header: []string{"API override: " + valueOrDefault(options.apiURL, "context API")},
-		Footer: []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter home | Esc home | Ctrl+C quit"},
+		Breadcrumb: []string{"Home", "Platform", "Doctor"},
+		Title:      "Doctor",
+		Header:     []string{"API: " + valueOrDefault(options.apiURL, "context API")},
+		Footer:     []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter home | Esc home | Ctrl+C quit"},
 	}
 }
 
@@ -905,6 +906,7 @@ func runInteractiveGuideMenu(command *cobra.Command, prompter *interactive.Promp
 
 func guideTopicScreenOptions() interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home", "Guide"},
 		Title:      "Guide",
 		Header:     []string{"Operator examples and command guidance"},
 		LeftTitle:  "Topics",
@@ -923,8 +925,9 @@ func guideTopicScreenOptions() interactive.ScreenOptions {
 
 func guideTextScreenOptions(topic string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
-		Title:  "Guide: " + topic,
-		Header: []string{"Topic: " + topic},
-		Footer: []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter topics | Esc topics | Ctrl+C quit"},
+		Breadcrumb: []string{"Home", "Guide", topic},
+		Title:      "Guide: " + topic,
+		Header:     []string{"Topic: " + topic},
+		Footer:     []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter topics | Esc topics | Ctrl+C quit"},
 	}
 }

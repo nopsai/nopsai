@@ -93,7 +93,7 @@ func executeInteractiveAPICall(command *cobra.Command, options *rootOptions, req
 		live := prompter.CanUseLiveSelector()
 		if live {
 			state := collectHomeState(command.Context(), options)
-			selected, err = prompter.ChooseScreen("API route", choices, apiRouteScreenOptions(routes, state, *requestOptions))
+			selected, err = prompter.ChooseScreen("API route", choices, apiRouteScreenOptions(routes, state))
 		} else {
 			selected, err = prompter.Choose("API route", choices)
 		}
@@ -203,7 +203,7 @@ func executeInteractiveAPIRoute(command *cobra.Command, options *rootOptions, pr
 	var (
 		parameters  []string
 		queryValues []string
-		formOptions = apiRequestFormScreenOptions(route, state, fields, "")
+		formOptions = apiRequestFormScreenOptions(route, state, "")
 	)
 	for {
 		edited, err := prompter.EditFieldsScreen(route.Method+" "+route.Path, fields, formOptions)
@@ -219,7 +219,7 @@ func executeInteractiveAPIRoute(command *cobra.Command, options *rootOptions, pr
 		if errors.Is(applyErr, interactive.ErrBack) {
 			return interactive.ErrBack
 		}
-		formOptions = apiRequestFormScreenOptions(route, state, fields, applyErr.Error())
+		formOptions = apiRequestFormScreenOptions(route, state, applyErr.Error())
 	}
 	stdout, stderr, callErr := captureCommandOutput(command, func() error {
 		return executeCatalogAPICall(command, options, route.Method, route.Path, parameters, queryValues, *requestOptions)
@@ -263,7 +263,7 @@ func prettyResponseBodyLines(raw string) []string {
 	return splitOutputLines(raw)
 }
 
-func apiRouteScreenOptions(routes []apicatalog.Route, state homeState, requestOptions apiRequestOptions) interactive.ScreenOptions {
+func apiRouteScreenOptions(routes []apicatalog.Route, state homeState) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
 		Breadcrumb: []string{"Home", "API", "Catalog"},
 		Title:      "API Catalog",
@@ -285,21 +285,11 @@ func apiRouteScreenOptions(routes []apicatalog.Route, state homeState, requestOp
 			}
 			return routeDetailLines(routes[index])
 		},
-		Parameters: func(index int, _ interactive.Choice) []string {
-			if index < 0 || index >= len(routes) {
-				return nil
-			}
-			return routeParameterMap(routes[index], requestOptions)
-		},
 	}
 }
 
-func apiRequestFormScreenOptions(route apicatalog.Route, state homeState, fields []interactive.Field, validation string) interactive.ScreenOptions {
+func apiRequestFormScreenOptions(route apicatalog.Route, state homeState, validation string) interactive.ScreenOptions {
 	_ = validation
-	parameters := requestFieldParameterMap(fields)
-	if len(parameters) == 0 {
-		parameters = routeParameterMap(route, apiRequestOptions{})
-	}
 	return interactive.ScreenOptions{
 		Breadcrumb: []string{"Home", "API", "Catalog", route.Method + " " + route.Path},
 		Title:      "API Request Wizard",
@@ -318,12 +308,11 @@ func apiRequestFormScreenOptions(route apicatalog.Route, state homeState, fields
 			"User: " + valueOrDefault(state.User, "not authenticated"),
 			"Token: " + state.Token,
 		},
-		LeftTitle:      "Steps & Parameters",
-		RightTitle:     "Values & Details",
-		LeftWidth:      56,
-		ActionLabel:    "Send request",
-		Footer:         sessionFooterLines(),
-		ParameterLines: parameters,
+		LeftTitle:   "Steps & Parameters",
+		RightTitle:  "Values & Details",
+		LeftWidth:   56,
+		ActionLabel: "Send request",
+		Footer:      sessionFooterLines(),
 	}
 }
 
@@ -801,55 +790,6 @@ func routeDetailLines(route apicatalog.Route) []string {
 
 func routeDetailRow(label, value string) string {
 	return fmt.Sprintf("  %-14s %s", label+":", strings.TrimSpace(value))
-}
-
-func routeParameterMap(route apicatalog.Route, requestOptions apiRequestOptions) []string {
-	return requestFieldParameterMap(apiRequestFields(route, requestOptions))
-}
-
-func requestFieldParameterMap(fields []interactive.Field) []string {
-	parameters := make([]string, 0, len(fields))
-	for _, field := range fields {
-		if label := requestFieldParameterLabel(field); label != "" {
-			parameters = append(parameters, label)
-		}
-	}
-	return parameters
-}
-
-func requestFieldParameterLabel(field interactive.Field) string {
-	name := strings.TrimSpace(field.Name)
-	switch {
-	case strings.HasPrefix(name, "path."):
-		return "path: " + strings.TrimPrefix(name, "path.")
-	case strings.HasPrefix(name, "query."):
-		key := strings.TrimPrefix(name, "query.")
-		if key == "extra" {
-			return "additional query values"
-		}
-		return "query: " + key
-	case name == "body.file":
-		return "payload file"
-	case name == "body.raw":
-		return "payload editor"
-	case name == "contentType":
-		return "payload media type"
-	case name == "accept":
-		return "response format"
-	case name == "auth":
-		return "attach bearer token"
-	case name == "send":
-		return "send request"
-	default:
-		return strings.ToLower(strings.TrimSuffix(fieldDisplayLabelForParameterMap(field), "?"))
-	}
-}
-
-func fieldDisplayLabelForParameterMap(field interactive.Field) string {
-	if strings.TrimSpace(field.Label) != "" {
-		return strings.TrimSpace(field.Label)
-	}
-	return strings.TrimSpace(field.Name)
 }
 
 func indentBlock(value, prefix string) string {

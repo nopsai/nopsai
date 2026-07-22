@@ -73,11 +73,15 @@ Nested menus show the current location above the menu, for example
 Terminals that support ANSI styling receive bold titles, highlighted
 selections, colored status cues, and intentionally quiet separators instead of
 nested boxes.
-Form screens keep the active question centered in the same place as list
-selection. The central block shows the current input, boolean choices,
-multiline editor content, guidance, examples, and validation without moving the
-operator into a different layout. Screen-specific action guidance stays in the
-centered body or guide/details area so the footer remains stable.
+Form and wizard screens keep the same centered menu/detail geometry as feature
+menus. The central block renders an inline `Parameters` progress list for the
+entire form, with completed, active, and pending items shown in place. The
+active item expands inline with required status and its current value while
+guidance, examples, and validation remain pinned under the same separator.
+Pinned detail keys such as `Guide:`, `Example:`, and `Validation:` render bold
+on their own line, with content wrapped and indented underneath the key.
+Screen-specific action guidance stays in the centered body or guide/details
+area so the footer remains stable.
 
 Interactive lists filter live as the operator types. Use Up/Down to move
 through visible and off-screen matches, PgUp/PgDn for larger jumps, Home/End for
@@ -86,16 +90,17 @@ available option again. Live menus reserve the same screen rows whether a list
 has two matches or hundreds; large lists show at most 20 rows at a time, then
 scroll within that fixed viewport so the guide/details section stays in the
 same place. Choice menus use a wider centered block so long route labels remain
-visible on typical terminals. When a selected choice exposes multiple
-parameters, route parameter-entry screens keep that same menu/detail geometry
-and render an inline `Parameters` progress list in the menu area. API request
-parameter lists follow the same order as the wizard steps, including
-operational inputs such as additional query values, response format, token
-attachment, and the final send gate. The active parameter expands inline with
-its required marker and value row, and empty active input values render as a
-blinking cursor instead of a textual blank placeholder. When stdin or stdout is
-not a terminal, the CLI uses the same numbered table shape with explicit
-prompts so scripted tests and piped input stay deterministic.
+visible on typical terminals. API, context, authentication, install, platform,
+completion, guide, help, and result screens all reuse the same breadcrumb,
+header, footer, menu viewport, and detail positioning. Result viewers render a
+fixed `Result` section with scroll ranges in the breadcrumb only when output is
+larger than the viewport. API request parameter lists follow the same order as
+the wizard steps, including operational inputs such as additional query values,
+response format, token attachment, and the final send gate. Empty active input
+values render as a blinking cursor instead of a textual blank placeholder. When
+stdin or stdout is not a terminal, the CLI uses the same numbered table shape
+with explicit prompts so scripted tests and
+piped input stay deterministic.
 
 ## Built-In Guides
 
