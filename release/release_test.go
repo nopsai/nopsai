@@ -29,8 +29,8 @@ func TestCommitCountVersionSeriesMatchesCompatibilityBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(string(contents)); got != "2.7" {
-		t.Fatalf("release version series = %q, want 2.7", got)
+	if got := strings.TrimSpace(string(contents)); got != "2.10" {
+		t.Fatalf("release version series = %q, want 2.10", got)
 	}
 }
 
@@ -76,14 +76,10 @@ func TestHelmChartOwnsControlPlaneAndRunnerResources(t *testing.T) {
 			t.Errorf("required Helm chart file %s is missing or empty", chartFile)
 		}
 	}
-	workflowBytes, err := os.ReadFile("../.github/workflows/platform-release.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflow := string(workflowBytes)
+	pipeline := readNopsAIReleasePipeline(t)
 	for _, required := range []string{"helm push", "nopsai-$VERSION.tgz", "oci://ghcr.io/"} {
-		if !strings.Contains(workflow, required) {
-			t.Errorf("platform release workflow is missing Helm publication contract %q", required)
+		if !strings.Contains(pipeline, required) {
+			t.Errorf("NopsAI platform release pipeline is missing Helm publication contract %q", required)
 		}
 	}
 }
@@ -133,76 +129,87 @@ func TestHelmChartConfiguresKubernetesSystemLogs(t *testing.T) {
 	}
 }
 
-func TestOnlyPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
+func TestNopsAIPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
 	workflowPaths, err := filepath.Glob("../.github/workflows/*.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	publishers := make([]string, 0, 1)
-	var platformWorkflow string
 	for _, workflowPath := range workflowPaths {
 		contents, readErr := os.ReadFile(workflowPath)
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
 		workflow := string(contents)
-		if strings.Contains(workflow, "packages: write") {
-			publishers = append(publishers, filepath.Base(workflowPath))
-		}
-		if filepath.Base(workflowPath) == "platform-release.yml" {
-			platformWorkflow = workflow
+		for _, forbidden := range []string{"packages: write", "docker/build-push-action", "gh release upload"} {
+			if strings.Contains(workflow, forbidden) {
+				t.Fatalf("GitHub Actions workflow %s still contains release publisher contract %q", filepath.Base(workflowPath), forbidden)
+			}
 		}
 	}
-	if len(publishers) != 1 || publishers[0] != "platform-release.yml" {
-		t.Fatalf("package-publishing workflows = %v, want only platform-release.yml", publishers)
+
+	triggerBytes, err := os.ReadFile("../doc/sample-config-repo/global-repo/triggers/hosein-yousefii/pre-nopsai.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
+	trigger := string(triggerBytes)
 	for _, required := range []string{
-		"branches: [main]",
-		"source_ref:",
-		"allow_existing_release:",
-		"release-validation:",
+		"provider: github",
+		"team_path: platform/prod",
+		"on: push",
+		"- main",
+		"scope: prod",
+		"platform/prod/nopsai-platform-release",
+	} {
+		if !strings.Contains(trigger, required) {
+			t.Errorf("NopsAI release trigger is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"pull_request", "tags:", "workflow_run:", "webhook_source:"} {
+		if strings.Contains(trigger, forbidden) {
+			t.Errorf("NopsAI release trigger contains non-GitHub-App/main-only contract %q", forbidden)
+		}
+	}
+
+	pipeline := readNopsAIReleasePipeline(t)
+	for _, required := range []string{
+		"NOPSAI_RELEASE_SOURCE_REF",
+		"NOPSAI_RELEASE_ALLOW_EXISTING",
+		"git fetch --force --tags origin main:refs/remotes/origin/main",
+		"Release source $source_commit is not current origin/main $main_commit",
+		`docker compose --env-file "$validation_env" -f dist/release/docker-compose.yaml config --quiet`,
 		"scripts/release-tooling-test.sh",
 		"./cmd/nopsai-cli",
-		"docker/build-push-action",
-		"needs: [metadata, publish-base]",
-		"BASE_IMAGE=${{ needs.metadata.outputs.registry }}/nopsai-base@${{ needs.publish-base.outputs.digest }}",
-		`gh release upload "v$VERSION" dist/assets/* --clobber`,
+		"docker buildx build",
+		`--build-arg "BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest"`,
+		`gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber`,
 	} {
-		if !strings.Contains(platformWorkflow, required) {
-			t.Errorf("platform release workflow is missing %q", required)
-		}
-	}
-	for _, forbidden := range []string{"\n  pull_request:", "\n    tags:", "workflow_run:"} {
-		if strings.Contains(platformWorkflow, forbidden) {
-			t.Errorf("platform release workflow contains non-main trigger %q", forbidden)
+		if !strings.Contains(pipeline, required) {
+			t.Errorf("NopsAI platform release pipeline is missing %q", required)
 		}
 	}
 }
 
 func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
-	workflowBytes, err := os.ReadFile("../.github/workflows/platform-release.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflow := string(workflowBytes)
+	pipeline := readNopsAIReleasePipeline(t)
 	for _, required := range []string{
-		"name: cli-${{ matrix.goos }}-${{ matrix.goarch }}",
-		"path: dist/*",
-		"pattern: cli-*",
+		"for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64",
+		"./cmd/nopsai-cli",
+		"rm -rf dist/cli",
 		"shopt -s nullglob",
 		"cli_assets=(dist/cli/*)",
-		"No CLI release artifacts were downloaded into dist/cli",
+		"No CLI release artifacts were built into dist/cli",
 		`helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1`,
 		`grep -Eo 'sha256:[a-f0-9]{64}'`,
 		`tail -1 || true`,
+		"apk add --no-cache bash coreutils perl-utils tar gzip",
 		"checksum_files=(.env db/init.sql docker-compose.yaml",
 		"checksum_files+=(release-manifest.json)",
 		"release_manifest=missing packaging release assets without release-manifest.json",
 		`cp "${cli_assets[@]}" dist/assets/`,
 		"if [[ -f dist/release/release-manifest.json ]]",
 	} {
-		if !strings.Contains(workflow, required) {
-			t.Errorf("platform release workflow is missing %q", required)
+		if !strings.Contains(pipeline, required) {
+			t.Errorf("NopsAI platform release pipeline is missing %q", required)
 		}
 	}
 }
@@ -254,4 +261,13 @@ func TestManifestTemplateDeclaresEveryPinnedPlatformArtifact(t *testing.T) {
 	if !strings.Contains(template, `"rollbackPolicy": "forward-only"`) {
 		t.Fatal("manifest template does not declare migration rollback policy")
 	}
+}
+
+func readNopsAIReleasePipeline(t *testing.T) string {
+	t.Helper()
+	contents, err := os.ReadFile("../doc/sample-config-repo/global-repo/pipelines/platform/prod/nopsai-platform-release.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
 }
