@@ -81,8 +81,8 @@ func Run() {
 	}
 
 	serverOptions := []grpc.ServerOption{
-		grpc.UnaryInterceptor(dispatcherAuth.UnaryInterceptor),
-		grpc.StreamInterceptor(dispatcherAuth.StreamInterceptor),
+		grpc.ChainUnaryInterceptor(servicelog.GRPCUnaryServerInterceptor(), dispatcherAuth.UnaryInterceptor),
+		grpc.ChainStreamInterceptor(servicelog.GRPCStreamServerInterceptor(), dispatcherAuth.StreamInterceptor),
 	}
 	if dispatcherTransportCreds != nil {
 		serverOptions = append(serverOptions, grpc.Creds(dispatcherTransportCreds))

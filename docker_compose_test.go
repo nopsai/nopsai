@@ -10,6 +10,7 @@ import (
 
 type composeDocument struct {
 	Services map[string]composeService `yaml:"services"`
+	Volumes  map[string]interface{}    `yaml:"volumes"`
 }
 
 type composeService struct {
@@ -46,6 +47,35 @@ func TestDockerComposeDoesNotDependOnTrackedEnvFile(t *testing.T) {
 	for name, service := range compose.Services {
 		if len(service.EnvFile) > 0 {
 			t.Fatalf("service %q still uses env_file: %#v", name, service.EnvFile)
+		}
+	}
+}
+
+func TestDockerComposeDoesNotIncludeTestWorkloads(t *testing.T) {
+	contents, err := os.ReadFile("docker-compose.yaml")
+	if err != nil {
+		t.Fatalf("read docker-compose.yaml: %v", err)
+	}
+	raw := string(contents)
+	for _, forbidden := range []string{
+		"scripts/test-backend.sh",
+		"npm run test",
+		"mcr.microsoft.com/playwright",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("docker-compose.yaml should not include test workload reference %q", forbidden)
+		}
+	}
+
+	compose := readCompose(t)
+	for _, serviceName := range []string{"backend-test", "ui-test", "ui-e2e"} {
+		if _, exists := compose.Services[serviceName]; exists {
+			t.Fatalf("docker-compose.yaml should not include test-only service %q", serviceName)
+		}
+	}
+	for _, volumeName := range []string{"go-mod-cache", "go-build-cache", "ui-node-modules", "ui-dist"} {
+		if _, exists := compose.Volumes[volumeName]; exists {
+			t.Fatalf("docker-compose.yaml should not include test-only volume %q", volumeName)
 		}
 	}
 }
@@ -171,7 +201,7 @@ func TestDockerComposeUsesReadOnlySocketProxyForSystemLogs(t *testing.T) {
 	if !containsString(proxy.Volumes, "/var/run/docker.sock:/var/run/docker.sock:ro") {
 		t.Fatalf("socket proxy volume = %#v, want read-only Docker socket", proxy.Volumes)
 	}
-	if proxy.Environment["ALLOWED_CONTAINERS"] != "nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner" {
+	if proxy.Environment["ALLOWED_CONTAINERS"] != "nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner,nopsai-docker-socket-proxy,nopsai-gotenberg,nopsai-db" {
 		t.Fatalf("socket proxy allow-list = %q", proxy.Environment["ALLOWED_CONTAINERS"])
 	}
 	if nopsai := compose.Services["nopsai"]; containsSubstring(nopsai.Volumes, "docker.sock") {

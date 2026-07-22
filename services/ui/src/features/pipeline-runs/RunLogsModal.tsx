@@ -211,7 +211,7 @@ export function RunLogsModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
             <h2 id="run-logs-title" className="text-base font-semibold text-[var(--text-primary)]">
-              Agent Logs for {runName || runId}
+              Run Logs for {runName || runId}
             </h2>
             <p id="run-logs-description" className="text-xs text-[var(--text-secondary)]">Run ID: {runId}</p>
           </div>

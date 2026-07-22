@@ -954,8 +954,8 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 	}
 	maxBytes := a.assistantConfig().MaxInputLogsBytes
 	rows, err := a.db.Query(ctx, `
-		SELECT id, timestamp, line
-		FROM pipeline_run_logs
+			SELECT id, timestamp, line, source, stream, level, step_name, task_name, runner_id, request_id, traceparent, metadata
+			FROM pipeline_run_logs
 		WHERE run_id::text = $1
 		ORDER BY id DESC
 		LIMIT $2
@@ -971,7 +971,9 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 		var id int64
 		var timestamp time.Time
 		var line string
-		if err := rows.Scan(&id, &timestamp, &line); err != nil {
+		var source, stream, level, stepName, taskName, runnerID, requestID, traceparent string
+		var metadataJSON []byte
+		if err := rows.Scan(&id, &timestamp, &line, &source, &stream, &level, &stepName, &taskName, &runnerID, &requestID, &traceparent, &metadataJSON); err != nil {
 			return nil, err
 		}
 		lineBytes := len([]byte(line))
@@ -980,7 +982,22 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 			break
 		}
 		usedBytes += lineBytes
-		logs = append(logs, map[string]any{"id": id, "timestamp": timestamp, "line": line})
+		entry := map[string]any{"id": id, "timestamp": timestamp, "line": line}
+		addNonEmptyString(entry, "source", source)
+		addNonEmptyString(entry, "stream", stream)
+		addNonEmptyString(entry, "level", level)
+		addNonEmptyString(entry, "step_name", stepName)
+		addNonEmptyString(entry, "task_name", taskName)
+		addNonEmptyString(entry, "runner_id", runnerID)
+		addNonEmptyString(entry, "request_id", requestID)
+		addNonEmptyString(entry, "traceparent", traceparent)
+		if len(metadataJSON) > 0 && string(metadataJSON) != "{}" {
+			var metadata map[string]any
+			if err := json.Unmarshal(metadataJSON, &metadata); err == nil && len(metadata) > 0 {
+				entry["metadata"] = metadata
+			}
+		}
+		logs = append(logs, entry)
 	}
 	reverseMaps(logs)
 	return map[string]any{
@@ -2347,6 +2364,15 @@ func hostedMCPTime(value time.Time) any {
 		return nil
 	}
 	return value
+}
+
+func addNonEmptyString(values map[string]any, key, value string) {
+	if values == nil {
+		return
+	}
+	if value = strings.TrimSpace(value); value != "" {
+		values[key] = value
+	}
 }
 
 func reverseMaps(values []map[string]any) {

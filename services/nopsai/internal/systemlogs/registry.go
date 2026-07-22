@@ -36,6 +36,9 @@ func DefaultRegistry() *Registry {
 		{ID: "dispatcher", DisplayName: "Dispatcher", ContainerName: "nopsai-dispatcher"},
 		{ID: "git-bot", DisplayName: "Git bot", ContainerName: "nopsai-git-bot"},
 		{ID: "ui", DisplayName: "UI", ContainerName: "nopsai-ui"},
+		{ID: "docker-socket-proxy", DisplayName: "Docker socket proxy", ContainerName: "nopsai-docker-socket-proxy"},
+		{ID: "gotenberg", DisplayName: "Gotenberg", ContainerName: "nopsai-gotenberg"},
+		{ID: "db", DisplayName: "Postgres", ContainerName: "nopsai-db"},
 		{ID: "docker-runner", DisplayName: "Docker runner", ContainerName: "nopsai-docker-runner", Optional: true},
 		{ID: "k8s-runner", DisplayName: "Kubernetes runner", ContainerName: "nopsai-k8s-runner", Optional: true},
 	})

@@ -14,6 +14,7 @@ const (
 	CapabilityDashboardsV1       = "dashboards.v1"
 	CapabilityMCPV1              = "mcp.v1"
 	CapabilityMonitoringV1       = "monitoring.v1"
+	CapabilityPlatformCompose    = "platform.docker-compose"
 	CapabilityPlatformHelm       = "platform.helm"
 	CapabilityRunnerDocker       = "runner.docker"
 	CapabilityRunnerK8s          = "runner.kubernetes"

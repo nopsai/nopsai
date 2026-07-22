@@ -9,7 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/serviceauth"
+	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -109,6 +111,60 @@ func TestGitEventsEndpointParsesGitBotServiceToken(t *testing.T) {
 	}
 }
 
+func TestAuditMiddlewareRecordsAuthenticatedActorFromAuthMiddleware(t *testing.T) {
+	serviceAuthenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
+		SigningKey: "shared-signing-key",
+		Issuer:     "service-issuer",
+		Audience:   "service-audience",
+	})
+	if err != nil {
+		t.Fatalf("NewAuthenticator() error = %v", err)
+	}
+	credentials, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: "shared-signing-key",
+		Issuer:     "service-issuer",
+		Audience:   "service-audience",
+		Role:       serviceauth.RoleAgent,
+		ServiceID:  "agent",
+	})
+	if err != nil {
+		t.Fatalf("NewCredentials() error = %v", err)
+	}
+	token, err := credentials.MintToken(context.Background())
+	if err != nil {
+		t.Fatalf("MintToken() error = %v", err)
+	}
+
+	auditLog := &recordingAuditWriter{}
+	app := &App{serviceAuth: serviceAuthenticator, auditLogger: auditLog}
+	handler := requestIDMiddleware(app.auditMiddleware(app.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := auth.ClaimsFromContext(r.Context()); !ok {
+			t.Fatal("expected authenticated claims in handler")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/internal/runs/00000000-0000-0000-0000-000000000001/approvals/pause", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(correlation.RequestIDHeader, "audit-actor-1")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if len(auditLog.entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1", len(auditLog.entries))
+	}
+	entry := auditLog.entries[0]
+	if entry.ActorSub != "agent" || entry.Provider != serviceauth.ProviderInternalService {
+		t.Fatalf("audit actor = (%q, %q), want agent/internal-service", entry.ActorSub, entry.Provider)
+	}
+	if got := entry.Metadata["request_id"]; got != "audit-actor-1" {
+		t.Fatalf("audit request_id = %#v, want audit-actor-1", got)
+	}
+}
+
 func TestOIDCAuthEndpointsArePublic(t *testing.T) {
 	publicPaths := []string{
 		"/v1/auth/providers",
@@ -123,4 +179,13 @@ func TestOIDCAuthEndpointsArePublic(t *testing.T) {
 			t.Fatalf("isPublicPath(%q) = false, want true", path)
 		}
 	}
+}
+
+type recordingAuditWriter struct {
+	entries []audit.Entry
+}
+
+func (w *recordingAuditWriter) Write(_ context.Context, entry audit.Entry) error {
+	w.entries = append(w.entries, entry)
+	return nil
 }

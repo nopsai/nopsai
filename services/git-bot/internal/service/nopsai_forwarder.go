@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"nopsai/config"
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/serviceauth"
 
 	"github.com/rs/zerolog/log"
@@ -59,6 +60,7 @@ func (f httpNopsaiWebhookForwarder) ForwardWebhook(w http.ResponseWriter, r *htt
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	correlation.SetHTTPHeaders(r.Context(), req.Header)
 
 	resp, err := f.httpClient.Do(req)
 	if err != nil {

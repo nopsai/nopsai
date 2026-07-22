@@ -176,6 +176,23 @@ Prerequisites:
 - An LLM provider supported by the configured LLM profile, including LM Studio,
   Gemini, OpenAI, Anthropic, Groq, Mistral, OpenRouter, Ollama, or Azure OpenAI
 
+For a published release, use the matching CLI as the installer:
+
+```bash
+nopsai install
+```
+
+The wizard lets you choose Docker Compose or Kubernetes, then generates the
+required files itself from the CLI's release version. For Docker Compose it
+writes `nopsai-install/docker-compose.yaml`, `nopsai-install/.env`,
+`nopsai-install/db/init.sql`, `nopsai-install/release-manifest.json`, and a
+non-secret `.nopsai/install.lock`, then starts the stack when you choose that
+option. Use `nopsai install docker-compose --run` as the automation shortcut, or
+rerun with `--force` only when you intentionally want to replace generated
+files. Keep `.env` out of Git; it contains generated local secrets.
+
+For local development from this checkout:
+
 1. Review `config.yml` and `docker-compose.yaml`.
 
    The checked-in `config.yml` and `.env` files are bootstrap placeholders.
@@ -226,12 +243,11 @@ To stop and remove local state:
 docker compose -f docker-compose.yaml down -v
 ```
 
-For a published version, use the GitHub Release deployment bundle instead of
-rebuilding from a moving branch. Its `.env` pins every NopsAI container by
-digest, its Compose file includes the matching database bootstrap, and its
-versioned Helm package contains the same repositories, tags, and digests. Supply
-production secrets through your secret manager before running `docker compose
-config` and `docker compose up -d`.
+For a published version, use `nopsai install docker-compose` or the GitHub
+Release deployment bundle instead of rebuilding from a moving branch. Both paths
+pin every NopsAI container by digest and include the matching database
+bootstrap. Supply production secrets through your secret manager before
+promoting beyond evaluation.
 
 ## Configuration Model
 
@@ -551,9 +567,9 @@ See [doc/cli.md](doc/cli.md) for contexts, token handling, interactive API
 requests, completion files, GitOps-safe automation, and `platform doctor`.
 
 NopsAI deployments consume one versioned, digest-pinned platform manifest.
-`nopsai platform release kubernetes --version ... --deploy` verifies
-compatibility and the OCI chart digest, pins every service image, and writes a
-GitOps release lock after deployment. See
+`nopsai install kubernetes` generates editable values and can later deploy from
+those stored files with `--deploy`; `nopsai platform release` remains available
+for advanced CI/GitOps render and deploy workflows. See
 [doc/release-bundles.md](doc/release-bundles.md).
 
 Run backend tests:
@@ -562,21 +578,24 @@ Run backend tests:
 scripts/test-backend.sh
 ```
 
+The backend test command excludes `services/ui` so an installed or concurrently
+updated `node_modules` tree cannot be mistaken for part of the Go module.
+
+Run UI checks:
+
+```bash
+cd services/ui
+npm ci
+npm run lint
+npm run test
+npm run build
+```
+
 Run the commercial dependency license gate:
 
 ```bash
 scripts/license-check.sh
 ```
-
-Run the same checks through Docker Compose:
-
-```bash
-docker compose run --rm backend-test
-docker compose run --rm ui-test
-```
-
-The backend test command excludes `services/ui` so an installed or concurrently
-updated `node_modules` tree cannot be mistaken for part of the Go module.
 
 Build and push the Kubernetes runner image:
 

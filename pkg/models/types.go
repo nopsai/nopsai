@@ -5,9 +5,18 @@ import (
 )
 
 type LogLine struct {
-	ID        int64     `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	Line      string    `json:"line"`
+	ID          int64          `json:"id"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Line        string         `json:"line"`
+	Source      string         `json:"source,omitempty"`
+	Stream      string         `json:"stream,omitempty"`
+	Level       string         `json:"level,omitempty"`
+	StepName    string         `json:"step_name,omitempty"`
+	TaskName    string         `json:"task_name,omitempty"`
+	RunnerID    string         `json:"runner_id,omitempty"`
+	RequestID   string         `json:"request_id,omitempty"`
+	Traceparent string         `json:"traceparent,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type RunListItem struct {

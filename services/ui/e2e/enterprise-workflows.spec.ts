@@ -417,7 +417,7 @@ test('audits keyboard graph interaction and a fully populated log dialog', async
 
   const logsButton = page.getByRole('button', { name: 'Logs', exact: true });
   await logsButton.click();
-  const logsDialog = page.getByRole('dialog', { name: 'Agent Logs for Enterprise pipeline' });
+  const logsDialog = page.getByRole('dialog', { name: 'Run Logs for Enterprise pipeline' });
   await expect(logsDialog).toBeVisible();
   await expect(page.getByRole('searchbox', { name: 'Search run logs' })).toBeFocused();
   await expect(page.getByText(/compiled enterprise workspace/)).toBeVisible();

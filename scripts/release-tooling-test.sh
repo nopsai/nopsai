@@ -117,6 +117,16 @@ else
   printf 'release index does not contain all digest-pinned images\n' >&2
   exit 1
 fi
+if ! jq -e '.manifest.file == "release-manifest.json" and (.manifest.sha256 | test("^sha256:[a-f0-9]{64}$"))' \
+  "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
+  printf 'release index does not contain the published release manifest\n' >&2
+  exit 1
+fi
+if ! jq -e '.images.dockerSocketProxy | contains("ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy@sha256:")' \
+  "$temp_dir/digest-bundle/release-manifest.json" >/dev/null; then
+  printf 'release manifest does not contain the digest-pinned socket proxy image\n' >&2
+  exit 1
+fi
 digest_chart="$temp_dir/digest-bundle/nopsai-$actual.tgz"
 if ! jq -e --arg file "nopsai-$actual.tgz" \
   '.chart.file == $file and (.chart.sha256 | test("^sha256:[a-f0-9]{64}$"))' \

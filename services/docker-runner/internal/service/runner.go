@@ -13,6 +13,7 @@ import (
 	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
@@ -110,6 +111,8 @@ func (r *dockerRunner) connectAndServe() error {
 	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(r.transportCreds),
 		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(servicelog.GRPCUnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(servicelog.GRPCStreamClientInterceptor()),
 	}
 	if r.dispatcherCreds != nil {
 		dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(r.dispatcherCreds))
