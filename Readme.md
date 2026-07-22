@@ -100,10 +100,11 @@ step containers + optional child pipelines
   the configured LLM provider, runs step containers, and streams status/logs.
 - `services/ui`: Operator UI for runs, pipelines, triggers, Git webhook sources, scopes, access,
   knowledge context, system settings, and first-install setup.
-- `cmd/nopsai-cli`: User-facing `nopsai` operator CLI for contexts,
-  authentication, interactive/generated invocation of every registered API,
-  exact streaming/download transport, completion files, and platform
-  diagnostics/deployment. The API server builds separately as `nopsai-api`.
+- `cmd/nopsai-cli`: User-facing `nopsai` operator CLI for the default
+  interactive home, contexts, authentication, guided/generated invocation of
+  every registered API, exact streaming/download transport, built-in guides,
+  completion files, and platform diagnostics/deployment. The API server builds
+  separately as `nopsai-api`.
 - `db/init.sql`: Postgres schema for durable runtime, configuration, auth,
   access, setup, and audit state.
 
@@ -183,14 +184,14 @@ nopsai install
 ```
 
 The wizard lets you choose Docker Compose or Kubernetes, then generates the
-required files itself from the CLI's release version and embedded release
-manifest. For Docker Compose it writes `nopsai-install/docker-compose.yaml`,
-`nopsai-install/.env`,
-`nopsai-install/db/init.sql`, `nopsai-install/release-manifest.json`, and a
-non-secret `.nopsai/install.lock`, then starts the stack when you choose that
-option. Use `nopsai install docker-compose --run` as the automation shortcut, or
-rerun with `--force` only when you intentionally want to replace generated
-files. Keep `.env` out of Git; it contains generated local secrets.
+required files itself from the selected NopsAI version. For Docker Compose it
+writes `nopsai-install/docker-compose.yaml`, `nopsai-install/.env`,
+`nopsai-install/db/init.sql`, and a non-secret `.nopsai/install.lock`, then
+starts the stack when you choose that option. For Kubernetes it writes editable
+Helm values that reference the versioned OCI chart and image tags. Use
+`nopsai install docker-compose --version <version> --run` as the automation
+shortcut, or rerun with `--force` only when you intentionally want to replace
+generated files. Keep `.env` out of Git; it contains generated local secrets.
 
 For local development from this checkout:
 
@@ -244,11 +245,11 @@ To stop and remove local state:
 docker compose -f docker-compose.yaml down -v
 ```
 
-For a published version, use `nopsai install docker-compose` or the GitHub
-Release deployment bundle instead of rebuilding from a moving branch. Both paths
-pin every NopsAI container by digest and include the matching database
-bootstrap. Supply production secrets through your secret manager before
-promoting beyond evaluation.
+For a published version, use `nopsai install docker-compose --version <version>`
+or `nopsai install kubernetes --version <version>` instead of rebuilding from a
+moving branch. The CLI generates the matching Compose file or Helm values from
+that version and the published OCI chart. Supply production secrets through your
+secret manager before promoting beyond evaluation.
 
 ## Configuration Model
 
@@ -564,13 +565,18 @@ go build -o nopsai ./cmd/nopsai-cli
 go build -o nopsai-api ./services/nopsai/cmd/nopsai
 ```
 
-See [doc/cli.md](doc/cli.md) for contexts, token handling, interactive API
-requests, completion files, GitOps-safe automation, and `platform doctor`.
+See [doc/cli.md](doc/cli.md) for the default interactive home, contexts, token
+handling, built-in guides, required API parameter and payload guidance,
+completion files, GitOps-safe automation, and `platform doctor`.
 
-NopsAI deployments consume one versioned, digest-pinned platform manifest.
-`nopsai install kubernetes` generates editable values and can later deploy from
-those stored files with `--deploy`; `nopsai platform release` remains available
-for advanced CI/GitOps render and deploy workflows. See
+NopsAI first installs generate Docker Compose files or Helm values directly from
+the selected CLI/platform version. `nopsai install kubernetes` generates
+editable values and can later deploy from those stored files with `--deploy`;
+Docker Compose and Kubernetes install generation expose internal service
+hostnames and addresses through CLI flags and generated config so
+multi-environment topology changes stay reviewable. `nopsai platform release`
+remains available for advanced CI/GitOps render and deploy workflows that
+already produce release manifests. See
 [doc/release-bundles.md](doc/release-bundles.md).
 
 Run backend tests:

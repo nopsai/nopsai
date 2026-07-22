@@ -3,8 +3,10 @@ package interactive
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -113,8 +115,12 @@ func TestPrompterChooseUsesLiveSelectorOnTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(contents), "Route: GET /v1/auth/providers") {
+	text := string(contents)
+	if !strings.Contains(text, "\x1b[?1049h") || !strings.Contains(text, "\x1b[2J\x1b[H") || !strings.Contains(text, "GET /v1/auth/providers") {
 		t.Fatalf("live selector output = %q", contents)
+	}
+	if strings.Contains(text, "Route: GET /v1/auth/providers") {
+		t.Fatalf("live selector should not leave a selected transcript line: %q", contents)
 	}
 }
 
@@ -155,6 +161,14 @@ func TestLiveChoiceViewportAndRendering(t *testing.T) {
 	}
 	if text := output.String(); strings.Contains(text, "abcdefghijklmnopqrstuvwxyz") || !strings.Contains(text, "...") {
 		t.Fatalf("long choice was not truncated: %q", text)
+	}
+
+	output.Reset()
+	shortChoices := []Choice{{Label: "docker-compose"}, {Label: "kubernetes"}}
+	if lines, err := renderLiveChoices(&output, "Install target", shortChoices, "", []int{0, 1}, 0, 0, 80); err != nil {
+		t.Fatal(err)
+	} else if lines != 8 {
+		t.Fatalf("short selector rendered %d lines, want compact 8:\n%s", lines, output.String())
 	}
 }
 
@@ -207,7 +221,7 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if err != nil || selected != 2 {
 		t.Fatalf("filtered selector = %d, %v", selected, err)
 	}
-	if text := output.String(); !strings.Contains(text, "Search: login") || !strings.Contains(text, ">      1  POST /v1/auth/login") || strings.Contains(text, "\x1b[2J") || strings.Contains(text, "\x1b[?1049") {
+	if text := output.String(); !strings.Contains(text, "Filter: login") || !strings.Contains(text, ">   1  POST /v1/auth/login") || !strings.Contains(text, "\x1b[2J") || !strings.Contains(text, "+") {
 		t.Fatalf("filtered render = %q", text)
 	}
 
@@ -216,17 +230,17 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 		choices = append(choices, Choice{Label: "choice-" + string(rune('a'+index))})
 	}
 	output.Reset()
-	selected, err = runLiveChoiceSelector(bufio.NewReader(strings.NewReader(strings.Repeat("\x1b[B", 11)+"\n")), &output, "Choice", choices, 80)
+	selected, err = runLiveChoiceSelectorWithOptions(bufio.NewReader(strings.NewReader(strings.Repeat("\x1b[B", 11)+"\n")), &output, "Choice", choices, 80, 16, ScreenOptions{})
 	if err != nil || selected != 11 {
 		t.Fatalf("navigated selector = %d, %v", selected, err)
 	}
-	if !strings.Contains(output.String(), "Matches: 3-12 of 12") {
+	if !strings.Contains(output.String(), "Matches: 9-12 of 12") {
 		t.Fatalf("navigation did not scroll viewport: %q", output.String())
 	}
 
 	output.Reset()
 	selected, err = runLiveChoiceSelector(bufio.NewReader(strings.NewReader("\x1b[F\x1b[5~\x1b[H\x1b[6~\n")), &output, "Choice", choices, 80)
-	if err != nil || selected != 10 {
+	if err != nil || selected != 11 {
 		t.Fatalf("jump selector = %d, %v", selected, err)
 	}
 
@@ -235,11 +249,14 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if err != nil || selected != 0 {
 		t.Fatalf("no-match recovery selector = %d, %v", selected, err)
 	}
-	if !strings.Contains(output.String(), "No matches for") {
+	if !strings.Contains(output.String(), "No matches.") {
 		t.Fatalf("no-match state was not rendered: %q", output.String())
 	}
 
-	if _, err := runLiveChoiceSelector(bufio.NewReader(strings.NewReader(string([]byte{3}))), &bytes.Buffer{}, "Choice", choices, 80); err == nil || !strings.Contains(err.Error(), "cancelled") {
+	if _, err := runLiveChoiceSelector(bufio.NewReader(strings.NewReader("\x1b")), &bytes.Buffer{}, "Choice", choices, 80); !errors.Is(err, ErrBack) {
+		t.Fatalf("escape error = %v", err)
+	}
+	if _, err := runLiveChoiceSelector(bufio.NewReader(strings.NewReader(string([]byte{3}))), &bytes.Buffer{}, "Choice", choices, 80); !errors.Is(err, ErrCancelled) {
 		t.Fatalf("cancel error = %v", err)
 	}
 }
@@ -260,7 +277,7 @@ func TestReadChoiceKeyParsesNavigation(t *testing.T) {
 		{"end ss3", "\x1bOF", choiceKeyEnd},
 		{"home tilde", "\x1b[1~", choiceKeyHome},
 		{"end tilde", "\x1b[4~", choiceKeyEnd},
-		{"escape eof", "\x1b", choiceKeyCancel},
+		{"escape back", "\x1b", choiceKeyBack},
 		{"unknown escape", "\x1bx", choiceKeyUnknown},
 		{"unknown csi", "\x1b[Z", choiceKeyUnknown},
 		{"unknown tilde", "\x1b[5x", choiceKeyUnknown},
@@ -275,5 +292,89 @@ func TestReadChoiceKeyParsesNavigation(t *testing.T) {
 				t.Fatalf("readChoiceKey() = %#v, %v; want %v", key, err, test.want)
 			}
 		})
+	}
+}
+
+func TestRunLiveFieldEditorEditsAndSubmits(t *testing.T) {
+	fields := []Field{
+		{Name: "version", Label: "Version", Value: "2.7.0", Required: true, Description: "Install version"},
+		{Name: "output", Label: "Output", Value: "nopsai-install", Required: true, Description: "Install output directory"},
+		{Name: "run", Label: "Run", Value: "no", Kind: FieldBoolean, Description: "Start after generating files"},
+	}
+	var output bytes.Buffer
+	edited, err := runLiveFieldEditor(bufio.NewReader(strings.NewReader("\nprod\ny"+string([]byte{19}))), &output, "Install", fields, 100, 40, ScreenOptions{Title: "Install"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{}
+	for _, field := range edited {
+		values[field.Name] = field.Value
+	}
+	if values["version"] != "2.7.0" || values["output"] != "prod" || values["run"] != "yes" {
+		t.Fatalf("edited fields = %#v", values)
+	}
+	if text := output.String(); !strings.Contains(text, "STEPS") || !strings.Contains(text, "VALUES & DETAILS") || !strings.Contains(text, "Step Details") || !strings.Contains(text, "Guidance") || !strings.Contains(text, "Final action") || !strings.Contains(text, "Ctrl+S") || !strings.Contains(text, "Value: prod") {
+		t.Fatalf("form output = %q", text)
+	}
+}
+
+func TestRunLiveFieldEditorSupportsMultilineInput(t *testing.T) {
+	fields := []Field{
+		{Name: "body", Label: "Payload source: paste", Required: true, Multiline: true, Description: "Paste JSON content."},
+	}
+	var output bytes.Buffer
+	edited, err := runLiveFieldEditor(bufio.NewReader(strings.NewReader("{\n}"+string([]byte{19}))), &output, "API Request", fields, 100, 36, ScreenOptions{Title: "API Request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited[0].Value != "{\n}" {
+		t.Fatalf("multiline value = %q", edited[0].Value)
+	}
+	text := output.String()
+	if !strings.Contains(text, "Input mode: multiline editor") || !strings.Contains(text, "Multiline Editor") || !strings.Contains(text, "new line") || !strings.Contains(text, "Paste JSON content.") || !strings.Contains(text, "1 | {") {
+		t.Fatalf("multiline form output = %q", text)
+	}
+}
+
+func TestFieldStepsDistinguishPrefilledFromCompletedSteps(t *testing.T) {
+	fields := []Field{
+		{Name: "version", Label: "Version", Value: "2.7.0", Required: true},
+		{Name: "auth", Label: "Authentication", Value: "yes", Kind: FieldBoolean},
+	}
+	text := strings.Join(fieldStepLines(fields, 0, 0, []bool{false, false}, 80, len(fields)), "\n")
+	if !strings.Contains(text, "current step") || !strings.Contains(text, "prefilled") || strings.Contains(text, "done") {
+		t.Fatalf("prefilled step labels = %q", text)
+	}
+	text = strings.Join(fieldStepLines(fields, 0, 0, []bool{false, true}, 80, len(fields)), "\n")
+	if !strings.Contains(text, "done") || strings.Contains(text, "prefilled") {
+		t.Fatalf("completed step labels = %q", text)
+	}
+}
+
+func TestFieldStepsUseOffsetWithoutPuttingValuesOnLeft(t *testing.T) {
+	fields := []Field{
+		{Name: "one", Label: "One"},
+		{Name: "two", Label: "Two", Value: "set"},
+		{Name: "three", Label: "Three", Value: "yes", Kind: FieldBoolean},
+		{Name: "four", Label: "Four"},
+	}
+	text := strings.Join(fieldStepLines(fields, 2, 0, []bool{true, true, false, false}, 90, 2), "\n")
+	if !strings.Contains(text, "Showing steps 2-3 of 4") || strings.Contains(text, "One") || strings.Contains(text, "value: set") || !strings.Contains(text, "current step") {
+		t.Fatalf("offset step labels = %q", text)
+	}
+}
+
+func TestRunLiveTextViewerScrollsAndBacksOut(t *testing.T) {
+	content := []string{"Result"}
+	for index := 0; index < 30; index++ {
+		content = append(content, "line-"+strconv.Itoa(index))
+	}
+	var output bytes.Buffer
+	err := runLiveTextViewer(bufio.NewReader(strings.NewReader("\x1b[6~\x1b")), &output, "Result", content, 90, 18, ScreenOptions{})
+	if !errors.Is(err, ErrBack) {
+		t.Fatalf("viewer error = %v", err)
+	}
+	if text := output.String(); !strings.Contains(text, "Lines") || !strings.Contains(text, "line-") || !strings.Contains(text, "\x1b[2J") {
+		t.Fatalf("viewer output = %q", text)
 	}
 }

@@ -3,7 +3,6 @@ package command
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 
 	"nopsai/internal/cli/apicatalog"
 	clconfig "nopsai/internal/cli/config"
+	"nopsai/internal/cli/interactive"
 	cliplatform "nopsai/internal/cli/platform"
 	"nopsai/pkg/buildinfo"
 	"nopsai/pkg/compatibility"
@@ -206,6 +206,42 @@ func TestAPICallExpandsRegisteredRouteAndPreservesQueryValues(t *testing.T) {
 	}
 }
 
+func TestAPICallGuidesMissingRequiredInputs(t *testing.T) {
+	_, err := executeCommand(testDependencies(nil, nil), "api", "call", "GET", "/v1/pipelines/{pipelineName...}")
+	if err == nil || !strings.Contains(err.Error(), "requires path parameter(s): pipelineName") || !strings.Contains(err.Error(), "--path pipelineName=delivery/release") {
+		t.Fatalf("missing path parameter guidance = %v", err)
+	}
+	_, err = executeCommand(testDependencies(nil, nil), "api", "call", "GET", "/v1/access/effective-permissions")
+	if err == nil || !strings.Contains(err.Error(), "requires query parameter(s): action, resource_type, resource_id") || !strings.Contains(err.Error(), "--query action=pipeline.run") {
+		t.Fatalf("missing query parameter guidance = %v", err)
+	}
+	_, err = executeCommand(testDependencies(nil, nil), "api", "call", "POST", "/v1/auth/login", "--no-auth")
+	if err == nil || !strings.Contains(err.Error(), "expects request content") || !strings.Contains(err.Error(), "api describe POST /v1/auth/login") {
+		t.Fatalf("missing body guidance = %v", err)
+	}
+}
+
+func TestAPIDescribeTextShowsSamples(t *testing.T) {
+	output, err := executeCommand(testDependencies(nil, nil), "api", "describe", "POST", "/v1/auth/login", "--output", "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Body: required",
+		`{"identifier":"admin","password":"temporary-password"}`,
+		"Examples:",
+		"--data payload.json",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("describe login missing %q in:\n%s", want, output)
+		}
+	}
+	output, err = executeCommand(testDependencies(nil, nil), "api", "describe", "GET", "/v1/access/effective-permissions", "--output", "text")
+	if err != nil || !strings.Contains(output, "Query parameters:\n  - action") || !strings.Contains(output, "(required, example pipeline.run") || !strings.Contains(output, "action=pipeline.run") {
+		t.Fatalf("describe query guidance = %q, %v", output, err)
+	}
+}
+
 func TestAPICallInteractiveSelectsPublicRoute(t *testing.T) {
 	var authorization, path string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +259,62 @@ func TestAPICallInteractiveSelectsPublicRoute(t *testing.T) {
 	}
 	if path != "/v1/auth/providers" || authorization != "" || !strings.Contains(output, `{"providers":[]}`) {
 		t.Fatalf("interactive call path/auth/output = %q / %q / %q", path, authorization, output)
+	}
+}
+
+func TestAPIInteractiveFieldsOnlyShowRelevantSteps(t *testing.T) {
+	route, ok := apicatalog.Find(http.MethodGet, "/v1/access/teams")
+	if !ok {
+		t.Fatal("route not found")
+	}
+	fields := apiRequestFields(route, apiRequestOptions{})
+	labels := make([]string, 0, len(fields))
+	for _, field := range fields {
+		labels = append(labels, field.Label)
+	}
+	if strings.Join(labels, ",") != "Attach bearer token,Send request" {
+		t.Fatalf("GET /v1/access/teams fields = %#v", labels)
+	}
+
+	route, ok = apicatalog.Find(http.MethodGet, "/v1/pipelines/{pipelineName...}")
+	if !ok {
+		t.Fatal("pipeline route not found")
+	}
+	fields = apiRequestFields(route, apiRequestOptions{})
+	labels = labels[:0]
+	for _, field := range fields {
+		labels = append(labels, field.Label)
+	}
+	if !containsString(labels, "Path parameter: pipelineName") || !containsString(labels, "Attach bearer token") || containsString(labels, "Response format (HTTP Accept)") {
+		t.Fatalf("pipeline fields = %#v", labels)
+	}
+
+	route, ok = apicatalog.Find(http.MethodPost, "/v1/admin/service-account-roles")
+	if !ok {
+		t.Fatal("service-account role route not found")
+	}
+	fields = apiRequestFields(route, apiRequestOptions{})
+	if field, ok := fieldByName(fields, "body.raw"); !ok || !field.Multiline || field.Label != "Payload editor" {
+		t.Fatalf("payload paste field = %#v, found=%v", field, ok)
+	}
+}
+
+func TestAPIResponseScreenPrettyPrintsJSON(t *testing.T) {
+	route, ok := apicatalog.Find(http.MethodGet, "/v1/access/teams")
+	if !ok {
+		t.Fatal("route not found")
+	}
+	lines := apiResponseScreenLines(route, `{"teams":[{"id":"team-1","name":"Team One"}]}`, "", nil)
+	text := strings.Join(lines, "\n")
+	if !strings.Contains(text, "Request\nMethod: GET\nRoute: /v1/access/teams") || !strings.Contains(text, `"teams": [`) || !strings.Contains(text, `  "id": "team-1"`) || strings.Contains(text, `{"teams":[`) {
+		t.Fatalf("pretty response lines = %#v", lines)
+	}
+}
+
+func TestSplitPromptListAcceptsMultilineAssignments(t *testing.T) {
+	values := splitPromptList("role=admin\nresource_type=pipeline, values=read")
+	if strings.Join(values, "|") != "role=admin|resource_type=pipeline|values=read" {
+		t.Fatalf("split prompt values = %#v", values)
 	}
 }
 
@@ -450,23 +542,13 @@ func TestPlatformReleaseInteractiveCanPlanWithoutDeploying(t *testing.T) {
 	}
 }
 
-func TestInstallDockerComposeUsesEmbeddedReleaseManifest(t *testing.T) {
-	manifestPath := writeCommandInstallManifest(t)
-	raw, err := os.ReadFile(manifestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	previous := cliplatform.EmbeddedReleaseManifestBase64
-	cliplatform.EmbeddedReleaseManifestBase64 = base64.StdEncoding.EncodeToString(raw)
-	defer func() { cliplatform.EmbeddedReleaseManifestBase64 = previous }()
-
+func TestInstallDockerComposeGeneratesFromVersionWithoutReleaseManifest(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "install")
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("unexpected manifest HTTP request to %s", request.URL.String())
 	})}
 	dependencies := testDependencies(client, nil)
 	dependencies.BuildInfo = commandBuildInfo("2.7.0")
-	dependencies.BuildInfo.ReleaseManifestDigest = compatibility.DigestBytes(raw)
 	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 256))
 
 	output, err := executeCommand(dependencies, "install", "docker-compose", "--output-dir", outputDir)
@@ -476,32 +558,82 @@ func TestInstallDockerComposeUsesEmbeddedReleaseManifest(t *testing.T) {
 	if !strings.Contains(output, "Generated NopsAI 2.7.0 docker-compose install") {
 		t.Fatalf("install output = %q", output)
 	}
-	storedManifest, err := os.ReadFile(filepath.Join(outputDir, "release-manifest.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(storedManifest, raw) {
-		t.Fatal("installer did not write the embedded release manifest")
+	if _, err := os.Stat(filepath.Join(outputDir, "release-manifest.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("installer should not write release-manifest.json: %v", err)
 	}
 	lockContents, err := os.ReadFile(filepath.Join(outputDir, ".nopsai", "install.lock"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(lockContents), cliplatform.EmbeddedManifestSource) {
-		t.Fatalf("install lock did not record embedded manifest source: %s", lockContents)
+	if strings.Contains(string(lockContents), "manifestSource") || !strings.Contains(string(lockContents), "ghcr.io/hosein-yousefii/nopsai-api:2.7.0") {
+		t.Fatalf("install lock did not record versioned generated images: %s", lockContents)
 	}
 }
 
-func TestInstallDockerComposeRequiresManifestWhenDefaultIsMissing(t *testing.T) {
-	previous := cliplatform.EmbeddedReleaseManifestBase64
-	cliplatform.EmbeddedReleaseManifestBase64 = ""
-	defer func() { cliplatform.EmbeddedReleaseManifestBase64 = previous }()
-
+func TestInstallDockerComposeRequiresVersionWhenDefaultIsMissing(t *testing.T) {
 	dependencies := testDependencies(nil, nil)
-	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo = commandBuildInfo("dev")
 	_, err := executeCommand(dependencies, "install", "docker-compose", "--output-dir", filepath.Join(t.TempDir(), "install"))
-	if err == nil || !strings.Contains(err.Error(), "release manifest is required") {
-		t.Fatalf("missing manifest error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "--version is required") {
+		t.Fatalf("missing version error = %v", err)
+	}
+}
+
+func TestRootInteractiveHomeShowsContextSessionAndHealth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz":
+			_, _ = w.Write([]byte("ok"))
+		case "/version":
+			_ = json.NewEncoder(w).Encode(map[string]string{"product_version": "2.7.0", "api_version": "v1"})
+		case "/v1/setup/preflight":
+			_, _ = w.Write([]byte(`{"ready":true,"mode":"ready"}`))
+		case "/v1/auth/me":
+			if r.Header.Get("Authorization") != "Bearer stored-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"email":"operator@example.com"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	store, _ := clconfig.NewStore(dir)
+	_, _ = store.AddContext("prod", server.URL)
+	_ = store.SaveToken("prod", "stored-token")
+	dependencies := testDependencies(server.Client(), nil)
+	dependencies.In = strings.NewReader("exit\n1\n")
+	output, err := executeCommand(dependencies, "--config-dir", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"NopsAI CLI",
+		"Context: prod",
+		"Token: configured for context",
+		"Session: operator@example.com",
+		"nopsai/healthz",
+		"2.7.0 (API v1)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("interactive home missing %q in:\n%s", want, output)
+		}
+	}
+}
+
+func TestGuideCommandListsAndRendersTopics(t *testing.T) {
+	output, err := executeCommand(testDependencies(nil, nil), "guide", "--list")
+	if err != nil || !strings.Contains(output, "config") || !strings.Contains(output, "mcp") {
+		t.Fatalf("guide list = %q, %v", output, err)
+	}
+	output, err = executeCommand(testDependencies(nil, nil), "guide", "api")
+	if err != nil || !strings.Contains(output, "nopsai api describe POST /v1/run --output text") {
+		t.Fatalf("guide api = %q, %v", output, err)
+	}
+	if _, err := executeCommand(testDependencies(nil, nil), "guide", "missing"); err == nil {
+		t.Fatal("unknown guide topic succeeded")
 	}
 }
 
@@ -743,6 +875,24 @@ func containsCommandArgument(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldByName(fields []interactive.Field, name string) (interactive.Field, bool) {
+	for _, field := range fields {
+		if field.Name == name {
+			return field, true
+		}
+	}
+	return interactive.Field{}, false
 }
 
 func executeCommand(dependencies Dependencies, args ...string) (string, error) {
