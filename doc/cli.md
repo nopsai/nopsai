@@ -50,37 +50,52 @@ when package scripts need the raw completion script.
 
 Running `nopsai` with no subcommand opens the default full-screen operator
 console. In a real terminal the CLI uses the alternate screen, clears the view,
-and renders boxed sections with a top status area, left navigation pane, main
-detail pane, and footer guidance. The home screen shows the CLI version, current
-context, API URL, token source, authenticated session user when available, and
+and renders the Contextual Zen layout: a quiet home-style status header that
+does not change between screens, a centered focused control, a fixed menu
+viewport, a guide/details section pinned beneath that viewport, and the same
+home-style keybind footer pinned to the bottom. The home screen shows
+the CLI version, current context, API URL, token source, authenticated session
+user when available, and
 lightweight NopsAI health checks for `/healthz`, `/version`, setup preflight,
 and `/v1/auth/me`.
 
-From the home menu operators can switch into API calls, context management, the
-first-install wizard, platform doctor, guide topics, help, or exit. Nested
-screens keep the same visual model: route parameters, install options, help,
-doctor checks, guide text, and API responses render as boxed step panels or
-scrollable result panels instead of falling back to line-by-line prompts. Esc
-moves one level back, Enter selects or accepts the current step, and Ctrl+C
-exits the interactive session. Terminals that support ANSI styling receive
-dimmed borders, bold titles, highlighted selections, and colored status cues.
-Form screens keep the selected workflow on the left as an ordered checklist of
-steps and parameters, with route/context, progress, final action, and navigation
-near the same list. The top status area keeps route, context, user, defaults,
-current step, completed count, and missing input count visible so operators do
-not need to infer progress from a reused header position. The right pane owns
-the selected value and details: current input, multiline editor content, step
-metadata, guidance, examples, and validation status. Step labels distinguish
-untouched prefilled values from accepted steps, required blanks, active editing,
-and intentionally skipped optional fields. Footer controls are grouped by
-intent: edit, next, submit/send/save, back, and quit.
+From the home menu operators can switch into the full CLI surface: API catalog
+calls, raw API requests, route listing, route descriptions, context management,
+token login/logout, first-install flows, platform doctor, platform release,
+completion generation, guide topics, help, or exit. Nested screens keep the
+same visual model: route parameters, raw transport options, install options,
+release options, completion output, help, doctor checks, guide text, and API
+responses render as separated sections or scrollable result panels instead of
+falling back to line-by-line prompts. Esc moves one level back, Enter selects
+or accepts the current step, and Ctrl+C exits the interactive session.
+Nested menus show the current location above the menu, for example
+`Home > API >`, while the top chrome remains unchanged.
+Terminals that support ANSI styling receive bold titles, highlighted
+selections, colored status cues, and intentionally quiet separators instead of
+nested boxes.
+Form screens keep the active question centered in the same place as list
+selection. The central block shows the current input, boolean choices,
+multiline editor content, guidance, examples, and validation without moving the
+operator into a different layout. Screen-specific action guidance stays in the
+centered body or guide/details area so the footer remains stable.
 
 Interactive lists filter live as the operator types. Use Up/Down to move
 through visible and off-screen matches, PgUp/PgDn for larger jumps, Home/End for
 edges, and Enter to select the highlighted row. Clearing the search shows every
-available option again. When stdin or stdout is not a terminal, the CLI uses the
-same numbered table shape with explicit prompts so scripted tests and piped
-input stay deterministic.
+available option again. Live menus reserve the same screen rows whether a list
+has two matches or hundreds; large lists show at most 20 rows at a time, then
+scroll within that fixed viewport so the guide/details section stays in the
+same place. Choice menus use a wider centered block so long route labels remain
+visible on typical terminals. When a selected choice exposes multiple
+parameters, route parameter-entry screens keep that same menu/detail geometry
+and render an inline `Parameters` progress list in the menu area. API request
+parameter lists follow the same order as the wizard steps, including
+operational inputs such as additional query values, response format, token
+attachment, and the final send gate. The active parameter expands inline with
+its required marker and value row, and empty active input values render as a
+blinking cursor instead of a textual blank placeholder. When stdin or stdout is
+not a terminal, the CLI uses the same numbered table shape with explicit
+prompts so scripted tests and piped input stay deterministic.
 
 ## Built-In Guides
 
@@ -168,8 +183,9 @@ catalogued query parameters, body content type, example payloads when known, and
 a noninteractive `api call` command. JSON/YAML output exposes the same metadata
 for generated tooling.
 
-Interactive `api call` searches the compiled catalog locally, shows the selected
-route guidance in the detail pane, then opens a step-by-step request wizard.
+Interactive `api call` searches the compiled catalog locally, shows route
+guidance in the pinned guide/details section, then opens a step-by-step request
+wizard.
 Only relevant steps are shown: required path parameters, required query
 parameters, additional query assignments when the route exposes them, payload
 file or literal content when the route expects a body, bearer-token attachment,
@@ -401,6 +417,7 @@ ingestion.
 - `internal/cli/interactive`: alternate-screen selectors, editable forms, scrollable result panels, stdin/stdout fallback prompts, confirmations, and defaults
 - `internal/cli/platform`: platform diagnostics, install topology, release resolution, compatibility, Helm execution, and release lock models
 - `internal/cli/command`: Cobra routing, interactive home/menu orchestration, guide rendering, hook orchestration, and command rendering
+- `internal/cli/command/interactive_*.go`: focused interactive workflow composition for API, auth, platform release, completion, shared screen helpers, and home routing; model/API/platform execution stays in the packages above
 
 The CLI sends ordinary bearer credentials and does not bypass API middleware.
 AAA decisions, audit behavior, MCP route rules, and resource visibility remain

@@ -93,7 +93,7 @@ func executeInteractiveAPICall(command *cobra.Command, options *rootOptions, req
 		live := prompter.CanUseLiveSelector()
 		if live {
 			state := collectHomeState(command.Context(), options)
-			selected, err = prompter.ChooseScreen("API route", choices, apiRouteScreenOptions(routes, state))
+			selected, err = prompter.ChooseScreen("API route", choices, apiRouteScreenOptions(routes, state, *requestOptions))
 		} else {
 			selected, err = prompter.Choose("API route", choices)
 		}
@@ -203,7 +203,7 @@ func executeInteractiveAPIRoute(command *cobra.Command, options *rootOptions, pr
 	var (
 		parameters  []string
 		queryValues []string
-		formOptions = apiRequestFormScreenOptions(route, state, "")
+		formOptions = apiRequestFormScreenOptions(route, state, fields, "")
 	)
 	for {
 		edited, err := prompter.EditFieldsScreen(route.Method+" "+route.Path, fields, formOptions)
@@ -219,7 +219,7 @@ func executeInteractiveAPIRoute(command *cobra.Command, options *rootOptions, pr
 		if errors.Is(applyErr, interactive.ErrBack) {
 			return interactive.ErrBack
 		}
-		formOptions = apiRequestFormScreenOptions(route, state, applyErr.Error())
+		formOptions = apiRequestFormScreenOptions(route, state, fields, applyErr.Error())
 	}
 	stdout, stderr, callErr := captureCommandOutput(command, func() error {
 		return executeCatalogAPICall(command, options, route.Method, route.Path, parameters, queryValues, *requestOptions)
@@ -263,21 +263,15 @@ func prettyResponseBodyLines(raw string) []string {
 	return splitOutputLines(raw)
 }
 
-func apiRouteScreenOptions(routes []apicatalog.Route, state homeState) interactive.ScreenOptions {
-	header := []string{
-		fmt.Sprintf("Context: %s | API: %s", valueOrDefault(state.ContextName, "not selected"), valueOrDefault(state.API, "not configured")),
-		fmt.Sprintf("User: %s | Token: %s | Health: %s", valueOrDefault(state.User, "not authenticated"), state.Token, homeHealthSummary(state.Checks)),
-	}
+func apiRouteScreenOptions(routes []apicatalog.Route, state homeState, requestOptions apiRequestOptions) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home", "API", "Catalog"},
 		Title:      "API Catalog",
 		LeftTitle:  "Routes",
 		RightTitle: "Route Detail",
 		LeftWidth:  76,
-		Header:     header,
-		Footer: []string{
-			"Keys: type filter | Up/Down move | PgUp/PgDn jump | Enter select | Esc home | Ctrl+C quit",
-			"Tip: required path, query, and body guidance is shown before the request is sent.",
-		},
+		Header:     sessionHeaderLines(state),
+		Footer:     sessionFooterLines(),
 		DetailTitle: func(index int, _ interactive.Choice) string {
 			if index < 0 || index >= len(routes) {
 				return ""
@@ -291,21 +285,25 @@ func apiRouteScreenOptions(routes []apicatalog.Route, state homeState) interacti
 			}
 			return routeDetailLines(routes[index])
 		},
+		Parameters: func(index int, _ interactive.Choice) []string {
+			if index < 0 || index >= len(routes) {
+				return nil
+			}
+			return routeParameterMap(routes[index], requestOptions)
+		},
 	}
 }
 
-func apiRequestFormScreenOptions(route apicatalog.Route, state homeState, validation string) interactive.ScreenOptions {
-	header := []string{
-		fmt.Sprintf("Route: %s %s | Workflow: request inputs", route.Method, route.Path),
-		fmt.Sprintf("Context: %s | API: %s | User: %s", valueOrDefault(state.ContextName, "not selected"), valueOrDefault(state.API, "not configured"), valueOrDefault(state.User, "not authenticated")),
-		fmt.Sprintf("Auth default: %s | Response: JSON unless response format is set", apiAuthDefaultLabel(route)),
-	}
-	if strings.TrimSpace(validation) != "" {
-		header = append(header, "Validation: "+strings.TrimSpace(validation))
+func apiRequestFormScreenOptions(route apicatalog.Route, state homeState, fields []interactive.Field, validation string) interactive.ScreenOptions {
+	_ = validation
+	parameters := requestFieldParameterMap(fields)
+	if len(parameters) == 0 {
+		parameters = routeParameterMap(route, apiRequestOptions{})
 	}
 	return interactive.ScreenOptions{
-		Title:  "API Request Wizard",
-		Header: header,
+		Breadcrumb: []string{"Home", "API", "Catalog", route.Method + " " + route.Path},
+		Title:      "API Request Wizard",
+		Header:     sessionHeaderLines(state),
 		Sidebar: []string{
 			"Workflow",
 			"Home > API Catalog",
@@ -320,27 +318,21 @@ func apiRequestFormScreenOptions(route apicatalog.Route, state homeState, valida
 			"User: " + valueOrDefault(state.User, "not authenticated"),
 			"Token: " + state.Token,
 		},
-		LeftTitle:   "Steps & Parameters",
-		RightTitle:  "Values & Details",
-		LeftWidth:   56,
-		ActionLabel: "Send request",
-		Footer: []string{
-			"Edit: type/backspace | Next: Enter or Tab | Send: Ctrl+S | Back: Esc routes | Quit: Ctrl+C",
-			"Multiline: Enter new line | Next step: Tab | Result: pretty JSON when possible",
-		},
+		LeftTitle:      "Steps & Parameters",
+		RightTitle:     "Values & Details",
+		LeftWidth:      56,
+		ActionLabel:    "Send request",
+		Footer:         sessionFooterLines(),
+		ParameterLines: parameters,
 	}
 }
 
 func apiResultScreenOptions(route apicatalog.Route, state homeState) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
-		Title: "API Response",
-		Header: []string{
-			fmt.Sprintf("%s %s", route.Method, route.Path),
-			fmt.Sprintf("API: %s | User: %s | Token: %s", valueOrDefault(state.API, "not configured"), valueOrDefault(state.User, "not authenticated"), state.Token),
-		},
-		Footer: []string{
-			"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter home | Esc routes | Ctrl+C quit",
-		},
+		Breadcrumb: []string{"Home", "API", "Response"},
+		Title:      "API Response",
+		Header:     sessionHeaderLines(state),
+		Footer:     sessionFooterLines(),
 	}
 }
 
@@ -505,13 +497,6 @@ func routeExpectsRequestBody(route apicatalog.Route, requestOptions apiRequestOp
 	return route.Body != nil ||
 		strings.TrimSpace(requestOptions.dataPath) != "" ||
 		strings.TrimSpace(requestOptions.dataRaw) != ""
-}
-
-func apiAuthDefaultLabel(route apicatalog.Route) string {
-	if route.Public {
-		return "no token"
-	}
-	return "configured token"
 }
 
 func apiBodyDescription(route apicatalog.Route) string {
@@ -816,6 +801,55 @@ func routeDetailLines(route apicatalog.Route) []string {
 
 func routeDetailRow(label, value string) string {
 	return fmt.Sprintf("  %-14s %s", label+":", strings.TrimSpace(value))
+}
+
+func routeParameterMap(route apicatalog.Route, requestOptions apiRequestOptions) []string {
+	return requestFieldParameterMap(apiRequestFields(route, requestOptions))
+}
+
+func requestFieldParameterMap(fields []interactive.Field) []string {
+	parameters := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if label := requestFieldParameterLabel(field); label != "" {
+			parameters = append(parameters, label)
+		}
+	}
+	return parameters
+}
+
+func requestFieldParameterLabel(field interactive.Field) string {
+	name := strings.TrimSpace(field.Name)
+	switch {
+	case strings.HasPrefix(name, "path."):
+		return "path: " + strings.TrimPrefix(name, "path.")
+	case strings.HasPrefix(name, "query."):
+		key := strings.TrimPrefix(name, "query.")
+		if key == "extra" {
+			return "additional query values"
+		}
+		return "query: " + key
+	case name == "body.file":
+		return "payload file"
+	case name == "body.raw":
+		return "payload editor"
+	case name == "contentType":
+		return "payload media type"
+	case name == "accept":
+		return "response format"
+	case name == "auth":
+		return "attach bearer token"
+	case name == "send":
+		return "send request"
+	default:
+		return strings.ToLower(strings.TrimSuffix(fieldDisplayLabelForParameterMap(field), "?"))
+	}
+}
+
+func fieldDisplayLabelForParameterMap(field interactive.Field) string {
+	if strings.TrimSpace(field.Label) != "" {
+		return strings.TrimSpace(field.Label)
+	}
+	return strings.TrimSpace(field.Name)
 }
 
 func indentBlock(value, prefix string) string {

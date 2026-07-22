@@ -22,6 +22,7 @@ import (
 const homeHealthTimeout = 3 * time.Second
 
 type homeState struct {
+	Version      string
 	ConfigDir    string
 	ContextName  string
 	ContextCount int
@@ -60,22 +61,26 @@ func executeInteractiveHome(command *cobra.Command, options *rootOptions) error 
 		var actionErr error
 		switch selected {
 		case 0:
-			actionErr = executeInteractiveAPICall(command, options, &apiRequestOptions{})
+			actionErr = runInteractiveAPIMenu(command, options, prompter)
 		case 1:
 			actionErr = runInteractiveContextMenu(command, options, prompter)
 		case 2:
-			actionErr = runInstallWizard(command, options)
+			actionErr = runInteractiveAuthMenu(command, options, prompter)
 		case 3:
-			actionErr = runInteractiveDoctor(command, options)
+			actionErr = runInstallWizard(command, options)
 		case 4:
-			actionErr = runInteractiveGuideMenu(command, prompter)
+			actionErr = runInteractivePlatformMenu(command, options, prompter)
 		case 5:
+			actionErr = runInteractiveCompletion(command, prompter)
+		case 6:
+			actionErr = runInteractiveGuideMenu(command, prompter)
+		case 7:
 			if prompter.CanUseLiveSelector() {
 				actionErr = prompter.ShowTextScreen("Help", helpScreenLines(command), homeTextScreenOptions("Help", state))
 			} else {
 				actionErr = command.Help()
 			}
-		case 6:
+		case 8:
 			return nil
 		}
 		if errors.Is(actionErr, io.EOF) {
@@ -99,10 +104,12 @@ func executeInteractiveHome(command *cobra.Command, options *rootOptions) error 
 
 func homeChoices() []interactive.Choice {
 	return []interactive.Choice{
-		{Label: "api call", Description: "Search routes, see required parameters, and call the API", SearchText: "api request route catalog endpoint payload parameter"},
+		{Label: "api", Description: "Routes, descriptions, catalog calls, and concrete requests", SearchText: "api request call routes describe catalog endpoint payload parameter header"},
 		{Label: "contexts", Description: "List, add, use, or delete API contexts", SearchText: "context config token api address"},
-		{Label: "install", Description: "Open the first-install wizard", SearchText: "install setup docker compose kubernetes helm environment topology"},
-		{Label: "doctor", Description: "Run platform health, AAA, monitoring, and tooling checks", SearchText: "health monitoring doctor aaa metrics dispatcher"},
+		{Label: "authentication", Description: "Login with a token or remove a local credential", SearchText: "auth login logout token credential aaa nopat nopsat"},
+		{Label: "install", Description: "Open the first-install wizard for Docker Compose or Kubernetes", SearchText: "install setup docker compose kubernetes helm environment topology gitops"},
+		{Label: "platform", Description: "Run doctor checks or plan/deploy platform releases", SearchText: "platform health monitoring doctor release helm manifest lock aaa metrics dispatcher"},
+		{Label: "completion", Description: "Generate shell completion files or raw scripts", SearchText: "completion bash zsh fish powershell shell output stdout"},
 		{Label: "guide", Description: "Read CLI examples for common operator topics", SearchText: "help sample example config gitops mcp"},
 		{Label: "help", Description: "Show command help", SearchText: "help commands flags"},
 		{Label: "exit", Description: "Close the interactive session", SearchText: "quit back exit"},
@@ -110,27 +117,14 @@ func homeChoices() []interactive.Choice {
 }
 
 func homeScreenOptions(options *rootOptions, state homeState) interactive.ScreenOptions {
-	contextLabel := valueOrDefault(state.ContextName, "not selected")
-	if state.ContextCount > 0 {
-		contextLabel = fmt.Sprintf("%s (%d configured)", contextLabel, state.ContextCount)
-	}
-	header := []string{
-		fmt.Sprintf("Version: %s | Context: %s | API: %s", valueOrDefault(options.dependencies.Version, "dev"), contextLabel, valueOrDefault(state.API, "not configured")),
-		fmt.Sprintf("User: %s | Token: %s | Health: %s", valueOrDefault(state.User, "not authenticated"), state.Token, homeHealthSummary(state.Checks)),
-	}
-	if strings.TrimSpace(state.Warning) != "" {
-		header = append(header, "Warning: "+strings.TrimSpace(state.Warning))
-	}
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home"},
 		Title:      "Home",
 		LeftTitle:  "Menu",
 		RightTitle: "Overview",
 		LeftWidth:  44,
-		Header:     header,
-		Footer: []string{
-			"Keys: type filter | Up/Down move | PgUp/PgDn jump | Enter select | Esc quit | Ctrl+C quit",
-			"Quick: nopsai guide api | nopsai api describe POST /v1/run --output text | nopsai platform doctor",
-		},
+		Header:     sessionHeaderLines(state),
+		Footer:     sessionFooterLines(),
 		Detail: func(index int, choice interactive.Choice) []string {
 			return homeChoiceDetail(index, choice, state)
 		},
@@ -139,23 +133,22 @@ func homeScreenOptions(options *rootOptions, state homeState) interactive.Screen
 
 func homeTextScreenOptions(title string, state homeState) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
-		Title: title,
-		Header: []string{
-			fmt.Sprintf("Context: %s | API: %s", valueOrDefault(state.ContextName, "not selected"), valueOrDefault(state.API, "not configured")),
-			fmt.Sprintf("User: %s | Token: %s | Health: %s", valueOrDefault(state.User, "not authenticated"), state.Token, homeHealthSummary(state.Checks)),
-		},
-		Footer: []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter home | Esc back | Ctrl+C quit"},
+		Title:      title,
+		Breadcrumb: []string{"Home", title},
+		Header:     sessionHeaderLines(state),
+		Footer:     sessionFooterLines(),
 	}
 }
 
-func contextMenuScreenOptions(options *rootOptions) interactive.ScreenOptions {
+func contextMenuScreenOptions(state homeState) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home", "Contexts"},
 		Title:      "Contexts",
-		Header:     []string{"Config: " + valueOrDefault(options.configDir, "$NOPSAI_CONFIG_DIR or OS user config directory")},
+		Header:     sessionHeaderLines(state),
 		LeftTitle:  "Actions",
 		RightTitle: "Context Detail",
 		LeftWidth:  38,
-		Footer:     []string{"Keys: type filter | Up/Down move | Enter select | Esc home | Ctrl+C quit"},
+		Footer:     sessionFooterLines(),
 		Detail: func(_ int, choice interactive.Choice) []string {
 			return []string{
 				choice.Description,
@@ -171,34 +164,37 @@ func contextMenuScreenOptions(options *rootOptions) interactive.ScreenOptions {
 	}
 }
 
-func contextChoiceScreenOptions(options *rootOptions, title string) interactive.ScreenOptions {
+func contextChoiceScreenOptions(state homeState, title string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home", "Contexts", title},
 		Title:      title,
-		Header:     []string{"Config: " + valueOrDefault(options.configDir, "$NOPSAI_CONFIG_DIR or OS user config directory")},
+		Header:     sessionHeaderLines(state),
 		LeftTitle:  "Contexts",
 		RightTitle: "Context Detail",
 		LeftWidth:  48,
-		Footer:     []string{"Keys: type filter | Up/Down move | Enter select | Esc contexts | Ctrl+C quit"},
+		Footer:     sessionFooterLines(),
 	}
 }
 
-func contextFormScreenOptions(options *rootOptions, title string) interactive.ScreenOptions {
+func contextFormScreenOptions(state homeState, title string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb:  []string{"Home", "Contexts", title},
 		Title:       title,
-		Header:      []string{"Config: " + valueOrDefault(options.configDir, "$NOPSAI_CONFIG_DIR or OS user config directory")},
+		Header:      sessionHeaderLines(state),
 		LeftTitle:   "Context Steps",
 		RightTitle:  "Values & Details",
 		LeftWidth:   48,
 		ActionLabel: "Submit context change",
-		Footer:      []string{"Keys: type to edit | Enter next/save | Ctrl+S save | Esc contexts | Ctrl+C quit"},
+		Footer:      sessionFooterLines(),
 	}
 }
 
-func contextTextScreenOptions(options *rootOptions, title string) interactive.ScreenOptions {
+func contextTextScreenOptions(state homeState, title string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
-		Title:  title,
-		Header: []string{"Config: " + valueOrDefault(options.configDir, "$NOPSAI_CONFIG_DIR or OS user config directory")},
-		Footer: []string{"Keys: Up/Down scroll | Enter contexts | Esc contexts | Ctrl+C quit"},
+		Breadcrumb: []string{"Home", "Contexts", title},
+		Title:      title,
+		Header:     sessionHeaderLines(state),
+		Footer:     sessionFooterLines(),
 	}
 }
 
@@ -235,21 +231,25 @@ func homeChoiceDetail(index int, choice interactive.Choice, state homeState) []s
 	}
 	switch index {
 	case 0:
-		lines = append(lines, "", "API call opens the registered route catalog with path, query, and body guidance before sending a request.")
+		lines = append(lines, "", "API opens the registered route catalog, raw request transport, route listing filters, and route descriptions.")
 	case 1:
 		lines = append(lines, "", "Contexts store API URLs and local tokens. Use them to switch between environments.")
 	case 2:
-		lines = append(lines, "", "Install generates Docker Compose files or Helm values from the selected NopsAI version.")
+		lines = append(lines, "", "Authentication verifies tokens through AAA before storing them locally and removes only local credentials on logout.")
 	case 3:
-		lines = append(lines, "", "Doctor checks platform health, AAA session, monitoring, dispatcher, Docker, Helm, and kubectl tooling.")
+		lines = append(lines, "", "Install generates Docker Compose files or Helm values from the selected NopsAI version.")
 	case 4:
+		lines = append(lines, "", "Platform includes doctor diagnostics plus advanced digest-pinned Kubernetes release planning and deployment.")
+	case 5:
+		lines = append(lines, "", "Completion generates bash, zsh, fish, or PowerShell scripts with copy instructions or raw stdout output.")
+	case 6:
 		lines = append(lines, "", "Guides show copyable examples for API calls, GitOps, installs, AAA, MCP, monitoring, and config.")
 	}
 	return lines
 }
 
 func collectHomeState(ctx context.Context, options *rootOptions) homeState {
-	state := homeState{Token: "not configured"}
+	state := homeState{Token: "not configured", Version: valueOrDefault(options.dependencies.Version, "dev")}
 	store, err := options.store()
 	if err != nil {
 		state.Warning = err.Error()
@@ -404,7 +404,7 @@ func renderInteractiveHome(command *cobra.Command, options *rootOptions, state h
 			return err
 		}
 	}
-	if _, err := fmt.Fprintln(out, "Quick commands: nopsai guide api | nopsai api describe POST /v1/run --output text | nopsai platform doctor"); err != nil {
+	if _, err := fmt.Fprintln(out, "Quick commands: nopsai api call --interactive | nopsai api request GET /v1/auth/me | nopsai platform release --interactive"); err != nil {
 		return err
 	}
 	return nil
@@ -553,12 +553,13 @@ func runInteractiveContextMenu(command *cobra.Command, options *rootOptions, pro
 		{Label: "back", Description: "Return to the home menu", SearchText: "back home"},
 	}
 	for {
+		state := collectHomeState(command.Context(), options)
 		var (
 			selected int
 			err      error
 		)
 		if prompter.CanUseLiveSelector() {
-			selected, err = prompter.ChooseScreen("Contexts", choices, contextMenuScreenOptions(options))
+			selected, err = prompter.ChooseScreen("Contexts", choices, contextMenuScreenOptions(state))
 		} else {
 			selected, err = prompter.Choose("Contexts", choices)
 		}
@@ -616,7 +617,7 @@ func printInteractiveContexts(command *cobra.Command, options *rootOptions) erro
 	prompter := interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
 	if len(names) == 0 {
 		if prompter.CanUseLiveSelector() {
-			return prompter.ShowTextScreen("Contexts", []string{"No contexts configured."}, contextTextScreenOptions(options, "Contexts"))
+			return prompter.ShowTextScreen("Contexts", []string{"No contexts configured."}, contextTextScreenOptions(collectHomeState(command.Context(), options), "Contexts"))
 		}
 		_, err = fmt.Fprintln(command.OutOrStdout(), "No contexts configured.")
 		return err
@@ -630,7 +631,7 @@ func printInteractiveContexts(command *cobra.Command, options *rootOptions) erro
 			}
 			lines = append(lines, fmt.Sprintf("%s %s  %s", current, name, cfg.Contexts[name].API))
 		}
-		return prompter.ShowTextScreen("Contexts", lines, contextTextScreenOptions(options, "Contexts"))
+		return prompter.ShowTextScreen("Contexts", lines, contextTextScreenOptions(collectHomeState(command.Context(), options), "Contexts"))
 	}
 	for _, name := range names {
 		current := " "
@@ -650,7 +651,7 @@ func addInteractiveContext(command *cobra.Command, options *rootOptions, prompte
 			{Name: "name", Label: "Context name", Required: true, Description: "Local name for this API environment.", Example: "prod"},
 			{Name: "api", Label: "NopsAI API URL", Value: valueOrDefault(options.apiURL, "http://localhost:8080"), Required: true, Description: "Absolute NopsAI API URL for this context.", Example: "https://nopsai.example.com"},
 		}
-		edited, err := prompter.EditFieldsScreen("Add context", fields, contextFormScreenOptions(options, "Add Context"))
+		edited, err := prompter.EditFieldsScreen("Add context", fields, contextFormScreenOptions(collectHomeState(command.Context(), options), "Add Context"))
 		if err != nil {
 			return err
 		}
@@ -667,7 +668,7 @@ func addInteractiveContext(command *cobra.Command, options *rootOptions, prompte
 			"Context configured",
 			"",
 			fmt.Sprintf("%s  %s", strings.TrimSpace(values["name"]), ctx.API),
-		}, contextTextScreenOptions(options, "Context Configured"))
+		}, contextTextScreenOptions(collectHomeState(command.Context(), options), "Context Configured"))
 	}
 	name, err := prompter.AskRequired("Context name", "")
 	if err != nil {
@@ -708,7 +709,7 @@ func useInteractiveContext(command *cobra.Command, options *rootOptions, prompte
 	}
 	var selected int
 	if prompter.CanUseLiveSelector() {
-		selected, err = prompter.ChooseScreen("Use context", choices, contextChoiceScreenOptions(options, "Use Context"))
+		selected, err = prompter.ChooseScreen("Use context", choices, contextChoiceScreenOptions(collectHomeState(command.Context(), options), "Use Context"))
 	} else {
 		selected, err = prompter.Choose("Use context", choices)
 	}
@@ -719,7 +720,7 @@ func useInteractiveContext(command *cobra.Command, options *rootOptions, prompte
 		return err
 	}
 	if prompter.CanUseLiveSelector() {
-		return prompter.ShowTextScreen("Context selected", []string{"Current context", "", names[selected]}, contextTextScreenOptions(options, "Context Selected"))
+		return prompter.ShowTextScreen("Context selected", []string{"Current context", "", names[selected]}, contextTextScreenOptions(collectHomeState(command.Context(), options), "Context Selected"))
 	}
 	_, err = fmt.Fprintf(command.OutOrStdout(), "Current context is now %q\n", names[selected])
 	return err
@@ -744,7 +745,7 @@ func deleteInteractiveContext(command *cobra.Command, options *rootOptions, prom
 	}
 	var selected int
 	if prompter.CanUseLiveSelector() {
-		selected, err = prompter.ChooseScreen("Delete context", choices, contextChoiceScreenOptions(options, "Delete Context"))
+		selected, err = prompter.ChooseScreen("Delete context", choices, contextChoiceScreenOptions(collectHomeState(command.Context(), options), "Delete Context"))
 	} else {
 		selected, err = prompter.Choose("Delete context", choices)
 	}
@@ -760,7 +761,7 @@ func deleteInteractiveContext(command *cobra.Command, options *rootOptions, prom
 			Kind:        interactive.FieldBoolean,
 			Description: "Delete local context configuration and its stored credential.",
 			Example:     names[selected],
-		}}, contextFormScreenOptions(options, "Delete Context"))
+		}}, contextFormScreenOptions(collectHomeState(command.Context(), options), "Delete Context"))
 		if err != nil {
 			return err
 		}
@@ -773,7 +774,7 @@ func deleteInteractiveContext(command *cobra.Command, options *rootOptions, prom
 	}
 	if !confirmed {
 		if prompter.CanUseLiveSelector() {
-			return prompter.ShowTextScreen("Delete cancelled", []string{"Delete cancelled", "", names[selected]}, contextTextScreenOptions(options, "Delete Cancelled"))
+			return prompter.ShowTextScreen("Delete cancelled", []string{"Delete cancelled", "", names[selected]}, contextTextScreenOptions(collectHomeState(command.Context(), options), "Delete Cancelled"))
 		}
 		_, err = fmt.Fprintln(command.OutOrStdout(), "Delete cancelled.")
 		return err
@@ -782,7 +783,7 @@ func deleteInteractiveContext(command *cobra.Command, options *rootOptions, prom
 		return err
 	}
 	if prompter.CanUseLiveSelector() {
-		return prompter.ShowTextScreen("Context deleted", []string{"Context deleted", "", names[selected]}, contextTextScreenOptions(options, "Context Deleted"))
+		return prompter.ShowTextScreen("Context deleted", []string{"Context deleted", "", names[selected]}, contextTextScreenOptions(collectHomeState(command.Context(), options), "Context Deleted"))
 	}
 	_, err = fmt.Fprintf(command.OutOrStdout(), "Context %q deleted\n", names[selected])
 	return err

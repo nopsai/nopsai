@@ -24,39 +24,11 @@ func newLoginCommand(options *rootOptions) *cobra.Command {
 			if !tokenMode {
 				return errors.New("only token login is available in this release; use --token")
 			}
-			session, err := options.resolveSession(true)
+			contextName, err := authenticateContextWithToken(command, options)
 			if err != nil {
 				return err
 			}
-			token, err := readLoginToken(command, options.dependencies)
-			if err != nil {
-				return err
-			}
-			verifiedClient, err := clientWithToken(options, session.API, token)
-			if err != nil {
-				return err
-			}
-			request, err := verifiedClient.NewRequest(http.MethodGet, "/v1/auth/me", nil)
-			if err != nil {
-				return err
-			}
-			response, err := verifiedClient.Do(request)
-			if err != nil {
-				return fmt.Errorf("verify token: %w", err)
-			}
-			defer response.Body.Close()
-			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
-			if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-				return fmt.Errorf("token verification returned HTTP %d", response.StatusCode)
-			}
-			store, err := options.store()
-			if err != nil {
-				return err
-			}
-			if err := store.SaveToken(session.ContextName, token); err != nil {
-				return err
-			}
-			_, err = fmt.Fprintf(command.OutOrStdout(), "Authenticated context %q\n", session.ContextName)
+			_, err = fmt.Fprintf(command.OutOrStdout(), "Authenticated context %q\n", contextName)
 			return err
 		},
 	}
@@ -70,21 +42,65 @@ func newLogoutCommand(options *rootOptions) *cobra.Command {
 		Short: "Remove the locally stored credential for a context",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			store, err := options.store()
+			name, err := removeStoredContextToken(options)
 			if err != nil {
-				return err
-			}
-			name, _, err := store.ResolveContext(options.contextName)
-			if err != nil {
-				return err
-			}
-			if err := store.DeleteToken(name); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(command.OutOrStdout(), "Removed the local credential for context %q\n", name)
 			return err
 		},
 	}
+}
+
+func authenticateContextWithToken(command *cobra.Command, options *rootOptions) (string, error) {
+	session, err := options.resolveSession(true)
+	if err != nil {
+		return "", err
+	}
+	token, err := readLoginToken(command, options.dependencies)
+	if err != nil {
+		return "", err
+	}
+	verifiedClient, err := clientWithToken(options, session.API, token)
+	if err != nil {
+		return "", err
+	}
+	request, err := verifiedClient.NewRequest(http.MethodGet, "/v1/auth/me", nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := verifiedClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("verify token: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("token verification returned HTTP %d", response.StatusCode)
+	}
+	store, err := options.store()
+	if err != nil {
+		return "", err
+	}
+	if err := store.SaveToken(session.ContextName, token); err != nil {
+		return "", err
+	}
+	return session.ContextName, nil
+}
+
+func removeStoredContextToken(options *rootOptions) (string, error) {
+	store, err := options.store()
+	if err != nil {
+		return "", err
+	}
+	name, _, err := store.ResolveContext(options.contextName)
+	if err != nil {
+		return "", err
+	}
+	if err := store.DeleteToken(name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 func readLoginToken(command *cobra.Command, dependencies Dependencies) (string, error) {

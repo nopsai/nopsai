@@ -14,6 +14,7 @@ import (
 )
 
 const choiceViewportSize = 10
+const zenChoiceViewportSize = 20
 const fallbackChoiceTerminalWidth = 120
 const fallbackChoiceTerminalHeight = 30
 const ansiReset = "\x1b[0m"
@@ -34,19 +35,23 @@ type Choice struct {
 	Label       string
 	Description string
 	SearchText  string
+	Parameters  []string
 }
 
 type ScreenOptions struct {
-	Title       string
-	Header      []string
-	Footer      []string
-	Sidebar     []string
-	LeftTitle   string
-	RightTitle  string
-	LeftWidth   int
-	ActionLabel string
-	DetailTitle func(index int, choice Choice) string
-	Detail      func(index int, choice Choice) []string
+	Title          string
+	Breadcrumb     []string
+	Header         []string
+	Footer         []string
+	Sidebar        []string
+	ParameterLines []string
+	LeftTitle      string
+	RightTitle     string
+	LeftWidth      int
+	ActionLabel    string
+	DetailTitle    func(index int, choice Choice) string
+	Detail         func(index int, choice Choice) []string
+	Parameters     func(index int, choice Choice) []string
 }
 
 type FieldKind string
@@ -829,64 +834,15 @@ func renderChoiceScreen(writer io.Writer, label string, choices []Choice, query 
 	if title == "" {
 		title = strings.TrimSpace(label)
 	}
-	lines := make([]string, 0, height)
-	lines = append(lines, screenFullBorder(width))
-	lines = append(lines, screenFullLine(" "+styleAccent("NopsAI")+" "+styleDim("|")+" "+styleBold(title), width))
-	for _, header := range options.Header {
-		if strings.TrimSpace(header) != "" && len(lines) < 5 {
-			lines = append(lines, screenFullLine(" "+formatScreenHeaderLine(header), width))
-		}
-	}
-
 	footer := options.Footer
 	if len(footer) == 0 {
 		footer = []string{"Keys: type filter | Up/Down move | PgUp/PgDn jump | Enter select | Esc back | Ctrl+C quit"}
 	}
-	leftWidth := screenLeftWidthForOptions(width, options)
-	rightWidth := width - leftWidth - 7
-	if rightWidth < 20 {
-		rightWidth = 20
-	}
-	bodyHeight := height - len(lines) - len(footer) - 5
-	if bodyHeight < 4 {
-		bodyHeight = 4
-	}
-	menuTitle := strings.TrimSpace(options.LeftTitle)
-	if menuTitle == "" {
-		menuTitle = strings.TrimSpace(label)
-	}
-	detailTitle := strings.TrimSpace(options.RightTitle)
-	if detailTitle == "" {
-		detailTitle = "Details"
-	}
-	menuLines := screenMenuLines(menuTitle, choices, query, matches, selected, offset, leftWidth, bodyHeight-2)
-	detailLines := screenDetailLines(choices, matches, selected, rightWidth, bodyHeight-2, options)
-	lines = append(lines, screenPaneBorder(width, leftWidth, rightWidth))
-	lines = append(lines, screenPaneLine(styleBold(strings.ToUpper(menuTitle)), styleBold(strings.ToUpper(detailTitle)), leftWidth, rightWidth))
-	lines = append(lines, screenPaneBorder(width, leftWidth, rightWidth))
-	for row := 0; row < bodyHeight; row++ {
-		left := ""
-		if row < len(menuLines) {
-			left = menuLines[row]
-		}
-		right := ""
-		if row < len(detailLines) {
-			right = detailLines[row]
-		}
-		lines = append(lines, screenPaneLine(left, right, leftWidth, rightWidth))
-	}
-	lines = append(lines, screenPaneBorder(width, leftWidth, rightWidth))
-	for _, footerLine := range footer {
-		lines = append(lines, screenFullLine(" "+formatScreenFooterLine(footerLine), width))
-	}
-	lines = append(lines, screenFullBorder(width))
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	return writeScreen(writer, lines, width)
+	footer = zenStableFooterLines()
+	bodyHeight := zenBodyHeight(height, footer)
+	blockWidth := zenChoiceBlockWidth(width)
+	body := zenChoiceBlock(title, choices, query, matches, selected, offset, blockWidth, bodyHeight, options)
+	return writeZenScreen(writer, title, options.Header, body, footer, width, height, blockWidth, true)
 }
 
 func renderFieldScreen(writer io.Writer, label string, fields []Field, selected, offset int, completed []bool, status string, width, height int, options ScreenOptions) error {
@@ -903,17 +859,7 @@ func renderFieldScreen(writer io.Writer, label string, fields []Field, selected,
 	if title == "" {
 		title = strings.TrimSpace(label)
 	}
-	lines := make([]string, 0, height)
-	lines = append(lines, screenFullBorder(width))
-	lines = append(lines, screenFullLine(" "+styleAccent("NopsAI")+" "+styleDim("|")+" "+styleBold(title), width))
-	for _, header := range options.Header {
-		if strings.TrimSpace(header) != "" && len(lines) < 5 {
-			lines = append(lines, screenFullLine(" "+formatScreenHeaderLine(header), width))
-		}
-	}
-	if progress := fieldProgressHeaderLine(fields, selected, completed); progress != "" && len(lines) < 6 {
-		lines = append(lines, screenFullLine(" "+formatScreenHeaderLine(progress), width))
-	}
+	header := append([]string(nil), options.Header...)
 	footer := options.Footer
 	if len(footer) == 0 {
 		footer = []string{
@@ -921,51 +867,17 @@ func renderFieldScreen(writer io.Writer, label string, fields []Field, selected,
 			"Boolean: y yes, n no, Space toggle | Multiline: Enter new line, Tab next",
 		}
 	}
-	leftWidth := screenLeftWidthForOptions(width, options)
-	rightWidth := width - leftWidth - 7
-	if rightWidth < 20 {
-		rightWidth = 20
+	footer = zenStableFooterLines()
+	bodyHeight := zenBodyHeight(height, footer)
+	blockWidth := zenBlockWidth(width)
+	var body []string
+	if len(options.ParameterLines) > 0 {
+		blockWidth = zenChoiceBlockWidth(width)
+		body = zenAnchoredFieldBlock(label, fields, selected, offset, completed, status, options.ActionLabel, blockWidth, bodyHeight, options)
+	} else {
+		body = zenFieldBlock(label, fields, selected, offset, completed, status, options.ActionLabel, blockWidth, bodyHeight)
 	}
-	bodyHeight := height - len(lines) - len(footer) - 5
-	if bodyHeight < 4 {
-		bodyHeight = 4
-	}
-	leftTitle := strings.TrimSpace(options.LeftTitle)
-	if leftTitle == "" {
-		leftTitle = "Steps"
-	}
-	rightTitle := strings.TrimSpace(options.RightTitle)
-	if rightTitle == "" {
-		rightTitle = "Values & Details"
-	}
-	leftLines := fieldSidebarLines(label, fields, selected, offset, completed, options.Sidebar, options.ActionLabel, leftWidth, bodyHeight)
-	rightLines := fieldDetailPanelLines(fields, selected, completed, status, options.ActionLabel, rightWidth, bodyHeight)
-	lines = append(lines, screenPaneBorder(width, leftWidth, rightWidth))
-	lines = append(lines, screenPaneLine(styleBold(strings.ToUpper(leftTitle)), styleBold(strings.ToUpper(rightTitle)), leftWidth, rightWidth))
-	lines = append(lines, screenPaneBorder(width, leftWidth, rightWidth))
-	for row := 0; row < bodyHeight; row++ {
-		left := ""
-		if row < len(leftLines) {
-			left = leftLines[row]
-		}
-		right := ""
-		if row < len(rightLines) {
-			right = rightLines[row]
-		}
-		lines = append(lines, screenPaneLine(left, right, leftWidth, rightWidth))
-	}
-	lines = append(lines, screenPaneBorder(width, leftWidth, rightWidth))
-	for _, footerLine := range footer {
-		lines = append(lines, screenFullLine(" "+formatScreenFooterLine(footerLine), width))
-	}
-	lines = append(lines, screenFullBorder(width))
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	return writeScreen(writer, lines, width)
+	return writeZenScreen(writer, title, header, body, footer, width, height, blockWidth, true)
 }
 
 func renderCompactFieldScreen(writer io.Writer, label string, fields []Field, selected int, status string, width int) error {
@@ -1006,23 +918,16 @@ func renderTextScreen(writer io.Writer, label string, content []string, offset, 
 	if title == "" {
 		title = strings.TrimSpace(label)
 	}
-	lines := make([]string, 0, height)
-	lines = append(lines, screenFullBorder(width))
-	lines = append(lines, screenFullLine(" "+styleAccent("NopsAI")+" "+styleDim("|")+" "+styleBold(title), width))
-	for _, header := range options.Header {
-		if strings.TrimSpace(header) != "" && len(lines) < 5 {
-			lines = append(lines, screenFullLine(" "+formatScreenHeaderLine(header), width))
-		}
-	}
 	footer := options.Footer
 	if len(footer) == 0 {
 		footer = []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter/Esc back | Ctrl+C quit"}
 	}
-	bodyHeight := height - len(lines) - len(footer) - 3
+	footer = zenStableFooterLines()
+	bodyHeight := zenBodyHeight(height, footer)
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}
-	panelWidth := textPanelWidth(width)
+	blockWidth := zenTextBlockWidth(width)
 	end := offset + bodyHeight
 	if end > len(content) {
 		end = len(content)
@@ -1031,29 +936,16 @@ func renderTextScreen(writer io.Writer, label string, content []string, offset, 
 	if len(content) == 0 {
 		status = "No output"
 	}
-	lines = append(lines, screenFullBorder(width))
-	lines = append(lines, screenFullLine(" "+status, width))
-	lines = append(lines, screenFullBorder(width))
+	body := []string{styleDim(status), strings.Repeat("-", minInt(blockWidth, 34))}
 	for row := 0; row < bodyHeight; row++ {
 		text := ""
 		index := offset + row
 		if index < len(content) {
 			text = content[index]
 		}
-		lines = append(lines, screenFullLine(" "+padScreenCell(text, panelWidth), width))
+		body = append(body, truncateChoiceLine(text, blockWidth+1))
 	}
-	lines = append(lines, screenFullBorder(width))
-	for _, footerLine := range footer {
-		lines = append(lines, screenFullLine(" "+formatScreenFooterLine(footerLine), width))
-	}
-	lines = append(lines, screenFullBorder(width))
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	return writeScreen(writer, lines, width)
+	return writeZenScreen(writer, title, options.Header, body, footer, width, height, blockWidth, false)
 }
 
 func renderCompactTextScreen(writer io.Writer, label string, content []string, offset, width, height int) error {
@@ -1079,34 +971,767 @@ func renderCompactTextScreen(writer io.Writer, label string, content []string, o
 	return writeChoiceLine(writer, width, "Keys: scroll | Enter/Esc back | Ctrl+C quit")
 }
 
+func zenBodyHeight(height int, footer []string) int {
+	bodyHeight := height - 1 - len(footer)
+	if bodyHeight < 1 {
+		return 1
+	}
+	return bodyHeight
+}
+
+func zenBlockWidth(width int) int {
+	blockWidth := width - 12
+	if blockWidth > 56 {
+		blockWidth = 56
+	}
+	if blockWidth < 38 {
+		blockWidth = width - 4
+	}
+	if blockWidth < 20 {
+		blockWidth = 20
+	}
+	return blockWidth
+}
+
+func zenChoiceBlockWidth(width int) int {
+	blockWidth := width - 8
+	if blockWidth > 160 {
+		blockWidth = 160
+	}
+	if blockWidth < 56 {
+		blockWidth = width - 4
+	}
+	if blockWidth < 20 {
+		blockWidth = 20
+	}
+	return blockWidth
+}
+
+func zenTextBlockWidth(width int) int {
+	blockWidth := width - 8
+	if blockWidth > 104 {
+		blockWidth = 104
+	}
+	if blockWidth < 38 {
+		blockWidth = width - 4
+	}
+	if blockWidth < 20 {
+		blockWidth = 20
+	}
+	return blockWidth
+}
+
+func zenStableFooterLines() []string {
+	return []string{
+		"Keys: type filter | Up/Down move | PgUp/PgDn jump | Enter select | Esc quit | Ctrl+C quit",
+		"Quick: nopsai api call --interactive | nopsai api request GET /v1/auth/me | nopsai platform release --interactive",
+	}
+}
+
+func writeZenScreen(writer io.Writer, title string, headers []string, body []string, footer []string, width, height, blockWidth int, center bool) error {
+	if width <= 0 {
+		width = fallbackChoiceTerminalWidth
+	}
+	if height <= 0 {
+		height = fallbackChoiceTerminalHeight
+	}
+	lines := make([]string, 0, height)
+	lines = append(lines, screenFullLine(zenHeaderLine(title, headers), width))
+	bodyRows := height - 1 - len(footer)
+	if bodyRows < 0 {
+		bodyRows = 0
+	}
+	body = screenClipLines(body, blockWidth, bodyRows)
+	topPad := 0
+	if center && bodyRows > len(body) {
+		topPad = (bodyRows - len(body)) / 2
+	}
+	for row := 0; row < topPad && len(lines) < height-len(footer); row++ {
+		lines = append(lines, "")
+	}
+	for _, line := range body {
+		if len(lines) >= height-len(footer) {
+			break
+		}
+		lines = append(lines, zenBlockLine(line, width, blockWidth))
+	}
+	for len(lines) < height-len(footer) {
+		lines = append(lines, "")
+	}
+	for _, footerLine := range footer {
+		lines = append(lines, screenFullLine(" "+zenFooterLine(footerLine), width))
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return writeScreen(writer, lines, width)
+}
+
+func zenHeaderLine(title string, headers []string) string {
+	parts := []string{styleBold("NopsAI CLI"), "Home"}
+	for _, header := range headers {
+		for _, part := range strings.Split(header, "|") {
+			part = strings.TrimSpace(part)
+			if zenHeaderPartAllowed(part) {
+				parts = append(parts, formatScreenHeaderLine(part))
+			}
+		}
+	}
+	_ = title
+	return strings.Join(parts, " "+styleDim("|")+" ")
+}
+
+func zenHeaderPartAllowed(part string) bool {
+	label, _, ok := strings.Cut(strings.TrimSpace(part), ":")
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "version", "context", "api", "user", "token", "health", "warning":
+		return true
+	default:
+		return false
+	}
+}
+
+func zenFooterLine(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "Keys:"))
+	if value == "" {
+		return ""
+	}
+	parts := strings.Split(value, "|")
+	for index := range parts {
+		parts[index] = strings.TrimSpace(parts[index])
+	}
+	return styleDim(strings.Join(parts, "  |  "))
+}
+
+func zenBlockLine(value string, width, blockWidth int) string {
+	if blockWidth > width-2 {
+		blockWidth = width - 2
+	}
+	if blockWidth < 1 {
+		blockWidth = 1
+	}
+	indent := (width - blockWidth) / 2
+	if indent < 0 {
+		indent = 0
+	}
+	return strings.Repeat(" ", indent) + padScreenCell(value, blockWidth)
+}
+
+func zenChoiceBlock(label string, choices []Choice, query string, matches []int, selected, offset, width, height int, options ScreenOptions) []string {
+	if height < 6 {
+		height = 6
+	}
+	guide := zenChoiceGuideLines(choices, matches, selected, width, options)
+	rowCount, guideRows := zenChoiceLayoutRows(height)
+	title := zenChoiceTitle(label, query, len(matches), offset, rowCount, options)
+	lines := []string{title, ""}
+	if len(matches) == 0 {
+		lines = append(lines, "No matches.")
+		if rowCount > 1 {
+			lines = append(lines, styleDim("Backspace widens the search."))
+		}
+	} else {
+		for row := 0; row < rowCount; row++ {
+			matchIndex := offset + row
+			if matchIndex >= len(matches) {
+				break
+			}
+			prefix := "  "
+			if matchIndex == selected {
+				prefix = "> "
+			}
+			choiceLabel, _ := choiceDisplay(choices[matches[matchIndex]])
+			line := prefix + choiceLabel
+			if matchIndex == selected {
+				line = styleSelected(line)
+			}
+			lines = append(lines, truncateChoiceLine(line, width+1))
+		}
+	}
+	for len(lines) < rowCount+2 {
+		lines = append(lines, "")
+	}
+	if guideRows > 0 {
+		lines = append(lines, "", strings.Repeat("_", minInt(width, 34)))
+		lines = append(lines, zenChoiceGuideRows(guide, nil, width, guideRows)...)
+	}
+	return screenClipLines(lines, width, height)
+}
+
+func zenChoiceLayoutRows(height int) (int, int) {
+	if height < 1 {
+		return 1, 0
+	}
+	guideRows := 8
+	if height < zenChoiceViewportSize+4+guideRows {
+		guideRows = height - zenChoiceViewportSize - 4
+	}
+	if guideRows < 0 {
+		guideRows = 0
+	}
+	rowCount := minInt(zenChoiceViewportSize, height-guideRows-4)
+	if height >= zenChoiceViewportSize+4 && rowCount < zenChoiceViewportSize {
+		rowCount = zenChoiceViewportSize
+		guideRows = height - rowCount - 4
+	}
+	if rowCount < 1 {
+		rowCount = 1
+		guideRows = height - rowCount - 4
+	}
+	if guideRows < 0 {
+		guideRows = 0
+	}
+	if guideRows > 8 {
+		guideRows = 8
+	}
+	return rowCount, guideRows
+}
+
+func zenChoiceTitle(label, query string, matchCount, offset, rowCount int, options ScreenOptions) string {
+	title := zenChoiceBreadcrumbTitle(label, options)
+	if queryText := strings.TrimSpace(query); queryText != "" {
+		title += " | Search: " + queryText
+	}
+	if matchCount <= 0 || rowCount <= 0 {
+		return title
+	}
+	end := offset + rowCount
+	if end > matchCount {
+		end = matchCount
+	}
+	if matchCount > rowCount || offset > 0 {
+		title += fmt.Sprintf(" (%d-%d of %d)", offset+1, end, matchCount)
+	}
+	return title
+}
+
+func zenChoiceBreadcrumbTitle(label string, options ScreenOptions) string {
+	crumbs := make([]string, 0, len(options.Breadcrumb)+2)
+	for _, crumb := range options.Breadcrumb {
+		crumb = strings.TrimSpace(crumb)
+		if crumb != "" {
+			crumbs = append(crumbs, crumb)
+		}
+	}
+	if len(crumbs) == 0 {
+		title := strings.TrimSpace(label)
+		if title == "" {
+			title = strings.TrimSpace(options.Title)
+		}
+		if strings.EqualFold(title, "home") || strings.EqualFold(title, "nopsai home") {
+			return "Home"
+		}
+		if title == "" {
+			return "Home"
+		}
+		crumbs = append(crumbs, "Home", title)
+	}
+	if len(crumbs) == 1 {
+		return crumbs[0]
+	}
+	return strings.Join(crumbs, " > ") + " >"
+}
+
+func zenChoiceGuideLines(choices []Choice, matches []int, selected, width int, options ScreenOptions) []string {
+	if len(matches) == 0 {
+		return wrapScreenLinesPreserve([]string{"Guide: Type to filter choices, or use Backspace to widen the search."}, width)
+	}
+	choiceIndex := matches[selected]
+	choice := choices[choiceIndex]
+	rawDetails := []string(nil)
+	if options.Detail != nil {
+		rawDetails = options.Detail(choiceIndex, choice)
+	}
+	guide := zenDetailGuide(rawDetails)
+	if _, description := choiceDisplay(choice); description != "" {
+		if guide == "" {
+			guide = description
+		}
+	}
+	if guide == "" {
+		guide = "Press Enter to select this item."
+	}
+	raw := zenLabeledParagraph("Guide", guide, width)
+	if examples := zenDetailExamples(rawDetails); len(examples) > 0 {
+		raw = append(raw, zenExampleLines(examples, width)...)
+	}
+	return raw
+}
+
+func zenChoiceParameterLines(choices []Choice, matches []int, selected, width int, options ScreenOptions) []string {
+	if len(matches) == 0 {
+		return nil
+	}
+	choiceIndex := matches[selected]
+	choice := choices[choiceIndex]
+	parameters := append([]string(nil), choice.Parameters...)
+	if options.Parameters != nil {
+		parameters = append(parameters, options.Parameters(choiceIndex, choice)...)
+	}
+	return zenParameterLines(parameters, width)
+}
+
+func zenParameterLines(parameters []string, width int) []string {
+	cleaned := make([]string, 0, len(parameters)+1)
+	for _, parameter := range parameters {
+		parameter = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(parameter), "-"))
+		if parameter != "" {
+			cleaned = append(cleaned, "- "+parameter)
+		}
+	}
+	if len(cleaned) < 2 {
+		return nil
+	}
+	lines := append([]string{"Parameters"}, cleaned...)
+	return screenClipLines(lines, width, len(lines))
+}
+
+func zenChoiceGuideRows(guide, parameters []string, width, rows int) []string {
+	if rows <= 0 {
+		return nil
+	}
+	if len(parameters) == 0 || width < 72 {
+		return fixedScreenRows(guide, width, rows)
+	}
+	paramWidth := width / 3
+	if paramWidth < 24 {
+		paramWidth = 24
+	}
+	if paramWidth > 36 {
+		paramWidth = 36
+	}
+	guideWidth := width - paramWidth - 3
+	if guideWidth < 28 {
+		return fixedScreenRows(append(guide, append([]string{""}, parameters...)...), width, rows)
+	}
+	left := fixedScreenRows(guide, guideWidth, rows)
+	right := fixedScreenRows(parameters, paramWidth, rows)
+	lines := make([]string, 0, rows)
+	for row := 0; row < rows; row++ {
+		lines = append(lines, padScreenCell(left[row], guideWidth)+"   "+right[row])
+	}
+	return lines
+}
+
+func fixedScreenRows(lines []string, width, rows int) []string {
+	lines = screenClipLines(wrapScreenLinesPreserve(lines, width), width, rows)
+	for len(lines) < rows {
+		lines = append(lines, "")
+	}
+	return lines
+}
+
+func zenAnchoredFieldBlock(label string, fields []Field, selected, offset int, completed []bool, status, actionLabel string, width, height int, options ScreenOptions) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	rowCount, guideRows := zenChoiceLayoutRows(height)
+	title := zenChoiceBreadcrumbTitle(label, options)
+	lines := []string{title, ""}
+	fieldRows := zenFieldMenuRows(fields, selected, offset, completed, width, rowCount)
+	lines = append(lines, fieldRows...)
+	for len(lines) < rowCount+2 {
+		lines = append(lines, "")
+	}
+	if guideRows > 0 {
+		field := fields[selected]
+		guide := zenFieldGuideLines(field, status, width)
+		lines = append(lines, "", strings.Repeat("_", minInt(width, 34)))
+		lines = append(lines, zenChoiceGuideRows(guide, nil, width, guideRows)...)
+	}
+	_ = options
+	_ = actionLabel
+	return screenClipLines(lines, width, height)
+}
+
+func zenFieldMenuRows(fields []Field, selected, offset int, completed []bool, width, rowCount int) []string {
+	if rowCount <= 0 {
+		return nil
+	}
+	rows := make([]string, 0, rowCount)
+	rows = append(rows, "Parameters")
+	for index := offset; index < len(fields) && len(rows) < rowCount; index++ {
+		fieldRows := zenFieldParameterRows(fields[index], index, selected, completed, width)
+		for _, row := range fieldRows {
+			if len(rows) >= rowCount {
+				break
+			}
+			rows = append(rows, row)
+		}
+	}
+	return fixedScreenRows(rows, width, rowCount)
+}
+
+func zenFieldParameterRows(field Field, index, selected int, completed []bool, width int) []string {
+	label := zenFieldParameterLabel(field)
+	prefix := "○"
+	if fieldCompleted(index, completed) {
+		prefix = "✓"
+	}
+	if index == selected {
+		prefix = "  >"
+	}
+	row := fmt.Sprintf("%s %d. %s", prefix, index+1, label)
+	if index != selected {
+		return []string{truncateChoiceLine(row, width+1)}
+	}
+	row = zenFieldSelectedParameterRow(row, field, width)
+	return []string{
+		truncateChoiceLine(styleSelected(row), width+1),
+		zenFieldSelectedValueRow(field, width),
+	}
+}
+
+func zenFieldSelectedParameterRow(row string, field Field, width int) string {
+	if !field.Required {
+		return row
+	}
+	required := "Required"
+	column := width / 2
+	if column < 36 {
+		column = 36
+	}
+	spaces := column - visibleRuneCount(row)
+	if spaces < 2 {
+		spaces = 2
+	}
+	return row + strings.Repeat(" ", spaces) + required
+}
+
+func zenFieldSelectedValueRow(field Field, width int) string {
+	value := zenFieldInlineValue(field)
+	prefix := "Value: "
+	indent := width / 2
+	if indent < 8 {
+		indent = 8
+	}
+	row := strings.Repeat(" ", indent) + prefix + value
+	return truncateChoiceLine(row, width+1)
+}
+
+func zenFieldInlineValue(field Field) string {
+	if strings.TrimSpace(field.Value) == "" && strings.TrimSpace(field.Default) == "" {
+		return styleBlink("|")
+	}
+	if field.Multiline {
+		value := field.Value
+		if strings.TrimSpace(value) == "" && strings.TrimSpace(field.Default) != "" {
+			value = field.Default
+		}
+		lines := strings.Split(strings.TrimRight(value, "\n"), "\n")
+		if len(lines) > 1 {
+			return fmt.Sprintf("%d lines", len(lines))
+		}
+		if len(lines) == 1 && strings.TrimSpace(lines[0]) != "" {
+			return strings.TrimSpace(lines[0])
+		}
+		return styleBlink("|")
+	}
+	return fieldSummary(field)
+}
+
+func zenFieldParameterLabel(field Field) string {
+	name := strings.TrimSpace(field.Name)
+	switch {
+	case strings.HasPrefix(name, "path."):
+		return "path: " + strings.TrimPrefix(name, "path.")
+	case strings.HasPrefix(name, "query."):
+		key := strings.TrimPrefix(name, "query.")
+		if key == "extra" {
+			return "additional query values"
+		}
+		return "query: " + key
+	case name == "body.file":
+		return "payload file"
+	case name == "body.raw":
+		return "payload editor"
+	case name == "contentType":
+		return "payload media type"
+	case name == "accept":
+		return "response format"
+	case name == "auth":
+		return "attach bearer token"
+	case name == "send":
+		return "send request"
+	default:
+		return strings.ToLower(strings.TrimSuffix(fieldDisplayLabel(field), "?"))
+	}
+}
+
+func zenFieldGuideLines(field Field, status string, width int) []string {
+	lines := make([]string, 0)
+	if strings.TrimSpace(field.Description) != "" {
+		lines = append(lines, zenLabeledParagraph("Guide", strings.TrimSpace(field.Description), width)...)
+	}
+	if strings.TrimSpace(field.Example) != "" {
+		lines = append(lines, zenExampleLines(strings.Split(strings.TrimSpace(field.Example), "\n"), width)...)
+	}
+	if strings.TrimSpace(status) != "" {
+		lines = append(lines, zenLabeledParagraph("Validation", strings.TrimSpace(status), width)...)
+	}
+	if len(lines) == 0 {
+		lines = zenLabeledParagraph("Guide", "Press Enter to continue.", width)
+	}
+	return lines
+}
+
+func zenFieldParameterLines(parameters []string, fields []Field, selected, width int) []string {
+	lines := zenParameterLines(parameters, width)
+	if len(lines) == 0 {
+		fieldParameters := make([]string, 0, len(fields))
+		for _, field := range fields {
+			fieldParameters = append(fieldParameters, fieldDisplayLabel(field))
+		}
+		lines = zenParameterLines(fieldParameters, width)
+	}
+	if selected < 0 || selected >= len(fields) {
+		return lines
+	}
+	current := fieldDisplayLabel(fields[selected])
+	currentLower := strings.ToLower(current)
+	nameLower := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(fields[selected].Name), ".", " "))
+	shortNameLower := nameLower
+	if _, suffix, ok := strings.Cut(shortNameLower, " "); ok {
+		shortNameLower = suffix
+	}
+	for index := range lines {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(lines[index], "-"))
+		trimmedLower := strings.ToLower(trimmed)
+		if strings.EqualFold(trimmed, current) ||
+			strings.Contains(trimmedLower, currentLower) ||
+			strings.Contains(currentLower, trimmedLower) ||
+			(nameLower != "" && strings.Contains(trimmedLower, nameLower)) ||
+			(shortNameLower != "" && strings.Contains(trimmedLower, shortNameLower)) {
+			lines[index] = strings.Replace(lines[index], "- ", "> ", 1)
+			break
+		}
+	}
+	return lines
+}
+
+func zenFieldBlock(label string, fields []Field, selected, offset int, completed []bool, status, actionLabel string, width, height int) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	field := fields[selected]
+	lines := []string{
+		zenFieldTitle(field),
+		"",
+	}
+	lines = append(lines, zenFieldInputLines(field, width)...)
+	lines = append(lines, "", strings.Repeat("_", minInt(width, 34)))
+	if strings.TrimSpace(field.Description) != "" {
+		lines = append(lines, zenLabeledParagraph("Guide", strings.TrimSpace(field.Description), width)...)
+	}
+	if strings.TrimSpace(field.Example) != "" {
+		lines = append(lines, zenExampleLines(strings.Split(strings.TrimSpace(field.Example), "\n"), width)...)
+	}
+	if strings.TrimSpace(status) != "" {
+		lines = append(lines, zenLabeledParagraph("Validation", strings.TrimSpace(status), width)...)
+	}
+	_ = label
+	_ = offset
+	_ = completed
+	_ = actionLabel
+	return screenClipLines(wrapScreenLinesPreserve(lines, width), width, height)
+}
+
+func zenFieldTitle(field Field) string {
+	label := fieldDisplayLabel(field)
+	if field.Kind != FieldBoolean {
+		return label
+	}
+	return titleCaseQuestion(label)
+}
+
+func titleCaseQuestion(value string) string {
+	words := strings.Fields(strings.TrimSuffix(strings.TrimSpace(value), "?"))
+	for index, word := range words {
+		if word == strings.ToLower(word) && len(word) > 0 {
+			words[index] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	if len(words) == 0 {
+		return "Confirm?"
+	}
+	return strings.Join(words, " ") + "?"
+}
+
+func zenFieldInputLines(field Field, width int) []string {
+	value := field.Value
+	if strings.TrimSpace(value) == "" && strings.TrimSpace(field.Default) != "" {
+		value = field.Default
+	}
+	if field.Kind == FieldBoolean {
+		yesPrefix := "  "
+		noPrefix := "  "
+		if parseFieldBool(value) {
+			yesPrefix = "> "
+		} else {
+			noPrefix = "> "
+		}
+		return []string{
+			yesPrefix + "Yes" + fieldBooleanDefaultNote(field, true),
+			noPrefix + "No" + fieldBooleanDefaultNote(field, false),
+		}
+	}
+	if field.Multiline {
+		lines := []string{}
+		inputLines := fieldInputLines(field)
+		for _, line := range inputLines {
+			lines = append(lines, truncateChoiceLine(line, width+1))
+		}
+		return lines
+	}
+	if strings.TrimSpace(field.Value) == "" && strings.TrimSpace(field.Default) == "" {
+		return []string{"Value: " + styleBlink("|")}
+	}
+	return []string{"Value: " + fieldSummary(field)}
+}
+
+func fieldBooleanDefaultNote(field Field, option bool) string {
+	if strings.TrimSpace(field.Default) == "" || parseFieldBool(field.Default) != option {
+		return ""
+	}
+	if fieldContextDefault(field) {
+		return " (Context default)"
+	}
+	return " (default)"
+}
+
+func fieldContextDefault(field Field) bool {
+	text := strings.ToLower(strings.Join([]string{field.Name, field.Label, field.Description}, " "))
+	return strings.Contains(text, "auth") || strings.Contains(text, "bearer") || strings.Contains(text, "token") || strings.Contains(text, "context")
+}
+
+func zenLabeledParagraph(label, value string, width int) []string {
+	label = strings.TrimSpace(label)
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	prefix := label + ": "
+	continuation := strings.Repeat(" ", visibleRuneCount(prefix))
+	contentWidth := width - visibleRuneCount(prefix)
+	if contentWidth < 12 {
+		contentWidth = width
+		continuation = ""
+		prefix = ""
+	}
+	parts := wrapScreenLines([]string{value}, contentWidth)
+	out := make([]string, 0, len(parts))
+	for index, part := range parts {
+		if index == 0 {
+			out = append(out, prefix+part)
+			continue
+		}
+		out = append(out, continuation+part)
+	}
+	return out
+}
+
+func zenExampleLines(examples []string, width int) []string {
+	cleaned := make([]string, 0, len(examples))
+	for _, example := range examples {
+		example = strings.TrimSpace(example)
+		if example != "" {
+			cleaned = append(cleaned, example)
+		}
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	if len(cleaned) == 1 {
+		return zenLabeledParagraph("Example", cleaned[0], width)
+	}
+	out := []string{"Example:"}
+	for _, example := range cleaned {
+		out = append(out, "  "+example)
+	}
+	return out
+}
+
+func zenDetailGuide(lines []string) string {
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if guide, ok := cutGuideValue(trimmed); ok {
+			return guide
+		}
+		if strings.EqualFold(trimmed, "Guide") && index+1 < len(lines) {
+			return strings.TrimSpace(lines[index+1])
+		}
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.EqualFold(trimmed, "Example") && !strings.HasPrefix(strings.ToLower(trimmed), "example:") {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func cutGuideValue(line string) (string, bool) {
+	prefix := "guide:"
+	if strings.HasPrefix(strings.ToLower(line), prefix) {
+		return strings.TrimSpace(line[len(prefix):]), true
+	}
+	return "", false
+}
+
+func zenDetailExamples(lines []string) []string {
+	examples := make([]string, 0)
+	capturing := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if capturing {
+				break
+			}
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "example:") {
+			value := strings.TrimSpace(trimmed[len("example:"):])
+			if value != "" {
+				examples = append(examples, value)
+			}
+			capturing = true
+			continue
+		}
+		if strings.EqualFold(trimmed, "Example") || strings.EqualFold(trimmed, "Examples") {
+			capturing = true
+			continue
+		}
+		if capturing {
+			examples = append(examples, trimmed)
+		}
+	}
+	return examples
+}
+
 func screenFullBorder(width int) string {
 	if width < 2 {
 		return strings.Repeat("-", width)
 	}
-	return styleDim("+" + strings.Repeat("-", width-2) + "+")
+	return styleDim(strings.Repeat("-", width))
 }
 
 func screenFullLine(value string, width int) string {
-	inner := width - 2
+	inner := width - 1
 	if inner < 1 {
 		return truncateChoiceLine(value, width+1)
 	}
-	return styleDim("|") + padScreenCell(value, inner) + styleDim("|")
-}
-
-func screenPaneBorder(width, leftWidth, rightWidth int) string {
-	total := leftWidth + rightWidth + 7
-	if total != width {
-		rightWidth += width - total
-		if rightWidth < 1 {
-			rightWidth = 1
-		}
-	}
-	return styleDim("+" + strings.Repeat("-", leftWidth+2) + "+" + strings.Repeat("-", rightWidth+2) + "+")
+	return " " + padScreenCell(value, inner)
 }
 
 func screenPaneLine(left, right string, leftWidth, rightWidth int) string {
-	return styleDim("|") + " " + padScreenCell(left, leftWidth) + " " + styleDim("|") + " " + padScreenCell(right, rightWidth) + " " + styleDim("|")
+	return " " + padScreenCell(left, leftWidth) + " " + styleDim("|") + " " + padScreenCell(right, rightWidth)
 }
 
 func screenLeftWidth(width int) int {
@@ -1143,6 +1768,18 @@ func screenLeftWidthForOptions(width int, options ScreenOptions) int {
 	return screenLeftWidth(width)
 }
 
+func screenTitleLine(title string, headers []string) string {
+	parts := []string{styleBold("NopsAI CLI") + " " + styleAccent("("+strings.TrimSpace(title)+")")}
+	for _, header := range headers {
+		header = strings.TrimSpace(header)
+		if header == "" {
+			continue
+		}
+		parts = append(parts, formatScreenHeaderLine(header))
+	}
+	return strings.Join(parts, " "+styleDim("|")+" ")
+}
+
 func fieldSidebarLines(label string, fields []Field, selected, offset int, completed []bool, sidebar []string, actionLabel string, width, height int) []string {
 	lines := make([]string, 0, height)
 	if len(sidebar) > 0 {
@@ -1158,21 +1795,21 @@ func fieldSidebarLines(label string, fields []Field, selected, offset int, compl
 	stepOffset := ensureChoiceOffsetRows(selected, offset, len(fields), stepRows)
 	lines = append(lines,
 		"",
-		styleBold("Progress"),
+		styleAccent("PROGRESS"),
 		fmt.Sprintf("Step: %d of %d", selected+1, len(fields)),
 		"Current: "+fieldDisplayLabel(fields[selected]),
 		fmt.Sprintf("Done: %d of %d", done, len(fields)),
 		fmt.Sprintf("Needs input: %d", needsInput),
 		"",
-		styleBold("Steps"),
+		styleAccent("STEPS"),
 	)
 	lines = append(lines, fieldStepLines(fields, selected, stepOffset, completed, width-2, stepRows)...)
 	lines = append(lines,
 		"",
-		styleBold("Final action"),
+		styleAccent("FINAL ACTION"),
 		fieldFinalActionLine(actionLabel, fields),
 		"",
-		styleBold("Navigation"),
+		styleAccent("ACTIONS"),
 		"Esc: back",
 		"Ctrl+C: quit",
 		"Up/Down: step",
@@ -1180,7 +1817,7 @@ func fieldSidebarLines(label string, fields []Field, selected, offset int, compl
 		"Ctrl+S: send/save",
 	)
 	if fields[selected].Multiline {
-		lines = append(lines, "", styleBold("Multiline"), "Enter: new line", "Tab: next step")
+		lines = append(lines, "", styleAccent("MULTILINE"), "Enter: new line", "Tab: next step")
 	}
 	for index := range lines {
 		lines[index] = formatSidebarLine(lines[index])
@@ -1277,7 +1914,7 @@ func fieldStepLines(fields []Field, selected, offset int, completed []bool, widt
 	for index := offset; index < end; index++ {
 		field := fields[index]
 		status := fieldStatusLabel(field, index, selected, completed)
-		line := fmt.Sprintf("%2d. %-30s %s", index+1, fieldDisplayLabel(field), status)
+		line := fmt.Sprintf("%2d. %-28s %s", index+1, fieldDisplayLabel(field), status)
 		if index == selected {
 			line = styleSelected(line)
 		} else if fieldCompleted(index, completed) {
@@ -1373,15 +2010,15 @@ func fieldProgress(fields []Field, completed []bool) (int, int) {
 func fieldStatusLabel(field Field, index, selected int, completed []bool) string {
 	switch {
 	case index == selected:
-		return styleAccent("current step")
+		return styleAccent("->")
 	case fieldCompleted(index, completed) && strings.TrimSpace(field.Value) != "":
 		return styleOK("done")
 	case fieldCompleted(index, completed):
 		return styleDim("skipped")
 	case strings.TrimSpace(field.Value) != "":
-		return styleDim("prefilled")
+		return styleDim("prefill")
 	case field.Required:
-		return styleWarning("needs input")
+		return styleWarning("required")
 	default:
 		return styleDim("optional")
 	}
@@ -1444,13 +2081,13 @@ func screenSectionLines(sections []screenSection, width int) []string {
 	if width < 12 {
 		out := make([]string, 0)
 		for _, section := range sections {
-			out = append(out, strings.TrimSpace(section.Title))
+			out = append(out, styleAccent(strings.ToUpper(strings.TrimSpace(section.Title))))
 			out = append(out, section.Lines...)
 			out = append(out, "")
 		}
 		return wrapScreenLines(out, width)
 	}
-	out := make([]string, 0, len(sections)*5)
+	out := make([]string, 0, len(sections)*4)
 	for sectionIndex, section := range sections {
 		if sectionIndex > 0 {
 			out = append(out, "")
@@ -1459,19 +2096,15 @@ func screenSectionLines(sections []screenSection, width int) []string {
 		if title == "" {
 			title = "Details"
 		}
-		border := "+" + strings.Repeat("-", width-2) + "+"
-		out = append(out, styleDim(border))
-		out = append(out, styleDim("| ")+padScreenCell(styleBold(title), width-4)+styleDim(" |"))
-		out = append(out, styleDim(border))
-		contentWidth := width - 4
-		wrapped := wrapScreenLines(section.Lines, contentWidth)
+		out = append(out, styleAccent(strings.ToUpper(title)))
+		contentWidth := width - 2
+		wrapped := wrapScreenLinesPreserve(section.Lines, contentWidth)
 		if len(wrapped) == 0 {
 			wrapped = []string{""}
 		}
 		for _, line := range wrapped {
-			out = append(out, styleDim("| ")+padScreenCell(line, contentWidth)+styleDim(" |"))
+			out = append(out, line)
 		}
-		out = append(out, styleDim(border))
 	}
 	return out
 }
@@ -1510,22 +2143,20 @@ func formatFieldBool(value bool) string {
 func screenMenuLines(label string, choices []Choice, query string, matches []int, selected, offset, width, height int) []string {
 	searchText := query
 	if searchText == "" {
-		searchText = "type to filter"
+		searchText = "Type to filter..."
 	}
-	lines := []string{"Filter: " + searchText}
+	lines := []string{styleDim(searchText), ""}
 	if len(matches) == 0 {
 		lines = append(lines, "", "No matches.", "Backspace widens the search.")
 		return screenClampLines(lines, width, height)
 	}
-	rowCount := height - len(lines) - 1
+	rowCount := height - len(lines)
 	if rowCount < 1 {
 		rowCount = 1
 	}
 	if rowCount > len(matches)-offset {
 		rowCount = len(matches) - offset
 	}
-	end := offset + rowCount
-	lines = append(lines, fmt.Sprintf("Matches: %d-%d of %d", offset+1, end, len(matches)))
 	for row := 0; row < rowCount; row++ {
 		matchIndex := offset + row
 		if matchIndex >= len(matches) {
@@ -1536,11 +2167,14 @@ func screenMenuLines(label string, choices []Choice, query string, matches []int
 			selector = ">"
 		}
 		label, _ := choiceDisplay(choices[matches[matchIndex]])
-		line := fmt.Sprintf("%s %3d  %s", selector, matchIndex+1, label)
+		line := fmt.Sprintf("%s %-3d %s", selector, matchIndex+1, label)
 		if matchIndex == selected {
 			line = styleSelected(line)
 		}
 		lines = append(lines, line)
+	}
+	if offset+rowCount < len(matches) {
+		lines = append(lines, styleDim(fmt.Sprintf("... and %d more", len(matches)-offset-rowCount)))
 	}
 	return screenClampLines(lines, width, height)
 }
@@ -1616,6 +2250,36 @@ func wrapScreenLines(lines []string, width int) []string {
 	return wrapped
 }
 
+func wrapScreenLinesPreserve(lines []string, width int) []string {
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimRight(line, " ")
+		if strings.TrimSpace(line) == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		prefixWidth := 0
+		for prefixWidth < len(line) && line[prefixWidth] == ' ' {
+			prefixWidth++
+		}
+		prefix := line[:prefixWidth]
+		content := strings.TrimLeft(line, " ")
+		contentWidth := width - visibleRuneCount(prefix)
+		if contentWidth < 8 {
+			contentWidth = width
+			prefix = ""
+		}
+		for index, part := range wrapScreenLines([]string{content}, contentWidth) {
+			if index == 0 {
+				wrapped = append(wrapped, prefix+part)
+				continue
+			}
+			wrapped = append(wrapped, prefix+part)
+		}
+	}
+	return wrapped
+}
+
 func splitLongScreenWord(word string, width int) []string {
 	if width <= 0 {
 		return []string{word}
@@ -1642,6 +2306,17 @@ func screenClampLines(lines []string, width, height int) []string {
 	}
 	for len(out) < height {
 		out = append(out, "")
+	}
+	return out
+}
+
+func screenClipLines(lines []string, width, height int) []string {
+	out := make([]string, 0, height)
+	for _, line := range lines {
+		if len(out) >= height {
+			break
+		}
+		out = append(out, truncateChoiceLine(line, width+1))
 	}
 	return out
 }
@@ -1711,7 +2386,7 @@ func styleAccent(value string) string {
 }
 
 func styleSelected(value string) string {
-	return styleANSI("7;1", value)
+	return styleBold(value)
 }
 
 func styleWarning(value string) string {
@@ -1724,6 +2399,10 @@ func styleOK(value string) string {
 
 func styleError(value string) string {
 	return styleANSI("1;31", value)
+}
+
+func styleBlink(value string) string {
+	return styleANSI("5", value)
 }
 
 func formatScreenFooterLine(value string) string {
@@ -1878,21 +2557,11 @@ func liveChoiceViewportSize(height int, options ScreenOptions) int {
 	if height <= 0 {
 		height = fallbackChoiceTerminalHeight
 	}
-	header := 2
-	if count := len(options.Header); count > 0 {
-		if count > 3 {
-			count = 3
-		}
-		header += count
-	}
-	footer := len(options.Footer)
-	if len(options.Footer) == 0 {
-		footer = 1
-	}
-	rows := height - header - footer - 9
+	rows, _ := zenChoiceLayoutRows(zenBodyHeight(height, zenStableFooterLines()))
 	if rows < 3 {
 		return 3
 	}
+	_ = options
 	return rows
 }
 
@@ -1900,21 +2569,18 @@ func liveFieldViewportSize(height int, options ScreenOptions) int {
 	if height <= 0 {
 		height = fallbackChoiceTerminalHeight
 	}
-	header := 2
-	if count := len(options.Header); count > 0 {
-		if count > 3 {
-			count = 3
+	if len(options.ParameterLines) > 0 {
+		rows, _ := zenChoiceLayoutRows(zenBodyHeight(height, zenStableFooterLines()))
+		if rows < 3 {
+			return 3
 		}
-		header += count
+		return rows
 	}
-	footer := len(options.Footer)
-	if footer == 0 {
-		footer = 2
-	}
-	rows := height - header - footer - 5
+	rows := zenBodyHeight(height, zenStableFooterLines())
 	if rows < 3 {
 		return 3
 	}
+	_ = options
 	return rows
 }
 
@@ -1922,21 +2588,11 @@ func liveTextViewportSize(height int, options ScreenOptions) int {
 	if height <= 0 {
 		height = fallbackChoiceTerminalHeight
 	}
-	header := 2
-	if count := len(options.Header); count > 0 {
-		if count > 3 {
-			count = 3
-		}
-		header += count
-	}
-	footer := len(options.Footer)
-	if footer == 0 {
-		footer = 1
-	}
-	rows := height - header - footer - 4
+	rows := zenBodyHeight(height, zenStableFooterLines()) - 2
 	if rows < 3 {
 		return 3
 	}
+	_ = options
 	return rows
 }
 
@@ -1953,6 +2609,16 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func clampInt(value, minimum, maximum int) int {
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
 }
 
 func matchChoices(choices []Choice, query string) []int {

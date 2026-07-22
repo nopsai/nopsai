@@ -221,7 +221,7 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if err != nil || selected != 2 {
 		t.Fatalf("filtered selector = %d, %v", selected, err)
 	}
-	if text := output.String(); !strings.Contains(text, "Filter: login") || !strings.Contains(text, ">   1  POST /v1/auth/login") || !strings.Contains(text, "\x1b[2J") || !strings.Contains(text, "+") {
+	if text := output.String(); !strings.Contains(text, "Search: login") || !strings.Contains(text, "> POST /v1/auth/login") || !strings.Contains(text, "Guide:") || !strings.Contains(text, "\x1b[2J") || strings.Contains(text, "+---") || strings.Contains(text, "DETAILS") {
 		t.Fatalf("filtered render = %q", text)
 	}
 
@@ -234,7 +234,7 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if err != nil || selected != 11 {
 		t.Fatalf("navigated selector = %d, %v", selected, err)
 	}
-	if !strings.Contains(output.String(), "Matches: 9-12 of 12") {
+	if !strings.Contains(output.String(), "choice-k") {
 		t.Fatalf("navigation did not scroll viewport: %q", output.String())
 	}
 
@@ -259,6 +259,123 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if _, err := runLiveChoiceSelector(bufio.NewReader(strings.NewReader(string([]byte{3}))), &bytes.Buffer{}, "Choice", choices, 80); !errors.Is(err, ErrCancelled) {
 		t.Fatalf("cancel error = %v", err)
 	}
+}
+
+func TestZenChoiceBlockCapsMenuRowsAndPinsGuide(t *testing.T) {
+	choices := make([]Choice, 0, 25)
+	matches := make([]int, 0, 25)
+	for index := 0; index < 25; index++ {
+		choices = append(choices, Choice{Label: "choice-" + string(rune('a'+index))})
+		matches = append(matches, index)
+	}
+
+	longBlock := zenChoiceBlock("Choice", choices, "", matches, 0, 0, 80, 32, ScreenOptions{})
+	longText := strings.Join(longBlock, "\n")
+	if !strings.Contains(longText, "choice-t") || strings.Contains(longText, "choice-u") {
+		t.Fatalf("long menu was not capped at 20 visible rows: %q", longText)
+	}
+
+	shortBlock := zenChoiceBlock("Choice", choices[:2], "", []int{0, 1}, 0, 0, 80, 32, ScreenOptions{})
+	if separatorIndex(longBlock) != separatorIndex(shortBlock) {
+		t.Fatalf("guide separator moved: long=%d short=%d", separatorIndex(longBlock), separatorIndex(shortBlock))
+	}
+
+	scrolledBlock := zenChoiceBlock("Choice", choices, "", matches, 20, 20, 80, 32, ScreenOptions{})
+	scrolledText := strings.Join(scrolledBlock, "\n")
+	if !strings.Contains(scrolledText, "choice-u") || strings.Contains(scrolledText, "> choice-a") {
+		t.Fatalf("scrolled menu did not honor offset: %q", scrolledText)
+	}
+}
+
+func TestZenChoiceBlockShowsLongLabelsAndBreadcrumbWithoutRightSideParameters(t *testing.T) {
+	longLabel := "POST    /v1/admin/service-accounts/{serviceAccountID}/tokens/{tokenID}/rotate"
+	choices := []Choice{{
+		Label: longLabel,
+		Parameters: []string{
+			"attach bearer token",
+			"service",
+			"token",
+		},
+	}}
+	block := zenChoiceBlock("API", choices, "", []int{0}, 0, 0, 112, 32, ScreenOptions{Breadcrumb: []string{"Home", "API"}})
+	text := strings.Join(block, "\n")
+	for _, want := range []string{"Home > API >", longLabel} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("choice block missing %q: %q", want, text)
+		}
+	}
+	for _, unwanted := range []string{"Parameters", "- attach bearer token", "- service", "- token"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("choice block rendered right-side parameter %q: %q", unwanted, text)
+		}
+	}
+	if strings.Contains(text, "/rotate...") {
+		t.Fatalf("long menu label was truncated: %q", text)
+	}
+}
+
+func TestZenChoiceBlockWidthUsesWideTerminals(t *testing.T) {
+	if got := zenChoiceBlockWidth(180); got < 160 {
+		t.Fatalf("zenChoiceBlockWidth(180) = %d; want at least 160", got)
+	}
+}
+
+func TestZenAnchoredFieldBlockKeepsMenuGeometryAndParameters(t *testing.T) {
+	choices := []Choice{{Label: "GET     /internal/v1/runtime-config/{service}"}}
+	choiceBlock := zenChoiceBlock("API", choices, "", []int{0}, 0, 0, 112, 32, ScreenOptions{Breadcrumb: []string{"Home", "API", "Catalog"}})
+	fields := []Field{
+		{Name: "query.action", Label: "Required query: action", Value: "allow", Required: true},
+		{Name: "query.resource_def", Label: "Required query: resource_def", Value: "project", Required: true},
+		{
+			Name:        "query.resource_id",
+			Label:       "Required query: resource_id",
+			Description: "The unique identifier of the resource.",
+			Example:     "prj_123abc",
+			Required:    true,
+		},
+		{Name: "auth", Label: "Attach bearer token", Value: "yes", Kind: FieldBoolean},
+		{Name: "send", Label: "Send request", Value: "yes", Kind: FieldBoolean},
+	}
+	fieldBlock := zenAnchoredFieldBlock("Runtime config", fields, 2, 0, []bool{true, true, false, false, false}, "", "Send request", 112, 32, ScreenOptions{
+		Breadcrumb:     []string{"Home", "API", "Catalog"},
+		ParameterLines: []string{"query: action", "query: resource_def", "query: resource_id", "attach bearer token", "send request"},
+	})
+	text := strings.Join(fieldBlock, "\n")
+	for _, want := range []string{
+		"Home > API > Catalog >",
+		"Parameters",
+		"✓ 1. query: action",
+		"✓ 2. query: resource_def",
+		"> 3. query: resource_id",
+		"Required",
+		"Value: " + styleBlink("|"),
+		"○ 4. attach bearer token",
+		"○ 5. send request",
+		"Guide: The unique identifier of the resource.",
+		"Example: prj_123abc",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("anchored field block missing %q: %q", want, text)
+		}
+	}
+	if strings.Contains(text, "- attach bearer token") {
+		t.Fatalf("anchored field block rendered right-side parameter list: %q", text)
+	}
+	if strings.Contains(text, "Value: (blank)") {
+		t.Fatalf("anchored field block rendered blank instead of cursor: %q", text)
+	}
+	if separatorIndex(choiceBlock) != separatorIndex(fieldBlock) {
+		t.Fatalf("field detail separator moved: choice=%d field=%d", separatorIndex(choiceBlock), separatorIndex(fieldBlock))
+	}
+}
+
+func separatorIndex(lines []string) int {
+	for index, line := range lines {
+		if strings.Contains(line, "____") {
+			return index
+		}
+	}
+	return -1
 }
 
 func TestReadChoiceKeyParsesNavigation(t *testing.T) {
@@ -313,7 +430,7 @@ func TestRunLiveFieldEditorEditsAndSubmits(t *testing.T) {
 	if values["version"] != "2.7.0" || values["output"] != "prod" || values["run"] != "yes" {
 		t.Fatalf("edited fields = %#v", values)
 	}
-	if text := output.String(); !strings.Contains(text, "STEPS") || !strings.Contains(text, "VALUES & DETAILS") || !strings.Contains(text, "Step Details") || !strings.Contains(text, "Guidance") || !strings.Contains(text, "Final action") || !strings.Contains(text, "Ctrl+S") || !strings.Contains(text, "Value: prod") {
+	if text := output.String(); !strings.Contains(text, "Output") || !strings.Contains(text, "Guide: Install output directory") || !strings.Contains(text, "Run?") || !strings.Contains(text, "> Yes") || !strings.Contains(text, "Value: prod") || strings.Contains(text, "+---") || strings.Contains(text, "VALUES & DETAILS") || strings.Contains(text, "Action:") || strings.Contains(text, "Step:") {
 		t.Fatalf("form output = %q", text)
 	}
 }
@@ -331,7 +448,7 @@ func TestRunLiveFieldEditorSupportsMultilineInput(t *testing.T) {
 		t.Fatalf("multiline value = %q", edited[0].Value)
 	}
 	text := output.String()
-	if !strings.Contains(text, "Input mode: multiline editor") || !strings.Contains(text, "Multiline Editor") || !strings.Contains(text, "new line") || !strings.Contains(text, "Paste JSON content.") || !strings.Contains(text, "1 | {") {
+	if !strings.Contains(text, "Payload source: paste") || !strings.Contains(text, "Guide: Paste JSON content.") || !strings.Contains(text, "1 | {") || strings.Contains(text, "Input mode: multiline editor") {
 		t.Fatalf("multiline form output = %q", text)
 	}
 }
@@ -342,11 +459,11 @@ func TestFieldStepsDistinguishPrefilledFromCompletedSteps(t *testing.T) {
 		{Name: "auth", Label: "Authentication", Value: "yes", Kind: FieldBoolean},
 	}
 	text := strings.Join(fieldStepLines(fields, 0, 0, []bool{false, false}, 80, len(fields)), "\n")
-	if !strings.Contains(text, "current step") || !strings.Contains(text, "prefilled") || strings.Contains(text, "done") {
+	if !strings.Contains(text, "->") || !strings.Contains(text, "prefill") || strings.Contains(text, "done") {
 		t.Fatalf("prefilled step labels = %q", text)
 	}
 	text = strings.Join(fieldStepLines(fields, 0, 0, []bool{false, true}, 80, len(fields)), "\n")
-	if !strings.Contains(text, "done") || strings.Contains(text, "prefilled") {
+	if !strings.Contains(text, "done") || strings.Contains(text, "prefill") {
 		t.Fatalf("completed step labels = %q", text)
 	}
 }
@@ -359,7 +476,7 @@ func TestFieldStepsUseOffsetWithoutPuttingValuesOnLeft(t *testing.T) {
 		{Name: "four", Label: "Four"},
 	}
 	text := strings.Join(fieldStepLines(fields, 2, 0, []bool{true, true, false, false}, 90, 2), "\n")
-	if !strings.Contains(text, "Showing steps 2-3 of 4") || strings.Contains(text, "One") || strings.Contains(text, "value: set") || !strings.Contains(text, "current step") {
+	if !strings.Contains(text, "Showing steps 2-3 of 4") || strings.Contains(text, "One") || strings.Contains(text, "value: set") || !strings.Contains(text, "->") {
 		t.Fatalf("offset step labels = %q", text)
 	}
 }
