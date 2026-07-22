@@ -14,6 +14,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -163,6 +164,8 @@ func (r *kubernetesRunner) connectAndServe() error {
 	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(r.transportCreds),
 		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(servicelog.GRPCUnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(servicelog.GRPCStreamClientInterceptor()),
 	}
 	if r.dispatcherCreds != nil {
 		dialOptions = append(dialOptions, grpc.WithPerRPCCredentials(r.dispatcherCreds))

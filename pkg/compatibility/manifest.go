@@ -16,7 +16,7 @@ import (
 
 const ManifestSchemaVersion = "v1"
 
-var RequiredPlatformImages = []string{"aaa", "agent", "api", "dispatcher", "gitBot", "k8sRunner", "runner", "ui"}
+var RequiredPlatformImages = []string{"aaa", "agent", "api", "dispatcher", "dockerSocketProxy", "gitBot", "k8sRunner", "runner", "ui"}
 
 var sha256DigestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 

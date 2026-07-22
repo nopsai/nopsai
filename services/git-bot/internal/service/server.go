@@ -18,6 +18,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 	"nopsai/services/git-bot/internal/checkrender"
 
 	"github.com/google/go-github/v53/github"
@@ -233,7 +234,7 @@ func (a *GitBotApp) Handler() http.Handler {
 	mux.HandleFunc("/v1/run/status", a.handleRunStatusUpdate)
 	mux.HandleFunc("/v1/task/status", a.handleTaskStatusUpdate)
 	mux.HandleFunc("/v1/checks/create-child", a.handleCreateChildCheckRun)
-	return a.authenticateInternalRoutes(mux)
+	return servicelog.HTTPMiddleware(a.authenticateInternalRoutes(mux))
 }
 
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {

@@ -12,6 +12,7 @@ capabilities:
   - dashboards.v1
   - mcp.v1
   - monitoring.v1
+  - platform.docker-compose
   - platform.helm
   - runner.docker
   - runner.kubernetes

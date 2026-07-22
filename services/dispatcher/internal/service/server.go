@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 
@@ -420,7 +421,7 @@ func (d *dispatcherServer) IngestLogs(ctx context.Context, batch *proto.LogBatch
 	if batch == nil || strings.TrimSpace(batch.RunId) == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	if err := d.nopsai.IngestLogs(ctx, batch.RunId, batch.Lines); err != nil {
+	if err := d.nopsai.IngestLogs(ctx, batch.RunId, batch.Lines, logIngestMetadataFromContext(ctx)); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -546,12 +547,29 @@ func (d *dispatcherServer) reportRunnerJobFailure(runID, detail string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := d.nopsai.IngestLogs(ctx, runID, []string{reason}); err != nil {
+	if err := d.nopsai.IngestLogs(ctx, runID, []string{reason}, LogIngestMetadata{Source: "dispatcher", ServiceRole: serviceauth.RoleDispatcher}); err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Msg("failed to record runner job failure log")
 	}
 	if err := d.nopsai.FinalizeRun(ctx, runID, "failure", reason); err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Msg("failed to finalize runner job failure")
 	}
+}
+
+func logIngestMetadataFromContext(ctx context.Context) LogIngestMetadata {
+	metadata := LogIngestMetadata{
+		RequestID:   correlation.RequestIDFromContext(ctx),
+		Traceparent: correlation.TraceparentFromContext(ctx),
+	}
+	if claims, ok := serviceauth.ClaimsFromContext(ctx); ok {
+		metadata.Source = claims.ServiceRole()
+		metadata.ServiceRole = claims.ServiceRole()
+		metadata.ServiceID = claims.ServiceID()
+	}
+	if strings.TrimSpace(metadata.Source) == "" {
+		metadata.Source = "dispatcher"
+		metadata.ServiceRole = serviceauth.RoleDispatcher
+	}
+	return metadata
 }
 
 func (d *dispatcherServer) addRunner(rc *runnerConn) {

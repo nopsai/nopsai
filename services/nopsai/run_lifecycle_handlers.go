@@ -82,7 +82,7 @@ func (a *App) markRunCancelled(ctx context.Context, runUUID uuid.UUID, reason st
 		if _, err := tx.Exec(ctx, "UPDATE pipeline_runs SET status = 'cancelled', finished_at = COALESCE(finished_at, NOW()) WHERE run_id = $1", runUUID); err != nil {
 			return false, err
 		}
-		if _, err := tx.Exec(ctx, "INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runUUID, reason); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO pipeline_run_logs (run_id, line, source, level) VALUES ($1, $2, $3, $4)", runUUID, reason, "nopsai", "warn"); err != nil {
 			log.Warn().Err(err).Str("run_id", runUUID.String()).Msg("Failed to record cancellation log line")
 		}
 	}

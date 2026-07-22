@@ -161,6 +161,9 @@ blocks.
 global-repo/pipelines/platform/prod/platform-maintenance.yaml
   -> pipeline platform/prod/platform-maintenance, public use access
 
+global-repo/pipelines/platform/prod/nopsai-platform-release.yaml
+  -> pipeline platform/prod/nopsai-platform-release, self-hosted release publication workflow for NopsAI packages, images, Helm chart, release manifest, and deployment bundle
+
 global-repo/pipelines/knowledge-kind-comparison.yaml
   -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior
 
@@ -209,7 +212,7 @@ global-repo/scopes/dev/scope.yaml
   -> variables and secret key placeholders in scope dev
 
 global-repo/scopes/prod/scope.yaml
-  -> variables, secret key placeholders, and restricted scope use access for servicenow-prod
+  -> production variables, NopsAI release publisher variables/secrets, secret key placeholders, and restricted scope use access for servicenow-prod and nopsai-release-bot
 
 global-repo/knowledge/guardrail/security/repo-check.md
   -> knowledge context guardrail/security/repo-check

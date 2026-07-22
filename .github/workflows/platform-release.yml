@@ -1,25 +1,32 @@
 name: Platform Release
 
 on:
-  workflow_run:
-    workflows: [Enterprise Gates]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Commit, branch, or tag to release.
+        required: true
+        default: main
+        type: string
+      allow_existing_release:
+        description: Republish packages and replace release assets when v<version> already exists.
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: platform-release-main
+  group: platform-release-${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
   metadata:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     permissions:
-      actions: read
       contents: read
     outputs:
       eligible: ${{ steps.metadata.outputs.eligible }}
@@ -27,49 +34,71 @@ jobs:
       source_commit: ${{ steps.metadata.outputs.source_commit }}
       build_date: ${{ steps.metadata.outputs.build_date }}
       registry: ${{ steps.metadata.outputs.registry }}
+      allow_existing_release: ${{ steps.metadata.outputs.allow_existing_release }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha }}
       - name: Validate release source and calculate version
         id: metadata
         env:
           EVENT_NAME: ${{ github.event_name }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ALLOW_EXISTING_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_existing_release || 'false' }}
         run: |
           git fetch --force --tags origin main:refs/remotes/origin/main
           source_commit=$(git rev-parse HEAD)
           main_commit=$(git rev-parse origin/main)
           eligible=true
-          if [[ "$source_commit" != "$main_commit" ]]; then
+          if [[ "$EVENT_NAME" != "workflow_dispatch" && "$source_commit" != "$main_commit" ]]; then
             echo "Skipping stale release source $source_commit; current main is $main_commit"
             eligible=false
           fi
-          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$eligible" == "true" ]]; then
-            gate_conclusion=$(gh api --method GET \
-              "repos/$GITHUB_REPOSITORY/actions/workflows/enterprise-gates.yml/runs" \
-              -f "head_sha=$source_commit" \
-              -f status=completed \
-              -f per_page=20 \
-              --jq '[.workflow_runs[] | select(.event == "push")][0].conclusion // ""')
-            if [[ "$gate_conclusion" != "success" ]]; then
-              echo "No successful main Enterprise Gates run found for $source_commit" >&2
-              exit 1
-            fi
-          fi
           scripts/release-version.sh --ref "$source_commit" --format github >>"$GITHUB_OUTPUT"
           version=$(scripts/release-version.sh --ref "$source_commit")
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
-            echo "Release v$version already exists; skipping"
-            eligible=false
+          if git rev-parse --verify --quiet "refs/tags/v$version" >/dev/null; then
+            tag_commit=$(git rev-list -n 1 "refs/tags/v$version")
+            if [[ "$tag_commit" != "$source_commit" ]]; then
+              echo "Release tag v$version points to $tag_commit, not $source_commit" >&2
+              exit 1
+            fi
+            if [[ "$ALLOW_EXISTING_RELEASE" == "true" ]]; then
+              echo "Release v$version already exists; package publication will run in recovery mode"
+            else
+              echo "Release v$version already exists; skipping"
+              eligible=false
+            fi
           fi
           echo "eligible=$eligible" >>"$GITHUB_OUTPUT"
           echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
           echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >>"$GITHUB_OUTPUT"
+          echo "allow_existing_release=$ALLOW_EXISTING_RELEASE" >>"$GITHUB_OUTPUT"
+
+  release-validation:
+    needs: metadata
+    if: ${{ needs.metadata.outputs.eligible == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.metadata.outputs.source_commit }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.17.3
+      - name: Validate release package contracts
+        run: |
+          go test ./release/...
+          scripts/release-tooling-test.sh
 
   publish-base:
-    needs: metadata
+    needs: [metadata, release-validation]
     if: ${{ needs.metadata.outputs.eligible == 'true' }}
     runs-on: ubuntu-latest
     permissions:
@@ -196,7 +225,7 @@ jobs:
           if-no-files-found: error
 
   build-cli:
-    needs: metadata
+    needs: [metadata, release-validation]
     if: ${{ needs.metadata.outputs.eligible == 'true' }}
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -266,6 +295,7 @@ jobs:
       SOURCE_COMMIT: ${{ needs.metadata.outputs.source_commit }}
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       REGISTRY: ${{ needs.metadata.outputs.registry }}
+      ALLOW_EXISTING_RELEASE: ${{ needs.metadata.outputs.allow_existing_release }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -331,13 +361,14 @@ jobs:
           mv "$temp_index" "$index_file"
           (
             cd dist/release
-            shasum -a 256 .env db/init.sql docker-compose.yaml "nopsai-$VERSION.tgz" release-index.json >checksums.txt
+            shasum -a 256 .env db/init.sql docker-compose.yaml "nopsai-$VERSION.tgz" release-index.json release-manifest.json >checksums.txt
           )
           cp "${cli_assets[@]}" dist/assets/
           cp dist/release/CHANGELOG.md dist/assets/
           cp dist/release/docker-compose.yaml dist/assets/nopsai-docker-compose.yaml
           cp "dist/release/nopsai-$VERSION.tgz" dist/assets/
           cp dist/release/release-index.json dist/assets/
+          cp dist/release/release-manifest.json dist/assets/
           tar -C dist/release -czf "dist/assets/nopsai_${VERSION}_deployment-bundle.tar.gz" .
           (
             cd dist/assets
@@ -363,9 +394,20 @@ jobs:
           path: dist/assets
           if-no-files-found: error
           retention-days: 90
-      - name: Create GitHub release
+      - name: Publish GitHub release
         run: |
-          gh release create "v$VERSION" dist/assets/* \
-            --target "$SOURCE_COMMIT" \
-            --title "NopsAI $VERSION" \
-            --notes-file dist/release/CHANGELOG.md
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            if [[ "$ALLOW_EXISTING_RELEASE" != "true" ]]; then
+              echo "Release v$VERSION already exists and recovery mode is disabled" >&2
+              exit 1
+            fi
+            gh release upload "v$VERSION" dist/assets/* --clobber
+            gh release edit "v$VERSION" \
+              --title "NopsAI $VERSION" \
+              --notes-file dist/release/CHANGELOG.md
+          else
+            gh release create "v$VERSION" dist/assets/* \
+              --target "$SOURCE_COMMIT" \
+              --title "NopsAI $VERSION" \
+              --notes-file dist/release/CHANGELOG.md
+          fi

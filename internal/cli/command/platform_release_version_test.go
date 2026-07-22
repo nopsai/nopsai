@@ -20,4 +20,11 @@ func TestReleasedCLIUsesBuildVersionAsPlatformDefault(t *testing.T) {
 	if developmentFlag == nil || developmentFlag.DefValue != "" {
 		t.Fatalf("development platform version default = %#v", developmentFlag)
 	}
+
+	root.dependencies.Version = "2.7.185"
+	fallbackCommand := newInstallDockerComposeCommand(root)
+	fallbackFlag := fallbackCommand.Flags().Lookup("version")
+	if fallbackFlag == nil || fallbackFlag.DefValue != "2.7.185" {
+		t.Fatalf("install version fallback default = %#v", fallbackFlag)
+	}
 }

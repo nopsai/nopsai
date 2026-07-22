@@ -169,6 +169,8 @@ func newDispatcherConnection(cfg *config.Config) (*grpc.ClientConn, error) {
 		dispatcherAddress(cfg),
 		grpc.WithTransportCredentials(dispatcherTransportCreds),
 		grpc.WithPerRPCCredentials(dispatcherCreds),
+		grpc.WithChainUnaryInterceptor(servicelog.GRPCUnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(servicelog.GRPCStreamClientInterceptor()),
 	)
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/proxyhttp"
 	"nopsai/services/aaa/pkg/model"
 )
@@ -111,7 +112,10 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload any, r
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Token", c.token)
 	if requestID := requestIDFromContext(requestContext); requestID != "" {
-		req.Header.Set("X-Request-ID", requestID)
+		req.Header.Set(correlation.RequestIDHeader, requestID)
+	}
+	if traceparent := traceparentFromContext(requestContext); traceparent != "" {
+		req.Header.Set(correlation.TraceparentHeader, traceparent)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -134,6 +138,16 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload any, r
 		return fmt.Errorf("decode aaa response: %w", err)
 	}
 	return nil
+}
+
+func traceparentFromContext(values map[string]any) string {
+	if values == nil {
+		return ""
+	}
+	if traceparent, ok := values["traceparent"].(string); ok {
+		return strings.TrimSpace(traceparent)
+	}
+	return ""
 }
 
 func requestIDFromContext(values map[string]any) string {
