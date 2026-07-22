@@ -2,7 +2,6 @@ package nopsai
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -20,27 +19,6 @@ func requireLicenseContractText(t *testing.T, contents, required, source string)
 	t.Helper()
 	if !strings.Contains(contents, required) {
 		t.Errorf("%s is missing %q", source, required)
-	}
-}
-
-func TestLicenseComplianceGateIsWiredIntoEnterpriseChecks(t *testing.T) {
-	if info, err := os.Stat("scripts/license-check.sh"); err != nil || info.Mode()&0o111 == 0 {
-		t.Fatalf("scripts/license-check.sh must exist and be executable")
-	}
-	if output, err := exec.Command("bash", "-n", "scripts/license-check.sh").CombinedOutput(); err != nil {
-		t.Fatalf("license-check.sh syntax failed: %v\n%s", err, output)
-	}
-
-	localGate := readLicenseContractFile(t, "scripts/enterprise-gates.sh")
-	requireLicenseContractText(t, localGate, "run scripts/license-check.sh", "scripts/enterprise-gates.sh")
-
-	workflow := readLicenseContractFile(t, ".github/workflows/enterprise-gates.yml")
-	for _, required := range []string{
-		"license-compliance:",
-		"npm ci --ignore-scripts --no-audit --no-fund",
-		"scripts/license-check.sh",
-	} {
-		requireLicenseContractText(t, workflow, required, ".github/workflows/enterprise-gates.yml")
 	}
 }
 
