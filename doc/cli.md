@@ -224,8 +224,8 @@ nopsai install kubernetes --output-dir . --values-file values.yaml --deploy --wa
 
 Run `nopsai install` for the first-time wizard. The wizard asks for the install
 target and required runtime choices, then generates the files itself. It does
-not ask for release-manifest files in the normal path; those are resolved from
-the CLI release version.
+not ask for release-manifest files in the normal path; released CLI archives
+embed the digest-pinned manifest for their own release version.
 
 `install docker-compose` is the noninteractive shortcut. It resolves and
 verifies the release manifest, generates a deployment-only Compose file, `.env`
@@ -244,9 +244,13 @@ reuse `release-manifest.json` and `values.yaml` without overwriting them, then
 write the GitOps release lock after success.
 
 Both install targets support advanced `--manifest` and
-`--manifest-digest sha256:...` flags for local/offline automation. Without
-`--version`, a released CLI defaults to its embedded release version;
-development builds prompt for a version in the wizard.
+`--manifest-digest sha256:...` flags for local/offline automation. Operators
+can set `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` for an explicit trusted HTTPS
+registry override; `GITHUB_TOKEN`, `GH_TOKEN`, or
+`NOPSAI_RELEASE_MANIFEST_TOKEN` can authenticate that override when required.
+Without `--version`, a released CLI defaults to its embedded release version;
+development builds prompt for a version in the wizard and require an explicit
+manifest source or URL template.
 
 ## Advanced Platform Bundles
 
@@ -272,8 +276,9 @@ Without `--deploy` it runs a plan and prints the rendered manifests. With
 `helm upgrade --install`, waiting when `--wait` is set.
 
 The platform release command resolves an exact semantic version; released CLIs
-default to their own build version, while development builds require
-`--version`. It validates the manifest and CLI compatibility, verifies the
+default to their own build version and embedded release manifest, while
+development builds require `--version` plus an explicit manifest source or URL
+template. It validates the manifest and CLI compatibility, verifies the
 downloaded OCI Helm chart package digest, and renders digest-pinned values for
 every platform image. Plan mode runs `helm template` and can emit text, JSON, or
 YAML. Deploy mode runs `helm upgrade --install` and writes
@@ -284,8 +289,9 @@ environment's GitOps state; older locks without rollback metadata are treated as
 forward-only.
 
 Use `--manifest-digest sha256:...` to pin the manifest bytes as well as its
-contents. Without `--manifest`, the CLI uses the release URL template; set
-`NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` for a trusted internal HTTPS registry.
+contents. Without `--manifest`, released CLI archives use their embedded
+manifest for the same version. Set `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` only
+when intentionally resolving manifests from a trusted internal HTTPS registry.
 See [release-bundles.md](./release-bundles.md) for the full contract.
 
 Deployment flags:

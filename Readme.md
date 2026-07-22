@@ -183,8 +183,9 @@ nopsai install
 ```
 
 The wizard lets you choose Docker Compose or Kubernetes, then generates the
-required files itself from the CLI's release version. For Docker Compose it
-writes `nopsai-install/docker-compose.yaml`, `nopsai-install/.env`,
+required files itself from the CLI's release version and embedded release
+manifest. For Docker Compose it writes `nopsai-install/docker-compose.yaml`,
+`nopsai-install/.env`,
 `nopsai-install/db/init.sql`, `nopsai-install/release-manifest.json`, and a
 non-secret `.nopsai/install.lock`, then starts the stack when you choose that
 option. Use `nopsai install docker-compose --run` as the automation shortcut, or
