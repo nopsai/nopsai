@@ -30,6 +30,7 @@ test('round-trips run log filters through the legacy hash contract', () => {
     currentHash: '#/pipelineruns/events/run-1',
     runID: 'run-1',
     selectedSteps: new Set(['build', 'deploy']),
+    selectedTasks: new Set(['compile']),
     selectedLevels: new Set(['error', 'info']),
     wrap: true,
     structured: false,
@@ -40,10 +41,11 @@ test('round-trips run log filters through the legacy hash contract', () => {
 
   assert.equal(
     hash,
-    '#/pipelineruns/events/run-1/logs/build%2Cdeploy/info%2Cerror/wrap/unstructured/agent/full?search=failed%20request'
+    '#/pipelineruns/events/run-1/logs/build%2Cdeploy/info%2Cerror/wrap/unstructured/agent/full?search=failed%20request&task=compile'
   );
   const parsed = parseRunLogsHash(hash || '', 'run-1');
   assert.deepEqual(parsed?.steps, ['build', 'deploy']);
+  assert.deepEqual(parsed?.tasks, ['compile']);
   assert.deepEqual(Array.from(parsed?.levels || []), ['info', 'error']);
   assert.equal(parsed?.agentOnly, true);
   assert.equal(parsed?.search, 'failed request');
@@ -87,6 +89,7 @@ test('preserves API log metadata when line parsing cannot provide it', () => {
   assert.deepEqual(
     filterRunLogLines(lines, {
       selectedSteps: new Set(['release']),
+      selectedTasks: new Set(['publish']),
       selectedLevels: new Set(['error']),
       agentOnly: false,
       searchText: 'stderr',

@@ -95,6 +95,7 @@ function PipelineRunsPage() {
   const hoverTriggerRef = useRef<string | null>(null);
   const selectedTriggerRef = useRef<string | null>(null);
   const [logsStepFilter, setLogsStepFilter] = useState<string | null>(null);
+  const [logsTaskFilter, setLogsTaskFilter] = useState<string | null>(null);
   const [logsSearchFilter, setLogsSearchFilter] = useState<string | null>(null);
   const [stepDetailName, setStepDetailName] = useState<string | null>(null);
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
@@ -588,6 +589,8 @@ function PipelineRunsPage() {
       setSelectedStep(null);
       setDefinitionOpen(false);
       setLogsStepFilter(null);
+      setLogsTaskFilter(null);
+      setLogsSearchFilter(null);
       scrollMainToTop();
     },
     [activeTab, navigate, routeRunId, scrollMainToTop, searchParams, updateSearchParams]
@@ -607,6 +610,8 @@ function PipelineRunsPage() {
     setSelectedStep(null);
     setDefinitionOpen(false);
     setLogsStepFilter(null);
+    setLogsTaskFilter(null);
+    setLogsSearchFilter(null);
   }, [activeTab, navigate, routeRunId, searchParams, updateSearchParams]);
 
   const handleDeleteRun = useCallback(
@@ -782,6 +787,7 @@ function PipelineRunsPage() {
       setSelectedStep={setSelectedStep}
       setLogsOpen={setLogsOpen}
       setLogsStepFilter={setLogsStepFilter}
+      setLogsTaskFilter={setLogsTaskFilter}
       setLogsSearchFilter={setLogsSearchFilter}
       setStepDetailName={setStepDetailName}
       setDefinitionOpen={setDefinitionOpen}
@@ -790,6 +796,7 @@ function PipelineRunsPage() {
       definitionOpen={definitionOpen}
       logsOpen={logsOpen}
       logsStepFilter={logsStepFilter}
+      logsTaskFilter={logsTaskFilter}
       logsSearchFilter={logsSearchFilter}
       stepDetailName={stepDetailName}
     />

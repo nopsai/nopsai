@@ -231,6 +231,28 @@ function ScopedValueDialog({
   const repositoryId = `${modalId}-repository`;
   const valueId = `${modalId}-value`;
   const repositoryListId = `${modalId}-repository-options`;
+  const valueLoading = Boolean(modal.valueLoading);
+  const valuePlaceholder = valueLoading
+    ? 'Loading current value...'
+    : modal.mode === 'update'
+      ? isVariable
+        ? 'Enter new value'
+        : 'Enter new value (leave blank to keep unchanged)'
+      : isVariable
+        ? 'Provide the value stored for this scope'
+        : 'Provide the secret value';
+  const valueHint = valueLoading
+    ? 'Loading the current value for this variable.'
+    : isVariable
+      ? 'Overwrites any existing value for this scope.'
+      : 'Encrypted at rest; never shown in plain text.';
+  const submitLabel = modal.pending
+    ? 'Saving...'
+    : valueLoading
+      ? 'Loading...'
+      : modal.mode === 'update'
+        ? 'Save Value'
+        : `Create ${isVariable ? 'Variable' : 'Secret'}`;
 
   return (
     <WorkflowDialogFrame
@@ -320,31 +342,21 @@ function ScopedValueDialog({
                 id={valueId}
                 rows={4}
                 className="pipelines-input w-full"
-                placeholder={
-                  modal.mode === 'update'
-                    ? isVariable
-                      ? 'Enter new value'
-                      : 'Enter new value (leave blank to keep unchanged)'
-                    : isVariable
-                      ? 'Provide the value stored for this scope'
-                      : 'Provide the secret value'
-                }
+                placeholder={valuePlaceholder}
                 value={modal.value}
                 onChange={event => onUpdate({ value: event.target.value })}
-                disabled={modal.pending}
+                disabled={modal.pending || valueLoading}
                 data-dialog-initial-focus={modal.mode === 'update' ? true : undefined}
               />
-            <p className="text-xs text-[var(--text-secondary)]">
-              {isVariable ? 'Overwrites any existing value for this scope.' : 'Encrypted at rest; never shown in plain text.'}
-            </p>
-          </div>
+              <p className="text-xs text-[var(--text-secondary)]">{valueHint}</p>
+            </div>
             {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
             <div className="flex items-center justify-end gap-2 pt-1">
               <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
                 Cancel
               </button>
-              <button type="submit" className="glass-button-primary" disabled={modal.pending}>
-                {modal.pending ? 'Saving…' : modal.mode === 'update' ? 'Save Value' : `Create ${isVariable ? 'Variable' : 'Secret'}`}
+              <button type="submit" className="glass-button-primary" disabled={modal.pending || valueLoading}>
+                {submitLabel}
               </button>
             </div>
           </form>

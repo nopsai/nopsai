@@ -229,8 +229,21 @@ truth; this file is the source-adjacent placement guide.
 - Legacy run-log hash routes are compatibility contracts. Preserve hydration and
   route synchronization when changing log filters, wrapping, structured view,
   agent/all-source view, or full/short display modes.
+- Task log opens must seed explicit step and task filters, clearing stale
+  modal filters so pipeline-run task evidence is not hidden by an older hash
+  state. The log hook/model owns those filter semantics.
 - Graph controls and log dialogs must keep keyboard paths, labelled controls,
   and serious/critical axe gates green.
+- Clicking a pipeline-run or pipeline-definition graph step should preserve the
+  step expansion affordance while framing that step with its direct dependency
+  and dependent neighbors when the step has tasks. Clicking the expanded step
+  again must collapse it and clear the selected step. Clicking a step with no
+  displayable tasks should open logs filtered to that step. Manual graph
+  navigation after a click, including wheel zoom, pan, and zoom controls, must
+  clear the transient selected-step focus so later run refreshes do not jump
+  back to that step. Graph rendering should ignore single placeholder task rows
+  that only repeat the step name when the pipeline definition has no matching
+  task.
 
 ### Lab
 
