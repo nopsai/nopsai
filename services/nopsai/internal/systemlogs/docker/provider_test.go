@@ -53,6 +53,23 @@ func TestProviderListsRegistrySourcesWithoutExposingOtherContainers(t *testing.T
 	}
 }
 
+func TestProviderDoesNotExposeDockerHealthNone(t *testing.T) {
+	fake := &fakeDocker{containers: []ContainerSummary{
+		{ID: "aaa-id", Names: []string{"/nopsai-aaa"}, State: "running", Health: "none", Status: "Up 2 minutes"},
+	}}
+	provider := NewProvider(fake, systemlogs.NewRegistry([]systemlogs.Source{{ID: "aaa", DisplayName: "AAA", ContainerName: "nopsai-aaa"}}))
+	sources, err := provider.ListSources(context.Background())
+	if err != nil {
+		t.Fatalf("ListSources() error = %v", err)
+	}
+	if len(sources) != 1 || !sources[0].Available || sources[0].State != "running" {
+		t.Fatalf("ListSources() = %#v, want running available source", sources)
+	}
+	if sources[0].Health != "" {
+		t.Fatalf("source health = %q, want empty health when Docker reports none", sources[0].Health)
+	}
+}
+
 func TestProviderTailPreservesMultiplexedStreamsAndTimestamps(t *testing.T) {
 	stdout := "2026-06-21T12:00:00.123456789Z hello\n"
 	stderr := "2026-06-21T12:00:01Z failed\n"

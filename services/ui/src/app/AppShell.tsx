@@ -45,6 +45,7 @@ import { useInitialSetupRedirect } from './useInitialSetupRedirect';
 import { usePipelineRunsSidebar } from './usePipelineRunsSidebar';
 import { shouldShowSidebarContextNav } from './sidebarContextVisibility';
 import { AppRoutes, PageLoading } from './AppRoutes';
+import AppFooter from './AppFooter';
 import { getAppAccess } from '../auth/capabilities';
 import { useAuth } from '../auth/AuthContext';
 import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
@@ -309,6 +310,7 @@ function AppShell() {
                   onUserUpdated={handleUserUpdated}
                 />
               </div>
+              <AppFooter />
             </main>
           </div>
           <div id="toast-container" className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3"></div>
