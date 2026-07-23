@@ -61,7 +61,6 @@ image_names=(
   nopsai-git-bot
   nopsai-runner
   nopsai-k8s-runner
-  nopsai-docker-socket-proxy
   nopsai-ui
 )
 for image_name in "${image_names[@]}"; do
@@ -70,6 +69,7 @@ for image_name in "${image_names[@]}"; do
     "$temp_dir/chart-values.yaml" \
     "the $image_name repository"
 done
+require_text "repository: postgres" "$temp_dir/chart-values.yaml" "the PostgreSQL image repository"
 
 (cd "$ROOT_DIR" && go run ./cmd/nopsai-cli install docker-compose --version "$actual" --output-dir "$temp_dir/compose-install" --force >/dev/null)
 require_text "NOPSAI_VERSION=$actual" "$temp_dir/compose-install/.env" "the generated Compose release version"
@@ -81,6 +81,7 @@ test ! -e "$temp_dir/compose-install/release-manifest.json"
 (cd "$ROOT_DIR" && go run ./cmd/nopsai-cli install kubernetes --version "$actual" --output-dir "$temp_dir/kubernetes-install" --force >/dev/null)
 require_text "releaseVersion: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values release version"
 require_text "tag: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values image tag"
+require_text "postgres:" "$temp_dir/kubernetes-install/values.yaml" "the generated PostgreSQL values"
 require_text "oci://ghcr.io/hosein-yousefii/charts/nopsai" "$temp_dir/kubernetes-install/.nopsai/install.lock" "the generated chart reference"
 test ! -e "$temp_dir/kubernetes-install/release-manifest.json"
 
@@ -93,3 +94,7 @@ require_text \
   "name: AGENT_IMAGE, value: \"ghcr.io/hosein-yousefii/nopsai-agent:$actual\"" \
   "$temp_dir/chart-manifests.yaml" \
   "the versioned dynamic agent image"
+require_text \
+  "kind: StatefulSet" \
+  "$temp_dir/chart-manifests.yaml" \
+  "the bundled PostgreSQL StatefulSet"

@@ -41,6 +41,22 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 {{- end }}
 
+{{- define "nopsai.postgresServiceName" -}}
+{{- default "postgres" .Values.postgres.service.name -}}
+{{- end }}
+
+{{- define "nopsai.postgresSecretName" -}}
+{{- default (include "nopsai.secretName" .) .Values.postgres.auth.existingSecret -}}
+{{- end }}
+
+{{- define "nopsai.postgresPasswordKey" -}}
+{{- default .Values.postgres.auth.passwordKey .Values.secrets.keys.postgresPassword | required "secrets.keys.postgresPassword or postgres.auth.passwordKey is required when postgres.enabled=true" -}}
+{{- end }}
+
+{{- define "nopsai.postgresInitConfigMapName" -}}
+{{- printf "%s-postgres-init" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
 {{- define "nopsai.systemLogsKubernetesEnabled" -}}
 {{- if and .Values.systemLogs.enabled (or (eq .Values.systemLogs.provider "kubernetes") (eq .Values.systemLogs.provider "k8s")) -}}true{{- else -}}false{{- end -}}
 {{- end }}

@@ -292,7 +292,7 @@ func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesVal
 	if err != nil {
 		return InstallPlan{}, err
 	}
-	images := versionedInstallImages(version)
+	images := kubernetesInstallImages(versionedInstallImages(version))
 	outputDir := installOutputDir(options.OutputDir)
 	valuesFile := strings.TrimSpace(options.ValuesFile)
 	if valuesFile == "" {
@@ -396,7 +396,7 @@ func (i Installer) DeployKubernetesValues(ctx context.Context, options Kubernete
 	if err != nil {
 		return KubernetesInstallDeploymentPlan{}, err
 	}
-	images := versionedInstallImages(version)
+	images := kubernetesInstallImages(versionedInstallImages(version))
 	chartReference := strings.TrimSpace(options.ChartReference)
 	if chartReference == "" {
 		chartReference = DefaultInstallChartReference
@@ -668,6 +668,12 @@ func versionedInstallImages(version string) map[string]string {
 	return images
 }
 
+func kubernetesInstallImages(images map[string]string) map[string]string {
+	out := cloneStrings(images)
+	delete(out, "dockerSocketProxy")
+	return out
+}
+
 func requiredInstallImage(images map[string]string, key string) (string, error) {
 	value := strings.TrimSpace(images[key])
 	if value == "" {
@@ -774,6 +780,7 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString(strconv.Quote(existingSecret))
 	builder.WriteString("\n  keys:\n")
 	builder.WriteString("    databaseURL: database-url\n")
+	builder.WriteString("    postgresPassword: postgres-password\n")
 	builder.WriteString("    masterKey: master-key\n")
 	builder.WriteString("    jwtSigningKey: jwt-signing-key\n")
 	builder.WriteString("    serviceJWTSigningKey: service-jwt-signing-key\n")
@@ -782,6 +789,7 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString("    bootstrapAdminPassword: ")
 	builder.WriteString(strconv.Quote(bootstrapAdminPasswordSecretKey))
 	builder.WriteString("\n\n")
+	builder.WriteString("postgres:\n  enabled: true\n  database: nopsai_db\n  username: nopsai_user\n  image:\n    repository: postgres\n    tag: \"15\"\n    digest: \"\"\n  auth:\n    passwordKey: postgres-password\n  service:\n    name: postgres\n    port: 5432\n  persistence:\n    enabled: true\n    storageClass: \"\"\n    size: 20Gi\n\n")
 	builder.WriteString("api:\n  replicaCount: 1\n")
 	if err := writeKubernetesImage(&builder, images, "api"); err != nil {
 		return nil, err
@@ -809,10 +817,6 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	}
 	builder.WriteString("\nk8sRunner:\n  enabled: true\n  replicaCount: 1\n  runnerID: k8s-runner-1\n  scopes: \"\"\n  capacity: 10\n  serviceAccount:\n    create: true\n    name: nopsai-runner\n  workspace:\n    size: 10Gi\n    accessMode: ReadWriteOnce\n    volumeMode: pvc\n    storageClass: \"\"\n")
 	if err := writeKubernetesImage(&builder, images, "k8sRunner"); err != nil {
-		return nil, err
-	}
-	builder.WriteString("\ndockerSocketProxy:\n")
-	if err := writeKubernetesImage(&builder, images, "dockerSocketProxy"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nsystemLogs:\n  enabled: true\n  provider: kubernetes\n  kubernetes:\n    labelSelector: \"\"\n    container: \"\"\n    rbac:\n      create: true\n\n")
