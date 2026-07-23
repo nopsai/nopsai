@@ -98,7 +98,7 @@ func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v", triggerPath, err)
 	}
-	pipelinePath := filepath.Join(sampleRoot, "pipelines", "platform", "prod", "nopsai-platform-release.yaml")
+	pipelinePath := filepath.Join("..", "..", ".nopsai", "nopsai-platform-release.yaml")
 	pipelineRaw, err := os.ReadFile(pipelinePath)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v", pipelinePath, err)

@@ -26,7 +26,8 @@ return non-secret identity metadata only.
 
 ## Published Assets
 
-The GitOps-managed `platform/prod/nopsai-platform-release` pipeline publishes:
+The GitOps-managed `.nopsai/nopsai-platform-release.yaml` pipeline publishes
+`platform/prod/nopsai-platform-release` assets:
 
 - multi-architecture GHCR images for the base, API, AAA, agent, dispatcher,
   git-bot, Docker runner, Kubernetes runner, socket proxy, UI, and pipeline
