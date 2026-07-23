@@ -340,14 +340,17 @@ temporary by default and must be changed on first login. The literal built-in
 `admin` password is rejected for generated installs; use the repository
 development Compose file for local development defaults.
 
-`install kubernetes` generates editable Helm values and a non-secret install
-lock. The generated values reference `secrets.existingSecret`; create that
-Secret through External Secrets, SOPS, Sealed Secrets, or `kubectl` before
-deploying. That Secret must include database URL, master key, browser JWT key,
-service JWT key, AAA shared token, dispatcher TLS secret, and the bootstrap
-admin password key named by `--bootstrap-admin-password-secret-key` because the
-generated values do not store plaintext secrets. Add `--deploy --wait` on the
-first command to deploy immediately, or run
+`install kubernetes` generates editable Helm values, `README.md`, and a
+non-secret install lock. The generated README records prerequisites, expected
+Secret keys, Secret manifest and `kubectl create secret` examples, CLI deploy
+commands, direct Helm commands, and verification commands. The generated values
+reference `secrets.existingSecret`; create that Secret through External
+Secrets, SOPS, Sealed Secrets, or `kubectl` before deploying. That Secret must
+include database URL, master key, browser JWT key, service JWT key, AAA shared
+token, dispatcher TLS secret, and the bootstrap admin password key named by
+`--bootstrap-admin-password-secret-key` because the generated values do not
+store plaintext secrets. Add `--deploy --wait` on the first command to deploy
+immediately, or run
 `nopsai install kubernetes --deploy` later from the stored output directory
 after editing values. Stored-file deploys reuse `values.yaml`
 without overwriting it, then write a GitOps-readable release lock after

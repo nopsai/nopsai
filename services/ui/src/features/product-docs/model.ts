@@ -2260,7 +2260,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Helm bootstrap Secret keys',
             language: 'bash',
             code:
-              'kubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai:<password>@postgres.example:5432/nopsai?sslmode=require" \\\n  --from-literal=master-key="$(openssl rand -base64 32)" \\\n  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)" \\\n  --from-literal=bootstrap-admin-password="$(openssl rand -base64 24)"',
+              'kubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai:<password>@postgres.example:5432/nopsai?sslmode=require" \\\n  --from-literal=master-key="$(openssl rand -base64 32)" \\\n  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)" \\\n  --from-literal=dispatcher-tls-secret="$(openssl rand -base64 48)" \\\n  --from-literal=bootstrap-admin-password="$(openssl rand -base64 24)"',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
@@ -3334,7 +3334,7 @@ const baseWikiSections: WikiSectionInput[] = [
         level: 'Reference',
         audience: 'Operators and automation authors',
         summary:
-          'The released `nopsai` CLI manages contexts, credentials, generic API access, platform diagnostics, completion files, GitOps deployment, and release verification.',
+          'The released `nopsai` CLI manages contexts, credentials, generic API access, platform diagnostics, completion files, GitOps deployment, generated Kubernetes install notes, and release verification.',
         keyFacts: [
           'Accepted token types are access JWTs, nopat_ personal tokens, and nopsat_ service-account tokens.',
           'Local config and credential files are atomically written with 0600 permissions inside a 0700 directory.',
@@ -3344,6 +3344,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Interactive screens use the Contextual Zen terminal layout across the full CLI surface: fixed home-style header/footer chrome, centered control, breadcrumb above nested menus, fixed 20-row menu viewport for large lists, pinned guide/details section beneath the menu, bold standalone Guide/Example/Validation keys with indented content, inline Parameters progress lists on all live forms and wizards in step order, visible selected multiline values, Enter-to-skip blank optional parameters, fixed Result sections with breadcrumb scroll ranges, cursor-style empty active values, API catalog calls, raw API requests, route discovery, context management, token login/logout, install, platform doctor/release, completion, guides, help, and result viewers.',
           'Interactive actions pause on an equivalent `nopsai ...` command preview before API sends, local config changes, completion generation, platform checks/releases, install generation, Docker Compose startup, or Helm deployment begins.',
           'Generated Docker Compose installs reject the built-in development admin password, include dispatcher TLS in .env, and create bootstrap local admin credentials that are temporary by default and require first-login rotation.',
+          'Generated Kubernetes installs include README.md with prerequisites, expected Secret keys, Secret creation examples, CLI deploy commands, direct Helm commands, and verification commands.',
           'Released CLIs check GET /version before mutating API requests. Development builds keep a deliberate bypass until release metadata is injected.',
         ],
         details: [

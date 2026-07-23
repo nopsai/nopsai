@@ -348,8 +348,10 @@ func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesVal
 	if err != nil {
 		return InstallPlan{}, err
 	}
+	readme := renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, existingSecret, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey, options.Wait)
 	baseFiles := []InstallFile{
 		{RelativePath: valuesFile, Mode: 0o644, Contents: values},
+		{RelativePath: installKubernetesReadmeFile, Mode: 0o644, Contents: readme},
 	}
 	files, err := appendInstallLock(baseFiles, installLock("kubernetes", version, cli, images, baseFiles, i.now(), DefaultInstallChartReference, version))
 	if err != nil {
@@ -1174,6 +1176,10 @@ func composeCommandText(outputDir string) string {
 }
 
 func kubernetesCommandText(outputDir, releaseName, namespace, valuesFile string, wait bool) string {
+	return "cd " + shellQuote(outputDir) + " && " + shellJoin(kubernetesDeployArgs(releaseName, namespace, valuesFile, wait))
+}
+
+func kubernetesDeployArgs(releaseName, namespace, valuesFile string, wait bool) []string {
 	args := []string{
 		"nopsai", "install", "kubernetes",
 		"--output-dir", ".",
@@ -1185,7 +1191,7 @@ func kubernetesCommandText(outputDir, releaseName, namespace, valuesFile string,
 	if wait {
 		args = append(args, "--wait")
 	}
-	return "cd " + shellQuote(outputDir) + " && " + shellJoin(args)
+	return args
 }
 
 func shellJoin(args []string) string {
