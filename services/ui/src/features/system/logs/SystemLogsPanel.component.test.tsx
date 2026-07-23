@@ -13,7 +13,10 @@ const hookMock = vi.hoisted(() => ({
 
 vi.mock('./useSystemLogs', () => ({
   useSystemLogs: () => ({
-    sources: [{ id: 'dispatcher', display_name: 'Dispatcher', container_name: 'nopsai-dispatcher', available: true, state: 'running', health: 'healthy' }],
+    sources: [
+      { id: 'dispatcher', display_name: 'Dispatcher', container_name: 'nopsai-dispatcher', available: true, state: 'running', health: 'none' },
+      { id: 'db', display_name: 'Postgres', container_name: 'nopsai-db', available: true, state: 'running', health: 'healthy' },
+    ],
     selectedSourceID: 'dispatcher',
     entries: [
       { id: 'one', source_id: 'dispatcher', container_name: 'nopsai-dispatcher', container_instance: 'instance-1', emitted_at: '2026-06-21T12:00:00Z', observed_at: '2026-06-21T12:00:01Z', stream: 'stdout', line: 'ready' },
@@ -40,6 +43,9 @@ test('renders status, safety warnings, restart boundaries, and filters', async (
   expect(screen.getByText('Service instance restarted')).toBeVisible();
   expect(screen.getByText('ready')).toBeVisible();
   expect(screen.getByText('request failed')).toBeVisible();
+  expect(screen.getByRole('option', { name: 'Dispatcher · running' })).toBeVisible();
+  expect(screen.queryByRole('option', { name: 'Dispatcher · none' })).not.toBeInTheDocument();
+  expect(screen.getByRole('option', { name: 'Postgres · healthy' })).toBeVisible();
 
   const stdoutFilter = screen.getByRole('button', { name: 'stdout' });
   const stderrFilter = screen.getByRole('button', { name: 'stderr' });

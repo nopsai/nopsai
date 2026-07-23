@@ -22,7 +22,9 @@ for:
 Go binaries still expose shared build identity through `pkg/buildinfo`: product
 version, commit, build date, API version, runner protocol, compatibility ranges,
 and capabilities. The public `/version` endpoint and hosted MCP version tool
-return non-secret identity metadata only.
+return non-secret identity metadata only. The authenticated UI reads that same
+endpoint and renders a quiet version-only footer at the far right of the app
+chrome so operators can confirm the deployed build without opening diagnostics.
 
 ## Published Assets
 

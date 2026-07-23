@@ -38,6 +38,11 @@ NopsAI Go services route `trace`, `debug`, and `info` events to stdout and route
 toggles use a selected background, accent ring, status dot, and `aria-pressed`
 state so their current selection is visible and accessible.
 
+Docker reports containers without an explicit healthcheck as health `none`.
+System Logs treats that sentinel as an absent healthcheck and falls back to the
+container state, so a running log source appears as `running` rather than
+`none`.
+
 ## API and AAA
 
 - `GET /v1/system/logs/sources` filters source discovery through AAA.

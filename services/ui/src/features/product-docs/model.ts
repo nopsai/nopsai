@@ -3134,6 +3134,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'System Logs apply line and stream limits, buffer recent sanitized entries in memory, and do not copy platform logs into pipeline_run_logs.',
           'Build-only base, agent, and pipeline images are not exposed as System Logs sources.',
           'Source-level system_log.read permissions control who can list or stream each platform source.',
+          'Docker health `none` means no container healthcheck exists; System Logs falls back to the container state, such as `running`, instead of showing `none` as a service status.',
         ],
         configRows: [
           {
@@ -3243,6 +3244,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Advanced manifest-based Helm deploys remain available for internal CI workflows that explicitly provide a manifest.',
           'Release locks are GitOps-readable evidence for deployed version state.',
           'GET /version is public and returns build, API, CLI, runner, and capability identity without deployment secrets.',
+          'The authenticated UI reads GET /version and shows a version-only footer at the far right of the app chrome.',
           'Breaking API, CLI, runner protocol, or deployment changes require a new major compatibility line.',
         ],
         details: [
