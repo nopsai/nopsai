@@ -22,8 +22,10 @@ The NopsAI API production gates currently check:
 - Dispatcher transport security is not disabled.
 - If a GitHub App is configured, private-key and webhook credential references
   are configured.
-- The built-in `admin@example.com` account is not using the default password.
-  In production gate mode, a missing default admin is not auto-seeded.
+- The bootstrap administrator is not using the development `admin` password.
+  In production gate mode, a missing or insecure bootstrap admin is created or
+  rotated only from `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD` or
+  `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE`.
 
 Unmet production gates are returned through `/v1/setup/preflight`. If the full
 API cannot safely start, the process stays in setup preflight mode so operators
@@ -194,7 +196,7 @@ Current `golangci-lint` baseline in `.golangci.yml`:
 Current `gosec` baseline in `scripts/enterprise-gates.sh` and CI:
 
 - `G101`: false-positive credential names, setup suggestions, and the tracked
-  local default admin/dev-token values guarded by production startup gates.
+  local development admin/dev-token values guarded by production startup gates.
 - `G103`: generated protobuf unsafe calls.
 - `G104`: unchecked write/close/copy errors already tracked by the lint
   backlog.

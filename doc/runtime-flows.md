@@ -185,9 +185,14 @@ The agent runs tasks in dependency order, not strictly line order.
     from action summaries and output before logging or saving history.
 22. It updates task status through the dispatcher.
 23. It appends a normalized history entry that later tasks and child pipelines can use.
-24. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
-25. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
-26. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
+24. Effective failure tolerance is true when either the runnable task or its
+    parent step sets `ignore_failure: true`.
+25. If a task fails and effective failure tolerance is false, the pipeline stops
+    with failure.
+26. If a task fails and effective failure tolerance is true, the task becomes
+    `failure (ignored)` and the pipeline continues. Approval and blocking
+    policy/guardrail failures still fail closed.
+27. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
 
 ## 7. How Goal-Based Tasks Work
 
@@ -367,7 +372,7 @@ Where failures stop the flow:
 - Missing required knowledge context, denied `knowledge_context.use`, or unreadable required repo-local knowledge: stopped in `nopsai`
 - No available runner: run stays queued in dispatcher
 - Agent image or step image pull failure: stopped in runner/agent
-- Task failure without `ignore_failure`: stopped in agent
+- Task failure without effective `ignore_failure`: stopped in agent
 - Child pipeline sync failure: stops the parent only when `sync: true`
 
 ## 14. Short Mental Model

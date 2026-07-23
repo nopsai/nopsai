@@ -76,6 +76,7 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 	var mu sync.Mutex
 	var finalized []includeFinalization
 	markedFailed := false
+	var markedStatus string
 	var triggeredHistory string
 	var triggeredDef string
 	runner := NewRunner(Config{
@@ -115,7 +116,10 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 			defer mu.Unlock()
 			finalized = append(finalized, includeFinalization{stepName, taskName, status, exitCode, llmDurationMs})
 		},
-		MarkPipelineFailed: func() { markedFailed = true },
+		MarkPipelineFailed: func(status string) {
+			markedFailed = true
+			markedStatus = status
+		},
 	})
 	if !result.Handled || result.Success {
 		t.Fatalf("result = %#v, want handled failure after sync child failure", result)
@@ -126,6 +130,9 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 	}
 	if !markedFailed {
 		t.Fatal("sync child failure did not mark pipeline failed")
+	}
+	if markedStatus != "failure" {
+		t.Fatalf("marked status = %q, want failure", markedStatus)
 	}
 	mu.Lock()
 	defer mu.Unlock()

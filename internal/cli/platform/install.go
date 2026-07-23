@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -27,26 +28,29 @@ import (
 )
 
 const (
-	DefaultInstallOutputDir         = "nopsai-install"
-	DefaultInstallProjectName       = "nopsai"
-	DefaultInstallUIPort            = "80"
-	DefaultInstallAPIPort           = "8080"
-	DefaultInstallPostgresDB        = "nopsai_db"
-	DefaultInstallPostgresUser      = "nopsai_user"
-	DefaultInstallNopsaiAPIURL      = "http://nopsai:8080"
-	DefaultInstallDispatcherAddress = "dispatcher:9090"
-	DefaultInstallAAAAPIURL         = "http://aaa:8082"
-	DefaultInstallGitBotAPIURL      = "http://git-bot:8081"
-	DefaultInstallGotenbergURL      = "http://gotenberg:3000"
-	DefaultInstallDockerNetworkName = "nopsai-net"
-	DefaultInstallChartReference    = "oci://ghcr.io/hosein-yousefii/charts/nopsai"
-	DefaultKubernetesValuesFile     = "values.yaml"
-	DefaultKubernetesExistingSecret = "nopsai-secrets"
-	installSchemaVersion            = "v1"
-	installComposeFile              = "docker-compose.yaml"
-	installEnvFile                  = ".env"
-	installLockFile                 = ".nopsai/install.lock"
-	installDatabaseBootstrapSQLFile = "db/init.sql"
+	DefaultInstallOutputDir                          = "nopsai-install"
+	DefaultInstallProjectName                        = "nopsai"
+	DefaultInstallUIPort                             = "80"
+	DefaultInstallAPIPort                            = "8080"
+	DefaultInstallPostgresDB                         = "nopsai_db"
+	DefaultInstallPostgresUser                       = "nopsai_user"
+	DefaultInstallNopsaiAPIURL                       = "http://nopsai:8080"
+	DefaultInstallDispatcherAddress                  = "dispatcher:9090"
+	DefaultInstallAAAAPIURL                          = "http://aaa:8082"
+	DefaultInstallGitBotAPIURL                       = "http://git-bot:8081"
+	DefaultInstallGotenbergURL                       = "http://gotenberg:3000"
+	DefaultInstallDockerNetworkName                  = "nopsai-net"
+	DefaultInstallBootstrapAdminEmail                = "admin@example.com"
+	DefaultInstallChartReference                     = "oci://ghcr.io/hosein-yousefii/charts/nopsai"
+	DefaultKubernetesValuesFile                      = "values.yaml"
+	DefaultKubernetesExistingSecret                  = "nopsai-secrets"
+	DefaultKubernetesBootstrapAdminPasswordSecretKey = "bootstrap-admin-password"
+	installSchemaVersion                             = "v1"
+	installComposeFile                               = "docker-compose.yaml"
+	installEnvFile                                   = ".env"
+	installLockFile                                  = ".nopsai/install.lock"
+	installDatabaseBootstrapSQLFile                  = "db/init.sql"
+	installBootstrapAdminMinPasswordLength           = 12
 )
 
 type Installer struct {
@@ -59,33 +63,37 @@ type Installer struct {
 }
 
 type DockerComposeInstallOptions struct {
-	Version           string
-	OutputDir         string
-	ProjectName       string
-	UIPort            string
-	APIPort           string
-	NopsaiAPIURL      string
-	DispatcherAddress string
-	AAAAPIURL         string
-	GitBotAPIURL      string
-	GotenbergURL      string
-	DockerNetworkName string
+	Version                string
+	OutputDir              string
+	ProjectName            string
+	UIPort                 string
+	APIPort                string
+	NopsaiAPIURL           string
+	DispatcherAddress      string
+	AAAAPIURL              string
+	GitBotAPIURL           string
+	GotenbergURL           string
+	DockerNetworkName      string
+	BootstrapAdminEmail    string
+	BootstrapAdminPassword string
 }
 
 type KubernetesValuesOptions struct {
-	Version           string
-	OutputDir         string
-	ValuesFile        string
-	ReleaseName       string
-	Namespace         string
-	ExistingSecret    string
-	IngressHost       string
-	NopsaiAPIURL      string
-	DispatcherAddress string
-	AAAAPIURL         string
-	GitBotAPIURL      string
-	GotenbergURL      string
-	Wait              bool
+	Version                         string
+	OutputDir                       string
+	ValuesFile                      string
+	ReleaseName                     string
+	Namespace                       string
+	ExistingSecret                  string
+	IngressHost                     string
+	NopsaiAPIURL                    string
+	DispatcherAddress               string
+	AAAAPIURL                       string
+	GitBotAPIURL                    string
+	GotenbergURL                    string
+	BootstrapAdminEmail             string
+	BootstrapAdminPasswordSecretKey string
+	Wait                            bool
 }
 
 type KubernetesInstallDeployOptions struct {
@@ -165,6 +173,7 @@ type composeSecrets struct {
 	ServiceJWTSigningKey   string
 	AAASharedInternalToken string
 	MasterKey              string
+	BootstrapAdminPassword string
 }
 
 type installTopology struct {
@@ -231,12 +240,21 @@ func (i Installer) PlanDockerCompose(_ context.Context, options DockerComposeIns
 	if err != nil {
 		return InstallPlan{}, err
 	}
+	bootstrapAdminEmail, err := normalizeInstallBootstrapAdminEmail(options.BootstrapAdminEmail)
+	if err != nil {
+		return InstallPlan{}, err
+	}
+	if options.BootstrapAdminPassword != "" {
+		if err := validateInstallBootstrapAdminPassword(options.BootstrapAdminPassword); err != nil {
+			return InstallPlan{}, err
+		}
+	}
 	for _, image := range composeImageEnvs {
 		if _, err := requiredInstallImage(images, image.Key); err != nil {
 			return InstallPlan{}, err
 		}
 	}
-	secrets, err := i.generateComposeSecrets()
+	secrets, err := i.generateComposeSecrets(options.BootstrapAdminPassword)
 	if err != nil {
 		return InstallPlan{}, err
 	}
@@ -244,7 +262,7 @@ func (i Installer) PlanDockerCompose(_ context.Context, options DockerComposeIns
 	if err != nil {
 		return InstallPlan{}, err
 	}
-	env := renderComposeEnv(version, images, secrets, apiPort, uiPort, topology)
+	env := renderComposeEnv(version, images, secrets, apiPort, uiPort, topology, bootstrapAdminEmail)
 	baseFiles := []InstallFile{
 		{RelativePath: installComposeFile, Mode: 0o644, Contents: compose},
 		{RelativePath: installEnvFile, Mode: 0o600, Sensitive: true, Contents: env},
@@ -262,7 +280,7 @@ func (i Installer) PlanDockerCompose(_ context.Context, options DockerComposeIns
 		Files:     files,
 		Command:   composeCommandText(outputDir),
 		Warnings: []string{
-			installEnvFile + " contains generated secrets and should stay out of Git.",
+			installEnvFile + " contains generated secrets, including the bootstrap admin password, and should stay out of Git.",
 			"Rotate generated secrets through your production secret manager before promoting this install beyond evaluation.",
 		},
 	}, nil
@@ -314,7 +332,18 @@ func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesVal
 	if err != nil {
 		return InstallPlan{}, err
 	}
-	values, err := renderKubernetesValues(version, images, existingSecret, options.IngressHost, topology)
+	bootstrapAdminEmail, err := normalizeInstallBootstrapAdminEmail(options.BootstrapAdminEmail)
+	if err != nil {
+		return InstallPlan{}, err
+	}
+	bootstrapAdminPasswordSecretKey := strings.TrimSpace(options.BootstrapAdminPasswordSecretKey)
+	if bootstrapAdminPasswordSecretKey == "" {
+		bootstrapAdminPasswordSecretKey = DefaultKubernetesBootstrapAdminPasswordSecretKey
+	}
+	if err := validateKubernetesSecretKey("bootstrap admin password secret key", bootstrapAdminPasswordSecretKey); err != nil {
+		return InstallPlan{}, err
+	}
+	values, err := renderKubernetesValues(version, images, existingSecret, options.IngressHost, topology, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey)
 	if err != nil {
 		return InstallPlan{}, err
 	}
@@ -333,7 +362,7 @@ func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesVal
 		Files:     files,
 		Command:   kubernetesCommandText(outputDir, releaseName, namespace, valuesFile, options.Wait),
 		Warnings: []string{
-			"values.yaml references an existing Kubernetes Secret; create it with your cluster secret manager before deploying.",
+			"values.yaml references an existing Kubernetes Secret; create it with your cluster secret manager before deploying, including the bootstrap admin password key.",
 			"Do not commit raw database URLs, signing keys, or master keys to GitOps repositories.",
 		},
 	}, nil
@@ -517,7 +546,7 @@ func defaultReleaseManifestDigest(source, digest string, cli buildinfo.Info) str
 	return strings.TrimSpace(cli.ReleaseManifestDigest)
 }
 
-func (i Installer) generateComposeSecrets() (composeSecrets, error) {
+func (i Installer) generateComposeSecrets(bootstrapAdminPassword string) (composeSecrets, error) {
 	reader := i.randomReader()
 	postgresPassword, err := generateInstallSecret(reader, 32)
 	if err != nil {
@@ -539,12 +568,20 @@ func (i Installer) generateComposeSecrets() (composeSecrets, error) {
 	if err != nil {
 		return composeSecrets{}, err
 	}
+	bootstrapAdminPassword = strings.TrimSpace(bootstrapAdminPassword)
+	if bootstrapAdminPassword == "" {
+		bootstrapAdminPassword, err = generateInstallSecret(reader, 24)
+		if err != nil {
+			return composeSecrets{}, err
+		}
+	}
 	return composeSecrets{
 		PostgresPassword:       postgresPassword,
 		JWTSigningKey:          jwtSigningKey,
 		ServiceJWTSigningKey:   serviceJWTSigningKey,
 		AAASharedInternalToken: aaaSharedInternalToken,
 		MasterKey:              masterKey,
+		BootstrapAdminPassword: bootstrapAdminPassword,
 	}, nil
 }
 
@@ -646,7 +683,7 @@ func renderComposeTemplate(projectName string) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func renderComposeEnv(version string, images map[string]string, secrets composeSecrets, apiPort, uiPort string, topology installTopology) []byte {
+func renderComposeEnv(version string, images map[string]string, secrets composeSecrets, apiPort, uiPort string, topology installTopology, bootstrapAdminEmail string) []byte {
 	var builder strings.Builder
 	builder.WriteString("NOPSAI_VERSION=")
 	builder.WriteString(version)
@@ -687,6 +724,10 @@ func renderComposeEnv(version string, images map[string]string, secrets composeS
 	builder.WriteString(secrets.AAASharedInternalToken)
 	builder.WriteString("\nNOPSAI_MASTER_KEY=")
 	builder.WriteString(secrets.MasterKey)
+	builder.WriteString("\nNOPSAI_BOOTSTRAP_ADMIN_EMAIL=")
+	builder.WriteString(bootstrapAdminEmail)
+	builder.WriteString("\nNOPSAI_BOOTSTRAP_ADMIN_PASSWORD=")
+	builder.WriteString(secrets.BootstrapAdminPassword)
 	builder.WriteString("\n")
 	for _, image := range composeImageEnvs {
 		builder.WriteString(image.Env)
@@ -697,14 +738,27 @@ func renderComposeEnv(version string, images map[string]string, secrets composeS
 	return []byte(builder.String())
 }
 
-func renderKubernetesValues(version string, images map[string]string, existingSecret, ingressHost string, topology installTopology) ([]byte, error) {
+func renderKubernetesValues(version string, images map[string]string, existingSecret, ingressHost string, topology installTopology, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey string) ([]byte, error) {
 	var builder strings.Builder
 	builder.WriteString("# Generated by nopsai install kubernetes. Edit non-secret values, then deploy with the command printed by the CLI.\n")
 	builder.WriteString("global:\n")
 	builder.WriteString("  releaseVersion: ")
 	builder.WriteString(strconv.Quote(version))
 	builder.WriteString("\n  sourceCommit: \"\"\n  environment: production\n  logLevel: info\n  logFormat: json\n  imagePullSecrets: []\n\n")
-	builder.WriteString("topology:\n  dispatcherGRPCAddress: dispatcher:9090\n\n")
+	builder.WriteString("topology:\n")
+	builder.WriteString("  nopsaiAPIURL: ")
+	builder.WriteString(strconv.Quote(topology.NopsaiAPIURL))
+	builder.WriteString("\n  dispatcherGRPCAddress: ")
+	builder.WriteString(strconv.Quote(topology.DispatcherAddress))
+	builder.WriteString("\n  aaaAPIURL: ")
+	builder.WriteString(strconv.Quote(topology.AAAAPIURL))
+	builder.WriteString("\n  gitBotAPIURL: ")
+	builder.WriteString(strconv.Quote(topology.GitBotAPIURL))
+	builder.WriteString("\n  gotenbergURL: ")
+	builder.WriteString(strconv.Quote(topology.GotenbergURL))
+	builder.WriteString("\n\nbootstrapAdmin:\n  email: ")
+	builder.WriteString(strconv.Quote(bootstrapAdminEmail))
+	builder.WriteString("\n\n")
 	builder.WriteString("secrets:\n")
 	builder.WriteString("  existingSecret: ")
 	builder.WriteString(strconv.Quote(existingSecret))
@@ -713,7 +767,10 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString("    masterKey: master-key\n")
 	builder.WriteString("    jwtSigningKey: jwt-signing-key\n")
 	builder.WriteString("    serviceJWTSigningKey: service-jwt-signing-key\n")
-	builder.WriteString("    aaaSharedInternalToken: aaa-shared-internal-token\n\n")
+	builder.WriteString("    aaaSharedInternalToken: aaa-shared-internal-token\n")
+	builder.WriteString("    bootstrapAdminPassword: ")
+	builder.WriteString(strconv.Quote(bootstrapAdminPasswordSecretKey))
+	builder.WriteString("\n\n")
 	builder.WriteString("api:\n  replicaCount: 1\n")
 	if err := writeKubernetesImage(&builder, images, "api"); err != nil {
 		return nil, err
@@ -1055,6 +1112,54 @@ func validateInstallToken(label, raw string) error {
 	return nil
 }
 
+func validateKubernetesSecretKey(label, raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return fmt.Errorf("%s is required", label)
+	}
+	if len(value) > 253 {
+		return fmt.Errorf("%s must be no longer than 253 characters", label)
+	}
+	for _, character := range value {
+		valid := character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '.' || character == '_' || character == '-'
+		if !valid {
+			return fmt.Errorf("%s must use letters, numbers, periods, underscores, or dashes", label)
+		}
+	}
+	return nil
+}
+
+func normalizeInstallBootstrapAdminEmail(raw string) (string, error) {
+	email := strings.TrimSpace(raw)
+	if email == "" {
+		email = DefaultInstallBootstrapAdminEmail
+	}
+	parsed, err := mail.ParseAddress(email)
+	if err != nil {
+		return "", fmt.Errorf("bootstrap admin email must be valid")
+	}
+	return strings.TrimSpace(parsed.Address), nil
+}
+
+func validateInstallBootstrapAdminPassword(raw string) error {
+	if raw != strings.TrimSpace(raw) {
+		return errors.New("bootstrap admin password cannot start or end with whitespace")
+	}
+	if err := validateInstallToken("bootstrap admin password", raw); err != nil {
+		return err
+	}
+	if raw == "admin" {
+		return errors.New("bootstrap admin password cannot be the built-in development password")
+	}
+	if len([]rune(raw)) < installBootstrapAdminMinPasswordLength {
+		return fmt.Errorf("bootstrap admin password must be at least %d characters", installBootstrapAdminMinPasswordLength)
+	}
+	return nil
+}
+
 func composeCommandText(outputDir string) string {
 	return "cd " + shellQuote(outputDir) + " && docker compose --env-file .env -f docker-compose.yaml up -d"
 }
@@ -1203,6 +1308,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:?NOPSAI_MASTER_KEY is required}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required}
+      NOPSAI_BOOTSTRAP_ADMIN_EMAIL: ${NOPSAI_BOOTSTRAP_ADMIN_EMAIL:?NOPSAI_BOOTSTRAP_ADMIN_EMAIL is required}
+      NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:?NOPSAI_BOOTSTRAP_ADMIN_PASSWORD is required}
       AAA_API_URL: ${AAA_API_URL:-http://aaa:8082}
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?AAA_SHARED_INTERNAL_TOKEN is required}
       GIT_BOT_API_URL: ${GIT_BOT_API_URL:-http://git-bot:8081}

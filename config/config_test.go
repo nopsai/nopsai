@@ -673,3 +673,22 @@ func TestLoadConfigAppliesCanonicalServiceEndpoints(t *testing.T) {
 		t.Fatalf("system log Kubernetes env aliases not applied: %#v", cfg.SystemLogs)
 	}
 }
+
+func TestLoadConfigAppliesBootstrapAdminEnvironment(t *testing.T) {
+	t.Setenv("NOPSAI_BOOTSTRAP_ADMIN_EMAIL", " platform-admin@example.com ")
+	t.Setenv("NOPSAI_BOOTSTRAP_ADMIN_PASSWORD", "first-install-secret")
+	t.Setenv("NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD", "true")
+	t.Setenv("NOPSAI_BOOTSTRAP_ADMIN_MUST_CHANGE_PASSWORD", "false")
+
+	cfg, err := LoadConfig("../config.yml")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.BootstrapAdmin.Email != "platform-admin@example.com" ||
+		cfg.BootstrapAdmin.Password != "first-install-secret" ||
+		!cfg.BootstrapAdmin.AllowDefaultPassword ||
+		cfg.BootstrapAdmin.MustChangePassword == nil ||
+		*cfg.BootstrapAdmin.MustChangePassword {
+		t.Fatalf("bootstrap admin env not applied: %#v", cfg.BootstrapAdmin)
+	}
+}

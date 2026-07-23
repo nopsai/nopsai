@@ -239,7 +239,7 @@ Common step directives:
 | `steps[].secrets` | Scoped secret refs injected as environment variables. |
 | `steps[].variables` | Step-wide environment overrides. |
 | `steps[].volumes` | Docker volume mounts using `volume:/mount/path`. |
-| `steps[].ignore_failure` | Treats failure as ignored so graph progress can continue. |
+| `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. |
 | `steps[].llm_output_sharing` | Step-level output-history sharing override. |
 | `steps[].agent_profile` | Step persona override. Valid for conditions and LLM goals in the step. |
 | `steps[].llm_profile` | Step model-client override. Applies to the step condition and tasks unless a task has `llm_profile`. |
@@ -255,7 +255,7 @@ Common task directives:
 | `tasks[].goal` | LLM-backed task goal. Mutually exclusive with `script`. |
 | `tasks[].script` | Direct shell task. Mutually exclusive with `goal`. |
 | `tasks[].depends_on` | Dependencies inside the same step only. |
-| `tasks[].ignore_failure` | Treats this task failure as ignored. |
+| `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step. |
 | `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
 | `tasks[].llm_profile` | Most-specific LLM model-client override for this task. |
 | `tasks[].mcp_profiles` | MCP profiles for this LLM goal task. Invalid on script tasks. |
@@ -488,7 +488,9 @@ shared run workspaces.
 The Helm chart deploys API, AAA, dispatcher, git-bot, UI, Gotenberg, and the
 Kubernetes runner. PostgreSQL and bootstrap secrets are intentionally external.
 `topology.dispatcherGRPCAddress` defaults to `dispatcher:9090` and controls the
-dispatcher endpoint injected into API and Kubernetes runner pods.
+dispatcher endpoint injected into API and Kubernetes runner pods. The same
+topology block also carries the internal NopsAI, AAA, git-bot, and Gotenberg
+service URLs for custom DNS or split-service deployments.
 
 ## Bootstrap Configuration
 
@@ -499,6 +501,8 @@ Required bootstrap values:
 | `DATABASE_URL` / `database-url` | API and AAA | PostgreSQL connection for runtime state, config sync state, auth records, run records, logs, and evidence. |
 | `NOPSAI_MASTER_KEY` / `master-key` | API | Root application encryption material. |
 | `JWT_SIGNING_KEY` / `jwt-signing-key` | API | User, personal, service-account, browser, CLI, automation, and hosted MCP token signing. |
+| `NOPSAI_BOOTSTRAP_ADMIN_EMAIL` | API | Email address for the first local bootstrap administrator. |
+| `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD` / `bootstrap-admin-password` | API | Initial password used to create or rotate the first local bootstrap administrator. Use `_PASSWORD_FILE` when a secret manager mounts a file. |
 | `SERVICE_JWT_SIGNING_KEY` / `service-jwt-signing-key` | API, dispatcher, git-bot, runners, agents | Internal REST and dispatcher service-token signing. Keep separate from `JWT_SIGNING_KEY`. |
 | `AAA_SHARED_INTERNAL_TOKEN` / `aaa-shared-internal-token` | API and AAA | Internal NopsAI-to-AAA authorization check authentication. |
 | `AAA_API_URL` | API | Private URL for AAA, typically `http://aaa:8082` in Compose. |

@@ -65,10 +65,11 @@ func NextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool
 			}
 		} else {
 			tasksToCheck = append(tasksToCheck, &models.Task{
-				Name:      stepName,
-				Goal:      step.GetGoal(),
-				Script:    step.GetScript(),
-				DependsOn: []string{},
+				Name:          stepName,
+				Goal:          step.GetGoal(),
+				Script:        step.GetScript(),
+				DependsOn:     []string{},
+				IgnoreFailure: step.GetIgnoreFailure(),
 			})
 		}
 

@@ -31,7 +31,7 @@ Supported setup capabilities:
 - one or two starter repository teams with selected repositories underneath
 - starter users with team role assignment, password creation, and forced first
   password change
-- guardrails that flag insecure default admin state and missing runtime
+- guardrails that flag insecure bootstrap admin state and missing runtime
   prerequisites
 
 See [first-install-wizard.md](./first-install-wizard.md) for the operator flow

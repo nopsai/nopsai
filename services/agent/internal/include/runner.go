@@ -35,12 +35,13 @@ type Request struct {
 	Sync               bool
 	LLMDurationMs      int64
 	FinalizeTask       Finalizer
-	MarkPipelineFailed func()
+	MarkPipelineFailed func(string)
 }
 
 type Result struct {
 	Handled bool
 	Success bool
+	Status  string
 }
 
 func NewRunner(config Config) Runner {
@@ -62,14 +63,14 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 			req.Logger.Error().Str("include", includeTarget).Msg("Invalid include format")
 		}
 		req.finalize(req.StepName, req.StepName, "failure", 1)
-		return Result{Handled: true, Success: false}
+		return Result{Handled: true, Success: false, Status: "failure"}
 	}
 	childPipelineName := parts[1]
 
 	if r.config.FetchDefinition == nil {
 		r.logError(req.Logger, fmt.Errorf("child pipeline definition fetcher is not configured"), "Failed to get child pipeline definition")
 		req.finalize(req.StepName, req.StepName, "failure", 1)
-		return Result{Handled: true, Success: false}
+		return Result{Handled: true, Success: false, Status: "failure"}
 	}
 	childDef, err := r.config.FetchDefinition(ctx, childPipelineName)
 	if err != nil {
@@ -78,38 +79,38 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 				req.Logger.Warn().Str("child_pipeline", childPipelineName).Msg("Child pipeline not found, marking as not found")
 			}
 			req.finalize(req.StepName, req.StepName, "not_found", 0)
-			return Result{Handled: true, Success: false}
+			return Result{Handled: true, Success: false, Status: "not_found"}
 		}
 
 		r.logError(req.Logger, err, "Failed to get child pipeline definition")
 		req.finalize(req.StepName, req.StepName, "failure", 1)
-		return Result{Handled: true, Success: false}
+		return Result{Handled: true, Success: false, Status: "failure"}
 	}
 
 	if r.config.TriggerPipeline == nil {
 		r.logError(req.Logger, fmt.Errorf("child pipeline trigger is not configured"), "Failed to trigger child pipeline")
 		req.finalize(req.StepName, req.StepName, "failure", 1)
-		return Result{Handled: true, Success: false}
+		return Result{Handled: true, Success: false, Status: "failure"}
 	}
 	childRunID, err := r.config.TriggerPipeline(ctx, req.ParentRunID, req.ParentPipelineName, req.StepName, childPipelineName, childDef, req.History)
 	if err != nil {
 		r.logError(req.Logger, err, "Failed to trigger child pipeline")
 		req.finalize(req.StepName, req.StepName, "failure", 1)
-		return Result{Handled: true, Success: false}
+		return Result{Handled: true, Success: false, Status: "failure"}
 	}
 
 	if req.Sync {
 		finalStatus := r.monitor(ctx, req, childRunID)
 		success := finalStatus == "success"
 		if !success && req.MarkPipelineFailed != nil {
-			req.MarkPipelineFailed()
+			req.MarkPipelineFailed(finalStatus)
 		}
-		return Result{Handled: true, Success: success}
+		return Result{Handled: true, Success: success, Status: finalStatus}
 	}
 
 	go r.monitor(ctx, req, childRunID)
 	req.finalize(req.StepName, req.StepName, "success", 0)
-	return Result{Handled: true, Success: true}
+	return Result{Handled: true, Success: true, Status: "success"}
 }
 
 func (r Runner) monitor(ctx context.Context, req Request, childRunID string) string {

@@ -23,7 +23,7 @@ const (
 	defaultAdminSub          = "admin"
 	defaultAdminEmail        = "admin@example.com"
 	defaultAdminRole         = "nopsai-admin"
-	defaultAdminPasswordHash = "$2a$10$ueFOcGRKCWDeOaTwy1hmQ.WjQ70Yu8JJLcl8ZvJprx7HPKArt8ESC" // password: admin
+	defaultAdminPasswordHash = "$2a$10$ueFOcGRKCWDeOaTwy1hmQ.WjQ70Yu8JJLcl8ZvJprx7HPKArt8ESC" // legacy hash for password: admin
 	defaultAdminID           = "00000000-0000-0000-0000-00000000000a"
 	dockerContainerNameMax   = 255
 )

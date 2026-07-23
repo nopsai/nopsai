@@ -9,7 +9,14 @@ global:
   podLabels: {}
 
 topology:
+  nopsaiAPIURL: http://nopsai:8080
   dispatcherGRPCAddress: dispatcher:9090
+  aaaAPIURL: http://aaa:8082
+  gitBotAPIURL: http://git-bot:8081
+  gotenbergURL: http://gotenberg:3000
+
+bootstrapAdmin:
+  email: admin@example.com
 
 secrets:
   existingSecret: nopsai-secrets
@@ -19,6 +26,7 @@ secrets:
     jwtSigningKey: jwt-signing-key
     serviceJWTSigningKey: service-jwt-signing-key
     aaaSharedInternalToken: aaa-shared-internal-token
+    bootstrapAdminPassword: bootstrap-admin-password
 
 base:
   image: {repository: ghcr.io/hosein-yousefii/nopsai-base, tag: dev, digest: ""}

@@ -414,10 +414,12 @@ The normal request audit trail still writes to `audit_logs`.
 
 Startup seeds:
 
-- the default local admin user `admin@example.com` with role `nopsai-admin`
+- the local bootstrap admin user with role `nopsai-admin`; generated installs
+  create it from `NOPSAI_BOOTSTRAP_ADMIN_EMAIL` and
+  `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD(_FILE)`
 - `nopsai-admin` with `*` permissions
 - `dispatcher-internal` bound to `internal_service:dispatcher`
 - dispatcher permissions for pipeline fetches, execution, run status, logs, finalization, and task updates
 - product role templates for `viewer`, `developer`, `owner`, and `admin`
 
-The default admin role assignment is protected from accidental removal or deactivation through the admin APIs.
+The bootstrap admin role assignment is protected from accidental removal or deactivation through the admin APIs.

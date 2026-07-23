@@ -1275,26 +1275,6 @@ CREATE INDEX idx_data_cleanup_jobs_created_at ON data_cleanup_jobs(created_at DE
 CREATE INDEX idx_data_cleanup_jobs_schedule_id ON data_cleanup_jobs(schedule_id, created_at DESC);
 CREATE INDEX idx_data_cleanup_schedules_next_run ON data_cleanup_schedules(enabled, next_run_at);
 
--- Seed default admin user with password 'admin' (change after first login).
-INSERT INTO users (id, sub, email, provider, password_hash, status, must_change_password)
-VALUES (
-    '00000000-0000-0000-0000-00000000000a',
-    'admin',
-    'admin@example.com',
-    'local',
-    '$2a$10$ueFOcGRKCWDeOaTwy1hmQ.WjQ70Yu8JJLcl8ZvJprx7HPKArt8ESC',
-    'active',
-    TRUE
-)
-ON CONFLICT (sub) DO NOTHING;
-
-INSERT INTO user_roles (user_id, role)
-VALUES (
-    '00000000-0000-0000-0000-00000000000a',
-    'nopsai-admin'
-)
-ON CONFLICT DO NOTHING;
-
 INSERT INTO role_permissions (role, name, obj, act)
 SELECT 'nopsai-admin', 'All access', '/*', '.*'
 WHERE NOT EXISTS (
@@ -1309,7 +1289,6 @@ ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
 VALUES
-    ('nopsai-admin', 'user', '00000000-0000-0000-0000-00000000000a'),
     ('dispatcher-internal', 'internal_service', 'dispatcher')
 ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING;
 

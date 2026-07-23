@@ -15,8 +15,8 @@
     "ui": "ghcr.io/hosein-yousefii/nopsai-ui:2.10.648"
   },
   "fileHashes": {
-    "db/init.sql": "sha256:3c256ea9dccf73297f2fc31de006b251be24572d2fe9f2d15ddd0c12a56e925d",
-    "docker-compose.yaml": "sha256:51112e1939cb49171659e52975f1d6373bf7146224a27ad7d6b4c5d21f1fd5be"
+    "db/init.sql": "sha256:13454aaa4790c3973a14a336be8f9f996c7471d872a772d1ebe292d12c5b411a",
+    "docker-compose.yaml": "sha256:9ca8de0aed6c5d6d402d47e0afb574bb5327f152d2b24aae0b205bf008d79cb4"
   },
   "generatedAt": "2026-07-22T19:58:03.842009Z"
 }

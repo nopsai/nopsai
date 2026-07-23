@@ -110,6 +110,14 @@ type SystemLogsKubernetesConfig struct {
 	Container     string `yaml:"container,omitempty" json:"container,omitempty"`
 }
 
+type BootstrapAdminConfig struct {
+	Email                string `yaml:"email,omitempty" json:"email,omitempty"`
+	Password             string `yaml:"password,omitempty" json:"-"`
+	PasswordFile         string `yaml:"password_file,omitempty" json:"-"`
+	AllowDefaultPassword bool   `yaml:"allow_default_password,omitempty" json:"allow_default_password,omitempty"`
+	MustChangePassword   *bool  `yaml:"must_change_password,omitempty" json:"must_change_password,omitempty"`
+}
+
 type AuthConfig struct {
 	LocalEnabled *bool          `yaml:"local_enabled,omitempty" json:"local_enabled,omitempty"`
 	OIDC         OIDCAuthConfig `yaml:"oidc,omitempty" json:"oidc,omitempty"`
@@ -240,7 +248,8 @@ type Config struct {
 
 	RequireProductionGates bool `yaml:"require_production_gates" env:"NOPSAI_REQUIRE_PRODUCTION_GATES"`
 
-	MasterKey string `yaml:"master_key" env:"NOPSAI_MASTER_KEY"`
+	MasterKey      string               `yaml:"master_key" env:"NOPSAI_MASTER_KEY"`
+	BootstrapAdmin BootstrapAdminConfig `yaml:"bootstrap_admin" env:"-"`
 
 	// Authentication and authorization
 	JWTSigningKey            string     `yaml:"jwt_signing_key" env:"JWT_SIGNING_KEY"`
@@ -416,6 +425,7 @@ func LoadConfig(path string) (*Config, error) {
 	config.MCPServers = models.NormalizeMCPServers(config.MCPServers)
 	config.MCPProfiles = models.NormalizeMCPProfiles(config.MCPProfiles)
 	applyNestedEnvOverrides(config)
+	config.BootstrapAdmin = NormalizeBootstrapAdminConfig(config.BootstrapAdmin)
 	config.Auth = NormalizeAuthConfig(config.Auth)
 	config.Assistant = NormalizeAssistantConfig(config.Assistant)
 	config.Runtime = NormalizeRuntime(config.Runtime)
@@ -447,6 +457,13 @@ func applyNestedEnvOverrides(config *Config) {
 		if value, ok := os.LookupEnv(name); ok {
 			if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
 				*target = &parsed
+			}
+		}
+	}
+	setBoolEnv := func(name string, target *bool) {
+		if value, ok := os.LookupEnv(name); ok {
+			if parsed, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+				*target = parsed
 			}
 		}
 	}
@@ -482,6 +499,12 @@ func applyNestedEnvOverrides(config *Config) {
 	setStringEnv("SYSTEM_LOGS_KUBERNETES_NAMESPACE", &config.SystemLogs.Kubernetes.Namespace)
 	setStringEnv("SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR", &config.SystemLogs.Kubernetes.LabelSelector)
 	setStringEnv("SYSTEM_LOGS_KUBERNETES_CONTAINER", &config.SystemLogs.Kubernetes.Container)
+
+	setStringEnv("NOPSAI_BOOTSTRAP_ADMIN_EMAIL", &config.BootstrapAdmin.Email)
+	setStringEnv("NOPSAI_BOOTSTRAP_ADMIN_PASSWORD", &config.BootstrapAdmin.Password)
+	setStringEnv("NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE", &config.BootstrapAdmin.PasswordFile)
+	setBoolEnv("NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD", &config.BootstrapAdmin.AllowDefaultPassword)
+	setBoolPtrEnv("NOPSAI_BOOTSTRAP_ADMIN_MUST_CHANGE_PASSWORD", &config.BootstrapAdmin.MustChangePassword)
 }
 
 func (c *Config) NormalizeServiceTopology() {
@@ -523,6 +546,12 @@ func NormalizeAuthConfig(auth AuthConfig) AuthConfig {
 	auth.OIDC.DomainMapping = normalizeDomainProviderMap(auth.OIDC.DomainMapping)
 	auth.OIDC.Providers = normalizeOIDCProviders(auth.OIDC.Providers)
 	return auth
+}
+
+func NormalizeBootstrapAdminConfig(admin BootstrapAdminConfig) BootstrapAdminConfig {
+	admin.Email = strings.TrimSpace(admin.Email)
+	admin.PasswordFile = strings.TrimSpace(admin.PasswordFile)
+	return admin
 }
 
 func NormalizeAssistantConfig(assistant AssistantConfig) AssistantConfig {
