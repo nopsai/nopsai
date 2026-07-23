@@ -510,11 +510,7 @@ func runLogFieldsForLine(payload runLogIngestPayload, line string) inferredRunLo
 		fields.TaskName = structuredRunLogString(parsed, "task", "task_name")
 	}
 	if fields.Level == "" {
-		if payload.Stream == "stderr" {
-			fields.Level = "error"
-		} else {
-			fields.Level = inferPlainTextRunLogLevel(line)
-		}
+		fields.Level = inferPlainTextRunLogLevel(line)
 	}
 	if fields.Level == "" {
 		fields.Level = "info"
