@@ -129,6 +129,16 @@ credential://system/webhooks/gitlab-platform
 Integration tables should store the stable reference, not copy encrypted
 values into each feature table.
 
+Expected credential kinds by consumer:
+
+- LLM profiles and knowledge provider connections: `api_key`
+- MCP profiles and config repositories: `bearer_token`
+- SMTP mail: `password`
+- OIDC client/admin credentials: `client_secret`
+- GitHub App private key: `private_key`
+- GitHub App webhook secret and Git webhook source signing secrets:
+  `webhook_secret`
+
 ## Encryption
 
 Introduce a credential encryption interface owned by a focused package, for

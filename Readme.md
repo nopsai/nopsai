@@ -41,7 +41,7 @@ around that balance:
 | AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
 | GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
 | Generic Git webhooks | Managed GitLab, Bitbucket, Gitea, and generic sources with credential-backed authentication, repository allowlists, normalized events, changed-file filters, delivery idempotency, rate limits, and audit history. |
-| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, runtime runner/dispatcher settings, and team config repository bindings from Git. |
+| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, data cleanup schedules, runtime runner/dispatcher settings, and team config repository bindings from Git. |
 | Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited team grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
@@ -274,6 +274,7 @@ GitOps sync can import:
 - `setting/system/auth.yaml`: local-login and OIDC SSO settings from the global config repo
 - `setting/system/github.yaml`: GitHub App IDs, credential references, and git-bot URLs from the global config repo
 - `setting/system/mail.yaml`: mail notification SMTP settings from the global config repo
+- `setting/system/data-management.yaml`: scheduled data cleanup rules from the global config repo
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
 - `setting/system/runner.yaml`: runner install defaults, runtime defaults, dispatcher routing, and assistant settings from the global config repo

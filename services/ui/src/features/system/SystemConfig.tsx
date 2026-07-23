@@ -531,6 +531,7 @@ function SystemConfig({
                       placeholder="credential://system/mail/smtp-password"
                       disabled={!mailCanEdit}
                     />
+                    <span className="text-xs text-[var(--text-secondary)]">Expected type: password</span>
                   </label>
                   <label className={`${mailToggleClass} md:col-span-2`}>
                     <input
@@ -693,6 +694,7 @@ function SystemConfig({
                   <CredentialReferenceLink reference={globalConfigRepoForm.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
                     Open credential
                   </CredentialReferenceLink>
+                  <span className="text-xs text-[var(--text-secondary)]">Expected type: bearer_token</span>
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
                   <span>Branch</span>

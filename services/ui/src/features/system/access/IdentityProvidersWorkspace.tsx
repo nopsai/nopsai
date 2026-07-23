@@ -191,7 +191,7 @@ export function IdentityProvidersWorkspace({
               <ProviderInput label="Display name" value={form.display_name} onChange={value => onFormChange(prev => ({ ...prev, display_name: value }))} placeholder="Company SSO" />
               <ProviderInput label="Issuer" value={form.issuer} onChange={value => onFormChange(prev => ({ ...prev, issuer: value }))} placeholder="https://idp.company.com" />
               <ProviderInput label="Client ID" value={form.client_id} onChange={value => onFormChange(prev => ({ ...prev, client_id: value }))} />
-              <ProviderInput label="Client credential ref" value={form.client_credential_ref} onChange={value => onFormChange(prev => ({ ...prev, client_credential_ref: value }))} placeholder="credential://system/oidc/corporate/client-secret" credentialReference={form.client_credential_ref} />
+              <ProviderInput label="Client credential ref" value={form.client_credential_ref} onChange={value => onFormChange(prev => ({ ...prev, client_credential_ref: value }))} placeholder="credential://system/oidc/corporate/client-secret" credentialReference={form.client_credential_ref} hint="Expected type: client_secret" />
               <ProviderInput label="Scopes" value={form.scopes} onChange={value => onFormChange(prev => ({ ...prev, scopes: value }))} placeholder="openid, email, profile" />
               <ProviderInput label="Allowed domains" value={form.allowed_email_domains} onChange={value => onFormChange(prev => ({ ...prev, allowed_email_domains: value }))} placeholder="company.com" />
               <ProviderInput label="Authorization endpoint" value={form.authorization_endpoint} onChange={value => onFormChange(prev => ({ ...prev, authorization_endpoint: value }))} />
@@ -276,6 +276,7 @@ function ProviderInput({
   placeholder,
   type = 'text',
   credentialReference,
+  hint,
 }: {
   label: string;
   value: string;
@@ -283,6 +284,7 @@ function ProviderInput({
   placeholder?: string;
   type?: string;
   credentialReference?: string;
+  hint?: string;
 }) {
   return (
     <label className="access-minimal-label">
@@ -301,6 +303,7 @@ function ProviderInput({
         onChange={event => onChange(event.target.value)}
         placeholder={placeholder}
       />
+      {hint ? <span className="text-xs text-[var(--text-secondary)]">{hint}</span> : null}
     </label>
   );
 }

@@ -609,6 +609,7 @@ export function TeamConfigRepositoryModal({
                     <CredentialReferenceLink reference={form.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
                       Open credential
                     </CredentialReferenceLink>
+                    <span className="text-xs text-[var(--text-secondary)]">Expected type: bearer_token</span>
                   </label>
 
                   <label htmlFor="team-config-repo-branch" className={fieldClass}>

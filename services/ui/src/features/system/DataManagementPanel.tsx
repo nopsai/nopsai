@@ -5,6 +5,7 @@ import {
   Edit3,
   Eye,
   FileArchive,
+  GitBranch,
   PauseCircle,
   PlayCircle,
   Plus,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import {
   cleanupRuleLabel,
+  cleanupScheduleSourceLabel,
   countLabels,
   defaultScheduleForm,
   formatBytes,
@@ -239,7 +241,14 @@ function DataManagementPanel({ canManage }: { canManage: boolean }) {
                   <tr key={schedule.id}>
                     <td className="px-3 py-3">
                       <div className="font-medium">{schedule.name}</div>
-                      <div className="text-xs text-[var(--text-secondary)]">{schedule.enabled ? 'Enabled' : 'Disabled'}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
+                        <span>{schedule.enabled ? 'Enabled' : 'Disabled'}</span>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border-primary)] px-2 py-0.5">
+                          <GitBranch className="h-3 w-3" />
+                          {cleanupScheduleSourceLabel(schedule)}
+                        </span>
+                        {schedule.config_source_path && <span className="font-mono">{schedule.config_source_path}</span>}
+                      </div>
                     </td>
                     <td className="px-3 py-3">{cleanupRuleLabel(schedule)}</td>
                     <td className="px-3 py-3 whitespace-nowrap">{formatDate(schedule.next_run_at)}</td>

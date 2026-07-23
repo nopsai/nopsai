@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   cleanupRequestFromManualForm,
   cleanupRuleLabel,
+  cleanupScheduleSourceLabel,
   cleanupSignature,
   formatBytes,
   modeOptions,
@@ -52,9 +53,14 @@ test('maps cleanup schedules to form state and API payloads', () => {
     backup_before_cleanup: true,
     cron_expression: '0 3 1 * *',
     timezone: 'Europe/Amsterdam',
+    source: 'git',
+    managed_by_config_repo: true,
+    config_source_path: 'setting/system/data-management.yaml',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   };
+
+  assert.equal(cleanupScheduleSourceLabel(schedule), 'GitOps');
 
   const form = scheduleFormFromRecord(schedule);
   assert.deepEqual(form, {
@@ -92,4 +98,5 @@ test('formats cleanup labels, counts, and backup sizes', () => {
   assert.equal(formatBytes(0), '-');
   assert.equal(formatBytes(1024), '1.0 KB');
   assert.equal(formatBytes(10 * 1024), '10 KB');
+  assert.equal(cleanupScheduleSourceLabel({ source: 'database', managed_by_config_repo: false }), 'Database');
 });

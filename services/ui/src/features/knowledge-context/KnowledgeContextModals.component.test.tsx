@@ -137,6 +137,7 @@ describe('KnowledgeContextModals', () => {
 
     expect(screen.getByRole('heading', { name: 'Add external page connection' })).toBeVisible();
     expect(screen.getByRole('combobox', { name: 'Team' })).toHaveValue('platform');
+    expect(screen.getByText('Expected type: api_key')).toBeVisible();
 
     fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'security' } });
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'confluence' } });

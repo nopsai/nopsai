@@ -323,6 +323,7 @@ Rerun:
    - `setting/system/github.yaml` becomes GitHub App IDs, credential references, and git-bot URLs, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
    - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password plaintext kept out of the mail file
+   - `setting/system/data-management.yaml` becomes scheduled data cleanup rules, only from a system/global config repo; backup files and cleanup job history remain runtime records
    - `setting/system/credentials.yaml` becomes encrypted system credential envelopes, only from a system/global config repo
 6. System/global repositories are synced before team repositories during sync-all, so newly defined team bindings can be used immediately.
 7. Team-scoped resources are normalized under the bound team before writing.
@@ -337,8 +338,8 @@ drift endpoint exports the current declarative Nopsai config and compares it wit
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run team/config-repository structure,
 notification routes, access manifests, Agent Profiles, LLM profiles, MCP
-registry files, auth settings, mail settings, runtime settings, and encrypted
-credential envelopes before
+registry files, auth settings, mail settings, data cleanup schedules, runtime
+settings, and encrypted credential envelopes before
 pushing. After those files are merged into the sync branch, the next config sync
 can adopt the matching database-owned resources and switch their UI source to
 GitOps. Pipeline run rows remain runtime/audit records, not Git-owned resources.
