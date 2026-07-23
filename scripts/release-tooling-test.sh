@@ -59,7 +59,7 @@ image_names=(
   nopsai-agent
   nopsai-dispatcher
   nopsai-git-bot
-  nopsai-runner
+  nopsai-docker-runner
   nopsai-k8s-runner
   nopsai-ui
 )
