@@ -316,6 +316,7 @@ GitOps-style configuration sync supports:
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
 - `setting/system/github.yaml` -> GitHub App IDs, credential references, and git-bot URLs from a global config repo
 - `setting/system/runner.yaml` -> runner install defaults, runtime defaults, dispatcher routing, and assistant settings from a global config repo
+- `setting/system/data-management.yaml` -> scheduled data cleanup definitions from a global config repo
 - `setting/system/credentials.yaml` -> encrypted system credential envelopes from a global config repo
 
 ## Nopsai AI Assistant
@@ -498,7 +499,7 @@ Sync behavior:
 - team-scoped LLM, Agent, and MCP profile rows carry config repository metadata; Teams exposes profile editors, team config repositories import/export root `ai-profiles.yaml`, and run launch merges team profiles over the system catalog while system profile GitOps remains under `setting/system/*`
 - config repository bindings support GitHub, GitLab, Bitbucket Cloud-compatible, and Gitea providers; non-GitHub providers use `credential_ref` bearer-token credentials for sync and write operations
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
-- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run team/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
+- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run team/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
 - `config-repositories/teams/<team>/structure.yaml` can place apps under team shells with `name` and `repo_url`; these files can also include inline `config:` blocks for team repo bindings
 - repository triggers for GitHub, GitLab, and Bitbucket automatically contribute
@@ -507,6 +508,7 @@ Sync behavior:
 - auth settings GitOps is system/global only and binds provider credential references
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
 - mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password plaintext
+- data management GitOps is system/global only and stores scheduled cleanup definitions in `setting/system/data-management.yaml`; backup files and cleanup job history remain runtime state
 - credential GitOps is system/global only; `setting/system/credentials.yaml` stores encrypted versions, never plaintext
 - the Dispatcher UI owns `dispatcher_routing` editing while still saving through
   runtime settings, and persisted `credential://...` references link to

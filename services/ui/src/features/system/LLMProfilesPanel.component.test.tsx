@@ -90,6 +90,7 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   expect(form.getByLabelText('Model')).toHaveValue('gpt-4.1-mini');
   expect(form.getByLabelText('Base URL')).toHaveValue('https://api.openai.com/v1');
   expect(form.getByLabelText(/Credential reference/)).toHaveValue('credential://system/llm/standard');
+  expect(form.getByText('Expected type: api_key')).toBeVisible();
   expect(form.queryByLabelText('Reasoning')).not.toBeInTheDocument();
   expect(form.getByLabelText('Temperature')).toHaveAttribute('max', '2');
   expect(form.getByTitle(

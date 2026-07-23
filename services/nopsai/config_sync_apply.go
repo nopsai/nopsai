@@ -59,6 +59,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	runtimeSettingsPlan := plan.runtimeSettingsPlan
 	githubSettingsPlan := plan.githubSettingsPlan
 	mailSettingsPlan := plan.mailSettingsPlan
+	dataManagementPlan := plan.dataManagementPlan
 	schedules := plan.schedules
 	dashboards := plan.dashboards
 	externalTriggers := plan.externalTriggers
@@ -644,7 +645,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	// J. Upsert Triggers
 	for repoName, stored := range triggers {
-		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repoName, "repository_name = $1", repoName)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repositoryTriggerConfigScope(stored.record), "repository_name = $1", repoName)
 		if err != nil {
 			return err
 		}
@@ -785,7 +786,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "dashboards", "dashboard_refresh_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings", "runtime_settings", "credentials"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "data_cleanup_schedules", "dashboards", "dashboard_refresh_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings", "runtime_settings", "credentials"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -1129,6 +1130,17 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			return fmt.Errorf("failed to sync mail settings from '%s': %w", mailSettingsPlan.sourcePath, err)
 		}
 		details["mail_settings_synced"] = 1
+	}
+	if dataManagementPlan != nil {
+		for _, stored := range sortedDataCleanupSchedules(dataManagementPlan.schedules) {
+			if err := upsertDataCleanupScheduleFromGitOps(ctx, tx, binding, stored, commitSHA); err != nil {
+				return fmt.Errorf("failed to sync data cleanup schedule %q from '%s': %w", stored.input.Name, stored.sourcePath, err)
+			}
+			details["data_cleanup_schedules_synced"]++
+		}
+		if err := pruneGitOpsDataCleanupSchedules(ctx, tx, binding, dataManagementPlan.schedules); err != nil {
+			return err
+		}
 	}
 	if credentialPlan != nil {
 		if err := syncCredentialsFromGitOps(ctx, tx, binding, credentialPlan, commitSHA); err != nil {

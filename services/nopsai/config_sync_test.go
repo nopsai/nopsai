@@ -831,6 +831,10 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		"data-team-gitlab": {input: gitWebhookSourceRecord{ID: "data-team-gitlab", TeamPath: "data-team"}},
 		"global-gitlab":    {input: gitWebhookSourceRecord{ID: "global-gitlab", TeamPath: rootGrantID}},
 	}
+	triggers := map[string]storedTrigger{
+		"team-1/service-api": {record: repositoryTriggerRecord{RepositoryName: "team-1/service-api", TeamPath: "data-team"}},
+		"data-team/owned":    {record: repositoryTriggerRecord{RepositoryName: "data-team/owned", TeamPath: "prod"}},
+	}
 
 	filterDelegatedConfigResources(
 		binding,
@@ -847,7 +851,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		repoScopeVars,
 		generalScopeSecrets,
 		repoScopeSecrets,
-		map[string]storedTrigger{},
+		triggers,
 	)
 
 	if _, ok := generalScopeVars[generalScopeVarKey{scopePath: "data-team/dev", name: "API_VERSION"}]; ok {
@@ -885,6 +889,12 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	if _, ok := externalTriggers["prod-deploy"]; !ok {
 		t.Fatal("expected unrelated external trigger to remain")
+	}
+	if _, ok := triggers["team-1/service-api"]; ok {
+		t.Fatal("expected delegated trigger to be filtered by explicit team path")
+	}
+	if _, ok := triggers["data-team/owned"]; !ok {
+		t.Fatal("expected trigger whose explicit team is outside delegated scope to remain")
 	}
 }
 

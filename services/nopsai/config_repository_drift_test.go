@@ -161,6 +161,7 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 		"setting/system/credentials.yaml",
 		"setting/system/github.yaml",
 		"setting/system/mail.yaml",
+		"setting/system/data-management.yaml",
 		"setting/system/llm_profile.yaml",
 		"setting/system/agent-profiles.yaml",
 		"setting/system/mcp.yaml",
@@ -197,6 +198,19 @@ func TestConfigRepositoryNotificationRoutePathUsesRootFileForBoundTeam(t *testin
 	got, ok = configRepositoryNotificationRoutePath(repo, "team-1/dev", "", false, sql.NullInt64{})
 	if !ok || got != "config-repositories/teams/dev/notifications.yaml" {
 		t.Fatalf("child notification route path = %q, %t; want colocated child path", got, ok)
+	}
+}
+
+func TestConfigRepositoryTriggerExportPathUsesRepositoryPathWithTeamScope(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "black"}
+	got, ok := configRepositoryTriggerExportPath(repo, "team-1/service-api", "", false, sql.NullInt64{})
+	if !ok || got != "triggers/team-1/service-api.yaml" {
+		t.Fatalf("trigger export path = %q, %t; want repository owner path", got, ok)
+	}
+
+	got, ok = configRepositoryTriggerExportPath(repo, "black/service-api", "", false, sql.NullInt64{})
+	if !ok || got != "triggers/service-api.yaml" {
+		t.Fatalf("trigger export path = %q, %t; want legacy team-relative path", got, ok)
 	}
 }
 

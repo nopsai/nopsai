@@ -154,6 +154,43 @@ func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
 	assertUseGrant(t, plan.accessPlan, aaamodel.SubjectTypeRepository, "hosein-yousefii/pre-nopsai", grantResourceScope, "prod", "scope.use")
 }
 
+func TestParseConfigSyncPlanTriggerExplicitTeamOverridesRepositoryOwner(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+		RepoURL:   "https://github.com/acme/platform-config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
+		triggers: map[string]string{
+			"triggers/team-1/service-api.yaml": `
+team: black
+triggers:
+  - on: push
+    pipelines:
+      - platform/build
+`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	trigger, ok := plan.triggers["team-1/service-api"]
+	if !ok {
+		t.Fatalf("triggers = %#v, want team-1/service-api", plan.triggers)
+	}
+	if trigger.record.TeamPath != "black" {
+		t.Fatalf("trigger team = %q, want explicit team black", trigger.record.TeamPath)
+	}
+	if trigger.record.RepositoryForWebhook != "team-1/service-api" {
+		t.Fatalf("RepositoryForWebhook = %q, want team-1/service-api", trigger.record.RepositoryForWebhook)
+	}
+}
+
 func assertUseGrant(t *testing.T, plan accessSyncPlan, subjectType, subjectID, resourceType, resourceID, action string) {
 	t.Helper()
 

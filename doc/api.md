@@ -177,6 +177,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Local-login and OIDC SSO settings can be managed in the global config repo at `setting/system/auth.yaml`.
 - GitHub App IDs, credential references, and git-bot URLs can be managed in the global config repo at `setting/system/github.yaml`.
 - Runner defaults, runtime defaults, dispatcher routing, and assistant settings can be managed in the global config repo at `setting/system/runner.yaml`.
+- Scheduled cleanup rules can be managed in the global config repo at `setting/system/data-management.yaml`.
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<team>/<document>.md`.
 
@@ -586,6 +587,24 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 The cleanup worker polls due schedules, claims them with `FOR UPDATE SKIP
 LOCKED`, advances `next_run_at`, executes the cleanup job, and stores the latest
 status/counts on `data_cleanup_schedules`.
+
+The system/global GitOps repository may own scheduled cleanup definitions in
+`setting/system/data-management.yaml`:
+
+```yaml
+cleanup_schedules:
+  - name: Weekly cleanup
+    target: runs
+    mode: keep_last
+    keep_last: 30
+    backup_before_cleanup: true
+    cron_expression: "0 2 * * 0"
+    timezone: UTC
+    enabled: true
+```
+
+Only schedule definitions are GitOps-managed. Backup files, backup records, and
+cleanup job history remain runtime data.
 
 ---
 
@@ -1367,6 +1386,12 @@ GitOps drift/export can write the encrypted envelope records to
 `setting/system/credentials.yaml`; feature config files still store only stable
 credential references.
 
+Credential references must point at the kind expected by the consuming feature:
+LLM profiles and knowledge provider connections use `api_key`, MCP profiles and
+config repositories use `bearer_token`, SMTP uses `password`, OIDC client/admin
+credentials use `client_secret`, GitHub App private keys use `private_key`,
+GitHub App and Git webhook secrets use `webhook_secret`.
+
 ```bash
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/system/credentials
@@ -1713,10 +1738,11 @@ curl -X POST -H "Content-Type: application/json" \
 - The system/global repo may define GitHub App IDs, credential references, and git-bot URLs under `setting/system/github.yaml`.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_credential_ref` is synced for credentials.
+- The system/global repo may define scheduled cleanup rules under `setting/system/data-management.yaml`; backups and cleanup job history remain runtime-only.
 - The system/global repo may define encrypted system credential envelopes under `setting/system/credentials.yaml`; plaintext is never exported.
 - A binding file contains `repo_url`, optional `provider`, optional `credential_ref`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`. `credential_ref` is required for non-GitHub providers and must point at a `bearer_token` credential.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in the configured Git provider before merging back to the sync branch. For the GitHub App path, the app needs `contents: read and write`; token-backed providers need equivalent repository read/write scope.
-- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run team/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run team/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Team repositories use the same drift and write endpoint shape at `GET /v1/teams/<team-path>/config-repository/drift` and `POST /v1/teams/<team-path>/config-repository/write`. File paths are relative to the configured `base_path`.
 - Nested teams are represented by nested paths, for example `config-repositories/teams/team-2/platform.yaml` creates a binding for `team-2/platform`.

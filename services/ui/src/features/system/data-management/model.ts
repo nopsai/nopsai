@@ -73,6 +73,11 @@ export type CleanupSchedule = {
   last_status?: string;
   last_deleted_counts?: CleanupCounts;
   last_error?: string;
+  source?: string;
+  config_repo_id?: number;
+  config_source_path?: string;
+  config_source_commit_sha?: string;
+  managed_by_config_repo?: boolean;
   created_by?: string;
   updated_by?: string;
   created_at: string;
@@ -220,6 +225,11 @@ export function cleanupRuleLabel(rule: { target: string; mode: string; keep_last
     default:
       return `${target}: ${rule.mode}`;
   }
+}
+
+export function cleanupScheduleSourceLabel(schedule: Pick<CleanupSchedule, 'source' | 'managed_by_config_repo'>) {
+  const source = String(schedule.source || '').toLowerCase();
+  return schedule.managed_by_config_repo || source.includes('git') ? 'GitOps' : 'Database';
 }
 
 export function sumCounts(counts?: CleanupCounts) {

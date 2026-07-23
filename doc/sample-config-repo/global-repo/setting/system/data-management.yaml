@@ -1,0 +1,10 @@
+cleanup_schedules:
+  - name: Weekly run retention
+    description: Keep recent terminal run history and create a backup first.
+    enabled: true
+    target: runs
+    mode: keep_last
+    keep_last: 30
+    backup_before_cleanup: true
+    cron_expression: "0 2 * * 0"
+    timezone: UTC

@@ -193,6 +193,13 @@ func fallbackRepositoryTriggerTeamPath(repositoryName string) string {
 	return rootGrantID
 }
 
+func repositoryTriggerConfigScope(record repositoryTriggerRecord) string {
+	if teamPath := strings.Trim(strings.TrimSpace(record.TeamPath), "/"); teamPath != "" {
+		return teamPath
+	}
+	return fallbackRepositoryTriggerTeamPath(record.RepositoryName)
+}
+
 func repositoryTriggerProviderRepository(repositoryName, teamPath string) string {
 	repositoryName = strings.Trim(strings.TrimSpace(repositoryName), "/")
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")

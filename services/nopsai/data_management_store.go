@@ -97,10 +97,14 @@ func (a *App) createDataCleanupSchedule(ctx context.Context, input dataCleanupSc
 	if err := a.db.QueryRow(ctx, `
 		INSERT INTO data_cleanup_schedules (
 			name, description, enabled, target, mode, keep_last, older_than_days,
-			backup_before_cleanup, cron_expression, timezone, next_run_at, created_by, updated_by
+			backup_before_cleanup, cron_expression, timezone, next_run_at, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
+			created_by, updated_by
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9, $10, $11, $12, $12
+			$8, $9, $10, $11, 'database',
+			NULL, '', '', FALSE,
+			$12, $12
 		)
 		RETURNING id::text
 	`, input.Name, input.Description, input.Enabled, input.Plan.Target, input.Plan.Mode, input.Plan.KeepLast, input.Plan.OlderThanDays,
@@ -124,6 +128,11 @@ func (a *App) updateDataCleanupSchedule(ctx context.Context, scheduleID string, 
 			cron_expression = $10,
 			timezone = $11,
 			next_run_at = $12,
+			source = 'database',
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE,
 			updated_by = $13,
 			updated_at = NOW()
 		WHERE id::text = $1
@@ -143,6 +152,11 @@ func (a *App) setDataCleanupScheduleEnabled(ctx context.Context, scheduleID stri
 		UPDATE data_cleanup_schedules
 		SET enabled = $2,
 			next_run_at = $3,
+			source = 'database',
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE,
 			updated_by = $4,
 			updated_at = NOW()
 		WHERE id::text = $1

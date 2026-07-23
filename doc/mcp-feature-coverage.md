@@ -82,6 +82,9 @@ credential metadata/rotation/access/GitOps plans, runner install/dispatch operat
 AAA/access/audit/admin workflows, dispatcher/runner health, and permission-bound
 System Log source discovery plus bounded redacted tails. Long-lived System Log
 SSE remains UI-only.
+Data cleanup schedule provenance is visible through the backing data management
+APIs; schedule definitions can be represented in GitOps while backup files and
+cleanup job history remain runtime state.
 Natural-language scope inventory requests can combine visible scope listing with
 metadata-only secret counts by scope without reading plaintext secret values.
 The API bridge remains the compatibility surface for auth self-service and other

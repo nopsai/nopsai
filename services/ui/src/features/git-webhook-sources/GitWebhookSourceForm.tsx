@@ -141,7 +141,7 @@ export function GitWebhookSourceForm({
       </Field>
 
       {form.authMode !== 'none' ? (
-        <Field label="Credential reference" hint="Leave blank on create to generate a one-time value, or enter an existing reference to reuse it.">
+        <Field label="Credential reference" hint="Expected type: webhook_secret. Leave blank on create to generate a one-time value, or enter an existing reference to reuse it.">
           <input
             className="pipelines-input w-full font-mono"
             value={form.credentialRef}

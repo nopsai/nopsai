@@ -34,6 +34,8 @@ func baseDataCleanupScheduleSelect() string {
 		SELECT id::text, name, description, enabled, target, mode, keep_last, older_than_days,
 			backup_before_cleanup, cron_expression, timezone, next_run_at, last_run_at,
 			COALESCE(last_job_id::text, ''), last_status, last_deleted_counts::text, last_error,
+			COALESCE(source, 'database'), config_repo_id, COALESCE(config_source_path, ''),
+			COALESCE(config_source_commit_sha, ''), managed_by_config_repo,
 			created_by, updated_by, created_at, updated_at
 		FROM data_cleanup_schedules
 	`
@@ -84,16 +86,23 @@ func scanDataCleanupJob(scanner scanner) (dataCleanupJobRecord, error) {
 func scanDataCleanupSchedule(scanner scanner) (dataCleanupScheduleRecord, error) {
 	var record dataCleanupScheduleRecord
 	var nextRunAt, lastRunAt sql.NullTime
+	var configRepoID sql.NullInt64
 	var lastCountsRaw string
 	if err := scanner.Scan(
 		&record.ID, &record.Name, &record.Description, &record.Enabled, &record.Target, &record.Mode, &record.KeepLast, &record.OlderThanDays,
 		&record.BackupBeforeCleanup, &record.CronExpression, &record.Timezone, &nextRunAt, &lastRunAt,
 		&record.LastJobID, &record.LastStatus, &lastCountsRaw, &record.LastError,
+		&record.Source, &configRepoID, &record.ConfigSourcePath,
+		&record.ConfigSourceCommitSHA, &record.ManagedByConfigRepo,
 		&record.CreatedBy, &record.UpdatedBy, &record.CreatedAt, &record.UpdatedAt,
 	); err != nil {
 		return record, err
 	}
 	record.LastDeletedCounts = decodeCounts(lastCountsRaw)
+	if configRepoID.Valid {
+		id := configRepoID.Int64
+		record.ConfigRepoID = &id
+	}
 	if nextRunAt.Valid {
 		t := nextRunAt.Time
 		record.NextRunAt = &t

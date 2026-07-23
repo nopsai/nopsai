@@ -548,6 +548,7 @@ function MCPServerForm({
             </CredentialReferenceLink>
           </span>
           <input className="pipelines-input" value={serverForm.credential_ref} onChange={event => setServerForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder="credential://system/mcp/github-readonly" />
+          <span className="text-xs text-[var(--text-secondary)]">Expected type: bearer_token</span>
         </label>
         <div className="rounded-lg border border-[var(--border-primary)] p-3 space-y-3">
           <p className="text-sm font-semibold text-[var(--text-primary)]">Extra configuration</p>

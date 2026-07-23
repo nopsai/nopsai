@@ -200,8 +200,8 @@ func filterDelegatedConfigResources(
 			delete(repoScopeSecrets, key)
 		}
 	}
-	for key := range triggers {
-		if configsync.ResourceUnderAnyScope(key, overrideScopes) {
+	for key, trigger := range triggers {
+		if configsync.ResourceUnderAnyScope(repositoryTriggerConfigScope(trigger.record), overrideScopes) {
 			delete(triggers, key)
 		}
 	}

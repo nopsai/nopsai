@@ -315,6 +315,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryMailSettings(ctx, repo, files); err != nil {
 		return nil, err
 	}
+	if err := a.exportConfigRepositoryDataManagement(ctx, repo, files); err != nil {
+		return nil, err
+	}
 	for filePath, content := range files {
 		files[filePath] = normalizeConfigRepositoryFileContent(content)
 	}

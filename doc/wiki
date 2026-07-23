@@ -559,6 +559,7 @@ Canonical system files include:
 - `setting/system/runner.yaml`
 - `setting/system/auth.yaml`
 - `setting/system/mail.yaml`
+- `setting/system/data-management.yaml`
 - `setting/system/llm_profile.yaml`
 - `setting/system/mcp.yaml`
 - `setting/system/agent-profiles.yaml`

@@ -99,8 +99,8 @@ check covers pipelines, reusable steps, schedules, trigger manifests, Git
 webhook sources, scopes,
 knowledge contexts, run team/config-repository structure, notification routes,
 access manifests, Agent Profiles, LLM profiles, MCP registry files, auth
-settings, mail settings, runtime settings, team `ai-profiles.yaml` files, and
-encrypted credential envelopes.
+settings, mail settings, data cleanup schedules, runtime settings, team
+`ai-profiles.yaml` files, and encrypted credential envelopes.
 Pipeline run records themselves are runtime audit state, so they are not
 exported as Git-owned objects. For pipeline, reusable step, scope, and knowledge context Access dialog
 changes, the generated diff updates the embedded `access:` block in that
@@ -136,7 +136,7 @@ scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
 config-repositories/   Team config repo bindings, team structure, and colocated notifications
 access/                Users, service accounts, advanced roles, policies, and basic role grants
-setting/               System settings such as auth, mail, Agent Profiles, LLM, MCP, runtime settings, and encrypted credentials
+setting/               System settings such as auth, mail, data cleanup, Agent Profiles, LLM, MCP, runtime settings, and encrypted credentials
 ai-profiles.yaml       Team-owned LLM, Agent, and MCP profiles in team config repositories
 ```
 
@@ -273,6 +273,9 @@ global-repo/setting/system/github.yaml
 
 global-repo/setting/system/runner.yaml
   -> runner install defaults, dispatcher runtime routing, and assistant settings
+
+global-repo/setting/system/data-management.yaml
+  -> scheduled cleanup definitions for system data management
 
 global-repo/setting/system/mail.yaml
   -> SMTP mail notification settings with a password credential reference

@@ -405,6 +405,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                         </CredentialReferenceLink>
                       </span>
                       <input className="pipelines-input" value={form.credential_ref} onChange={event => setForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultCredentialRef} />
+                      <span className="text-xs text-[var(--text-secondary)]">Expected type: api_key</span>
                     </label>
                   )}
                   <label className="flex flex-col gap-1 text-sm">
