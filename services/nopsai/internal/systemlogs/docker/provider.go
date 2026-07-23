@@ -71,12 +71,20 @@ func (p *Provider) ListSources(ctx context.Context) ([]systemlogs.SourceStatus, 
 			status.ContainerInstance = candidate.ID
 			status.Available = true
 			status.State = candidate.State
-			status.Health = candidate.Health
+			status.Health = normalizeDockerHealth(candidate.Health)
 			status.Status = candidate.Status
 		}
 		out = append(out, status)
 	}
 	return out, nil
+}
+
+func normalizeDockerHealth(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, "none") {
+		return ""
+	}
+	return value
 }
 
 func (p *Provider) Tail(ctx context.Context, sourceID string, lines int) ([]systemlogs.Entry, error) {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { systemLogSourceStatusLabel } from './presentation.js';
 import { useSystemLogs } from './useSystemLogs.js';
 import type { SystemLogEntry, SystemLogStream } from './types.js';
 
@@ -103,7 +104,7 @@ function SystemLogsPanel() {
           >
             {logs.sources.map(source => (
               <option key={source.id} value={source.id} disabled={!source.available}>
-                {source.display_name} · {source.available ? source.health || source.state : 'unavailable'}
+                {source.display_name} · {systemLogSourceStatusLabel(source)}
               </option>
             ))}
           </select>
