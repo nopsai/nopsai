@@ -342,14 +342,20 @@ development Compose file for local development defaults.
 
 `install kubernetes` generates editable Helm values, `README.md`, and a
 non-secret install lock. The generated README records prerequisites, expected
-Secret keys, Secret manifest and `kubectl create secret` examples, CLI deploy
-commands, direct Helm commands, and verification commands. The generated values
-reference `secrets.existingSecret`; create that Secret through External
-Secrets, SOPS, Sealed Secrets, or `kubectl` before deploying. That Secret must
-include database URL, master key, browser JWT key, service JWT key, AAA shared
-token, dispatcher TLS secret, and the bootstrap admin password key named by
+Secret keys, registry pull Secret setup, Secret manifest and `kubectl create
+secret` examples, CLI deploy commands, direct Helm commands, and verification
+commands. The generated values reference `secrets.existingSecret`; create that
+Secret through External Secrets, SOPS, Sealed Secrets, or `kubectl` before
+deploying. Kubernetes values include a bundled PostgreSQL StatefulSet by
+default; set `postgres.enabled=false` and replace the database URL when using
+managed PostgreSQL. That Secret must include database URL, bundled PostgreSQL
+password, master key, browser JWT key, service JWT key, AAA shared token,
+dispatcher TLS secret, and the bootstrap admin password key named by
 `--bootstrap-admin-password-secret-key` because the generated values do not
-store plaintext secrets. Add `--deploy --wait` on the first command to deploy
+store plaintext secrets. If the release images are private, create the registry
+pull Secret in the namespace and reference it from `global.imagePullSecrets`;
+the CLI documents the command but does not own the registry credential. Add
+`--deploy --wait` on the first command to deploy
 immediately, or run
 `nopsai install kubernetes --deploy` later from the stored output directory
 after editing values. Stored-file deploys reuse `values.yaml`

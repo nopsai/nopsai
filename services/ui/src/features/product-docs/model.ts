@@ -159,7 +159,6 @@ export const unsupportedClaims = [
   'Terraform modules or cloud-provider-specific EKS, AKS, or GKE automation',
   'Built-in Redis dependency',
   'S3 or generic object-storage artifact and backup backend',
-  'Helm-managed PostgreSQL',
   'Documented HPA/autoscaling or Kubernetes NetworkPolicy set',
   'Complete air-gap installation workflow',
   'Product-managed restore workflow',
@@ -183,7 +182,7 @@ export const supportedDeploymentModels = [
     target: 'Helm/Kubernetes',
     purpose: 'Cluster-based production deployment',
     execution: 'Kubernetes runner',
-    storage: 'External PostgreSQL and PVC-backed run workspaces',
+    storage: 'Chart-managed PostgreSQL by default, optional external PostgreSQL, and PVC-backed run workspaces',
   },
   {
     target: 'Hybrid runners',
@@ -1523,7 +1522,7 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'The API submits jobs to the dispatcher. Runners maintain long-lived outbound connections to the dispatcher, which keeps runner registration and capacity visible to the control plane.',
           'Docker runners create containers and Docker volumes. Kubernetes runners create an agent pod, PVC-backed workspace, and step pods in their namespace.',
-          'Gotenberg is used for PDF rendering. The Docker socket proxy is restricted to allow-listed System Logs reads and is not used for runner execution.',
+          'Gotenberg is used for PDF rendering. The Docker socket proxy is restricted to allow-listed Compose System Logs reads; Kubernetes System Logs use pod/log RBAC instead.',
           'UI and CLI are entry points only. They call authenticated REST routes and do not talk directly to AAA, dispatcher, PostgreSQL, or runners.',
           'services/nopsai owns auth, config sync, Git event ingress, run creation, setup preflight, logs, outputs, metrics, and hosted MCP; it calls Postgres, AAA, git-bot, dispatcher, Gotenberg, and log providers.',
           'services/aaa owns route authorization, product grants, groups, roles, policies, bindings, deny-before-allow decisions, filtering, ACL expansion, and decision audit data.',
@@ -2233,11 +2232,12 @@ const baseWikiSections: WikiSectionInput[] = [
         summary:
           'Bootstrap secrets, internal service URLs, dispatcher transport, Docker runner networking, System Logs, and PDF rendering settings must be explicit before production traffic is allowed.',
         keyFacts: [
-          'Docker uses environment variables and Helm maps the same bootstrap values to Secret keys such as database-url, master-key, jwt-signing-key, service-jwt-signing-key, aaa-shared-internal-token, dispatcher-tls-secret, and bootstrap-admin-password.',
+          'Docker uses environment variables and Helm maps the same bootstrap values to Secret keys such as database-url, postgres-password, master-key, jwt-signing-key, service-jwt-signing-key, aaa-shared-internal-token, dispatcher-tls-secret, and bootstrap-admin-password.',
           'Keep NOPSAI_MASTER_KEY, JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, AAA_SHARED_INTERNAL_TOKEN, and NOPSAI_BOOTSTRAP_ADMIN_PASSWORD as separate high-entropy values.',
           'Internal URLs such as AAA_API_URL, NOPSAI_API_URL, GIT_BOT_API_URL, and DISPATCHER_GRPC_ADDRESS should point to private service discovery names.',
           'Production dispatcher clients should use tls or mtls with DISPATCHER_TLS_SECRET rather than disabled transport.',
-          'Docker System Logs should read through docker-socket-proxy, and PDF final outputs require a reachable Gotenberg renderer.',
+          'Docker System Logs should read through docker-socket-proxy; Kubernetes System Logs use pod/log RBAC instead of a Docker socket proxy.',
+          'PDF final outputs require a reachable Gotenberg renderer.',
         ],
         details: [
           'Deployment owns bootstrap-only secrets. GitOps owns reviewable operating config after the platform can start, but it should not contain the root values needed to decrypt and authenticate the platform itself.',
@@ -2260,7 +2260,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Helm bootstrap Secret keys',
             language: 'bash',
             code:
-              'kubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai:<password>@postgres.example:5432/nopsai?sslmode=require" \\\n  --from-literal=master-key="$(openssl rand -base64 32)" \\\n  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)" \\\n  --from-literal=dispatcher-tls-secret="$(openssl rand -base64 48)" \\\n  --from-literal=bootstrap-admin-password="$(openssl rand -base64 24)"',
+              'POSTGRES_PASSWORD="$(openssl rand -hex 24)"\nkubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai_user:${POSTGRES_PASSWORD}@postgres:5432/nopsai_db?sslmode=disable" \\\n  --from-literal=postgres-password="$POSTGRES_PASSWORD" \\\n  --from-literal=master-key="$(openssl rand -base64 32)" \\\n  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)" \\\n  --from-literal=dispatcher-tls-secret="$(openssl rand -base64 48)" \\\n  --from-literal=bootstrap-admin-password="$(openssl rand -base64 24)"',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
@@ -2332,10 +2332,11 @@ const baseWikiSections: WikiSectionInput[] = [
         level: 'Admin',
         audience: 'Cluster operators and platform teams',
         summary:
-          'The Helm chart deploys API, AAA, dispatcher, git-bot, UI, Gotenberg, and a Kubernetes runner. PostgreSQL and bootstrap secrets are intentionally external.',
+          'The Helm chart deploys PostgreSQL, API, AAA, dispatcher, git-bot, UI, Gotenberg, and a Kubernetes runner. Bootstrap secrets remain external.',
         keyFacts: [
           'Create the Secret referenced by `secrets.existingSecret` before installing the chart.',
-          'Default secret keys are database-url, master-key, jwt-signing-key, service-jwt-signing-key, and aaa-shared-internal-token.',
+          'Default secret keys are database-url, postgres-password, master-key, jwt-signing-key, service-jwt-signing-key, aaa-shared-internal-token, dispatcher-tls-secret, and bootstrap-admin-password.',
+          'Bundled PostgreSQL is enabled by default with a PVC; set `postgres.enabled=false` when using managed PostgreSQL.',
           '`topology.dispatcherGRPCAddress` defaults to dispatcher:9090 and feeds API and Kubernetes runner pods.',
           'The chart defaults to Kubernetes System Logs and can create read-only pods and pods/log RBAC for the API service account.',
           'The Kubernetes runner starts one agent pod per run and step pods that share a PVC-backed workspace.',
@@ -2350,6 +2351,12 @@ const baseWikiSections: WikiSectionInput[] = [
             area: 'Helm',
             description: 'Name of the Kubernetes Secret holding bootstrap values.',
             example: 'nopsai-secrets',
+          },
+          {
+            key: 'postgres.enabled',
+            area: 'Helm',
+            description: 'Controls the bundled PostgreSQL StatefulSet.',
+            example: 'true',
           },
           {
             key: 'k8sRunner.workspace.volumeMode',
@@ -2381,7 +2388,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Install from packaged chart',
             language: 'bash',
             code:
-              'kubectl create namespace nopsai\nkubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://..." \\\n  --from-literal=master-key="..." \\\n  --from-literal=jwt-signing-key="..." \\\n  --from-literal=service-jwt-signing-key="..." \\\n  --from-literal=aaa-shared-internal-token="..."\nhelm upgrade --install nopsai ./nopsai-<version>.tgz \\\n  --namespace nopsai \\\n  --create-namespace \\\n  --set secrets.existingSecret=nopsai-secrets',
+              'kubectl create namespace nopsai\nPOSTGRES_PASSWORD="$(openssl rand -hex 24)"\nkubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai_user:${POSTGRES_PASSWORD}@postgres:5432/nopsai_db?sslmode=disable" \\\n  --from-literal=postgres-password="$POSTGRES_PASSWORD" \\\n  --from-literal=master-key="..." \\\n  --from-literal=jwt-signing-key="..." \\\n  --from-literal=service-jwt-signing-key="..." \\\n  --from-literal=aaa-shared-internal-token="..." \\\n  --from-literal=dispatcher-tls-secret="..." \\\n  --from-literal=bootstrap-admin-password="..."\nhelm upgrade --install nopsai ./nopsai-<version>.tgz \\\n  --namespace nopsai \\\n  --create-namespace \\\n  --set secrets.existingSecret=nopsai-secrets',
           },
         ],
         relatedDocs: ['deploy/helm/nopsai/README.md', 'deploy/helm/nopsai/values.yaml', 'doc/kubernetes-runner.md'],
@@ -2453,7 +2460,7 @@ const baseWikiSections: WikiSectionInput[] = [
         level: 'Admin',
         audience: 'Network, platform, and security operators',
         summary:
-          'Expose the UI, API, and required webhook endpoints through TLS; keep AAA, PostgreSQL, Gotenberg, Docker socket proxy, and usually dispatcher private.',
+          'Expose the UI, API, and required webhook endpoints through TLS; keep AAA, PostgreSQL, Gotenberg, Docker-only socket proxy, and usually dispatcher private.',
         keyFacts: [
           'Browser and CLI traffic reaches the API on port 8080 by default.',
           'GitHub App webhooks reach git-bot on port 8081 by default.',
@@ -3344,7 +3351,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Interactive screens use the Contextual Zen terminal layout across the full CLI surface: fixed home-style header/footer chrome, centered control, breadcrumb above nested menus, fixed 20-row menu viewport for large lists, pinned guide/details section beneath the menu, bold standalone Guide/Example/Validation keys with indented content, inline Parameters progress lists on all live forms and wizards in step order, visible selected multiline values, Enter-to-skip blank optional parameters, fixed Result sections with breadcrumb scroll ranges, cursor-style empty active values, API catalog calls, raw API requests, route discovery, context management, token login/logout, install, platform doctor/release, completion, guides, help, and result viewers.',
           'Interactive actions pause on an equivalent `nopsai ...` command preview before API sends, local config changes, completion generation, platform checks/releases, install generation, Docker Compose startup, or Helm deployment begins.',
           'Generated Docker Compose installs reject the built-in development admin password, include dispatcher TLS in .env, and create bootstrap local admin credentials that are temporary by default and require first-login rotation.',
-          'Generated Kubernetes installs include README.md with prerequisites, expected Secret keys, Secret creation examples, CLI deploy commands, direct Helm commands, and verification commands.',
+          'Generated Kubernetes installs include README.md with prerequisites, expected Secret keys, registry pull Secret setup, Secret creation examples, CLI deploy commands, direct Helm commands, and verification commands.',
           'Released CLIs check GET /version before mutating API requests. Development builds keep a deliberate bypass until release metadata is injected.',
         ],
         details: [
@@ -3489,7 +3496,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Set NOPSAI_ENVIRONMENT=production or NOPSAI_REQUIRE_PRODUCTION_GATES=true.',
           'Replace every local fallback secret and use separate user/API and internal service JWT signing keys.',
           'Configure DISPATCHER_TLS_MODE=mtls or tls and protect the dispatcher trust seed.',
-          'Keep PostgreSQL, AAA, Gotenberg, and Docker socket proxy private.',
+          'Keep PostgreSQL, AAA, Gotenberg, and Docker-only socket proxy private.',
           'Scrape /metrics, test SMTP, test LLM/MCP profiles, run platform doctor, and test recovery procedures.',
         ],
         details: [

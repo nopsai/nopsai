@@ -22,6 +22,7 @@ secrets:
   existingSecret: nopsai-secrets
   keys:
     databaseURL: database-url
+    postgresPassword: postgres-password
     masterKey: master-key
     jwtSigningKey: jwt-signing-key
     serviceJWTSigningKey: service-jwt-signing-key
@@ -31,6 +32,28 @@ secrets:
 
 base:
   image: {repository: ghcr.io/hosein-yousefii/nopsai-base, tag: dev, digest: ""}
+
+postgres:
+  enabled: true
+  image: {repository: postgres, tag: "15", digest: ""}
+  imagePullPolicy: IfNotPresent
+  database: nopsai_db
+  username: nopsai_user
+  auth:
+    existingSecret: ""
+    passwordKey: postgres-password
+  service:
+    name: postgres
+    port: 5432
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 20Gi
+  initdb:
+    enabled: true
+  resources: {}
 
 api:
   replicaCount: 1
@@ -105,9 +128,6 @@ k8sRunner:
   affinityEnabled: true
   cleanupFinishedPods: true
   resources: {}
-
-dockerSocketProxy:
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy, tag: dev, digest: ""}
 
 systemLogs:
   enabled: true

@@ -1,13 +1,15 @@
 # NopsAI Helm Chart
 
-This chart deploys the NopsAI API, AAA, dispatcher, git-bot, UI, Gotenberg,
-and Kubernetes runner. The release workflow replaces every NopsAI image with
-the digest produced for the same source commit before packaging the chart.
+This chart deploys PostgreSQL, the NopsAI API, AAA, dispatcher, git-bot, UI,
+Gotenberg, and Kubernetes runner. The release workflow replaces every NopsAI
+image with the digest produced for the same source commit before packaging the
+chart.
 
-PostgreSQL and deployment secrets are intentionally external. Before install,
-create the Secret named by `secrets.existingSecret` with these keys:
+Deployment secrets are intentionally external. Before install, create the Secret
+named by `secrets.existingSecret` with these keys:
 
 - `database-url`
+- `postgres-password`
 - `master-key`
 - `jwt-signing-key`
 - `service-jwt-signing-key`
@@ -19,6 +21,29 @@ The key names can be changed under `secrets.keys`. Use External Secrets,
 Sealed Secrets, SOPS, or the cluster's secret manager rather than committing
 secret values to a Helm values file.
 
+The bundled PostgreSQL StatefulSet is enabled by default and stores data in a
+PVC. The `database-url` key should point at the internal `postgres` Service, for
+example `postgres://nopsai_user:<postgres-password>@postgres:5432/nopsai_db?sslmode=disable`.
+For managed PostgreSQL, set `postgres.enabled=false` and point `database-url` at
+the external database instead.
+
+For a direct `kubectl` installation, create the runtime Secret before Helm
+renders workloads. Keep generated values non-secret.
+
+```bash
+kubectl create namespace nopsai --dry-run=client -o yaml | kubectl apply -f -
+POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+kubectl -n nopsai create secret generic nopsai-secrets \
+  --from-literal=database-url="postgres://nopsai_user:${POSTGRES_PASSWORD}@postgres:5432/nopsai_db?sslmode=disable" \
+  --from-literal=postgres-password="$POSTGRES_PASSWORD" \
+  --from-literal=master-key="$(openssl rand -base64 32)" \
+  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \
+  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \
+  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)" \
+  --from-literal=dispatcher-tls-secret="$(openssl rand -base64 48)" \
+  --from-literal=bootstrap-admin-password="$(openssl rand -base64 24)"
+```
+
 ```bash
 helm upgrade --install nopsai ./nopsai-<version>.tgz \
   --namespace nopsai \
@@ -26,10 +51,40 @@ helm upgrade --install nopsai ./nopsai-<version>.tgz \
   --set secrets.existingSecret=nopsai-secrets
 ```
 
-Private GHCR installations should attach a registry credential through
-`global.imagePullSecrets`. The Kubernetes runner ServiceAccount inherits those
-credentials so dynamically created agent and step pods can pull the same
-release images.
+Private GHCR installations should create a registry pull Secret in the target
+namespace and attach it through `global.imagePullSecrets`. The Kubernetes
+runner ServiceAccount inherits those credentials so dynamically created agent
+and step pods can pull the same release images.
+
+```bash
+kubectl -n nopsai create secret docker-registry nopsai-registry \
+  --docker-server=ghcr.io \
+  --docker-username=<registry-user> \
+  --docker-password=<registry-token>
+```
+
+```yaml
+global:
+  imagePullSecrets:
+    - name: nopsai-registry
+```
+
+When `api.serviceAccount.create=true` and
+`k8sRunner.serviceAccount.create=true`, the chart writes the same
+`global.imagePullSecrets` list onto the `nopsai-api` and `nopsai-runner`
+ServiceAccounts and onto workload pod specs. This lets the API, runner, and
+runner-created agent/step pods pull private images without putting registry
+credentials in values.
+
+If you bring your own ServiceAccounts by setting either `*.serviceAccount.create`
+to `false`, create or patch those ServiceAccounts yourself before deploy:
+
+```bash
+kubectl -n nopsai patch serviceaccount nopsai-api \
+  -p '{"imagePullSecrets":[{"name":"nopsai-registry"}]}'
+kubectl -n nopsai patch serviceaccount nopsai-runner \
+  -p '{"imagePullSecrets":[{"name":"nopsai-registry"}]}'
+```
 
 `topology.dispatcherGRPCAddress` controls the internal dispatcher gRPC endpoint
 in the API and Kubernetes runner Deployments. It defaults to `dispatcher:9090`
