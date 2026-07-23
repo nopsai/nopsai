@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"nopsai/pkg/proto"
 	"nopsai/services/agent/internal/approval"
 	"nopsai/services/agent/internal/executor"
+	includeflow "nopsai/services/agent/internal/include"
+	"nopsai/services/agent/internal/resolver"
 
 	"github.com/rs/zerolog"
 )
@@ -67,6 +70,144 @@ func TestRunPipelineExecutesDirectScriptAndReportsSuccess(t *testing.T) {
 	}
 	if len(runtime.cleanupSessions) != 1 || runtime.cleanupSessions[0] != "session-build" {
 		t.Fatalf("cleanup sessions = %#v, want [session-build]", runtime.cleanupSessions)
+	}
+}
+
+func TestRunPipelineHonorsStepIgnoreFailureForScriptStartupFailure(t *testing.T) {
+	runtime := &fakeStepRuntime{
+		stdout:       "ok",
+		createErrors: map[string]error{"lint": errors.New("image pull failed")},
+	}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+
+	result := RunPipeline(testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:          "lint",
+					IgnoreFailure: true,
+				},
+				Script: "npm run lint",
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "deploy",
+					DependsOn: []string{"lint"},
+				},
+				Script: "echo deploy",
+			}},
+		},
+	}, runtime, statuses, finalStatuses))
+
+	if result.ExitCode != 0 || result.FinalStatus != "success" {
+		t.Fatalf("result = %#v, want successful pipeline after ignored step failure", result)
+	}
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "success" {
+		t.Fatalf("final statuses = %#v, want [success]", got)
+	}
+	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
+		{stepName: "lint", taskName: "lint", status: "running"},
+		{stepName: "lint", taskName: "lint", status: "failure (ignored)"},
+		{stepName: "deploy", taskName: "deploy", status: "running"},
+		{stepName: "deploy", taskName: "deploy", status: "success"},
+	}) {
+		t.Fatalf("task statuses = %#v, want ignored lint failure then deploy success", got)
+	}
+}
+
+func TestRunPipelineHonorsStepIgnoreFailureForSyncIncludeFailure(t *testing.T) {
+	runtime := &fakeStepRuntime{stdout: "ok"}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.IncludeStep{
+				BaseStep: models.BaseStep{
+					Name:          "child",
+					IgnoreFailure: true,
+				},
+				Include: "pipeline:child",
+				Sync:    true,
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "deploy",
+					DependsOn: []string{"child"},
+				},
+				Script: "echo deploy",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.IncludeRunner = &fakeIncludeRunner{
+		status:             "failure",
+		exitCode:           1,
+		markPipelineFailed: true,
+		result:             includeflow.Result{Handled: true, Success: false, Status: "failure"},
+	}
+
+	result := RunPipeline(req)
+
+	if result.ExitCode != 0 || result.FinalStatus != "success" {
+		t.Fatalf("result = %#v, want successful pipeline after ignored include failure", result)
+	}
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "success" {
+		t.Fatalf("final statuses = %#v, want [success]", got)
+	}
+	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
+		{stepName: "child", taskName: "child", status: "running"},
+		{stepName: "child", taskName: "child", status: "failure (ignored)"},
+		{stepName: "deploy", taskName: "deploy", status: "running"},
+		{stepName: "deploy", taskName: "deploy", status: "success"},
+	}) {
+		t.Fatalf("task statuses = %#v, want ignored child failure then deploy success", got)
+	}
+}
+
+func TestRunPipelineDoesNotIgnoreBlockingConditionFailure(t *testing.T) {
+	runtime := &fakeStepRuntime{stdout: "ok"}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:          "release",
+					Condition:     "only when the guardrail allows release",
+					IgnoreFailure: true,
+				},
+				Script: "./release.sh",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.PipelineLLMEnabled = true
+	req.ConditionClientResolver = func(*models.Pipeline, *models.PipelineStep, *models.Task) (resolver.ConditionClient, string, error) {
+		return &fakeConditionClient{response: &proto.ConditionResponse{Result: false}}, "guardrail", nil
+	}
+	req.BlockingKnowledgeKinds = func(*models.Pipeline, *models.PipelineStep, *models.Task, []models.KnowledgeContextSnapshot) []string {
+		return []string{"guardrail"}
+	}
+
+	result := RunPipeline(req)
+
+	if result.ExitCode != 1 || result.FinalStatus != "failure" {
+		t.Fatalf("result = %#v, want fail-closed pipeline", result)
+	}
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "failure" {
+		t.Fatalf("final statuses = %#v, want [failure]", got)
+	}
+	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
+		{stepName: "release", taskName: "release", status: "failure"},
+	}) {
+		t.Fatalf("task statuses = %#v, want blocking condition failure", got)
 	}
 }
 
@@ -192,6 +333,7 @@ type fakeStepRuntime struct {
 	stdout          string
 	stderr          string
 	exitCode        int
+	createErrors    map[string]error
 }
 
 func (r *fakeStepRuntime) Name() string {
@@ -204,6 +346,9 @@ func (r *fakeStepRuntime) CreateSession(_ context.Context, _ *zerolog.Logger, re
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.createRequests = append(r.createRequests, req)
+	if err := r.createErrors[req.StepName]; err != nil {
+		return "", err
+	}
 	return "session-" + req.StepName, nil
 }
 
@@ -224,6 +369,32 @@ func (r *fakeStepRuntime) CleanupSession(_ context.Context, _ *zerolog.Logger, s
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cleanupSessions = append(r.cleanupSessions, sessionID)
+}
+
+type fakeIncludeRunner struct {
+	status             string
+	exitCode           int
+	markPipelineFailed bool
+	result             includeflow.Result
+}
+
+func (r *fakeIncludeRunner) Run(_ context.Context, req includeflow.Request) includeflow.Result {
+	if req.FinalizeTask != nil && r.status != "" {
+		req.FinalizeTask(req.StepName, req.StepName, r.status, r.exitCode, req.LLMDurationMs)
+	}
+	if req.MarkPipelineFailed != nil && r.markPipelineFailed {
+		req.MarkPipelineFailed(r.status)
+	}
+	return r.result
+}
+
+type fakeConditionClient struct {
+	response *proto.ConditionResponse
+	err      error
+}
+
+func (c *fakeConditionClient) EvaluateCondition(context.Context, *proto.ConditionRequest) (*proto.ConditionResponse, error) {
+	return c.response, c.err
 }
 
 type fakeApprovalPauser struct {

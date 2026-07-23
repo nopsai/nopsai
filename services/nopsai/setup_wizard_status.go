@@ -150,7 +150,7 @@ func (a *App) setupHealthChecks(ctx context.Context, counts setupCounts, globalR
 	case counts.Users > 0:
 		add("access", "Access bootstrap", "warning", "Users exist, but product access grants have not been seeded.", false)
 	default:
-		add("access", "Access bootstrap", "warning", "Only the default administrator is available.", false)
+		add("access", "Access bootstrap", "warning", "Only the bootstrap administrator is available.", false)
 	}
 
 	if counts.LLMProfiles > 0 {
@@ -201,21 +201,21 @@ func (a *App) setupAdminStatus(ctx context.Context) (status, message string, blo
 		WHERE sub = $1 AND provider = 'local'
 	`, defaultAdminSub).Scan(&passwordHash, &mustChange, &statusValue)
 	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
-		return "success", "Default admin account is not present.", false
+		return "success", "Bootstrap admin account is not present.", false
 	}
 	if err != nil {
-		return "error", "Default admin state could not be loaded.", true
+		return "error", "Bootstrap admin state could not be loaded.", true
 	}
 	if !strings.EqualFold(statusValue, "active") {
-		return "warning", "Default admin account is not active.", false
+		return "warning", "Bootstrap admin account is not active.", false
 	}
 	if mustChange {
-		return "warning", "Default admin must change password before setup can continue.", true
+		return "warning", "Bootstrap admin must change password before setup can continue.", true
 	}
 	if passwordHash.Valid && auth.ComparePassword(passwordHash.String, "admin") == nil {
-		return "error", "Default admin still uses the insecure admin password.", true
+		return "error", "Bootstrap admin still uses the insecure admin password.", true
 	}
-	return "success", "Default administrator is secured.", true
+	return "success", "Bootstrap administrator is secured.", true
 }
 
 func (a *App) setupCounts(ctx context.Context) (setupCounts, error) {

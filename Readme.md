@@ -136,7 +136,8 @@ See [doc/architecture-overview.md](doc/architecture-overview.md) and
 NopsAI includes a first-install wizard for turning a fresh database into a
 working workspace. Before login, the UI checks `/v1/setup/preflight` and shows
 required database, master-key, and JWT guidance when the authenticated API is
-not ready yet. After the default admin changes the first-login password, the UI
+not ready yet. After the bootstrap admin clears any first-login password
+requirement, the UI
 opens **System > Setup** once when setup is incomplete. After completion,
 **System > Setup** stays available for reviewing runtime env blocks, GitOps
 downloads, generated file previews, and setup guidance.
@@ -191,7 +192,10 @@ starts the stack when you choose that option. For Kubernetes it writes editable
 Helm values that reference the versioned OCI chart and image tags. Use
 `nopsai install docker-compose --version <version> --run` as the automation
 shortcut, or rerun with `--force` only when you intentionally want to replace
-generated files. Keep `.env` out of Git; it contains generated local secrets.
+generated files. The installer prompts for the bootstrap administrator email
+and password; Docker Compose writes the chosen or generated password to `.env`,
+while Kubernetes values reference an existing Secret key. Keep `.env` out of
+Git; it contains generated local secrets.
 
 For local development from this checkout:
 
@@ -218,15 +222,17 @@ For local development from this checkout:
    Postgres: localhost:5432
    ```
 
-4. Sign in with the local bootstrap administrator.
+4. Sign in with the local development bootstrap administrator.
 
    ```text
    Email:    admin@example.com
    Password: admin
    ```
 
-   This default is for bootstrap only. Change it immediately. The setup wizard
-   reports `admin/admin` as an insecure state.
+   This explicit default is only for the checked-out local development Compose
+   file. Generated production installs require a chosen or generated bootstrap
+   password instead. Change `admin/admin` immediately in local development; the
+   setup wizard reports it as an insecure state.
 
 5. Run **System > Setup** after changing the first admin password.
 

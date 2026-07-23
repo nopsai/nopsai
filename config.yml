@@ -15,9 +15,10 @@
 # - agent-profiles.yaml for Agent Profile registry
 #
 # Keep bootstrap-only values such as DATABASE_URL, NOPSAI_MASTER_KEY,
-# JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, and AAA_SHARED_INTERNAL_TOKEN in
-# deployment secrets or the service environment. Docker Compose defines the
-# minimal local-dev service addresses needed before GitOps can be loaded.
+# JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, AAA_SHARED_INTERNAL_TOKEN, and
+# NOPSAI_BOOTSTRAP_ADMIN_PASSWORD(_FILE) in deployment secrets or the service
+# environment. Docker Compose defines the minimal local-dev service addresses
+# and explicit local admin fallback needed before GitOps can be loaded.
 
 # Deployment-owned rich output renderer settings. Docker Compose supplies these
 # through environment variables; other runtimes should point to their internal

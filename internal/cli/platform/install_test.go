@@ -24,16 +24,18 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 		Now:          func() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) },
 	}
 	plan, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{
-		Version:           "2.7.0",
-		OutputDir:         outputDir,
-		APIPort:           "18080",
-		UIPort:            "18000",
-		NopsaiAPIURL:      "http://nopsai-api.internal:8080",
-		DispatcherAddress: "dispatcher.internal:9090",
-		AAAAPIURL:         "http://aaa.internal:8082",
-		GitBotAPIURL:      "http://git-bot.internal:8081",
-		GotenbergURL:      "http://gotenberg.internal:3000",
-		DockerNetworkName: "nopsai-prod-net",
+		Version:                "2.7.0",
+		OutputDir:              outputDir,
+		APIPort:                "18080",
+		UIPort:                 "18000",
+		NopsaiAPIURL:           "http://nopsai-api.internal:8080",
+		DispatcherAddress:      "dispatcher.internal:9090",
+		AAAAPIURL:              "http://aaa.internal:8082",
+		GitBotAPIURL:           "http://git-bot.internal:8081",
+		GotenbergURL:           "http://gotenberg.internal:3000",
+		DockerNetworkName:      "nopsai-prod-net",
+		BootstrapAdminEmail:    "platform-admin@example.com",
+		BootstrapAdminPassword: "custom-admin-password",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +54,8 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	for _, required := range []string{
 		"image: ${NOPSAI_API_IMAGE",
 		"NOPSAI_SERVICE_NAME: nopsai",
+		"NOPSAI_BOOTSTRAP_ADMIN_EMAIL: ${NOPSAI_BOOTSTRAP_ADMIN_EMAIL",
+		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD",
 		"SYSTEM_LOGS_PROVIDER: docker",
 		"nopsai-docker-socket-proxy",
 		"${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}",
@@ -77,6 +81,8 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 		"GIT_BOT_API_URL=http://git-bot.internal:8081",
 		"FINAL_OUTPUT_PDF_RENDERER_URL=http://gotenberg.internal:3000",
 		"DOCKER_NETWORK_NAME=nopsai-prod-net",
+		"NOPSAI_BOOTSTRAP_ADMIN_EMAIL=platform-admin@example.com",
+		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD=custom-admin-password",
 		"NOPSAI_DOCKER_SOCKET_PROXY_IMAGE=ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy:2.7.0",
 	} {
 		if !strings.Contains(envText, required) {
@@ -96,7 +102,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(rawLock), "BwcHBwcH") {
+	if strings.Contains(string(rawLock), "BwcHBwcH") || strings.Contains(string(rawLock), "custom-admin-password") {
 		t.Fatalf("install lock leaked generated secret material: %s", rawLock)
 	}
 	var lock InstallLock
@@ -108,6 +114,17 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "db", "init.sql")); err != nil {
 		t.Fatalf("embedded db init was not written: %v", err)
+	}
+}
+
+func TestDockerComposeInstallRejectsDefaultBootstrapAdminPassword(t *testing.T) {
+	installer := Installer{CLI: installCLIInfo("2.7.0")}
+	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{
+		Version:                "2.7.0",
+		BootstrapAdminPassword: "admin",
+	})
+	if err == nil || !strings.Contains(err.Error(), "built-in development password") {
+		t.Fatalf("bootstrap admin password error = %v", err)
 	}
 }
 
@@ -125,18 +142,20 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "k8s")
 	installer := Installer{CLI: installCLIInfo("2.7.0")}
 	plan, err := installer.PlanKubernetesValues(context.Background(), KubernetesValuesOptions{
-		Version:           "2.7.0",
-		OutputDir:         outputDir,
-		ValuesFile:        "prod/values.yaml",
-		ReleaseName:       "nopsai-prod",
-		Namespace:         "nopsai-system",
-		ExistingSecret:    "nopsai-prod-secrets",
-		IngressHost:       "nopsai.example.com",
-		NopsaiAPIURL:      "http://nopsai-api.prod.svc:8080",
-		DispatcherAddress: "dispatcher.prod.svc:9090",
-		AAAAPIURL:         "http://aaa.prod.svc:8082",
-		GitBotAPIURL:      "http://git-bot.prod.svc:8081",
-		GotenbergURL:      "http://gotenberg.prod.svc:3000",
+		Version:                         "2.7.0",
+		OutputDir:                       outputDir,
+		ValuesFile:                      "prod/values.yaml",
+		ReleaseName:                     "nopsai-prod",
+		Namespace:                       "nopsai-system",
+		ExistingSecret:                  "nopsai-prod-secrets",
+		IngressHost:                     "nopsai.example.com",
+		NopsaiAPIURL:                    "http://nopsai-api.prod.svc:8080",
+		DispatcherAddress:               "dispatcher.prod.svc:9090",
+		AAAAPIURL:                       "http://aaa.prod.svc:8082",
+		GitBotAPIURL:                    "http://git-bot.prod.svc:8081",
+		GotenbergURL:                    "http://gotenberg.prod.svc:3000",
+		BootstrapAdminEmail:             "platform-admin@example.com",
+		BootstrapAdminPasswordSecretKey: "initial-admin-password",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -157,13 +176,14 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 	valuesText := string(values)
 	for _, required := range []string{
 		`existingSecret: "nopsai-prod-secrets"`,
-		`dispatcherGRPCAddress: dispatcher:9090`,
 		`host: "nopsai.example.com"`,
 		`nopsaiAPIURL: "http://nopsai-api.prod.svc:8080"`,
 		`dispatcherGRPCAddress: "dispatcher.prod.svc:9090"`,
 		`aaaAPIURL: "http://aaa.prod.svc:8082"`,
 		`gitBotAPIURL: "http://git-bot.prod.svc:8081"`,
 		`gotenbergURL: "http://gotenberg.prod.svc:3000"`,
+		`email: "platform-admin@example.com"`,
+		`bootstrapAdminPassword: "initial-admin-password"`,
 		`provider: kubernetes`,
 		`repository: "ghcr.io/hosein-yousefii/nopsai-k8s-runner"`,
 		`tag: "2.7.0"`,

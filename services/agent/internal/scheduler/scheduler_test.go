@@ -48,6 +48,31 @@ func TestFirstApprovalRunnable(t *testing.T) {
 	}
 }
 
+func TestNextRunnableTasksCopiesSingleModeStepIgnoreFailure(t *testing.T) {
+	pipeline := models.Pipeline{
+		Name: "release",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{
+						Name:          "lint",
+						IgnoreFailure: true,
+					},
+					Script: "npm run lint",
+				},
+			},
+		},
+	}
+
+	runnable := NextRunnableTasks(&pipeline, map[string]bool{})
+	if len(runnable) != 1 {
+		t.Fatalf("runnable count = %d, want 1", len(runnable))
+	}
+	if !runnable[0].Task.IgnoreFailure {
+		t.Fatal("synthetic task IgnoreFailure = false, want true from step")
+	}
+}
+
 func TestImagePullQueueSkipsApprovalSteps(t *testing.T) {
 	pipeline := schedulerTestPipeline()
 

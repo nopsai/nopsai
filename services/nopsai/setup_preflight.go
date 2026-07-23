@@ -220,27 +220,42 @@ func enterpriseDatabaseGateChecks(ctx context.Context, cfg *config.Config, db *p
 	}
 	check := setupPreflightCheck{
 		ID:       "default_admin_password",
-		Label:    "Default admin password",
+		Label:    "Bootstrap admin password",
 		Status:   "success",
 		Required: false,
-		Message:  "Default administrator is not using the built-in password.",
+		Message:  "Bootstrap administrator is ready.",
+	}
+	credentials, credentialsErr := resolveBootstrapAdminCredentials(cfg)
+	if credentialsErr != nil {
+		check.Status = "error"
+		check.Required = true
+		check.Message = fmt.Sprintf("Bootstrap admin credentials are invalid: %v", credentialsErr)
+		return []setupPreflightCheck{check}
 	}
 	status, err := defaultAdminPasswordState(ctx, db)
 	if err != nil {
 		check.Status = "error"
 		check.Required = true
-		check.Message = fmt.Sprintf("Default admin state could not be verified: %v", err)
+		check.Message = fmt.Sprintf("Bootstrap admin state could not be verified: %v", err)
 		return []setupPreflightCheck{check}
 	}
 	switch status {
 	case defaultAdminPasswordMissing:
-		check.Status = "error"
-		check.Required = true
-		check.Message = "Production startup gates require a pre-provisioned administrator; the built-in default admin will not be seeded."
+		if credentials.PasswordConfigured {
+			check.Message = "Bootstrap administrator will be created from configured credentials."
+		} else {
+			check.Status = "error"
+			check.Required = true
+			check.Message = "Production startup gates require a pre-provisioned administrator or NOPSAI_BOOTSTRAP_ADMIN_PASSWORD(_FILE) for first install."
+		}
 	case defaultAdminPasswordDefault:
-		check.Status = "error"
-		check.Required = true
-		check.Message = "Default administrator still uses the built-in password. Rotate admin@example.com before enabling production gates."
+		if credentials.PasswordConfigured {
+			check.Message = fmt.Sprintf("Bootstrap administrator password will be rotated for %s during bootstrap.", credentials.Email)
+		} else {
+			check.Status = "error"
+			check.Required = true
+			check.Message = "Bootstrap administrator still uses the built-in password. Set NOPSAI_BOOTSTRAP_ADMIN_PASSWORD(_FILE) to rotate it before enabling production gates."
+		}
 	}
 	return []setupPreflightCheck{check}
 }

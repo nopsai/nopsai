@@ -45,7 +45,7 @@ public, streaming, download, and internal service routes. See
 ## Authentication
 
 ```bash
-# Login with the default local admin account in a fresh dev database
+# Login with the local development bootstrap admin account
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"identifier":"admin@example.com","password":"admin"}' \
