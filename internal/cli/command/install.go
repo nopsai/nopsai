@@ -18,41 +18,45 @@ import (
 )
 
 type installDockerComposeOptions struct {
-	version        string
-	outputDir      string
-	projectName    string
-	apiPort        string
-	uiPort         string
-	nopsaiAPIURL   string
-	dispatcherAddr string
-	aaaAPIURL      string
-	gitBotAPIURL   string
-	gotenbergURL   string
-	dockerNetwork  string
-	force          bool
-	run            bool
-	interactive    bool
+	version                string
+	outputDir              string
+	projectName            string
+	apiPort                string
+	uiPort                 string
+	nopsaiAPIURL           string
+	dispatcherAddr         string
+	aaaAPIURL              string
+	gitBotAPIURL           string
+	gotenbergURL           string
+	dockerNetwork          string
+	bootstrapAdminEmail    string
+	bootstrapAdminPassword string
+	force                  bool
+	run                    bool
+	interactive            bool
 }
 
 type installKubernetesOptions struct {
-	version        string
-	outputDir      string
-	valuesFile     string
-	values         []string
-	releaseName    string
-	namespace      string
-	existingSecret string
-	ingressHost    string
-	nopsaiAPIURL   string
-	dispatcherAddr string
-	aaaAPIURL      string
-	gitBotAPIURL   string
-	gotenbergURL   string
-	lockFile       string
-	force          bool
-	deploy         bool
-	wait           bool
-	interactive    bool
+	version                         string
+	outputDir                       string
+	valuesFile                      string
+	values                          []string
+	releaseName                     string
+	namespace                       string
+	existingSecret                  string
+	ingressHost                     string
+	nopsaiAPIURL                    string
+	dispatcherAddr                  string
+	aaaAPIURL                       string
+	gitBotAPIURL                    string
+	gotenbergURL                    string
+	bootstrapAdminEmail             string
+	bootstrapAdminPasswordSecretKey string
+	lockFile                        string
+	force                           bool
+	deploy                          bool
+	wait                            bool
+	interactive                     bool
 }
 
 func newInstallCommand(root *rootOptions) *cobra.Command {
@@ -176,25 +180,28 @@ func newInstallDockerComposeCommand(root *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&options.gitBotAPIURL, "git-bot-api-url", options.gitBotAPIURL, "internal git-bot API URL used by the NopsAI API")
 	command.Flags().StringVar(&options.gotenbergURL, "gotenberg-url", options.gotenbergURL, "internal Gotenberg URL used for final-output PDF rendering")
 	command.Flags().StringVar(&options.dockerNetwork, "docker-network", options.dockerNetwork, "Docker network name shared by generated services and Docker runner tasks")
+	command.Flags().StringVar(&options.bootstrapAdminEmail, "bootstrap-admin-email", options.bootstrapAdminEmail, "initial local administrator email")
+	command.Flags().StringVar(&options.bootstrapAdminPassword, "bootstrap-admin-password", "", "initial local administrator password; omitted generates one in .env")
 	command.Flags().BoolVar(&options.force, "force", false, "replace previously generated install files in the output directory")
 	command.Flags().BoolVar(&options.run, "run", false, "run docker compose up -d after writing generated files")
-	command.Flags().BoolVar(&options.interactive, "interactive", false, "prompt for version, output directory, ports, overwrite, and run")
+	command.Flags().BoolVar(&options.interactive, "interactive", false, "prompt for version, output directory, bootstrap admin, ports, overwrite, and run")
 	return command
 }
 
 func defaultDockerComposeInstallOptions(root *rootOptions) *installDockerComposeOptions {
 	return &installDockerComposeOptions{
-		version:        defaultPlatformVersion(root),
-		outputDir:      platform.DefaultInstallOutputDir,
-		projectName:    platform.DefaultInstallProjectName,
-		apiPort:        platform.DefaultInstallAPIPort,
-		uiPort:         platform.DefaultInstallUIPort,
-		nopsaiAPIURL:   platform.DefaultInstallNopsaiAPIURL,
-		dispatcherAddr: platform.DefaultInstallDispatcherAddress,
-		aaaAPIURL:      platform.DefaultInstallAAAAPIURL,
-		gitBotAPIURL:   platform.DefaultInstallGitBotAPIURL,
-		gotenbergURL:   platform.DefaultInstallGotenbergURL,
-		dockerNetwork:  platform.DefaultInstallDockerNetworkName,
+		version:             defaultPlatformVersion(root),
+		outputDir:           platform.DefaultInstallOutputDir,
+		projectName:         platform.DefaultInstallProjectName,
+		apiPort:             platform.DefaultInstallAPIPort,
+		uiPort:              platform.DefaultInstallUIPort,
+		nopsaiAPIURL:        platform.DefaultInstallNopsaiAPIURL,
+		dispatcherAddr:      platform.DefaultInstallDispatcherAddress,
+		aaaAPIURL:           platform.DefaultInstallAAAAPIURL,
+		gitBotAPIURL:        platform.DefaultInstallGitBotAPIURL,
+		gotenbergURL:        platform.DefaultInstallGotenbergURL,
+		dockerNetwork:       platform.DefaultInstallDockerNetworkName,
+		bootstrapAdminEmail: platform.DefaultInstallBootstrapAdminEmail,
 	}
 }
 
@@ -239,27 +246,31 @@ func newInstallKubernetesCommand(root *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&options.aaaAPIURL, "aaa-api-url", options.aaaAPIURL, "internal AAA API URL used by the NopsAI API")
 	command.Flags().StringVar(&options.gitBotAPIURL, "git-bot-api-url", options.gitBotAPIURL, "internal git-bot API URL used by the NopsAI API")
 	command.Flags().StringVar(&options.gotenbergURL, "gotenberg-url", options.gotenbergURL, "internal Gotenberg URL used for final-output PDF rendering")
+	command.Flags().StringVar(&options.bootstrapAdminEmail, "bootstrap-admin-email", options.bootstrapAdminEmail, "initial local administrator email")
+	command.Flags().StringVar(&options.bootstrapAdminPasswordSecretKey, "bootstrap-admin-password-secret-key", options.bootstrapAdminPasswordSecretKey, "Kubernetes Secret key containing the initial local administrator password")
 	command.Flags().StringVar(&options.lockFile, "lock-file", "", "GitOps-tracked release lock path written after successful deployment (default: output-dir/.nopsai/release.lock)")
 	command.Flags().BoolVar(&options.force, "force", false, "replace previously generated install files in the output directory")
 	command.Flags().BoolVar(&options.deploy, "deploy", false, "run Helm upgrade --install after writing generated values")
 	command.Flags().BoolVar(&options.wait, "wait", false, "wait for Kubernetes resources to become ready before writing the release lock")
-	command.Flags().BoolVar(&options.interactive, "interactive", false, "prompt for version, values, namespace, secret, overwrite, and deployment")
+	command.Flags().BoolVar(&options.interactive, "interactive", false, "prompt for version, values, namespace, bootstrap admin, secrets, overwrite, and deployment")
 	return command
 }
 
 func defaultKubernetesInstallOptions(root *rootOptions) *installKubernetesOptions {
 	return &installKubernetesOptions{
-		version:        defaultPlatformVersion(root),
-		outputDir:      platform.DefaultInstallOutputDir,
-		valuesFile:     platform.DefaultKubernetesValuesFile,
-		releaseName:    platform.DefaultReleaseName,
-		namespace:      platform.DefaultNamespace,
-		existingSecret: platform.DefaultKubernetesExistingSecret,
-		nopsaiAPIURL:   platform.DefaultInstallNopsaiAPIURL,
-		dispatcherAddr: platform.DefaultInstallDispatcherAddress,
-		aaaAPIURL:      platform.DefaultInstallAAAAPIURL,
-		gitBotAPIURL:   platform.DefaultInstallGitBotAPIURL,
-		gotenbergURL:   platform.DefaultInstallGotenbergURL,
+		version:                         defaultPlatformVersion(root),
+		outputDir:                       platform.DefaultInstallOutputDir,
+		valuesFile:                      platform.DefaultKubernetesValuesFile,
+		releaseName:                     platform.DefaultReleaseName,
+		namespace:                       platform.DefaultNamespace,
+		existingSecret:                  platform.DefaultKubernetesExistingSecret,
+		nopsaiAPIURL:                    platform.DefaultInstallNopsaiAPIURL,
+		dispatcherAddr:                  platform.DefaultInstallDispatcherAddress,
+		aaaAPIURL:                       platform.DefaultInstallAAAAPIURL,
+		gitBotAPIURL:                    platform.DefaultInstallGitBotAPIURL,
+		gotenbergURL:                    platform.DefaultInstallGotenbergURL,
+		bootstrapAdminEmail:             platform.DefaultInstallBootstrapAdminEmail,
+		bootstrapAdminPasswordSecretKey: platform.DefaultKubernetesBootstrapAdminPasswordSecretKey,
 	}
 }
 
@@ -291,6 +302,7 @@ func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 					"  - host ports",
 					"  - service URLs and gRPC addresses",
 					"  - Docker network name",
+					"  - bootstrap admin email and password",
 					"",
 					"Noninteractive example",
 					"  nopsai install docker-compose --version 2.10.648 --output-dir ./nopsai-prod",
@@ -306,6 +318,7 @@ func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 					"Configurable",
 					"  - Helm release and namespace",
 					"  - existing Secret name",
+					"  - bootstrap admin email and Secret key",
 					"  - service URLs and gRPC addresses",
 					"  - optional ingress host",
 					"  - GitOps release lock path",
@@ -356,17 +369,19 @@ func executeInstallDockerCompose(command *cobra.Command, root *rootOptions, opti
 	}
 	installer := installPlanner(root, command)
 	plan, err := installer.PlanDockerCompose(command.Context(), platform.DockerComposeInstallOptions{
-		Version:           options.version,
-		OutputDir:         options.outputDir,
-		ProjectName:       options.projectName,
-		APIPort:           options.apiPort,
-		UIPort:            options.uiPort,
-		NopsaiAPIURL:      options.nopsaiAPIURL,
-		DispatcherAddress: options.dispatcherAddr,
-		AAAAPIURL:         options.aaaAPIURL,
-		GitBotAPIURL:      options.gitBotAPIURL,
-		GotenbergURL:      options.gotenbergURL,
-		DockerNetworkName: options.dockerNetwork,
+		Version:                options.version,
+		OutputDir:              options.outputDir,
+		ProjectName:            options.projectName,
+		APIPort:                options.apiPort,
+		UIPort:                 options.uiPort,
+		NopsaiAPIURL:           options.nopsaiAPIURL,
+		DispatcherAddress:      options.dispatcherAddr,
+		AAAAPIURL:              options.aaaAPIURL,
+		GitBotAPIURL:           options.gitBotAPIURL,
+		GotenbergURL:           options.gotenbergURL,
+		DockerNetworkName:      options.dockerNetwork,
+		BootstrapAdminEmail:    options.bootstrapAdminEmail,
+		BootstrapAdminPassword: options.bootstrapAdminPassword,
 	})
 	if err != nil {
 		return err
@@ -394,19 +409,21 @@ func executeInstallKubernetes(command *cobra.Command, root *rootOptions, options
 	}
 	installer := installPlanner(root, command)
 	plan, err := installer.PlanKubernetesValues(command.Context(), platform.KubernetesValuesOptions{
-		Version:           options.version,
-		OutputDir:         options.outputDir,
-		ValuesFile:        options.valuesFile,
-		ReleaseName:       options.releaseName,
-		Namespace:         options.namespace,
-		ExistingSecret:    options.existingSecret,
-		IngressHost:       options.ingressHost,
-		NopsaiAPIURL:      options.nopsaiAPIURL,
-		DispatcherAddress: options.dispatcherAddr,
-		AAAAPIURL:         options.aaaAPIURL,
-		GitBotAPIURL:      options.gitBotAPIURL,
-		GotenbergURL:      options.gotenbergURL,
-		Wait:              options.wait,
+		Version:                         options.version,
+		OutputDir:                       options.outputDir,
+		ValuesFile:                      options.valuesFile,
+		ReleaseName:                     options.releaseName,
+		Namespace:                       options.namespace,
+		ExistingSecret:                  options.existingSecret,
+		IngressHost:                     options.ingressHost,
+		NopsaiAPIURL:                    options.nopsaiAPIURL,
+		DispatcherAddress:               options.dispatcherAddr,
+		AAAAPIURL:                       options.aaaAPIURL,
+		GitBotAPIURL:                    options.gitBotAPIURL,
+		GotenbergURL:                    options.gotenbergURL,
+		BootstrapAdminEmail:             options.bootstrapAdminEmail,
+		BootstrapAdminPasswordSecretKey: options.bootstrapAdminPasswordSecretKey,
+		Wait:                            options.wait,
 	})
 	if err != nil {
 		return err
@@ -615,6 +632,16 @@ func resolveInteractiveDockerComposeInstall(prompter *interactive.Prompter, opti
 		return err
 	}
 	options.dockerNetwork = strings.TrimSpace(dockerNetwork)
+	adminEmail, err := prompter.AskRequired("Bootstrap admin email", valueOrDefault(options.bootstrapAdminEmail, platform.DefaultInstallBootstrapAdminEmail))
+	if err != nil {
+		return err
+	}
+	options.bootstrapAdminEmail = strings.TrimSpace(adminEmail)
+	adminPassword, err := prompter.Ask("Bootstrap admin password (blank generates)", options.bootstrapAdminPassword)
+	if err != nil {
+		return err
+	}
+	options.bootstrapAdminPassword = strings.TrimSpace(adminPassword)
 	force, err := prompter.Confirm("Replace existing generated files", options.force)
 	if err != nil {
 		return err
@@ -662,6 +689,16 @@ func resolveInteractiveKubernetesInstall(prompter *interactive.Prompter, options
 		return err
 	}
 	options.existingSecret = strings.TrimSpace(secret)
+	adminEmail, err := prompter.AskRequired("Bootstrap admin email", valueOrDefault(options.bootstrapAdminEmail, platform.DefaultInstallBootstrapAdminEmail))
+	if err != nil {
+		return err
+	}
+	options.bootstrapAdminEmail = strings.TrimSpace(adminEmail)
+	adminPasswordKey, err := prompter.AskRequired("Bootstrap admin password Secret key", valueOrDefault(options.bootstrapAdminPasswordSecretKey, platform.DefaultKubernetesBootstrapAdminPasswordSecretKey))
+	if err != nil {
+		return err
+	}
+	options.bootstrapAdminPasswordSecretKey = strings.TrimSpace(adminPasswordKey)
 	ingressHost, err := prompter.Ask("Ingress host (blank disables ingress)", options.ingressHost)
 	if err != nil {
 		return err
@@ -730,6 +767,8 @@ func resolveLiveDockerComposeInstall(prompter *interactive.Prompter, options *in
 		{Name: "gitBotAPIURL", Label: "git-bot API URL", Value: options.gitBotAPIURL, Default: platform.DefaultInstallGitBotAPIURL, Required: true, Description: "Internal git-bot API URL used by NopsAI for repository automation.", Example: "http://git-bot:8081"},
 		{Name: "gotenbergURL", Label: "Gotenberg URL", Value: options.gotenbergURL, Default: platform.DefaultInstallGotenbergURL, Required: true, Description: "Internal Gotenberg URL used for final-output PDF rendering.", Example: "http://gotenberg:3000"},
 		{Name: "dockerNetwork", Label: "Docker network", Value: options.dockerNetwork, Default: platform.DefaultInstallDockerNetworkName, Required: true, Description: "Docker network shared by generated services and Docker runner tasks.", Example: "nopsai-net"},
+		{Name: "bootstrapAdminEmail", Label: "Admin email", Value: options.bootstrapAdminEmail, Default: platform.DefaultInstallBootstrapAdminEmail, Required: true, Description: "Initial local administrator email created on first startup.", Example: "platform-admin@example.com"},
+		{Name: "bootstrapAdminPassword", Label: "Admin password", Value: options.bootstrapAdminPassword, Description: "Initial local administrator password. Leave blank to generate one into .env.", Example: "use-a-unique-secret"},
 		{Name: "force", Label: "Replace files", Value: formatYesNo(options.force), Kind: interactive.FieldBoolean, Description: "Replace existing generated install files in the output directory."},
 		{Name: "run", Label: "Start stack", Value: formatYesNo(options.run), Kind: interactive.FieldBoolean, Description: "Run docker compose up -d after writing generated files."},
 	}
@@ -749,6 +788,8 @@ func resolveLiveDockerComposeInstall(prompter *interactive.Prompter, options *in
 	options.gitBotAPIURL = strings.TrimSpace(values["gitBotAPIURL"])
 	options.gotenbergURL = strings.TrimSpace(values["gotenbergURL"])
 	options.dockerNetwork = strings.TrimSpace(values["dockerNetwork"])
+	options.bootstrapAdminEmail = strings.TrimSpace(values["bootstrapAdminEmail"])
+	options.bootstrapAdminPassword = strings.TrimSpace(values["bootstrapAdminPassword"])
 	options.force = parseYesNo(values["force"])
 	options.run = parseYesNo(values["run"])
 	return nil
@@ -761,7 +802,9 @@ func resolveLiveKubernetesInstall(prompter *interactive.Prompter, options *insta
 		{Name: "valuesFile", Label: "Values file", Value: options.valuesFile, Default: platform.DefaultKubernetesValuesFile, Required: true, Description: "Generated values file path relative to the output directory. Keep this GitOps-tracked.", Example: "values.yaml"},
 		{Name: "releaseName", Label: "Helm release", Value: options.releaseName, Default: platform.DefaultReleaseName, Required: true, Description: "Helm release name to install or upgrade.", Example: "nopsai"},
 		{Name: "namespace", Label: "Namespace", Value: options.namespace, Default: platform.DefaultNamespace, Required: true, Description: "Kubernetes namespace for rendered and deployed resources.", Example: "nopsai"},
-		{Name: "existingSecret", Label: "Existing Secret", Value: options.existingSecret, Default: platform.DefaultKubernetesExistingSecret, Required: true, Description: "Kubernetes Secret referenced by generated values. It should contain database URL, master key, JWT keys, service JWT key, and AAA shared internal token.", Example: "nopsai-secrets"},
+		{Name: "existingSecret", Label: "Existing Secret", Value: options.existingSecret, Default: platform.DefaultKubernetesExistingSecret, Required: true, Description: "Kubernetes Secret referenced by generated values. It should contain database URL, master key, JWT keys, service JWT key, AAA shared internal token, and bootstrap admin password.", Example: "nopsai-secrets"},
+		{Name: "bootstrapAdminEmail", Label: "Admin email", Value: options.bootstrapAdminEmail, Default: platform.DefaultInstallBootstrapAdminEmail, Required: true, Description: "Initial local administrator email created on first startup.", Example: "platform-admin@example.com"},
+		{Name: "bootstrapAdminPasswordSecretKey", Label: "Admin password key", Value: options.bootstrapAdminPasswordSecretKey, Default: platform.DefaultKubernetesBootstrapAdminPasswordSecretKey, Required: true, Description: "Secret key in the existing Kubernetes Secret that contains the initial local administrator password.", Example: "bootstrap-admin-password"},
 		{Name: "ingressHost", Label: "Ingress host", Value: options.ingressHost, Description: "Optional ingress host. Leave blank to keep ingress disabled in generated values.", Example: "nopsai.example.com"},
 		{Name: "nopsaiAPIURL", Label: "NopsAI API URL", Value: options.nopsaiAPIURL, Default: platform.DefaultInstallNopsaiAPIURL, Required: true, Description: "Internal NopsAI API URL used by dispatcher, git-bot, and runners. Change this for custom service DNS or mesh addresses.", Example: "http://nopsai:8080"},
 		{Name: "dispatcherAddr", Label: "Dispatcher gRPC", Value: options.dispatcherAddr, Default: platform.DefaultInstallDispatcherAddress, Required: true, Description: "Internal dispatcher gRPC host:port used by the API and runners.", Example: "dispatcher:9090"},
@@ -784,6 +827,8 @@ func resolveLiveKubernetesInstall(prompter *interactive.Prompter, options *insta
 	options.releaseName = strings.TrimSpace(values["releaseName"])
 	options.namespace = strings.TrimSpace(values["namespace"])
 	options.existingSecret = strings.TrimSpace(values["existingSecret"])
+	options.bootstrapAdminEmail = strings.TrimSpace(values["bootstrapAdminEmail"])
+	options.bootstrapAdminPasswordSecretKey = strings.TrimSpace(values["bootstrapAdminPasswordSecretKey"])
 	options.ingressHost = strings.TrimSpace(values["ingressHost"])
 	options.nopsaiAPIURL = strings.TrimSpace(values["nopsaiAPIURL"])
 	options.dispatcherAddr = strings.TrimSpace(values["dispatcherAddr"])

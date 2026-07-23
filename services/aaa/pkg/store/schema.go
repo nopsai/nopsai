@@ -6,8 +6,6 @@ import (
 	"fmt"
 )
 
-const defaultAdminUserID = "00000000-0000-0000-0000-00000000000a"
-
 var aaaSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS auth_teams (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -136,7 +134,6 @@ var aaaSchemaStatements = []string{
 	ON CONFLICT (name) DO NOTHING`,
 	`INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
 	VALUES
-		('nopsai-admin', 'user', '` + defaultAdminUserID + `'),
 		('dispatcher-internal', 'internal_service', 'dispatcher')
 	ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING`,
 	`INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)

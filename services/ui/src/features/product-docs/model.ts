@@ -571,7 +571,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'steps[].ignore_failure',
     area: 'Step YAML',
-    description: 'Marks a failing single-mode step as ignored so downstream dependencies can continue.',
+    description: 'Marks failures in this step as ignored so downstream dependencies can continue. Approval and blocking policy or guardrail failures still fail closed.',
     example: 'true',
   },
   {
@@ -660,7 +660,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'tasks[].ignore_failure',
     area: 'Task YAML',
-    description: 'Treats this task failure as ignored, allowing dependent graph progress.',
+    description: 'Treats this task failure as ignored, allowing dependent graph progress. The parent step flag also applies when set.',
     example: 'true',
   },
   {
@@ -1225,6 +1225,26 @@ const requiredEnvironmentRows: WikiConfigRow[] = [
     security: 'Keep separate from SERVICE_JWT_SIGNING_KEY.',
   },
   {
+    key: 'NOPSAI_BOOTSTRAP_ADMIN_EMAIL',
+    area: 'Bootstrap',
+    description: 'Email for the first local administrator created during API bootstrap.',
+    example: 'platform-admin@example.com',
+    type: 'email',
+    required: true,
+    scope: 'API',
+    security: 'Use a real operator mailbox for shared environments.',
+  },
+  {
+    key: 'NOPSAI_BOOTSTRAP_ADMIN_PASSWORD',
+    area: 'Bootstrap',
+    description: 'Initial password used to create or rotate the local bootstrap administrator.',
+    example: 'openssl rand -base64 24',
+    type: 'secret',
+    required: true,
+    scope: 'API',
+    security: 'Use NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE when a secret manager mounts the value as a file.',
+  },
+  {
     key: 'SERVICE_JWT_SIGNING_KEY',
     area: 'Bootstrap',
     description: 'Signs internal service JWTs for nopsai, dispatcher, git-bot, runner, and agent callbacks.',
@@ -1743,10 +1763,20 @@ const baseWikiSections: WikiSectionInput[] = [
             scope: 'system',
             security: 'Use separate user/API and internal service signing keys.',
           },
+          {
+            key: 'NOPSAI_BOOTSTRAP_ADMIN_PASSWORD',
+            area: 'Bootstrap',
+            description: 'Initial local administrator password used when creating or rotating the bootstrap admin.',
+            example: 'openssl rand -base64 24',
+            type: 'secret',
+            required: true,
+            scope: 'system',
+            security: 'Use NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE when your secret manager mounts files.',
+          },
         ],
         examples: [],
         relatedDocs: ['doc/first-install-wizard.md', 'doc/enterprise-gates.md'],
-        runbooks: ['Complete setup preflight', 'Replace default administrator password', 'Run setup/first-run'],
+        runbooks: ['Complete setup preflight', 'Set bootstrap administrator password', 'Run setup/first-run'],
         caveats: ['Changing bootstrap secrets usually requires restarting the affected services.'],
       },
       {
@@ -2151,7 +2181,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         details: [
           'Optional integrations may be skipped and configured later, but required readiness gates must be resolved before normal operation.',
-          'The default local admin state is reported until changed. For production, rotate secrets and replace the bootstrap administrator password before accepting real workload access.',
+          'The bootstrap admin state is reported until secured. For production, set a unique bootstrap administrator password before accepting real workload access.',
         ],
         configRows: [
           {
@@ -2173,6 +2203,12 @@ const baseWikiSections: WikiSectionInput[] = [
             example: 'openssl rand -base64 48',
           },
           {
+            key: 'NOPSAI_BOOTSTRAP_ADMIN_PASSWORD',
+            area: 'Bootstrap',
+            description: 'Creates or rotates the first local administrator during production bootstrap.',
+            example: 'openssl rand -base64 24',
+          },
+          {
             key: 'AAA_SHARED_INTERNAL_TOKEN',
             area: 'Bootstrap',
             description: 'Shared internal token used by NopsAI when calling AAA protected endpoints.',
@@ -2181,7 +2217,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         examples: [],
         relatedDocs: ['doc/first-install-wizard.md', 'doc/enterprise-gates.md'],
-        runbooks: ['Complete setup preflight', 'Replace default administrator password', 'Run setup/first-run'],
+        runbooks: ['Complete setup preflight', 'Set bootstrap administrator password', 'Run setup/first-run'],
         caveats: ['Changing generated service secrets usually requires restarting affected services.'],
       },
       {
@@ -2194,8 +2230,8 @@ const baseWikiSections: WikiSectionInput[] = [
         summary:
           'Bootstrap secrets, internal service URLs, dispatcher transport, Docker runner networking, System Logs, and PDF rendering settings must be explicit before production traffic is allowed.',
         keyFacts: [
-          'Docker uses environment variables and Helm maps the same bootstrap values to Secret keys such as database-url, master-key, jwt-signing-key, service-jwt-signing-key, and aaa-shared-internal-token.',
-          'Keep NOPSAI_MASTER_KEY, JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, and AAA_SHARED_INTERNAL_TOKEN as separate high-entropy values.',
+          'Docker uses environment variables and Helm maps the same bootstrap values to Secret keys such as database-url, master-key, jwt-signing-key, service-jwt-signing-key, aaa-shared-internal-token, and bootstrap-admin-password.',
+          'Keep NOPSAI_MASTER_KEY, JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, AAA_SHARED_INTERNAL_TOKEN, and NOPSAI_BOOTSTRAP_ADMIN_PASSWORD as separate high-entropy values.',
           'Internal URLs such as AAA_API_URL, NOPSAI_API_URL, GIT_BOT_API_URL, and DISPATCHER_GRPC_ADDRESS should point to private service discovery names.',
           'Production dispatcher clients should use tls or mtls with DISPATCHER_TLS_SECRET rather than disabled transport.',
           'Docker System Logs should read through docker-socket-proxy, and PDF final outputs require a reachable Gotenberg renderer.',
@@ -2212,7 +2248,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Generate a Compose install',
             language: 'bash',
             code:
-              'nopsai install docker-compose \\\n  --version 2.10.648 \\\n  --output-dir ./nopsai-install \\\n  --nopsai-api-url http://nopsai:8080 \\\n  --dispatcher-address dispatcher:9090 \\\n  --run',
+              'nopsai install docker-compose \\\n  --version 2.10.648 \\\n  --output-dir ./nopsai-install \\\n  --bootstrap-admin-email platform-admin@example.com \\\n  --nopsai-api-url http://nopsai:8080 \\\n  --dispatcher-address dispatcher:9090 \\\n  --run',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
             rollback: 'cd ./nopsai-install && docker compose --env-file .env -f docker-compose.yaml down',
@@ -2221,7 +2257,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Helm bootstrap Secret keys',
             language: 'bash',
             code:
-              'kubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai:<password>@postgres.example:5432/nopsai?sslmode=require" \\\n  --from-literal=master-key="$(openssl rand -base64 32)" \\\n  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)"',
+              'kubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai:<password>@postgres.example:5432/nopsai?sslmode=require" \\\n  --from-literal=master-key="$(openssl rand -base64 32)" \\\n  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)" \\\n  --from-literal=bootstrap-admin-password="$(openssl rand -base64 24)"',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },

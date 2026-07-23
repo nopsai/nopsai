@@ -40,9 +40,9 @@ const preflightResponse = {
     },
     {
       id: 'admin-password',
-      label: 'Default admin password',
+      label: 'Bootstrap admin password',
       status: 'error',
-      message: 'Default administrator still uses the built-in password.',
+      message: 'Bootstrap administrator still uses the built-in password.',
       required: true,
     },
   ],
@@ -73,7 +73,7 @@ describe('LoginPage setup readiness', () => {
     expect(screen.getAllByRole('img', { name: 'NopsAI' })).toHaveLength(1);
 
     expect(screen.getByLabelText('Database connection configured').textContent).toContain('✓');
-    const failedCheckHeader = screen.getByText('Default admin password').parentElement;
+    const failedCheckHeader = screen.getByText('Bootstrap admin password').parentElement;
     expect(failedCheckHeader).not.toBeNull();
     expect(within(failedCheckHeader as HTMLElement).getByText('Required')).toBeTruthy();
 

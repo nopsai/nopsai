@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strings"
 
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
@@ -18,6 +19,36 @@ func (req PipelineRunRequest) setTaskRunning(activeTasks *ActiveTaskTracker, ste
 func (req PipelineRunRequest) finalizeTask(activeTasks *ActiveTaskTracker, stepName, taskName, status string, exitCode int, llmDurationMs int64) {
 	req.reportTaskStatus(stepName, taskName, status, exitCode, llmDurationMs)
 	activeTasks.Remove(stepName, taskName)
+}
+
+func effectiveIgnoreFailure(step *models.PipelineStep, task *models.Task) bool {
+	if task != nil && task.IgnoreFailure {
+		return true
+	}
+	return step != nil && step.GetIgnoreFailure()
+}
+
+func failureStatusWithTolerance(status string, ignoreFailure bool) string {
+	if !ignoreFailure || !isIgnorableFailureStatus(status) {
+		return status
+	}
+	return "failure (ignored)"
+}
+
+func isIgnorableFailureStatus(status string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	if normalized == "failure" {
+		return true
+	}
+	if strings.Contains(normalized, "ignored") {
+		return false
+	}
+	return strings.Contains(normalized, "fail") ||
+		strings.Contains(normalized, "error") ||
+		strings.Contains(normalized, "not_found") ||
+		normalized == "timed_out" ||
+		strings.Contains(normalized, "timeout") ||
+		strings.Contains(normalized, "timed out")
 }
 
 func (req PipelineRunRequest) agentLogger() *zerolog.Logger {

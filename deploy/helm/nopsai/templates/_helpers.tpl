@@ -57,3 +57,23 @@ app.kubernetes.io/name=nopsai,app.kubernetes.io/instance={{ .Release.Name }}
 {{- $topology := default dict .Values.topology -}}
 {{- default "dispatcher:9090" (index $topology "dispatcherGRPCAddress") -}}
 {{- end }}
+
+{{- define "nopsai.topology.nopsaiAPIURL" -}}
+{{- $topology := default dict .Values.topology -}}
+{{- default "http://nopsai:8080" (index $topology "nopsaiAPIURL") -}}
+{{- end }}
+
+{{- define "nopsai.topology.aaaAPIURL" -}}
+{{- $topology := default dict .Values.topology -}}
+{{- default "http://aaa:8082" (index $topology "aaaAPIURL") -}}
+{{- end }}
+
+{{- define "nopsai.topology.gitBotAPIURL" -}}
+{{- $topology := default dict .Values.topology -}}
+{{- default "http://git-bot:8081" (index $topology "gitBotAPIURL") -}}
+{{- end }}
+
+{{- define "nopsai.topology.gotenbergURL" -}}
+{{- $topology := default dict .Values.topology -}}
+{{- default "http://gotenberg:3000" (index $topology "gotenbergURL") -}}
+{{- end }}

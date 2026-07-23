@@ -176,6 +176,24 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				task := runnable.Task
 				stepName := step.GetName()
 				taskLogger := req.stepLogger(stepName, task.Name)
+				ignoreFailure := effectiveIgnoreFailure(step, task)
+				finalizeFailure := func(status string, exitCode int, llmDurationMs int64, allowIgnore bool) bool {
+					if strings.TrimSpace(status) == "" {
+						status = "failure"
+						if exitCode == 0 {
+							exitCode = 1
+						}
+					}
+					if allowIgnore {
+						status = failureStatusWithTolerance(status, ignoreFailure)
+					}
+					req.finalizeTask(activeTasks, stepName, task.Name, status, exitCode, llmDurationMs)
+					if status == "failure (ignored)" {
+						taskLogger.Warn().Msg("Task failed, but failure is ignored")
+						return true
+					}
+					return false
+				}
 				var llmDurationMs int64
 				stepContext, missingSecrets := resolver.BuildStepContext(&pipeline, step, req.environment(), req.Variables, req.Secrets)
 				for _, secretName := range missingSecrets {
@@ -185,6 +203,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				historyMutex.Lock()
 				conditionHistorySnapshot := llmHistorySnapshotWithRevision(history.String(), historyRevision)
 				historyMutex.Unlock()
+				conditionBlockingKinds := req.blockingKnowledgeKinds(&pipeline, step, nil)
 				conditionResult := conditionEvaluator.Evaluate(context.Background(), resolver.ConditionRequest{
 					Logger:                 taskLogger,
 					Pipeline:               &pipeline,
@@ -193,7 +212,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					History:                conditionHistorySnapshot,
 					Secrets:                req.Secrets,
 					KnowledgePrompt:        req.knowledgePrompt(&pipeline, step, nil),
-					BlockingKnowledgeKinds: req.blockingKnowledgeKinds(&pipeline, step, nil),
+					BlockingKnowledgeKinds: conditionBlockingKinds,
 					LLMTimeout:             req.LLMTimeout,
 					LLMEnabled:             req.PipelineLLMEnabled,
 					ClientResolver:         req.ConditionClientResolver,
@@ -201,13 +220,15 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				})
 				llmDurationMs = conditionResult.LLMDurationMs
 				if conditionResult.Terminal {
-					if conditionResult.PipelineFailed {
+					conditionFailureIgnored := false
+					conditionFailureCanBeIgnored := ignoreFailure && conditionResult.Failed && len(conditionBlockingKinds) == 0
+					if conditionResult.PipelineFailed && !conditionFailureCanBeIgnored {
 						pipelineFailed.Store(true)
 					}
-					if conditionResult.FinalizeStatus != "" {
-						req.finalizeTask(activeTasks, stepName, task.Name, conditionResult.FinalizeStatus, conditionResult.FinalizeExitCode, llmDurationMs)
+					if conditionResult.FinalizeStatus != "" || conditionFailureCanBeIgnored {
+						conditionFailureIgnored = finalizeFailure(conditionResult.FinalizeStatus, conditionResult.FinalizeExitCode, llmDurationMs, conditionFailureCanBeIgnored)
 					}
-					results <- taskResult{name: runnable.GlobalKey, success: !conditionResult.Failed, skipped: conditionResult.Skipped}
+					results <- taskResult{name: runnable.GlobalKey, success: !conditionResult.Failed || conditionFailureIgnored, skipped: conditionResult.Skipped}
 					return
 				}
 
@@ -263,8 +284,8 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					historyMutex.Unlock()
 					if req.IncludeRunner == nil {
 						taskLogger.Error().Msg("Include runner is not configured")
-						req.finalizeTask(activeTasks, stepName, stepName, "failure", 1, llmDurationMs)
-						results <- taskResult{name: runnable.GlobalKey, success: false}
+						ignored := finalizeFailure("failure", 1, llmDurationMs, true)
+						results <- taskResult{name: runnable.GlobalKey, success: ignored}
 						return
 					}
 					includeContext := timeoutController.ContextOrDefault(context.Background())
@@ -278,10 +299,19 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						Sync:               step.GetSync(),
 						LLMDurationMs:      llmDurationMs,
 						FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
-							req.finalizeTask(activeTasks, stepName, taskName, status, exitCode, llmDurationMs)
+							req.finalizeTask(activeTasks, stepName, taskName, failureStatusWithTolerance(status, ignoreFailure), exitCode, llmDurationMs)
 						},
-						MarkPipelineFailed: func() { pipelineFailed.Store(true) },
+						MarkPipelineFailed: func(status string) {
+							if failureStatusWithTolerance(status, ignoreFailure) != "failure (ignored)" {
+								pipelineFailed.Store(true)
+							}
+						},
 					})
+					if !includeResult.Success && failureStatusWithTolerance(includeResult.Status, ignoreFailure) == "failure (ignored)" {
+						taskLogger.Warn().Msg("Task failed, but failure is ignored")
+						results <- taskResult{name: runnable.GlobalKey, success: true}
+						return
+					}
 					results <- taskResult{name: runnable.GlobalKey, success: includeResult.Success}
 					return
 				}
@@ -315,8 +345,8 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				})
 				if err != nil {
 					taskLogger.Error().Err(err).Msgf("Failed to create step %s", stepRuntimeResourceName(req.StepRuntime))
-					req.finalizeTask(activeTasks, stepName, task.Name, "failure", 1, llmDurationMs)
-					results <- taskResult{name: runnable.GlobalKey, success: false}
+					ignored := finalizeFailure("failure", 1, llmDurationMs, true)
+					results <- taskResult{name: runnable.GlobalKey, success: ignored}
 					return
 				}
 				if !createdSession {
@@ -328,6 +358,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				historyMutex.Unlock()
 				workspaceRevisionSnapshot := snapshotWorkspaceRevision()
 				actionParentCtx := timeoutController.ContextOrDefault(context.Background())
+				taskBlockingKinds := req.blockingKnowledgeKinds(&pipeline, step, task)
 				actionResult := taskResolver.Resolve(context.Background(), resolver.ActionRequest{
 					Logger:                 taskLogger,
 					Pipeline:               &pipeline,
@@ -342,7 +373,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					IsRunStopping:          isRunStopping,
 					Secrets:                req.Secrets,
 					KnowledgePrompt:        req.knowledgePrompt(&pipeline, step, task),
-					BlockingKnowledgeKinds: req.blockingKnowledgeKinds(&pipeline, step, task),
+					BlockingKnowledgeKinds: taskBlockingKinds,
 					LLMTimeout:             req.LLMTimeout,
 					LLMEnabled:             req.PipelineLLMEnabled,
 					SessionResolver:        req.ActionSessionResolver,
@@ -353,10 +384,12 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					llmDurationMs = actionResult.LLMDurationMs
 				}
 				if actionResult.Failed {
-					if actionResult.FinalizeStatus != "" {
-						req.finalizeTask(activeTasks, stepName, task.Name, actionResult.FinalizeStatus, actionResult.FinalizeExitCode, llmDurationMs)
+					actionFailureIgnored := false
+					actionFailureCanBeIgnored := ignoreFailure && len(taskBlockingKinds) == 0 && !isRunStopping()
+					if actionResult.FinalizeStatus != "" || actionFailureCanBeIgnored {
+						actionFailureIgnored = finalizeFailure(actionResult.FinalizeStatus, actionResult.FinalizeExitCode, llmDurationMs, actionFailureCanBeIgnored)
 					}
-					results <- taskResult{name: runnable.GlobalKey, success: false}
+					results <- taskResult{name: runnable.GlobalKey, success: actionFailureIgnored}
 					return
 				}
 				action := actionResult.Action
@@ -458,15 +491,11 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					req.finalizeTask(activeTasks, stepName, task.Name, "success", exitCode, llmDurationMs)
 					results <- taskResult{name: runnable.GlobalKey, success: true}
 				} else {
-					if task.IgnoreFailure {
-						req.finalizeTask(activeTasks, stepName, task.Name, "failure (ignored)", exitCode, llmDurationMs)
-						taskLogger.Warn().Msg("Task failed, but failure is ignored")
-						results <- taskResult{name: runnable.GlobalKey, success: true}
-					} else {
-						req.finalizeTask(activeTasks, stepName, task.Name, "failure", exitCode, llmDurationMs)
+					ignored := finalizeFailure("failure", exitCode, llmDurationMs, true)
+					if !ignored {
 						taskLogger.Error().Msg("Critical task failed")
-						results <- taskResult{name: runnable.GlobalKey, success: false}
 					}
+					results <- taskResult{name: runnable.GlobalKey, success: ignored}
 				}
 			}(runnable)
 		}

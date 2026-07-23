@@ -3,9 +3,11 @@
 The first-install wizard guides an administrator from an empty database to a
 working NopsAI workspace without reading the full configuration reference first.
 It lives in the UI at **System > Setup** and is backed by `/v1/setup/*` API
-endpoints. After the default admin changes the first-login password, the UI
-checks setup status once per browser session and automatically opens a guided
-setup modal when setup is incomplete.
+endpoints. After the bootstrap admin clears any first-login password
+requirement, the UI checks setup status once per browser session and
+automatically opens a guided setup modal when setup is incomplete. Generated
+installs create the bootstrap admin from the operator-provided or generated
+first-install password instead of seeding a production default.
 
 Before login, the UI also checks `/v1/setup/preflight`. If required
 configuration is missing, the login page shows installation guidance instead of
@@ -25,9 +27,9 @@ The authenticated setup page is a system administration surface:
 - `GET /v1/setup/*` requires `system.read` on `system:config`.
 - `POST /v1/setup/*` requires `system.update` on `system:config`.
 
-The default local admin can open the wizard after login, but the health checks
-will warn if the default `admin` password is still in use or if the admin must
-change password.
+The local bootstrap admin can open the wizard after login, but the health
+checks will warn if the development `admin` password is still in use or if the
+admin must change password.
 
 ## Wizard Shape
 
@@ -100,6 +102,10 @@ Required preflight items:
   setup state.
 - `NOPSAI_MASTER_KEY`: required for encrypted secret storage.
 - `JWT_SIGNING_KEY`: required for local login sessions.
+- `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD` or
+  `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE`: required in production gate mode when
+  the first local administrator needs to be created or an insecure development
+  password needs to be rotated.
 
 The login page shows suggested environment entries for missing required values
 and marks configured required checks with a green tick. The wizard can generate
@@ -119,8 +125,10 @@ Production startup gates:
 - Dispatcher TLS/mTLS must remain enabled.
 - When a GitHub App is configured, private-key and webhook credential
   references must be configured.
-- The built-in `admin@example.com` account must not use the default password.
-  Production gate mode does not auto-seed default admin credentials.
+- The bootstrap admin must not use the development `admin` password.
+  Production gate mode creates or rotates the first local administrator only
+  from `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD` or
+  `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE`.
 
 ## Generated Service Secrets
 
@@ -207,7 +215,7 @@ Setup is deliberately conservative:
 
 - Local secret values are generated outside Git and are never returned in the
   API response.
-- The default `admin/admin` state is reported as an error until changed.
+- The local development `admin/admin` state is reported as an error until changed.
 - Webhook delivery depends on `github_webhook_secret`; disabled or missing
   signature verification is not treated as production-ready.
 - Optional steps can be skipped, but skipped integrations are reported in the

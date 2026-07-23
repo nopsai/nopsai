@@ -285,13 +285,18 @@ knowledge-context routes.
 nopsai install
 
 # Automation shortcut for Docker Compose
-nopsai install docker-compose --run
+nopsai install docker-compose \
+  --bootstrap-admin-email platform-admin@example.com \
+  --bootstrap-admin-password '<initial-password>' \
+  --run
 
 # Kubernetes values generation, then edit values and create the referenced Secret
 nopsai install kubernetes \
   --output-dir ./nopsai-prod \
   --values-file values.yaml \
   --existing-secret nopsai-secrets \
+  --bootstrap-admin-email platform-admin@example.com \
+  --bootstrap-admin-password-secret-key bootstrap-admin-password \
   --nopsai-api-url http://nopsai-api.prod.svc:8080 \
   --dispatcher-address dispatcher.prod.svc:9090
 
@@ -314,15 +319,21 @@ deployment-only Compose file, `.env` with generated local secrets, embedded
 -d`. Re-run with `--force` only when replacing generated files is intentional.
 Service addresses are written to `.env` and can be set noninteractively with
 `--nopsai-api-url`, `--dispatcher-address`, `--aaa-api-url`,
-`--git-bot-api-url`, `--gotenberg-url`, and `--docker-network`.
+`--git-bot-api-url`, `--gotenberg-url`, and `--docker-network`. The bootstrap
+admin email is set with `--bootstrap-admin-email`; omit
+`--bootstrap-admin-password` to generate a strong first-login password into the
+sensitive `.env` file.
 
 `install kubernetes` generates editable Helm values and a non-secret install
 lock. The generated values reference `secrets.existingSecret`; create that
 Secret through External Secrets, SOPS, Sealed Secrets, or `kubectl` before
-deploying. Add `--deploy --wait` on the first command to deploy immediately, or
-run `nopsai install kubernetes --deploy` later from the stored output directory
-after editing values. Stored-file deploys reuse `values.yaml` without
-overwriting it, then write a GitOps-readable release lock after success.
+deploying. That Secret must include the bootstrap admin password key named by
+`--bootstrap-admin-password-secret-key` because the generated values do not
+store plaintext secrets. Add `--deploy --wait` on the first command to deploy
+immediately, or run `nopsai install kubernetes --deploy` later from the stored
+output directory after editing values. Stored-file deploys reuse `values.yaml`
+without overwriting it, then write a GitOps-readable release lock after
+success.
 Kubernetes service topology is stored under `topology.nopsaiAPIURL`,
 `topology.dispatcherGRPCAddress`, `topology.aaaAPIURL`,
 `topology.gitBotAPIURL`, and `topology.gotenbergURL` so multi-cluster,

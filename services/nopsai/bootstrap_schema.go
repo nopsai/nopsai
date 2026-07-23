@@ -22,13 +22,10 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 			}
 			return aaastore.NewPGStore(db).EnsureSchema(ctx)
 		}},
-		{name: "default admin", run: func(ctx context.Context, db *pgxpool.Pool) error {
-			if cfg != nil && cfg.RequiresProductionGates() {
-				return ensureNoDefaultAdminPassword(ctx, db)
-			}
-			return ensureDefaultAdmin(ctx, db)
-		}},
 		{name: "auth schema", run: ensureAuthSchema},
+		{name: "bootstrap admin", run: func(ctx context.Context, db *pgxpool.Pool) error {
+			return ensureBootstrapAdmin(ctx, db, cfg)
+		}},
 		{name: "config repository schema", run: ensureConfigRepositorySchema},
 		{name: "runtime settings schema", run: ensureRuntimeSettingsSchema},
 		{name: "credential schema", run: ensureCredentialSchema},

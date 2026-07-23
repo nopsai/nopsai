@@ -12,6 +12,7 @@ create the Secret named by `secrets.existingSecret` with these keys:
 - `jwt-signing-key`
 - `service-jwt-signing-key`
 - `aaa-shared-internal-token`
+- `bootstrap-admin-password`
 
 The key names can be changed under `secrets.keys`. Use External Secrets,
 Sealed Secrets, SOPS, or the cluster's secret manager rather than committing
@@ -32,7 +33,13 @@ release images.
 `topology.dispatcherGRPCAddress` controls the internal dispatcher gRPC endpoint
 in the API and Kubernetes runner Deployments. It defaults to `dispatcher:9090`
 and can be overridden when the dispatcher Service name, namespace, or port is
-customized.
+customized. `topology.nopsaiAPIURL`, `topology.aaaAPIURL`,
+`topology.gitBotAPIURL`, and `topology.gotenbergURL` expose the matching
+service URLs for split-service or custom-DNS deployments.
+
+`bootstrapAdmin.email` sets the initial local administrator email. The password
+is read from the `secrets.keys.bootstrapAdminPassword` key in the existing
+Secret so GitOps values do not contain plaintext credentials.
 
 System Logs defaults to the Kubernetes provider in this chart. The API
 Deployment runs as the `api.serviceAccount.name` service account and receives
