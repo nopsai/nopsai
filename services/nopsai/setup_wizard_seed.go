@@ -79,7 +79,7 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 		details["triggers_seeded"]++
 	}
 
-	for scope, values := range setupScopeVariables(req.Profile) {
+	for scope, values := range setupScopeVariables(req.Profile, req.RepositoryTeams, req.Repositories) {
 		for name, value := range values {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO variables (name, value, repository_name, scope, source, updated_at)
@@ -92,7 +92,7 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 		}
 	}
 
-	knowledge := setupKnowledgeContexts(req.Profile)
+	knowledge := setupKnowledgeContexts(req.Profile, req.RepositoryTeams, req.Repositories)
 	for _, item := range knowledge {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO knowledge_contexts (kind, team_path, name, description, content, source, updated_at)
@@ -245,9 +245,9 @@ func (a *App) seedSetupMCPExamples(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profile, actor string) ([]setupTemporaryCredential, error) {
-	rootTeamID := setupAccessTeam(profile)
-	if err := a.ensureSetupRootTeam(ctx, rootTeamID); err != nil {
+func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profile string, repositoryTeams []setupRepositoryTeamInput, actor string) ([]setupTemporaryCredential, error) {
+	grantTeams := setupAccessGrantTeams(profile, repositoryTeams)
+	if err := a.ensureSetupRootTeams(ctx, grantTeams); err != nil {
 		return nil, err
 	}
 	created := []setupTemporaryCredential{}
@@ -297,10 +297,12 @@ func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profil
 		}
 
 		resourceType := grantResourceTeam
-		resourceID := setupUserAccessTeam(rootTeamID, input.Team)
+		resourceID := setupAccessUserTeam(grantTeams, input.Team)
 		if role == productRoleAdmin {
 			resourceType = grantResourcePlatform
 			resourceID = platformGrantID
+		} else if resourceID == "" {
+			return nil, fmt.Errorf("setup user %s requires a selected team for role %s", sub, role)
 		}
 		_, err = a.GrantProductRole(ctx, GrantProductRoleInput{
 			SubjectType:  grantSubjectUser,
@@ -318,27 +320,19 @@ func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profil
 	return created, nil
 }
 
-func setupUserAccessTeam(root, team string) string {
-	root = strings.Trim(strings.TrimSpace(root), "/")
-	team = normalizeSetupRepositoryTeamName(team)
-	if root == "" {
-		return team
+func (a *App) ensureSetupRootTeams(ctx context.Context, names []string) error {
+	for _, name := range names {
+		name = strings.Trim(strings.TrimSpace(name), "/")
+		if name == "" {
+			continue
+		}
+		if _, err := a.db.Exec(ctx, `
+			INSERT INTO teams (name, kind, description)
+			VALUES ($1, 'team', $2)
+			ON CONFLICT (name) DO NOTHING
+		`, name, "Starter setup team"); err != nil {
+			return err
+		}
 	}
-	if team == "" {
-		return root
-	}
-	return root + "/" + team
-}
-
-func (a *App) ensureSetupRootTeam(ctx context.Context, name string) error {
-	name = strings.Trim(strings.TrimSpace(name), "/")
-	if name == "" {
-		return nil
-	}
-	_, err := a.db.Exec(ctx, `
-		INSERT INTO teams (name, description)
-		VALUES ($1, $2)
-		ON CONFLICT (name) DO NOTHING
-	`, name, "Starter setup workspace")
-	return err
+	return nil
 }

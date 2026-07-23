@@ -9,4 +9,3 @@ export const SIDEBAR_SCROLL_BUFFER = 200;
 
 export const KNOWLEDGE_CONTEXT_KIND_ORDER = ['architecture', 'guardrail', 'policy', 'adr', 'guideline', 'runbook', 'reference', 'example'];
 export const KNOWLEDGE_CONTEXTS_CHANGED_EVENT = 'nopsai-knowledge-contexts-changed';
-export const SETUP_REDIRECTED_KEY = 'nopsai.setup.redirected';

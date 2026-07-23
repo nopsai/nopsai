@@ -35,7 +35,11 @@ func newAPICallCommand(options *rootOptions) *cobra.Command {
 		},
 		RunE: func(command *cobra.Command, args []string) error {
 			if interactiveMode || len(args) == 0 {
-				return executeInteractiveAPICall(command, options, requestOptions)
+				err := executeInteractiveAPICall(command, options, requestOptions)
+				if errors.Is(err, interactive.ErrBack) || errors.Is(err, interactive.ErrCancelled) {
+					return nil
+				}
+				return err
 			}
 			return executeCatalogAPICall(command, options, strings.ToUpper(args[0]), args[1], pathValues, queryValues, *requestOptions)
 		},
@@ -194,6 +198,11 @@ func executeInteractiveAPIRouteLine(command *cobra.Command, options *rootOptions
 		return err
 	}
 	requestOptions.noAuth = !attachToken
+	if err := showInteractiveCommandPreview(prompter, "API catalog call command preview", apiCatalogCallPreviewArgs(route.Method, route.Path, parameters, queryValues, *requestOptions), []string{
+		"Expand the selected registered route and send the HTTP request.",
+	}, commandPreviewScreenOptions([]string{"Home", "API", "Catalog", "Preview"}, "API Catalog Call Preview", nil)); err != nil {
+		return err
+	}
 	return executeCatalogAPICall(command, options, route.Method, route.Path, parameters, queryValues, *requestOptions)
 }
 
@@ -220,6 +229,11 @@ func executeInteractiveAPIRoute(command *cobra.Command, options *rootOptions, pr
 			return interactive.ErrBack
 		}
 		formOptions = apiRequestFormScreenOptions(route, state, applyErr.Error())
+	}
+	if err := showInteractiveCommandPreview(prompter, "API catalog call command preview", apiCatalogCallPreviewArgs(route.Method, route.Path, parameters, queryValues, *requestOptions), []string{
+		"Expand the selected registered route and send the HTTP request.",
+	}, commandPreviewScreenOptions([]string{"Home", "API", "Catalog", route.Method + " " + route.Path, "Preview"}, "API Catalog Call Preview", sessionHeaderLines(state))); err != nil {
+		return err
 	}
 	stdout, stderr, callErr := captureCommandOutput(command, func() error {
 		return executeCatalogAPICall(command, options, route.Method, route.Path, parameters, queryValues, *requestOptions)

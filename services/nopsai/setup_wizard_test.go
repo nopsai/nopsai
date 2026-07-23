@@ -86,6 +86,64 @@ func TestSetupStarterTemplatesUseSelectedRepositoryTeams(t *testing.T) {
 	if _, ok := files["setting/system/mcp.yaml"]; ok {
 		t.Fatal("MCP file should be omitted when MCP examples are disabled")
 	}
+	readme := files["README.md"]
+	if strings.Contains(readme, "Workspace: `workspace`") || !strings.Contains(readme, "Starter teams `platform`, `apps`") {
+		t.Fatalf("README should describe selected team roots:\n%s", readme)
+	}
+	scope := files["scopes/dev/scope.yaml"]
+	if !strings.Contains(scope, `NOPSAI_SETUP_WORKSPACE: "platform,apps"`) {
+		t.Fatalf("scope should use selected team roots:\n%s", scope)
+	}
+	if _, ok := files["knowledge/guideline/platform/setup-run.md"]; !ok {
+		t.Fatal("expected setup knowledge under the first selected team")
+	}
+}
+
+func TestSetupPipelineRunStructureUsesSelectedRepositoryTeamsAsRoots(t *testing.T) {
+	structure := setupPipelineRunStructure(setupProfileTeam, []setupRepositoryTeamInput{
+		{Name: "platform", Repositories: []string{"acme/service-api"}},
+		{Name: "applications", Repositories: nil},
+	}, nil)
+
+	if _, ok := structure["workspace"]; ok {
+		t.Fatal("setup structure should not create an implicit workspace root when repository teams were selected")
+	}
+	platform, ok := structure["platform"]
+	if !ok {
+		t.Fatalf("setup structure roots = %#v, want platform root", structure)
+	}
+	if platform.Description != "Repository team platform" {
+		t.Fatalf("platform description = %q", platform.Description)
+	}
+	if len(platform.Apps) != 1 || platform.Apps[0].RepositoryFullName != "acme/service-api" {
+		t.Fatalf("platform apps = %#v, want acme/service-api", platform.Apps)
+	}
+	applications, ok := structure["applications"]
+	if !ok {
+		t.Fatalf("setup structure roots = %#v, want applications root", structure)
+	}
+	if len(applications.Apps) != 0 || len(applications.Children) != 0 {
+		t.Fatalf("applications structure = %#v, want empty selected team root", applications)
+	}
+}
+
+func TestSetupDoesNotCreateTeamStructureWithoutSelectedTeams(t *testing.T) {
+	structure := setupPipelineRunStructure(setupProfileTeam, nil, nil)
+	if len(structure) != 0 {
+		t.Fatalf("setup structure = %#v, want no synthetic teams", structure)
+	}
+	files := setupStarterTemplatesWithOptions(setupProfileTeam, nil, setupTemplateOptions{
+		IncludeLLM: false,
+		IncludeMCP: false,
+	})
+	for path, content := range files {
+		if strings.Contains(path, "workspace") || strings.Contains(content, "Workspace: `workspace`") {
+			t.Fatalf("starter template should not invent workspace in %s:\n%s", path, content)
+		}
+	}
+	if _, ok := files["knowledge/guideline/workspace/setup-run.md"]; ok {
+		t.Fatal("starter templates should not create knowledge under an implicit workspace team")
+	}
 }
 
 func TestSetupStarterTemplatesIncludeSelectedUsersInAccess(t *testing.T) {
@@ -107,6 +165,20 @@ func TestSetupStarterTemplatesIncludeSelectedUsersInAccess(t *testing.T) {
 	}
 	if strings.Contains(access, "password:") {
 		t.Fatalf("access file should not write generated passwords:\n%s", access)
+	}
+}
+
+func TestSetupAccessFallsBackToSelectedTeamForUnknownUserTeam(t *testing.T) {
+	access := setupAccessYAML(setupProfileTeam, []setupRepositoryTeamInput{
+		{Name: "platform", Repositories: nil},
+	}, []setupUserInput{
+		{Sub: "alice@example.com", Email: "alice@example.com", Role: "developer", Team: "workspace/platform"},
+	})
+	if !strings.Contains(access, `resource: team:platform`) {
+		t.Fatalf("access file should grant selected team root:\n%s", access)
+	}
+	if strings.Contains(access, "workspace/platform") {
+		t.Fatalf("access file should not grant an implicit workspace child:\n%s", access)
 	}
 }
 
@@ -184,6 +256,29 @@ func TestSetupBootstrapWarningsWhenLLMSkipped(t *testing.T) {
 	seedLLM = false
 	if warnings := setupBootstrapWarnings(setupBootstrapRequest{Profile: setupProfileProduction, SeedLLMProfile: &seedLLM}); len(warnings) != 0 {
 		t.Fatalf("production warnings = %#v, want none", warnings)
+	}
+}
+
+func TestGenerateSetupSecretsUsesEffectiveDispatcherTLSFallback(t *testing.T) {
+	app := App{cfg: &config.Config{
+		JWTSigningKey:        "browser-jwt-signing-key-012345678901234567890123",
+		ServiceJWTSigningKey: "service-jwt-signing-key-012345678901234567890123",
+		AAASharedToken:       "aaa-shared-token-012345678901234567890123",
+	}}
+	names, restart, err := app.generateSetupSecrets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restart || len(names) != 0 {
+		t.Fatalf("generateSetupSecrets() names=%#v restart=%v, want no env write", names, restart)
+	}
+}
+
+func TestGenerateSetupSecretsRequiresEnvFilePathWhenSecretsMissing(t *testing.T) {
+	app := App{cfg: &config.Config{}}
+	_, _, err := app.generateSetupSecrets()
+	if err == nil || !strings.Contains(err.Error(), "runtime env file path is not configured") {
+		t.Fatalf("generateSetupSecrets() error = %v, want env file path error", err)
 	}
 }
 

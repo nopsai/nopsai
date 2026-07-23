@@ -32,6 +32,8 @@ spec:
             - {name: NOPSAI_API_URL, value: {{ include "nopsai.topology.nopsaiAPIURL" . | quote }}}
             - name: SERVICE_JWT_SIGNING_KEY
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.serviceJWTSigningKey }}}}
+            - name: DISPATCHER_TLS_SECRET
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ required "secrets.keys.dispatcherTLSSecret is required" .Values.secrets.keys.dispatcherTLSSecret }}}}
           readinessProbe: {tcpSocket: {port: grpc}, initialDelaySeconds: 5, periodSeconds: 10}
           livenessProbe: {tcpSocket: {port: grpc}, initialDelaySeconds: 15, periodSeconds: 20}
           resources: {{ toYaml .Values.dispatcher.resources | nindent 12 }}

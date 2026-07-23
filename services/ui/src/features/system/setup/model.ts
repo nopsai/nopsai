@@ -189,9 +189,10 @@ export function buildSetupGitOpsFileList(
     'steps/setup/announce.yaml',
     'scopes/dev/scope.yaml',
     'scopes/prod/scope.yaml',
-    'knowledge/guideline/platform/setup-run.md',
     'access/bootstrap.yaml',
   ];
+  const knowledgeTeam = teams[0]?.name;
+  if (knowledgeTeam) files.push(`knowledge/guideline/${knowledgeTeam}/setup-run.md`);
   if (options.includeLLM) files.push('setting/system/llm_profile.yaml');
   if (options.includeMCP) files.push('setting/system/mcp.yaml');
   repositories.forEach(repo => files.push(`triggers/${repo}.yaml`));

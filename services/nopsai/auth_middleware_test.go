@@ -181,6 +181,35 @@ func TestOIDCAuthEndpointsArePublic(t *testing.T) {
 	}
 }
 
+func TestFirstInstallSetupGateAllowedPaths(t *testing.T) {
+	allowedPaths := []string{
+		"/v1/auth/me",
+		"/v1/auth/password",
+		"/v1/setup/status",
+		"/v1/setup/templates",
+		"/v1/setup/templates.zip",
+		"/v1/setup/bootstrap",
+	}
+	for _, path := range allowedPaths {
+		if !isFirstInstallSetupAllowedPath(path) {
+			t.Fatalf("isFirstInstallSetupAllowedPath(%q) = false, want true", path)
+		}
+	}
+
+	blockedPaths := []string{
+		"/v1/auth/email",
+		"/v1/auth/personal-tokens",
+		"/v1/pipelines",
+		"/v1/system/config",
+		"/v1/teams",
+	}
+	for _, path := range blockedPaths {
+		if isFirstInstallSetupAllowedPath(path) {
+			t.Fatalf("isFirstInstallSetupAllowedPath(%q) = true, want false", path)
+		}
+	}
+}
+
 type recordingAuditWriter struct {
 	entries []audit.Entry
 }

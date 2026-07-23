@@ -116,5 +116,7 @@ spec:
             {{- end }}
             - name: SERVICE_JWT_SIGNING_KEY
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.serviceJWTSigningKey }}}}
+            - name: DISPATCHER_TLS_SECRET
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ required "secrets.keys.dispatcherTLSSecret is required" .Values.secrets.keys.dispatcherTLSSecret }}}}
           resources: {{ toYaml .Values.k8sRunner.resources | nindent 12 }}
 {{- end }}

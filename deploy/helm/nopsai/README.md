@@ -12,6 +12,7 @@ create the Secret named by `secrets.existingSecret` with these keys:
 - `jwt-signing-key`
 - `service-jwt-signing-key`
 - `aaa-shared-internal-token`
+- `dispatcher-tls-secret`
 - `bootstrap-admin-password`
 
 The key names can be changed under `secrets.keys`. Use External Secrets,

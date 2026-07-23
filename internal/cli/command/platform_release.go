@@ -69,6 +69,17 @@ func newPlatformReleaseCommand(root *rootOptions) *cobra.Command {
 			if strings.TrimSpace(options.version) == "" {
 				return fmt.Errorf("--version is required when this CLI build does not embed a release version")
 			}
+			if options.interactive {
+				if err := showInteractiveCommandPreview(prompter, "Platform release command preview", platformReleasePreviewArgs(options), []string{
+					"Resolve and verify the release manifest, chart, rendered values, and image pins.",
+					"Deploy with Helm only when deployment is confirmed.",
+				}, commandPreviewScreenOptions([]string{"Home", "Platform", "Release", "Kubernetes", "Preview"}, "Platform Release Preview", []string{"Version: " + valueOrDefault(defaultPlatformVersion(root), "not embedded")})); err != nil {
+					if errors.Is(err, interactive.ErrBack) || errors.Is(err, interactive.ErrCancelled) {
+						return nil
+					}
+					return err
+				}
+			}
 			return executePlatformRelease(command, root, options, prompter)
 		},
 	}
