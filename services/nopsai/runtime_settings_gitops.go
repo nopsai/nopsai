@@ -8,7 +8,9 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/pkg/registryauth"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/internal/systemconfig"
 
 	"gopkg.in/yaml.v3"
@@ -35,8 +37,9 @@ type gitOpsRuntimeSettingsFileCandidate struct {
 }
 
 type gitOpsRuntimeSettingsPlan struct {
-	payload    systemConfigPayload
-	sourcePath string
+	payload                   systemConfigPayload
+	runnerRegistryCredentials map[string][]credentials.Reference
+	sourcePath                string
 }
 
 type runtimeSettingsGitOpsFile struct {
@@ -60,6 +63,7 @@ type runtimeSettingsGitOpsFile struct {
 	RunnerID                      *string                       `json:"runner_id" yaml:"runner_id,omitempty"`
 	RunnerScopes                  *string                       `json:"runner_scopes" yaml:"runner_scopes,omitempty"`
 	RunnerCapacity                *int                          `json:"runner_capacity" yaml:"runner_capacity,omitempty"`
+	RunnerRegistryCredentials     map[string][]string           `json:"runner_registry_credentials" yaml:"runner_registry_credentials,omitempty"`
 	Runtime                       *string                       `json:"runtime" yaml:"runtime,omitempty"`
 	Kubernetes                    *config.KubernetesConfig      `json:"kubernetes" yaml:"kubernetes,omitempty"`
 	Limits                        *config.RunnerLimits          `json:"limits" yaml:"limits,omitempty"`
@@ -126,6 +130,10 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
 		return nil, fmt.Errorf("failed to parse runtime settings GitOps file '%s': %w", sourcePath, err)
 	}
+	runnerRegistryCredentials, err := parseRunnerRegistryCredentialsGitOps(file.RunnerRegistryCredentials, sourcePath)
+	if err != nil {
+		return nil, err
+	}
 	payload := systemConfigPayload{
 		LogLevel:                      file.LogLevel,
 		LogFormat:                     file.LogFormat,
@@ -161,7 +169,61 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 			return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid limits: %w", sourcePath, err)
 		}
 	}
-	return &gitOpsRuntimeSettingsPlan{payload: payload, sourcePath: sourcePath}, nil
+	return &gitOpsRuntimeSettingsPlan{
+		payload:                   payload,
+		runnerRegistryCredentials: runnerRegistryCredentials,
+		sourcePath:                sourcePath,
+	}, nil
+}
+
+func parseRunnerRegistryCredentialsGitOps(raw map[string][]string, sourcePath string) (map[string][]credentials.Reference, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	parsed := make(map[string][]credentials.Reference, len(raw))
+	for rawRunnerID, rawRefs := range raw {
+		runnerID := strings.TrimSpace(rawRunnerID)
+		if runnerID == "" {
+			return nil, fmt.Errorf("runtime settings GitOps file '%s' has empty runner_registry_credentials runner id", sourcePath)
+		}
+		seen := map[string]struct{}{}
+		for _, rawRef := range rawRefs {
+			ref, err := credentials.ParseReference(strings.TrimSpace(rawRef))
+			if err != nil {
+				return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid registry credential ref for runner %q: %w", sourcePath, runnerID, err)
+			}
+			if _, exists := seen[ref.String()]; exists {
+				continue
+			}
+			seen[ref.String()] = struct{}{}
+			parsed[runnerID] = append(parsed[runnerID], ref)
+		}
+	}
+	return parsed, nil
+}
+
+func runnerRegistryHostsFromMetadata(metadata map[string]any) []string {
+	raw := metadata["registry_hosts"]
+	values, ok := raw.([]any)
+	if ok {
+		hosts := make([]string, 0, len(values))
+		for _, value := range values {
+			if host := registryauth.NormalizeRegistryHost(fmt.Sprint(value)); host != "" {
+				hosts = append(hosts, host)
+			}
+		}
+		return hosts
+	}
+	if typed, ok := raw.([]string); ok {
+		hosts := make([]string, 0, len(typed))
+		for _, value := range typed {
+			if host := registryauth.NormalizeRegistryHost(value); host != "" {
+				hosts = append(hosts, host)
+			}
+		}
+		return hosts
+	}
+	return nil
 }
 
 func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile {

@@ -3,24 +3,32 @@ package nopsai
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/registryauth"
 	"nopsai/pkg/servicelog"
+	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/internal/runnerinstall"
 	"nopsai/services/nopsai/internal/systemconfig"
 	"nopsai/services/nopsai/pkg/auth"
+	"nopsai/services/nopsai/pkg/store"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
+
+var errRegistryCredentialForbidden = errors.New("registry credential is not visible to this subject")
 
 type systemConfigPayload struct {
 	LogLevel                      *string                       `json:"log_level"`
@@ -110,6 +118,11 @@ func (a *App) applySystemSettingsGitOpsPlans(ctx context.Context, binding models
 	configRepoID := binding.ID
 	if err := a.persistRuntimeSettingsSnapshot(ctx, cfg, "git", &configRepoID, strings.Join(sourcePaths, ", "), commitSHA, true); err != nil {
 		return err
+	}
+	if runtimePlan != nil {
+		if err := a.applyRunnerRegistryCredentialsGitOpsPlan(ctx, binding, runtimePlan, commitSHA); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -229,10 +242,41 @@ func (a *App) listRuntimeScopes(ctx context.Context) ([]string, error) {
 
 func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
-	resp, err := runnerinstall.BuildBootstrapCommandResponse(cfg, r, a.createRunnerBootstrapToken)
+	options, assignments, refs, refsProvided, err := a.runnerRegistryBootstrapOptions(r)
+	if err != nil {
+		if errors.Is(err, errRegistryCredentialForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	issueToken := runnerinstall.TokenIssuer(a.createRunnerBootstrapToken)
+	if len(refs) > 0 {
+		req := cloneBootstrapRequest(r)
+		actor := credentialActor(r)
+		issueToken = func(content string, ttl time.Duration, contentType string) (string, time.Time, error) {
+			return a.createRunnerBootstrapTokenWithBuilder(content, ttl, contentType, func(ctx context.Context) (string, string, error) {
+				authOptions, err := a.resolveRunnerRegistryAuthBootstrap(ctx, refs, actor)
+				if err != nil {
+					return "", "", err
+				}
+				script, err := runnerinstall.BuildDockerBootstrapScript(cfg, req, runnerinstall.BootstrapOptions{RegistryAuth: authOptions})
+				return script, contentType, err
+			})
+		}
+	}
+	resp, err := runnerinstall.BuildBootstrapCommandResponseWithOptions(cfg, r, issueToken, options)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if refsProvided {
+		if err := a.replaceRunnerRegistryCredentials(r.Context(), resp.RunnerID, assignments); err != nil {
+			log.Error().Err(err).Str("runner_id", resp.RunnerID).Msg("Failed to persist runner registry credential assignments")
+			http.Error(w, "failed to persist runner registry credentials", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -259,10 +303,41 @@ func (a *App) handleGenerateKubernetesRunnerManifest(w http.ResponseWriter, r *h
 
 func (a *App) handleGenerateKubernetesRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
-	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponse(cfg, r, a.createRunnerBootstrapToken)
+	options, assignments, refs, refsProvided, err := a.runnerRegistryBootstrapOptions(r)
+	if err != nil {
+		if errors.Is(err, errRegistryCredentialForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	issueToken := runnerinstall.TokenIssuer(a.createRunnerBootstrapToken)
+	if len(refs) > 0 {
+		req := cloneBootstrapRequest(r)
+		actor := credentialActor(r)
+		issueToken = func(content string, ttl time.Duration, contentType string) (string, time.Time, error) {
+			return a.createRunnerBootstrapTokenWithBuilder(content, ttl, contentType, func(ctx context.Context) (string, string, error) {
+				authOptions, err := a.resolveRunnerRegistryAuthBootstrap(ctx, refs, actor)
+				if err != nil {
+					return "", "", err
+				}
+				script, _, err := runnerinstall.BuildKubernetesBootstrapScript(cfg, req, runnerinstall.BootstrapOptions{RegistryAuth: authOptions})
+				return script, contentType, err
+			})
+		}
+	}
+	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponseWithOptions(cfg, r, issueToken, options)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if refsProvided {
+		if err := a.replaceRunnerRegistryCredentials(r.Context(), resp.RunnerID, assignments); err != nil {
+			log.Error().Err(err).Str("runner_id", resp.RunnerID).Msg("Failed to persist Kubernetes runner registry credential assignments")
+			http.Error(w, "failed to persist runner registry credentials", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -273,7 +348,12 @@ func (a *App) handleGenerateKubernetesRunnerBootstrapCommand(w http.ResponseWrit
 }
 
 func (a *App) handleRunnerBootstrap(w http.ResponseWriter, r *http.Request) {
-	entry, ok := a.consumeRunnerBootstrapToken(r.URL.Query().Get("token"))
+	entry, ok, err := a.consumeRunnerBootstrapToken(r.Context(), runnerBootstrapTokenFromRequest(r))
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to build runner bootstrap content")
+		http.Error(w, "failed to build runner bootstrap content", http.StatusInternalServerError)
+		return
+	}
 	if !ok {
 		http.Error(w, "runner bootstrap token not found or expired", http.StatusNotFound)
 		return
@@ -281,6 +361,214 @@ func (a *App) handleRunnerBootstrap(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", entry.ContentType)
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write([]byte(entry.Content))
+}
+
+func (a *App) runnerRegistryBootstrapOptions(r *http.Request) (runnerinstall.BootstrapOptions, []store.RunnerRegistryCredentialInput, []credentials.Reference, bool, error) {
+	refs, provided, err := parseRunnerRegistryCredentialRefs(r)
+	if err != nil || len(refs) == 0 {
+		return runnerinstall.BootstrapOptions{}, nil, refs, provided, err
+	}
+	if a == nil || a.credentialStore == nil {
+		return runnerinstall.BootstrapOptions{}, nil, refs, provided, fmt.Errorf("credential store is unavailable")
+	}
+	actor := credentialActor(r)
+	assignments := make([]store.RunnerRegistryCredentialInput, 0, len(refs))
+	refStrings := make([]string, 0, len(refs))
+	hosts := make([]string, 0, len(refs))
+	seenHosts := map[string]struct{}{}
+	for _, ref := range refs {
+		record, err := a.credentialStore.GetCredentialByReference(r.Context(), ref)
+		if err != nil {
+			return runnerinstall.BootstrapOptions{}, nil, refs, provided, fmt.Errorf("load registry credential %s: %w", ref.String(), err)
+		}
+		if record.Kind != registryauth.CredentialKindDockerConfigJSON {
+			return runnerinstall.BootstrapOptions{}, nil, refs, provided, fmt.Errorf("credential %s must be kind %s", ref.String(), registryauth.CredentialKindDockerConfigJSON)
+		}
+		if !record.HasValue() {
+			return runnerinstall.BootstrapOptions{}, nil, refs, provided, fmt.Errorf("credential %s must be active and have a value", ref.String())
+		}
+		allowed, err := a.canReadCredentialMetadata(r, record)
+		if err != nil {
+			return runnerinstall.BootstrapOptions{}, nil, refs, provided, fmt.Errorf("authorization unavailable for registry credential %s: %w", ref.String(), err)
+		}
+		if !allowed {
+			return runnerinstall.BootstrapOptions{}, nil, refs, provided, fmt.Errorf("%w: %s", errRegistryCredentialForbidden, ref.String())
+		}
+		credentialHosts := runnerRegistryHostsFromMetadata(record.Metadata)
+		if len(credentialHosts) == 0 {
+			return runnerinstall.BootstrapOptions{}, nil, refs, provided, fmt.Errorf("credential %s is missing registry host metadata; rotate the credential value", ref.String())
+		}
+		refStrings = append(refStrings, ref.String())
+		assignments = append(assignments, store.RunnerRegistryCredentialInput{
+			CredentialRef: ref,
+			RegistryHosts: credentialHosts,
+			Source:        "database",
+			Actor:         actor,
+		})
+		for _, host := range credentialHosts {
+			if _, exists := seenHosts[host]; exists {
+				continue
+			}
+			seenHosts[host] = struct{}{}
+			hosts = append(hosts, host)
+		}
+	}
+	sort.Strings(hosts)
+	return runnerinstall.BootstrapOptions{
+		RegistryAuth: runnerinstall.RegistryAuthBootstrap{
+			CredentialRefs: refStrings,
+			RegistryHosts:  hosts,
+		},
+	}, assignments, refs, provided, nil
+}
+
+func (a *App) resolveRunnerRegistryAuthBootstrap(ctx context.Context, refs []credentials.Reference, actor string) (runnerinstall.RegistryAuthBootstrap, error) {
+	if a == nil || a.credentials == nil || a.credentialStore == nil {
+		return runnerinstall.RegistryAuthBootstrap{}, fmt.Errorf("credential service is unavailable")
+	}
+	configs := make([][]byte, 0, len(refs))
+	refStrings := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		record, err := a.credentialStore.GetCredentialByReference(ctx, ref)
+		if err != nil {
+			return runnerinstall.RegistryAuthBootstrap{}, fmt.Errorf("load registry credential %s: %w", ref.String(), err)
+		}
+		if record.Kind != registryauth.CredentialKindDockerConfigJSON {
+			return runnerinstall.RegistryAuthBootstrap{}, fmt.Errorf("credential %s must be kind %s", ref.String(), registryauth.CredentialKindDockerConfigJSON)
+		}
+		if !record.HasValue() {
+			return runnerinstall.RegistryAuthBootstrap{}, fmt.Errorf("credential %s must be active and have a value", ref.String())
+		}
+		value, err := a.credentials.Resolve(ctx, ref, credentials.Purpose{
+			ConsumerService: "nopsai",
+			Operation:       "runner.bootstrap.registry_auth",
+			SubjectType:     "user",
+			SubjectID:       strings.TrimSpace(actor),
+			CorrelationID:   requestIDFromContext(ctx),
+		})
+		if err != nil {
+			return runnerinstall.RegistryAuthBootstrap{}, fmt.Errorf("resolve registry credential %s: %w", ref.String(), err)
+		}
+		configs = append(configs, value.Bytes())
+		refStrings = append(refStrings, ref.String())
+	}
+	merged, hosts, err := registryauth.MergeDockerConfigs(configs...)
+	if err != nil {
+		return runnerinstall.RegistryAuthBootstrap{}, err
+	}
+	return runnerinstall.RegistryAuthBootstrap{
+		DockerConfigJSON: merged,
+		CredentialRefs:   refStrings,
+		RegistryHosts:    hosts,
+	}, nil
+}
+
+func cloneBootstrapRequest(r *http.Request) *http.Request {
+	if r == nil {
+		return nil
+	}
+	return r.Clone(context.Background())
+}
+
+func (a *App) replaceRunnerRegistryCredentials(ctx context.Context, runnerID string, assignments []store.RunnerRegistryCredentialInput) error {
+	if a == nil || a.db == nil {
+		return nil
+	}
+	return store.NewPGStore(a.db).ReplaceRunnerRegistryCredentials(ctx, runnerID, assignments)
+}
+
+func (a *App) applyRunnerRegistryCredentialsGitOpsPlan(
+	ctx context.Context,
+	binding models.ConfigRepository,
+	plan *gitOpsRuntimeSettingsPlan,
+	commitSHA string,
+) error {
+	if a == nil || a.db == nil || plan == nil || plan.runnerRegistryCredentials == nil {
+		return nil
+	}
+	if a.credentialStore == nil {
+		return fmt.Errorf("credential store is unavailable")
+	}
+	configRepoID := binding.ID
+	assignments := make(map[string][]store.RunnerRegistryCredentialInput, len(plan.runnerRegistryCredentials))
+	for runnerID, refs := range plan.runnerRegistryCredentials {
+		runnerID = strings.TrimSpace(runnerID)
+		for _, ref := range refs {
+			record, err := a.credentialStore.GetCredentialByReference(ctx, ref)
+			if err != nil {
+				return fmt.Errorf("load runner registry credential %s: %w", ref.String(), err)
+			}
+			if record.Kind != registryauth.CredentialKindDockerConfigJSON {
+				return fmt.Errorf("credential %s must be kind %s", ref.String(), registryauth.CredentialKindDockerConfigJSON)
+			}
+			if !record.HasValue() {
+				return fmt.Errorf("credential %s must be active and have a value", ref.String())
+			}
+			hosts := runnerRegistryHostsFromMetadata(record.Metadata)
+			if len(hosts) == 0 {
+				return fmt.Errorf("credential %s is missing registry host metadata; rotate the credential value", ref.String())
+			}
+			assignments[runnerID] = append(assignments[runnerID], store.RunnerRegistryCredentialInput{
+				CredentialRef:         ref,
+				RegistryHosts:         hosts,
+				Source:                "git",
+				ManagedByConfigRepo:   true,
+				ConfigRepoID:          &configRepoID,
+				ConfigSourcePath:      plan.sourcePath,
+				ConfigSourceCommitSHA: strings.TrimSpace(commitSHA),
+				Actor:                 "gitops",
+			})
+		}
+	}
+	return store.NewPGStore(a.db).ReplaceManagedRunnerRegistryCredentials(ctx, configRepoID, plan.sourcePath, assignments)
+}
+
+func parseRunnerRegistryCredentialRefs(r *http.Request) ([]credentials.Reference, bool, error) {
+	if r == nil {
+		return nil, false, nil
+	}
+	query := r.URL.Query()
+	rawValues := []string{}
+	provided := false
+	for _, key := range []string{"registry_credential_ref", "registry_credential_refs"} {
+		values, ok := query[key]
+		if !ok {
+			continue
+		}
+		provided = true
+		rawValues = append(rawValues, values...)
+	}
+	refs := []credentials.Reference{}
+	seen := map[string]struct{}{}
+	for _, raw := range rawValues {
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			ref, err := credentials.ParseReference(part)
+			if err != nil {
+				return nil, provided, err
+			}
+			if _, exists := seen[ref.String()]; exists {
+				continue
+			}
+			seen[ref.String()] = struct{}{}
+			refs = append(refs, ref)
+		}
+	}
+	return refs, provided, nil
+}
+
+func runnerBootstrapTokenFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return strings.TrimSpace(header[len("bearer "):])
+	}
+	return strings.TrimSpace(r.URL.Query().Get("token"))
 }
 
 func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {

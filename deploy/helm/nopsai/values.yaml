@@ -100,7 +100,7 @@ gitBot:
   resources: {}
 
 runner:
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-runner, tag: dev, digest: ""}
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-docker-runner, tag: dev, digest: ""}
 
 k8sRunner:
   enabled: true

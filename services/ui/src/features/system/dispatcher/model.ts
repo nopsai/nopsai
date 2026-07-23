@@ -57,6 +57,8 @@ export type RunnerComposeTemplate = {
   dispatcherAddress: string;
   networkMode: string;
   runnerImage: string;
+  registryCredentialRefs: string[];
+  registryHosts: string[];
   compose: string;
   command: string;
   bootstrapCommand: string;
@@ -72,6 +74,8 @@ export type KubernetesRunnerManifestTemplate = {
   serviceAccount: string;
   dispatcherAddress: string;
   runnerImage: string;
+  registryCredentialRefs: string[];
+  registryHosts: string[];
   manifest: string;
   command: string;
   bootstrapCommand: string;
@@ -80,6 +84,21 @@ export type KubernetesRunnerManifestTemplate = {
 };
 
 export type RunnerInstallRuntime = 'docker' | 'kubernetes';
+
+export const DOCKER_RUNNER_IMAGE_REPOSITORY = 'ghcr.io/hosein-yousefii/nopsai-docker-runner';
+export const KUBERNETES_RUNNER_IMAGE_REPOSITORY = 'ghcr.io/hosein-yousefii/nopsai-k8s-runner';
+export const DEFAULT_DOCKER_RUNNER_IMAGE = runnerImageForVersion(DOCKER_RUNNER_IMAGE_REPOSITORY, 'dev');
+export const DEFAULT_KUBERNETES_RUNNER_IMAGE = runnerImageForVersion(KUBERNETES_RUNNER_IMAGE_REPOSITORY, 'dev');
+
+export function runnerImageForVersion(repository: string, version: string): string {
+  return `${repository.trim().replace(/:+$/, '')}:${nopsaiImageTag(version)}`;
+}
+
+export function nopsaiImageTag(version: string): string {
+  const tag = String(version || '').trim();
+  if (!tag || tag.toLowerCase() === 'unknown' || tag.toLowerCase() === 'latest') return 'dev';
+  return tag;
+}
 
 export type DispatcherRoutingDraftRow = {
   scope: string;
@@ -134,6 +153,8 @@ export function normalizeRunnerComposeTemplate(value: unknown): RunnerComposeTem
     dispatcherAddress: readString(record.dispatcher_grpc_address ?? record.dispatcherAddress),
     networkMode: readString(record.network_mode ?? record.networkMode),
     runnerImage: readString(record.runner_image ?? record.runnerImage),
+    registryCredentialRefs: normalizeStringArray(record.registry_credential_refs ?? record.registryCredentialRefs),
+    registryHosts: normalizeStringArray(record.registry_hosts ?? record.registryHosts),
     compose: readString(record.compose),
     command: readString(record.command),
     bootstrapCommand: readString(record.bootstrap_command ?? record.bootstrapCommand),
@@ -152,6 +173,8 @@ export function normalizeKubernetesRunnerManifestTemplate(value: unknown): Kuber
     serviceAccount: readString(record.service_account ?? record.serviceAccount),
     dispatcherAddress: readString(record.dispatcher_grpc_address ?? record.dispatcherAddress),
     runnerImage: readString(record.runner_image ?? record.runnerImage),
+    registryCredentialRefs: normalizeStringArray(record.registry_credential_refs ?? record.registryCredentialRefs),
+    registryHosts: normalizeStringArray(record.registry_hosts ?? record.registryHosts),
     manifest: readString(record.manifest),
     command: readString(record.command),
     bootstrapCommand: readString(record.bootstrap_command ?? record.bootstrapCommand),

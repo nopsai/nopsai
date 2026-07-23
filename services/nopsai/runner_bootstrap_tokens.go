@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -13,6 +14,15 @@ import (
 type runnerBootstrapToken = runnerinstall.BootstrapToken
 
 func (a *App) createRunnerBootstrapToken(content string, ttl time.Duration, contentType string) (string, time.Time, error) {
+	return a.createRunnerBootstrapTokenWithBuilder(content, ttl, contentType, nil)
+}
+
+func (a *App) createRunnerBootstrapTokenWithBuilder(
+	content string,
+	ttl time.Duration,
+	contentType string,
+	builder runnerinstall.BootstrapContentBuilder,
+) (string, time.Time, error) {
 	if strings.TrimSpace(content) == "" {
 		return "", time.Time{}, fmt.Errorf("runner bootstrap content is empty")
 	}
@@ -42,33 +52,50 @@ func (a *App) createRunnerBootstrapToken(content string, ttl time.Duration, cont
 		}
 	}
 	a.runnerBootstrapTokens[token] = runnerBootstrapToken{
-		Content:     content,
-		ContentType: contentType,
-		ExpiresAt:   expiresAt,
+		Content:        content,
+		ContentType:    contentType,
+		ExpiresAt:      expiresAt,
+		ContentBuilder: builder,
 	}
 	return token, expiresAt, nil
 }
 
-func (a *App) consumeRunnerBootstrapToken(token string) (runnerBootstrapToken, bool) {
+func (a *App) consumeRunnerBootstrapToken(ctx context.Context, token string) (runnerBootstrapToken, bool, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return runnerBootstrapToken{}, false
+		return runnerBootstrapToken{}, false, nil
 	}
 	a.runnerBootstrapMu.Lock()
-	defer a.runnerBootstrapMu.Unlock()
 	if a.runnerBootstrapTokens == nil {
-		return runnerBootstrapToken{}, false
+		a.runnerBootstrapMu.Unlock()
+		return runnerBootstrapToken{}, false, nil
 	}
 	entry, ok := a.runnerBootstrapTokens[token]
 	if !ok {
-		return runnerBootstrapToken{}, false
+		a.runnerBootstrapMu.Unlock()
+		return runnerBootstrapToken{}, false, nil
 	}
 	delete(a.runnerBootstrapTokens, token)
+	a.runnerBootstrapMu.Unlock()
 	if time.Now().After(entry.ExpiresAt) {
-		return runnerBootstrapToken{}, false
+		return runnerBootstrapToken{}, false, nil
 	}
 	if strings.TrimSpace(entry.ContentType) == "" {
 		entry.ContentType = "text/plain; charset=utf-8"
 	}
-	return entry, true
+	if entry.ContentBuilder != nil {
+		content, contentType, err := entry.ContentBuilder(ctx)
+		if err != nil {
+			return runnerBootstrapToken{}, false, err
+		}
+		if strings.TrimSpace(content) == "" {
+			return runnerBootstrapToken{}, false, fmt.Errorf("runner bootstrap content is empty")
+		}
+		entry.Content = content
+		if strings.TrimSpace(contentType) != "" {
+			entry.ContentType = contentType
+		}
+		entry.ContentBuilder = nil
+	}
+	return entry, true, nil
 }

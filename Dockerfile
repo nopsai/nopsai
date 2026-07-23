@@ -8,7 +8,7 @@ ARG RUNNER_PROTOCOL_VERSION=1
 ARG CLI_COMPATIBILITY=>=2.0.0,<3.0.0
 ARG RUNNER_COMPATIBILITY=>=2.0.0,<3.0.0
 ARG PLATFORM_COMPATIBILITY=>=2.0.0,<3.0.0
-ARG CAPABILITIES=api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes
+ARG CAPABILITIES=api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes,runner.local-registry-auth.v1,runner.registry-auth.v1
 
 WORKDIR /src
 RUN apk add --no-cache git
@@ -34,7 +34,7 @@ RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pk
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-api ./services/nopsai/cmd/nopsai && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-aaa ./services/aaa && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-dispatcher ./services/dispatcher/cmd/dispatcher && \
-  go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-runner ./services/docker-runner/cmd/docker-runner && \
+  go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-docker-runner ./services/docker-runner/cmd/docker-runner && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-k8s-runner ./services/k8s-runner/cmd/k8s-runner
 
 FROM alpine:3.20
@@ -57,7 +57,7 @@ COPY --from=builder /out/nopsai /nopsai
 COPY --from=builder /out/nopsai-api /nopsai-api
 COPY --from=builder /out/nopsai-aaa /nopsai-aaa
 COPY --from=builder /out/nopsai-dispatcher /nopsai-dispatcher
-COPY --from=builder /out/nopsai-runner /nopsai-runner
+COPY --from=builder /out/nopsai-docker-runner /nopsai-docker-runner
 COPY --from=builder /out/nopsai-k8s-runner /nopsai-k8s-runner
 COPY --from=builder /src/config.yml /app/config.yml
 

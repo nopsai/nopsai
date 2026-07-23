@@ -41,11 +41,11 @@ around that balance:
 | AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
 | GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
 | Generic Git webhooks | Managed GitLab, Bitbucket, Gitea, and generic sources with credential-backed authentication, repository allowlists, normalized events, changed-file filters, delivery idempotency, rate limits, and audit history. |
-| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, data cleanup schedules, runtime runner/dispatcher settings, and team config repository bindings from Git. |
+| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, data cleanup schedules, runtime runner/dispatcher settings, runner registry credential assignments, and team config repository bindings from Git. |
 | Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited team grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
-| Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
+| Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, private registry auth assignments, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
 | Nopsai AI Assistant | Docked and full-page assistant that uses existing LLM profiles, conversation memory, current-page route context, and permission-bound hosted MCP tools to analyze runs, draft/validate pipeline YAML, synthesize answers with configured providers, inspect platform context, and keep changes proposal-only for GitOps review. |
 | First-install bootstrap | UI wizard for empty databases, generated runtime configuration, starter repository teams, starter templates, user bootstrap, and setup guardrails. |
 | MCP integration | System-managed MCP server and profile registry with optional profile examples and scope-aware enablement. |
@@ -277,12 +277,13 @@ GitOps sync can import:
 - `setting/system/data-management.yaml`: scheduled data cleanup rules from the global config repo
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
-- `setting/system/runner.yaml`: runner install defaults, runtime defaults, dispatcher routing, and assistant settings from the global config repo
+- `setting/system/runner.yaml`: runner install defaults, runtime defaults, dispatcher routing, runner registry credential assignments, and assistant settings from the global config repo
 - `setting/system/credentials.yaml`: encrypted system credential envelopes from the global config repo
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network
-defaults, timeouts, `dispatcher_routing`, and the minimal `assistant` block. GitHub App IDs, git-bot URLs, and
+defaults, timeouts, `dispatcher_routing`, `runner_registry_credentials`, and the
+minimal `assistant` block. GitHub App IDs, git-bot URLs, and
 GitHub credential references live in `setting/system/github.yaml`; they are not
 accepted from `setting/system/runner.yaml`. Keep database URLs, master keys, and
 service JWT bootstrap keys in deployment secrets. Store operational integration
@@ -537,6 +538,9 @@ Before production use:
   production resources.
 - Use GitOps from **System > Setup** as the source of truth before onboarding
   production automation.
+- Configure platform registry pull secrets in infrastructure, and use
+  `docker_config_json` credentials only for deliberately assigned runner image
+  pull access.
 - Review product role grants and team inheritance.
 - Restrict runner scopes and capacity according to environment.
 - Check dispatcher, runner, git-bot, LLM, and config sync health checks.

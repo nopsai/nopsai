@@ -17,7 +17,7 @@ test('summarizes the product wiki and keeps a stable first article', () => {
   const summary = summarizeWiki();
 
   assert.equal(summary.sections, 9);
-  assert.equal(summary.articles, 43);
+  assert.equal(summary.articles, 44);
   assert.ok(summary.configKeys > 20);
   assert.ok(summary.runbooks > 20);
   assert.equal(summary.tutorials, 8);
@@ -65,6 +65,19 @@ test('documents required deployment environment and service URL settings as firs
   assert.ok(article.configRows.some(row => row.key === 'SERVICE_JWT_SIGNING_KEY' && row.security?.includes('independent secret')));
   assert.ok(article.configRows.some(row => row.key === 'SYSTEM_LOGS_DOCKER_HOST' && row.security?.includes('docker-socket-proxy')));
   assert.ok(article.examples.some(example => example.title === 'Helm bootstrap Secret keys'));
+});
+
+test('documents private registry runner auth as an installed capability', () => {
+  const article = findWikiArticle(wikiSections, 'private-registry-runner-auth');
+
+  assert.ok(article);
+  assert.equal(article.docType, 'reference');
+  assert.ok(article.audiences.includes('security'));
+  assert.ok(article.keyFacts.some(fact => fact.includes('docker_config_json')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('RegistryAuth')));
+  assert.ok(article.configRows.some(row => row.key === 'runner_registry_credentials'));
+  assert.ok(article.relatedDocs.includes('doc/runner-registry-auth.md'));
+  assert.ok(filterWikiSections(wikiSections, 'imagePullSecrets').some(section => section.id === 'installation'));
 });
 
 test('documents step-level LLM profile directives', () => {

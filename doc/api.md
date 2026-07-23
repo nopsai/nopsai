@@ -664,6 +664,10 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   "http://localhost:8080/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-prod-1&runner_scopes=prod,dev&runner_capacity=2&dispatcher_grpc_address=nopsai-dispatcher.example.com:9090"
 
+# Generate a one-time runner install command with selected private registry access
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-prod-1&runner_scopes=prod&registry_credential_ref=credential://system/registry/ghcr"
+
 # Generate a one-time Kubernetes runner install command
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs&dispatcher_grpc_address=nopsai-dispatcher.example.com:9090"
@@ -691,8 +695,10 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - System Logs source discovery is AAA-filtered with `system_log.read` on `system_log:<sourceID>`. Tail and stream endpoints accept registry IDs only. SSE emits `status`, signed-cursor `log`, and `reset` events; stream heartbeats are comments. See [system-logs.md](./system-logs.md).
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
+- `POST /v1/internal/registry-auth/docker` remains available for compatibility with older runner binaries. Current Docker runner installs use the selected `docker_config_json` only at bootstrap time, pass the merged config to the runner as `NOPSAI_REGISTRY_DOCKER_CONFIG_B64`, and resolve per-image Docker `RegistryAuth` from that local env-carried config without calling NopsAI during image pulls.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
 - Docker and Kubernetes install commands use single-use download tokens. Both bootstrap-command endpoints download shell scripts; the Kubernetes script writes the generated YAML to a temporary file before `kubectl apply`.
+- Docker and Kubernetes bootstrap-command endpoints accept repeated `registry_credential_ref` or comma-separated `registry_credential_refs` query parameters. The API response contains selected references and registry hosts, but not registry secret values.
 - Runner install endpoints accept optional `dispatcher_grpc_address` to override the dispatcher endpoint for that generated command or manifest without changing persisted runtime config. Kubernetes install commands wait for rollout and print pod/deployment/log diagnostics when the runner does not become ready.
 
 ---
@@ -1390,7 +1396,8 @@ Credential references must point at the kind expected by the consuming feature:
 LLM profiles and knowledge provider connections use `api_key`, MCP profiles and
 config repositories use `bearer_token`, SMTP uses `password`, OIDC client/admin
 credentials use `client_secret`, GitHub App private keys use `private_key`,
-GitHub App and Git webhook secrets use `webhook_secret`.
+GitHub App and Git webhook secrets use `webhook_secret`, and runner private
+registry access uses `docker_config_json`.
 
 ```bash
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
@@ -1399,6 +1406,11 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reference":"credential://system/llm/openai-primary","kind":"api_key","description":"Primary OpenAI key","value":"<value>"}' \
+  http://localhost:8080/v1/system/credentials
+
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reference":"credential://system/registry/ghcr","kind":"docker_config_json","description":"GHCR pull config","value":"{\"auths\":{\"ghcr.io\":{\"auth\":\"<base64-user-pass>\"}}}"}' \
   http://localhost:8080/v1/system/credentials
 
 curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
@@ -1736,7 +1748,7 @@ curl -X POST -H "Content-Type: application/json" \
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
 - The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
 - The system/global repo may define GitHub App IDs, credential references, and git-bot URLs under `setting/system/github.yaml`.
-- The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
+- The system/global repo may define runtime runner defaults, dispatcher routing, and `runner_registry_credentials` under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_credential_ref` is synced for credentials.
 - The system/global repo may define scheduled cleanup rules under `setting/system/data-management.yaml`; backups and cleanup job history remain runtime-only.
 - The system/global repo may define encrypted system credential envelopes under `setting/system/credentials.yaml`; plaintext is never exported.

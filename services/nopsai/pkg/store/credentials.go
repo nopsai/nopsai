@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,6 +18,7 @@ import (
 type CredentialStore interface {
 	CreateCredential(ctx context.Context, credential credentials.Credential) (credentials.Credential, error)
 	UpsertCredentialMetadata(ctx context.Context, credential credentials.Credential) (credentials.Credential, error)
+	UpdateCredentialMetadata(ctx context.Context, credentialID uuid.UUID, metadata map[string]any, actor string) error
 	GetCredentialByID(ctx context.Context, id uuid.UUID) (credentials.Credential, error)
 	GetCredentialByReference(ctx context.Context, ref credentials.Reference) (credentials.Credential, error)
 	ListCredentials(ctx context.Context) ([]credentials.Credential, error)
@@ -35,12 +37,12 @@ type CredentialStore interface {
 func (s *PGStore) CreateCredential(ctx context.Context, credential credentials.Credential) (credentials.Credential, error) {
 	return scanCredential(s.db.QueryRow(ctx, `
 		INSERT INTO credentials (
-			id, namespace, name, kind, description, status, active_version, expires_at,
+			id, namespace, name, kind, description, metadata, status, active_version, expires_at,
 			managed_by_config_repo, config_repo_id, config_source_path, config_source_commit_sha,
 			created_by, updated_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11, $12, $12)
-		RETURNING id, namespace, name, kind, description, status, active_version, expires_at,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13, $13)
+		RETURNING id, namespace, name, kind, description, metadata, status, active_version, expires_at,
 		          last_rotated_at, managed_by_config_repo, config_repo_id, config_source_path,
 		          config_source_commit_sha, created_by, updated_by, created_at, updated_at
 	`,
@@ -49,6 +51,7 @@ func (s *PGStore) CreateCredential(ctx context.Context, credential credentials.C
 		credential.Reference.Name,
 		strings.ToLower(strings.TrimSpace(credential.Kind)),
 		strings.TrimSpace(credential.Description),
+		credentialMetadataJSON(credential.Metadata),
 		credentials.StatusPending,
 		credential.ExpiresAt,
 		credential.ManagedByConfigRepo,
@@ -62,14 +65,15 @@ func (s *PGStore) CreateCredential(ctx context.Context, credential credentials.C
 func (s *PGStore) UpsertCredentialMetadata(ctx context.Context, credential credentials.Credential) (credentials.Credential, error) {
 	return scanCredential(s.db.QueryRow(ctx, `
 		INSERT INTO credentials (
-			id, namespace, name, kind, description, status, active_version, expires_at,
+			id, namespace, name, kind, description, metadata, status, active_version, expires_at,
 			managed_by_config_repo, config_repo_id, config_source_path, config_source_commit_sha,
 			created_by, updated_by
 		)
-		VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $7, $8, $9, $10, $11, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, 'pending', 0, $7, $8, $9, $10, $11, $12, $12)
 		ON CONFLICT (namespace, name) DO UPDATE SET
 			kind = EXCLUDED.kind,
 			description = EXCLUDED.description,
+			metadata = EXCLUDED.metadata,
 			expires_at = EXCLUDED.expires_at,
 			managed_by_config_repo = EXCLUDED.managed_by_config_repo,
 			config_repo_id = EXCLUDED.config_repo_id,
@@ -77,7 +81,7 @@ func (s *PGStore) UpsertCredentialMetadata(ctx context.Context, credential crede
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			updated_by = EXCLUDED.updated_by,
 			updated_at = NOW()
-		RETURNING id, namespace, name, kind, description, status, active_version, expires_at,
+		RETURNING id, namespace, name, kind, description, metadata, status, active_version, expires_at,
 		          last_rotated_at, managed_by_config_repo, config_repo_id, config_source_path,
 		          config_source_commit_sha, created_by, updated_by, created_at, updated_at
 	`,
@@ -86,6 +90,7 @@ func (s *PGStore) UpsertCredentialMetadata(ctx context.Context, credential crede
 		credential.Reference.Name,
 		strings.ToLower(strings.TrimSpace(credential.Kind)),
 		strings.TrimSpace(credential.Description),
+		credentialMetadataJSON(credential.Metadata),
 		credential.ExpiresAt,
 		credential.ManagedByConfigRepo,
 		credential.ConfigRepoID,
@@ -93,6 +98,23 @@ func (s *PGStore) UpsertCredentialMetadata(ctx context.Context, credential crede
 		strings.TrimSpace(credential.ConfigSourceCommitSHA),
 		strings.TrimSpace(credential.UpdatedBy),
 	))
+}
+
+func (s *PGStore) UpdateCredentialMetadata(ctx context.Context, credentialID uuid.UUID, metadata map[string]any, actor string) error {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE credentials
+		SET metadata = $2,
+		    updated_by = $3,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, credentialID, credentialMetadataJSON(metadata), strings.TrimSpace(actor))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return credentials.ErrNotFound
+	}
+	return nil
 }
 
 func (s *PGStore) GetCredentialByID(ctx context.Context, id uuid.UUID) (credentials.Credential, error) {
@@ -351,8 +373,9 @@ func (s *PGStore) ResolveActiveCredential(ctx context.Context, ref credentials.R
 	var record credentials.ResolvedRecord
 	var expiresAt, lastRotatedAt, activatedAt, revokedAt sql.NullTime
 	var configRepoID sql.NullInt64
+	var metadataRaw []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT c.id, c.namespace, c.name, c.kind, c.description, c.status, c.active_version,
+		SELECT c.id, c.namespace, c.name, c.kind, c.description, c.metadata, c.status, c.active_version,
 		       c.expires_at, c.last_rotated_at, c.managed_by_config_repo, c.config_repo_id,
 		       c.config_source_path, c.config_source_commit_sha, c.created_by, c.updated_by,
 		       c.created_at, c.updated_at,
@@ -367,6 +390,7 @@ func (s *PGStore) ResolveActiveCredential(ctx context.Context, ref credentials.R
 		&record.Credential.Reference.Name,
 		&record.Credential.Kind,
 		&record.Credential.Description,
+		&metadataRaw,
 		&record.Credential.Status,
 		&record.Credential.ActiveVersion,
 		&expiresAt,
@@ -396,6 +420,7 @@ func (s *PGStore) ResolveActiveCredential(ctx context.Context, ref credentials.R
 	if err != nil {
 		return credentials.ResolvedRecord{}, err
 	}
+	record.Credential.Metadata = parseCredentialMetadata(metadataRaw)
 	applyCredentialNulls(&record.Credential, expiresAt, lastRotatedAt, configRepoID)
 	if activatedAt.Valid {
 		record.Version.ActivatedAt = &activatedAt.Time
@@ -420,7 +445,7 @@ func (s *PGStore) RecordCredentialAccess(ctx context.Context, record credentials
 }
 
 const credentialSelectSQL = `
-	SELECT id, namespace, name, kind, description, status, active_version, expires_at,
+	SELECT id, namespace, name, kind, description, metadata, status, active_version, expires_at,
 	       last_rotated_at, managed_by_config_repo, config_repo_id, config_source_path,
 	       config_source_commit_sha, created_by, updated_by, created_at, updated_at
 	FROM credentials`
@@ -429,12 +454,14 @@ func scanCredential(scanner interface{ Scan(dest ...any) error }) (credentials.C
 	var credential credentials.Credential
 	var expiresAt, lastRotatedAt sql.NullTime
 	var configRepoID sql.NullInt64
+	var metadataRaw []byte
 	err := scanner.Scan(
 		&credential.ID,
 		&credential.Reference.Namespace,
 		&credential.Reference.Name,
 		&credential.Kind,
 		&credential.Description,
+		&metadataRaw,
 		&credential.Status,
 		&credential.ActiveVersion,
 		&expiresAt,
@@ -451,6 +478,7 @@ func scanCredential(scanner interface{ Scan(dest ...any) error }) (credentials.C
 	if err != nil {
 		return credentials.Credential{}, err
 	}
+	credential.Metadata = parseCredentialMetadata(metadataRaw)
 	applyCredentialNulls(&credential, expiresAt, lastRotatedAt, configRepoID)
 	return credential, nil
 }
@@ -507,6 +535,28 @@ func nullableTime(value time.Time) any {
 		return nil
 	}
 	return value
+}
+
+func credentialMetadataJSON(metadata map[string]any) []byte {
+	if len(metadata) == 0 {
+		return []byte(`{}`)
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return []byte(`{}`)
+	}
+	return data
+}
+
+func parseCredentialMetadata(data []byte) map[string]any {
+	if len(data) == 0 {
+		return map[string]any{}
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(data, &metadata); err != nil || metadata == nil {
+		return map[string]any{}
+	}
+	return metadata
 }
 
 func credentialStoreError(operation string, err error) error {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"nopsai/pkg/registryauth"
 	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/store"
@@ -168,6 +169,10 @@ func (s *credentialService) PutValue(
 	if err != nil {
 		return credentials.Version{}, err
 	}
+	metadata, err := credentialMetadataForValue(credential.Kind, plaintext)
+	if err != nil {
+		return credentials.Version{}, err
+	}
 	version, err := s.store.ReserveCredentialVersion(ctx, credentialID)
 	if err != nil {
 		return credentials.Version{}, err
@@ -180,8 +185,12 @@ func (s *credentialService) PutValue(
 	if err != nil {
 		return credentials.Version{}, err
 	}
+	if err := s.store.UpdateCredentialMetadata(ctx, credentialID, metadata, actor); err != nil {
+		return credentials.Version{}, err
+	}
 	credential.ActiveVersion = version
 	credential.Status = credentials.StatusActive
+	credential.Metadata = metadata
 	s.auditManagement(ctx, actor, "credential.rotate", credential, "success", map[string]any{"version": version})
 	return created, nil
 }
@@ -361,10 +370,24 @@ func (s *credentialService) auditManagement(
 func normalizeCredentialKind(raw string) (string, error) {
 	kind := strings.ToLower(strings.TrimSpace(raw))
 	switch kind {
-	case "api_key", "password", "bearer_token", "private_key", "webhook_secret", "client_secret":
+	case "api_key", "password", "bearer_token", "private_key", "webhook_secret", "client_secret",
+		registryauth.CredentialKindDockerConfigJSON:
 		return kind, nil
 	default:
 		return "", fmt.Errorf("unsupported credential kind %q", raw)
+	}
+}
+
+func credentialMetadataForValue(kind string, plaintext []byte) (map[string]any, error) {
+	switch kind {
+	case registryauth.CredentialKindDockerConfigJSON:
+		hosts, err := registryauth.RegistryHosts(plaintext)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"registry_hosts": hosts}, nil
+	default:
+		return map[string]any{}, nil
 	}
 }
 

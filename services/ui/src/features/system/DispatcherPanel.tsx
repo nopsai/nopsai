@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Activity, Boxes, Clock3, Copy, GitBranch, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Server, Trash2 } from 'lucide-react';
+import { Activity, Boxes, Check, Clock3, Copy, GitBranch, KeyRound, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Server, Trash2 } from 'lucide-react';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import type { ConfigFieldMetadata, ConfigFormState } from './config/model';
 import { ApplyBadge } from './config/ConfigApplyBadge';
@@ -13,6 +13,7 @@ import {
   type DispatcherRoutingDraftRow,
   type DispatcherStatusState,
   type Runner,
+  type RunnerInstallRuntime,
 } from './dispatcher/model';
 import { useRunnerDeploymentGuide } from './dispatcher/useRunnerDeploymentGuide';
 
@@ -349,8 +350,14 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
     setKubernetesTemplateError,
     selectedRunnerScopes,
     selectedRunnerScopeSet,
+    registryCredentials,
+    registryCredentialsLoading,
+    registryCredentialsError,
+    selectedRegistryCredentialRefs,
+    selectedRegistryCredentialRefSet,
     runnerScopeChoices,
     toggleRunnerScope,
+    toggleRegistryCredentialRef,
     loadTemplate,
     loadKubernetesTemplate,
   } = useRunnerDeploymentGuide(canManageDispatcher, runnerDefaults);
@@ -390,6 +397,7 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
   const activeExpiresAt = activeTemplate?.expiresAt || '';
   const activeDispatcherAddress = activeTemplate?.dispatcherAddress || '';
   const activeRunnerImage = activeTemplate?.runnerImage || '';
+  const activeRegistryHosts = activeTemplate?.registryHosts || [];
 
   return (
     <section id={RUNNER_DEPLOYMENT_GUIDE_ID} className="dispatcher-install scroll-mt-6">
@@ -528,6 +536,16 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
               )}
             </div>
 
+            <RegistryCredentialPicker
+              credentials={registryCredentials}
+              loading={registryCredentialsLoading}
+              error={registryCredentialsError}
+              runtime={installRuntime}
+              selectedCount={selectedRegistryCredentialRefs.length}
+              selectedRefs={selectedRegistryCredentialRefSet}
+              onToggle={toggleRegistryCredentialRef}
+            />
+
             <div className="dispatcher-install-actions">
               <button
                 type="button"
@@ -558,6 +576,7 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
                 {isKubernetesInstall && kubernetesTemplate?.namespace && <RunnerFact label="Namespace" value={kubernetesTemplate.namespace} mono />}
                 {activeExpiresAt && <RunnerFact label="Token expires" value={formatTimestamp(activeExpiresAt)} />}
                 {activeRunnerImage && <RunnerFact label="Image" value={activeRunnerImage} mono />}
+                {activeRegistryHosts.length > 0 && <RunnerFact label="Registries" value={activeRegistryHosts.join(', ')} mono />}
               </div>
             )}
 
@@ -579,6 +598,94 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
       </div>
     </section>
   );
+}
+
+function RegistryCredentialPicker({
+  credentials,
+  loading,
+  error,
+  runtime,
+  selectedCount,
+  selectedRefs,
+  onToggle,
+}: {
+  credentials: Array<{ reference: string; description?: string; metadata?: Record<string, unknown> }>;
+  loading: boolean;
+  error: string | null;
+  runtime: RunnerInstallRuntime;
+  selectedCount: number;
+  selectedRefs: Set<string>;
+  onToggle: (ref: string, checked: boolean) => void;
+}) {
+  const modeLabel = runtime === 'kubernetes' ? 'imagePullSecrets' : 'RegistryAuth';
+  return (
+    <div className="dispatcher-registry-auth" aria-label="Registry authentication">
+      <div className="dispatcher-registry-auth__head">
+        <div className="dispatcher-registry-auth__title">
+          <KeyRound className="h-4 w-4" />
+          <span>Registry auth</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="runner-pill runner-pill--muted">{modeLabel}</span>
+          <span className={`runner-pill ${selectedCount > 0 ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
+            {selectedCount > 0 ? `${selectedCount} selected` : '0 selected'}
+          </span>
+        </div>
+      </div>
+      {loading ? (
+        <div className="dispatcher-registry-auth__state">Loading registry credentials...</div>
+      ) : error ? (
+        <div className="dispatcher-registry-auth__state dispatcher-registry-auth__state--warning">{error}</div>
+      ) : credentials.length > 0 ? (
+        <div className="dispatcher-registry-options">
+          {credentials.map(credential => {
+            const hosts = credentialRegistryHosts(credential);
+            const selected = selectedRefs.has(credential.reference);
+            const label = credentialReferenceLabel(credential.reference);
+            return (
+              <button
+                key={credential.reference}
+                type="button"
+                role="checkbox"
+                aria-checked={selected}
+                aria-label={`${selected ? 'Deselect' : 'Select'} registry credential ${label}`}
+                className={`dispatcher-registry-option ${selected ? 'is-selected' : ''}`}
+                onClick={() => onToggle(credential.reference, !selected)}
+              >
+                <span className="dispatcher-registry-option__check" aria-hidden="true">
+                  {selected && <Check className="h-3.5 w-3.5" />}
+                </span>
+                <span className="dispatcher-registry-option__main">
+                  <span className="dispatcher-registry-option__name">{label}</span>
+                  <span className="dispatcher-registry-option__ref">{credential.reference}</span>
+                </span>
+                <span className="dispatcher-registry-option__hosts">
+                  {hosts.length > 0 ? hosts.join(', ') : 'Registry host metadata pending'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="dispatcher-registry-empty">
+          <span>No active docker_config_json credentials.</span>
+          <Link to="/credentials" className="runner-pill runner-pill--link">Credentials</Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function credentialRegistryHosts(credential: { metadata?: Record<string, unknown> }): string[] {
+  const hosts = credential.metadata?.registry_hosts;
+  if (!Array.isArray(hosts)) return [];
+  return hosts.map(host => String(host || '').trim()).filter(Boolean);
+}
+
+function credentialReferenceLabel(reference: string): string {
+  const body = reference.trim().replace(/^credential:\/\//i, '');
+  const parts = body.split('/').filter(Boolean);
+  return parts.at(-1) || body || reference;
 }
 
 function RunnerFact({ label, value, mono }: { label: string; value: string | number; mono?: boolean }) {

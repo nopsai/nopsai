@@ -98,8 +98,10 @@ Use separate metadata and immutable version records.
 - `name TEXT`
 - `namespace TEXT`, initially `system`
 - `kind TEXT`, such as `api_key`, `password`, `bearer_token`, `private_key`,
-  `webhook_secret`, or `client_secret`
+  `webhook_secret`, `client_secret`, or `docker_config_json`
 - `status TEXT`, such as `pending`, `active`, or `disabled`
+- `metadata JSONB`, for non-secret derived facts such as Docker registry
+  hostnames
 - `active_version INTEGER`
 - `expires_at`, `last_rotated_at`, `created_at`, and `updated_at`
 - actor and GitOps ownership metadata
@@ -279,6 +281,11 @@ Preferred behavior by integration:
 - Git webhook sources: `nopsai` resolves only the source's referenced
   `webhook_secret` while verifying a delivery. Source GitOps files contain the
   reference, repository allowlist, and policy, never the value.
+- Runner private registries: `docker_config_json` credentials are assigned to
+  specific runner IDs. NopsAI stores non-secret `registry_hosts` metadata,
+  creates an env-carried Docker config for Docker runners or a Kubernetes
+  imagePullSecret for Kubernetes runners, and lets Docker runners and agents use
+  that local config for per-image `RegistryAuth`.
 
 `git-bot` retrieves the required values during startup through its authenticated
 broker request and keeps them only in memory. Restart `git-bot` after rotating

@@ -16,3 +16,5 @@ capabilities:
   - platform.helm
   - runner.docker
   - runner.kubernetes
+  - runner.local-registry-auth.v1
+  - runner.registry-auth.v1

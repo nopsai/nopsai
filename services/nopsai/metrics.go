@@ -269,6 +269,11 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 		return "", err
 	}
 	a.appendKnowledgeContextSyncRuntimeMetrics(&out)
+	writeMetricHelp(&out, "nopsai_registry_auth_resolutions_total", "Runner registry auth resolutions by purpose, internal consumer, and outcome.")
+	writeMetricType(&out, "nopsai_registry_auth_resolutions_total", "counter")
+	if err := a.appendRegistryAuthResolutionTotals(ctx, &out); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_audit_events_total", "Audit events by provider, action, and result.")
 	writeMetricType(&out, "nopsai_audit_events_total", "counter")
 	if err := a.appendAuditEventTotals(ctx, &out); err != nil {
@@ -1716,6 +1721,39 @@ func (a *App) appendAuditEventTotals(ctx context.Context, out *strings.Builder) 
 			"provider": normalizeMetricLabel(provider),
 			"action":   normalizeMetricLabel(action),
 			"result":   normalizeMetricLabel(result),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendRegistryAuthResolutionTotals(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(purpose, ''), COALESCE(consumer_service, ''), success, COALESCE(error_code, ''), COUNT(*)::float8
+		FROM credential_access_logs
+		WHERE purpose IN ('runner.bootstrap.registry_auth', 'docker.image_pull')
+		GROUP BY purpose, consumer_service, success, error_code
+		ORDER BY purpose, consumer_service, success, error_code
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var purpose, consumerService, errorCode string
+		var success bool
+		var count float64
+		if err := rows.Scan(&purpose, &consumerService, &success, &errorCode, &count); err != nil {
+			return err
+		}
+		result := "failure"
+		if success {
+			result = "success"
+		}
+		writeMetricLine(out, "nopsai_registry_auth_resolutions_total", map[string]string{
+			"purpose":          normalizeMetricLabel(purpose),
+			"consumer_service": normalizeMetricLabel(consumerService),
+			"result":           result,
+			"error_code":       normalizeMetricLabel(errorCode),
 		}, count)
 	}
 	return rows.Err()

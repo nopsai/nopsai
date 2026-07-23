@@ -198,7 +198,7 @@ var composeImageEnvs = []imageEnv{
 	{Key: "dispatcher", Env: "NOPSAI_DISPATCHER_IMAGE"},
 	{Key: "dockerSocketProxy", Env: "NOPSAI_DOCKER_SOCKET_PROXY_IMAGE"},
 	{Key: "gitBot", Env: "NOPSAI_GIT_BOT_IMAGE"},
-	{Key: "runner", Env: "NOPSAI_RUNNER_IMAGE"},
+	{Key: "runner", Env: "NOPSAI_DOCKER_RUNNER_IMAGE"},
 	{Key: "ui", Env: "NOPSAI_UI_IMAGE"},
 }
 
@@ -658,7 +658,7 @@ func versionedInstallImages(version string) map[string]string {
 		"dockerSocketProxy": "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy",
 		"gitBot":            "ghcr.io/hosein-yousefii/nopsai-git-bot",
 		"k8sRunner":         "ghcr.io/hosein-yousefii/nopsai-k8s-runner",
-		"runner":            "ghcr.io/hosein-yousefii/nopsai-runner",
+		"runner":            "ghcr.io/hosein-yousefii/nopsai-docker-runner",
 		"ui":                "ghcr.io/hosein-yousefii/nopsai-ui",
 	}
 	images := make(map[string]string, len(repositories))
@@ -1385,7 +1385,7 @@ services:
   docker-runner:
     container_name: nopsai-docker-runner
     hostname: docker-runner
-    image: ${NOPSAI_RUNNER_IMAGE:?NOPSAI_RUNNER_IMAGE is required}
+    image: ${NOPSAI_DOCKER_RUNNER_IMAGE:?NOPSAI_DOCKER_RUNNER_IMAGE is required}
     restart: unless-stopped
     depends_on:
       dispatcher:
