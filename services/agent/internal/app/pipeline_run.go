@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"nopsai/services/agent/internal/approval"
 	"nopsai/services/agent/internal/executor"
@@ -577,8 +578,8 @@ func detectLiveActionLogLevel(stream executor.OutputStream, line string) string 
 	if level := normalizeLiveActionLogLevel(structuredLiveActionLogLevel(line)); level != "" {
 		return level
 	}
-	if stream == executor.OutputStreamStderr {
-		return "error"
+	if level := inferPlainTextLiveActionLogLevel(line); level != "" {
+		return level
 	}
 	return "info"
 }
@@ -625,4 +626,22 @@ func normalizeLiveActionLogLevel(level string) string {
 	default:
 		return ""
 	}
+}
+
+func inferPlainTextLiveActionLogLevel(line string) string {
+	for _, field := range strings.FieldsFunc(strings.ToLower(line), func(r rune) bool {
+		return !unicode.IsLetter(r)
+	}) {
+		switch field {
+		case "info", "warn", "error", "debug":
+			return field
+		case "warning":
+			return "warn"
+		case "fatal", "panic":
+			return "error"
+		case "trace":
+			return "debug"
+		}
+	}
+	return ""
 }

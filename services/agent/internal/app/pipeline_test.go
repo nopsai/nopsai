@@ -284,7 +284,10 @@ func TestDetectLiveActionLogLevelNormalizesStructuredAndStreamLevels(t *testing.
 	}{
 		{name: "structured warning", stream: executor.OutputStreamStdout, line: `{"level":"warning","message":"slow"}`, want: "warn"},
 		{name: "structured trace", stream: executor.OutputStreamStdout, line: `{"output_level":"trace","message":"verbose"}`, want: "debug"},
-		{name: "stderr fallback", stream: executor.OutputStreamStderr, line: "plain failure", want: "error"},
+		{name: "structured stderr error", stream: executor.OutputStreamStderr, line: `{"level":"error","message":"failed"}`, want: "error"},
+		{name: "stderr fallback", stream: executor.OutputStreamStderr, line: "plain progress", want: "info"},
+		{name: "stderr buildkit progress", stream: executor.OutputStreamStderr, line: "#15 sha256:abcd 14.81MB / 14.81MB 4.5s done", want: "info"},
+		{name: "plain text error", stream: executor.OutputStreamStderr, line: "ERROR request failed", want: "error"},
 		{name: "stdout fallback", stream: executor.OutputStreamStdout, line: "plain output", want: "info"},
 	}
 

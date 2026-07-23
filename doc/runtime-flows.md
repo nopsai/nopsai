@@ -258,7 +258,7 @@ For a `step:<identifier>` include:
 
 1. The runner reads agent container logs and batches them.
 2. Kubernetes runners reattach if `pods/log?follow=true` ends before the agent pod is terminal, then perform a final non-follow pod-log read after terminal state to fill any stream-shutdown gap.
-3. While each task action is executing, the agent emits stdout and stderr lines as structured run logs with `stream`, `step`, `task`, and normalized `output_level` fields. The full command output is still captured for execution history and final task summaries.
+3. While each task action is executing, the agent emits stdout and stderr lines as structured run logs with `stream`, `step`, `task`, and normalized `output_level` fields. Stderr is preserved as a stream and is not treated as error severity unless the line contains an explicit structured or plain-text error level; tools such as Docker BuildKit often write normal progress to stderr. The full command output is still captured for execution history and final task summaries.
 4. Logs go to `dispatcher.IngestLogs`.
 5. The dispatcher makes an authenticated internal service call to `nopsai` at `/v1/runs/{runID}/logs/ingest`, carrying source service, service ID, request ID, traceparent, and optional metadata for the batch.
 6. `nopsai` derives per-line `level`, `step_name`, and `task_name` from structured log fields when the batch metadata does not provide them, then persists the line for durable filtering and audit.
