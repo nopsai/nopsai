@@ -281,12 +281,14 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 		repositoryTeams = normalizeSetupRepositoryTeams(nil, repositories)
 	}
 	files := map[string]string{
-		"README.md":                                 setupReadme(profile),
-		"pipelines/setup/first-run.yaml":            setupFirstRunPipelineYAML(profile),
-		"steps/setup/announce.yaml":                 setupReusableStepYAML(),
-		"scopes/dev/scope.yaml":                     setupScopeYAML(profile, "dev"),
-		"knowledge/guideline/platform/setup-run.md": setupKnowledgeMarkdown(profile),
-		"access/bootstrap.yaml":                     setupAccessYAML(profile, repositoryTeams, options.Users),
+		"README.md":                      setupReadme(profile, repositoryTeams, repositories),
+		"pipelines/setup/first-run.yaml": setupFirstRunPipelineYAML(profile),
+		"steps/setup/announce.yaml":      setupReusableStepYAML(),
+		"scopes/dev/scope.yaml":          setupScopeYAML(profile, "dev", repositoryTeams, repositories),
+		"access/bootstrap.yaml":          setupAccessYAML(profile, repositoryTeams, options.Users),
+	}
+	if knowledgeTeam := setupStarterKnowledgeTeam(profile, repositoryTeams, repositories); knowledgeTeam != "" {
+		files["knowledge/guideline/"+knowledgeTeam+"/setup-run.md"] = setupKnowledgeMarkdown(profile, repositoryTeams, repositories)
 	}
 	for path, content := range setupConfigRepositoryStructureFiles(repositoryTeams, repositories) {
 		files[path] = content
@@ -298,7 +300,7 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 		files["setting/system/mcp.yaml"] = setupMCPYAML()
 	}
 	if profile == setupProfileTeam || profile == setupProfileProduction {
-		files["scopes/prod/scope.yaml"] = setupScopeYAML(profile, "prod")
+		files["scopes/prod/scope.yaml"] = setupScopeYAML(profile, "prod", repositoryTeams, repositories)
 	}
 	for _, repo := range repositories {
 		files["triggers/"+repo+".yaml"] = setupTriggerYAML(profile)
@@ -307,29 +309,36 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 }
 
 func setupPipelineRunStructure(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]*configsync.PipelineRunStructureNode {
-	root := setupAccessTeam(profile)
+	repositoryTeams = normalizeSetupRepositoryTeams(repositoryTeams, repositories)
+	if len(repositoryTeams) == 0 {
+		return map[string]*configsync.PipelineRunStructureNode{}
+	}
+
+	structure := make(map[string]*configsync.PipelineRunStructureNode, len(repositoryTeams))
+	for _, team := range repositoryTeams {
+		structure[team.Name] = setupPipelineRunStructureTeamNode(team)
+	}
+	return structure
+}
+
+func setupPipelineRunStructureTeamNode(team setupRepositoryTeamInput) *configsync.PipelineRunStructureNode {
 	node := &configsync.PipelineRunStructureNode{
-		Description: "Starter workspace",
+		Description: "Repository team " + team.Name,
 		Children:    map[string]*configsync.PipelineRunStructureNode{},
 	}
-	repositoryTeams = normalizeSetupRepositoryTeams(repositoryTeams, repositories)
-	for _, team := range repositoryTeams {
-		child := &configsync.PipelineRunStructureNode{Description: "Repository team " + team.Name, Children: map[string]*configsync.PipelineRunStructureNode{}}
-		for _, repo := range team.Repositories {
-			parts := strings.Split(repo, "/")
-			if len(parts) != 2 {
-				continue
-			}
-			child.Apps = append(child.Apps, configsync.PipelineRunStructureApp{
-				Name:               configsync.RepositoryDisplayNameFromFullName(repo),
-				RepoURL:            configsync.CanonicalRepositoryURL(repo),
-				RepositoryFullName: repo,
-			})
-			child.Repos = append(child.Repos, repo)
+	for _, repo := range team.Repositories {
+		parts := strings.Split(repo, "/")
+		if len(parts) != 2 {
+			continue
 		}
-		node.Children[team.Name] = child
+		node.Apps = append(node.Apps, configsync.PipelineRunStructureApp{
+			Name:               configsync.RepositoryDisplayNameFromFullName(repo),
+			RepoURL:            configsync.CanonicalRepositoryURL(repo),
+			RepositoryFullName: repo,
+		})
+		node.Repos = append(node.Repos, repo)
 	}
-	return map[string]*configsync.PipelineRunStructureNode{root: node}
+	return node
 }
 
 func setupAccessTeam(profile string) string {
@@ -343,8 +352,39 @@ func setupAccessTeam(profile string) string {
 	}
 }
 
-func setupScopeVariables(profile string) map[string]map[string]string {
-	workspace := setupAccessTeam(profile)
+func setupStarterTeamNames(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) []string {
+	return setupAccessGrantTeams(profile, normalizeSetupRepositoryTeams(repositoryTeams, repositories))
+}
+
+func setupStarterKnowledgeTeam(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	teams := setupStarterTeamNames(profile, repositoryTeams, repositories)
+	if len(teams) == 0 {
+		return ""
+	}
+	return teams[0]
+}
+
+func setupStarterTeamValue(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	return strings.Join(setupStarterTeamNames(profile, repositoryTeams, repositories), ",")
+}
+
+func setupStarterTeamLabel(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	teams := setupStarterTeamNames(profile, repositoryTeams, repositories)
+	quoted := make([]string, 0, len(teams))
+	for _, team := range teams {
+		quoted = append(quoted, fmt.Sprintf("`%s`", team))
+	}
+	if len(quoted) == 0 {
+		return "teams: none"
+	}
+	if len(quoted) == 1 {
+		return "team " + quoted[0]
+	}
+	return "teams " + strings.Join(quoted, ", ")
+}
+
+func setupScopeVariables(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]map[string]string {
+	workspace := setupStarterTeamValue(profile, repositoryTeams, repositories)
 	values := map[string]map[string]string{
 		"dev": {
 			"NOPSAI_SETUP_WORKSPACE": workspace,
@@ -368,13 +408,17 @@ type setupKnowledgeContextSeed struct {
 	content     string
 }
 
-func setupKnowledgeContexts(profile string) []setupKnowledgeContextSeed {
+func setupKnowledgeContexts(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) []setupKnowledgeContextSeed {
+	team := setupStarterKnowledgeTeam(profile, repositoryTeams, repositories)
+	if team == "" {
+		return nil
+	}
 	return []setupKnowledgeContextSeed{{
 		kind:        "guideline",
-		team:        "platform",
+		team:        team,
 		name:        "setup-run",
 		description: "Starter pipeline run expectations",
-		content:     fmt.Sprintf("Use the starter pipeline in %s to verify runner connectivity, log streaming, and optional LLM execution before attaching production repositories.", setupAccessTeam(profile)),
+		content:     fmt.Sprintf("Use the starter pipeline for %s to verify runner connectivity, log streaming, and optional LLM execution before attaching production repositories.", setupStarterTeamLabel(profile, repositoryTeams, repositories)),
 	}}
 }
 
@@ -450,22 +494,22 @@ triggers:
 `, scope, scope)) + "\n"
 }
 
-func setupScopeYAML(profile, scope string) string {
+func setupScopeYAML(profile, scope string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 variables:
-  NOPSAI_SETUP_WORKSPACE: %s
+  NOPSAI_SETUP_WORKSPACE: %q
   NOPSAI_SETUP_SCOPE: %s
 secrets:
   GEMINI_API_KEY:
-`, setupAccessTeam(profile), scope)) + "\n"
+`, setupStarterTeamValue(profile, repositoryTeams, repositories), scope)) + "\n"
 }
 
-func setupReadme(profile string) string {
-	return fmt.Sprintf("# NopsAI starter config\n\nWorkspace: `%s`\n\nThis repository contains starter resources for the first NopsAI workspace bootstrap. Keep plaintext secrets outside this repository. Scope files define plaintext scoped values under `variables:` and may define secret keys under `secrets:` with `null` placeholders or encrypted values generated by this NopsAI instance.\n", setupAccessTeam(profile))
+func setupReadme(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	return fmt.Sprintf("# NopsAI starter config\n\nStarter %s\n\nThis repository contains starter resources for the first NopsAI bootstrap. Keep plaintext secrets outside this repository. Scope files define plaintext scoped values under `variables:` and may define secret keys under `secrets:` with `null` placeholders or encrypted values generated by this NopsAI instance.\n", setupStarterTeamLabel(profile, repositoryTeams, repositories))
 }
 
-func setupKnowledgeMarkdown(profile string) string {
-	return fmt.Sprintf("---\ndescription: Starter setup run expectations\n---\n\nUse the %s starter workspace to prove runner connectivity, logs, repository triggers, and optional LLM execution before onboarding production automation.\n", setupAccessTeam(profile))
+func setupKnowledgeMarkdown(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	return fmt.Sprintf("---\ndescription: Starter setup run expectations\n---\n\nUse the starter pipeline for %s to prove runner connectivity, logs, repository triggers, and optional LLM execution before onboarding production automation.\n", setupStarterTeamLabel(profile, repositoryTeams, repositories))
 }
 
 func setupAccessYAML(profile string, repositoryTeams []setupRepositoryTeamInput, users []setupUserInput) string {
@@ -506,9 +550,9 @@ func setupAccessYAML(profile string, repositoryTeams []setupRepositoryTeamInput,
 		if normalizedRole, err := normalizeProductRoleName(role); err == nil {
 			role = normalizedRole
 		}
-		team := normalizeSetupRepositoryTeamName(user.Team)
+		team := setupAccessUserTeam(teams, user.Team)
 		if team == "" {
-			team = teams[0]
+			continue
 		}
 		builder.WriteString(fmt.Sprintf("  - user: %q\n", sub))
 		builder.WriteString(fmt.Sprintf("    role: %s\n", role))
@@ -528,10 +572,22 @@ func setupAccessGrantTeams(profile string, repositoryTeams []setupRepositoryTeam
 		seen[name] = true
 		teams = append(teams, name)
 	}
-	if len(teams) == 0 {
-		teams = append(teams, setupAccessTeam(profile))
-	}
 	return teams
+}
+
+func setupAccessUserTeam(teams []string, raw string) string {
+	if len(teams) == 0 {
+		return ""
+	}
+	target := normalizeSetupRepositoryTeamName(raw)
+	if target != "" {
+		for _, team := range teams {
+			if strings.EqualFold(team, target) {
+				return team
+			}
+		}
+	}
+	return teams[0]
 }
 
 func setupLLMProfileYAML(input setupLLMProfileInput) string {

@@ -29,6 +29,16 @@ func runInteractiveCompletion(command *cobra.Command, prompter *interactive.Prom
 	if !parseYesNo(values["generate"]) {
 		return interactive.ErrBack
 	}
+	stdoutMode := parseYesNo(values["stdout"])
+	effects := []string{"Generate the " + shell + " shell completion script."}
+	if stdoutMode {
+		effects = append(effects, "Print the completion script to stdout.")
+	} else {
+		effects = append(effects, "Write "+completionFilename(shell)+" under "+strings.TrimSpace(values["outputDir"])+".")
+	}
+	if err := showInteractiveCommandPreview(prompter, "Completion command preview", completionPreviewArgs(shell, values["outputDir"], stdoutMode), effects, commandPreviewScreenOptions([]string{"Home", "Completion", shell, "Preview"}, "Completion Preview", []string{"Shell: " + shell})); err != nil {
+		return err
+	}
 	var contents bytes.Buffer
 	if err := generateCompletion(command.Root(), shell, &contents); err != nil {
 		return err
@@ -37,7 +47,7 @@ func runInteractiveCompletion(command *cobra.Command, prompter *interactive.Prom
 		stdout string
 		stderr string
 	)
-	if parseYesNo(values["stdout"]) {
+	if stdoutMode {
 		stdout = contents.String()
 	} else {
 		path, err := writeCompletionFile(values["outputDir"], shell, contents.Bytes())

@@ -112,6 +112,12 @@ func runInteractivePlatformReleaseTarget(command *cobra.Command, root *rootOptio
 		if strings.TrimSpace(options.version) == "" {
 			return fmt.Errorf("--version is required when this CLI build does not embed a release version")
 		}
+		if err := showInteractiveCommandPreview(prompter, "Platform release command preview", platformReleasePreviewArgs(options), []string{
+			"Resolve and verify the release manifest, chart, rendered values, and image pins.",
+			"Deploy with Helm only when Deploy after plan is yes.",
+		}, commandPreviewScreenOptions([]string{"Home", "Platform", "Release", "Kubernetes", "Preview"}, "Platform Release Preview", []string{"Version: " + valueOrDefault(defaultPlatformVersion(root), "not embedded")})); err != nil {
+			return err
+		}
 		execOptions := *options
 		execOptions.interactive = false
 		stdout, stderr, releaseErr := captureCommandOutput(command, func() error {
@@ -128,6 +134,12 @@ func runInteractivePlatformReleaseTarget(command *cobra.Command, root *rootOptio
 	}
 	if strings.TrimSpace(options.version) == "" {
 		return fmt.Errorf("--version is required when this CLI build does not embed a release version")
+	}
+	if err := showInteractiveCommandPreview(prompter, "Platform release command preview", platformReleasePreviewArgs(options), []string{
+		"Resolve and verify the release manifest, chart, rendered values, and image pins.",
+		"Deploy with Helm only when deployment is confirmed.",
+	}, commandPreviewScreenOptions([]string{"Home", "Platform", "Release", "Kubernetes", "Preview"}, "Platform Release Preview", []string{"Version: " + valueOrDefault(defaultPlatformVersion(root), "not embedded")})); err != nil {
+		return err
 	}
 	return executePlatformRelease(command, root, options, prompter)
 }

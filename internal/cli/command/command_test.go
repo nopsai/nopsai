@@ -262,6 +262,32 @@ func TestAPICallInteractiveSelectsPublicRoute(t *testing.T) {
 	}
 }
 
+func TestAPICallInteractivePreviewCanCancelBeforeSend(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/providers" {
+			calls++
+		}
+		_, _ = w.Write([]byte(`{"providers":[]}`))
+	}))
+	defer server.Close()
+	dependencies := testDependencies(server.Client(), map[string]string{"NOPSAI_TOKEN": "secret"})
+	dependencies.In = strings.NewReader("auth providers\n1\n\n\n\nn\n")
+
+	output, err := executeCommand(dependencies, "--api", server.URL, "api", "call", "--interactive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("cancelled preview still sent %d request(s)", calls)
+	}
+	for _, want := range []string{"Command preview", "nopsai api call GET /v1/auth/providers"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("cancelled API preview missing %q in:\n%s", want, output)
+		}
+	}
+}
+
 func TestAPIInteractiveFieldsOnlyShowRelevantSteps(t *testing.T) {
 	route, ok := apicatalog.Find(http.MethodGet, "/v1/access/teams")
 	if !ok {
@@ -535,7 +561,7 @@ func TestPlatformReleaseInteractiveCanPlanWithoutDeploying(t *testing.T) {
 	var sawUpgrade bool
 	dependencies := testDependencies(nil, nil)
 	dependencies.BuildInfo = commandBuildInfo("2.7.0")
-	dependencies.In = strings.NewReader("kub\n\n\n" + manifestPath + "\n\n\n\n\n\n" + lockPath + "\nn\n")
+	dependencies.In = strings.NewReader("kub\n\n\n" + manifestPath + "\n\n\n\n\n\n" + lockPath + "\ny\nn\n")
 	dependencies.RunProcess = func(_ context.Context, name string, args []string, stdout, _ io.Writer) error {
 		if name != "helm" {
 			return errors.New("unexpected process")
@@ -573,7 +599,7 @@ func TestInstallDockerComposeGeneratesFromVersionWithoutReleaseManifest(t *testi
 	})}
 	dependencies := testDependencies(client, nil)
 	dependencies.BuildInfo = commandBuildInfo("2.7.0")
-	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 256))
+	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 512))
 
 	output, err := executeCommand(dependencies, "install", "docker-compose", "--output-dir", outputDir)
 	if err != nil {
@@ -591,6 +617,78 @@ func TestInstallDockerComposeGeneratesFromVersionWithoutReleaseManifest(t *testi
 	}
 	if strings.Contains(string(lockContents), "manifestSource") || !strings.Contains(string(lockContents), "ghcr.io/hosein-yousefii/nopsai-api:2.7.0") {
 		t.Fatalf("install lock did not record versioned generated images: %s", lockContents)
+	}
+}
+
+func TestInstallInteractivePreviewCanCancelBeforeWriting(t *testing.T) {
+	outputDir := filepath.Join(t.TempDir(), "install")
+	dependencies := testDependencies(nil, nil)
+	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 512))
+	dependencies.In = strings.NewReader(strings.Repeat("\n", 15) + "n\n")
+
+	output, err := executeCommand(dependencies, "install", "docker-compose", "--interactive", "--output-dir", outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"Command preview",
+		"nopsai install docker-compose",
+		"--output-dir " + outputDir,
+		"Install cancelled before execution.",
+	} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("preview output missing %q in:\n%s", required, output)
+		}
+	}
+	if strings.Contains(output, "Generated NopsAI") {
+		t.Fatalf("cancelled preview still generated install:\n%s", output)
+	}
+	if _, err := os.Stat(outputDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cancelled preview touched output dir: %v", err)
+	}
+}
+
+func TestInstallPreviewCommandQuotesAndRedactsSensitiveValues(t *testing.T) {
+	dockerOptions := defaultDockerComposeInstallOptions(&rootOptions{})
+	dockerOptions.version = "2.7.0"
+	dockerOptions.outputDir = "./prod install"
+	dockerOptions.bootstrapAdminPassword = "never-print-this"
+	dockerOptions.run = true
+	dockerCommand := commandShellJoin(dockerComposeInstallPreviewArgs(dockerOptions))
+	for _, required := range []string{
+		"nopsai install docker-compose",
+		"--output-dir './prod install'",
+		"--bootstrap-admin-password '<redacted>'",
+		"--run",
+	} {
+		if !strings.Contains(dockerCommand, required) {
+			t.Fatalf("docker preview missing %q in %q", required, dockerCommand)
+		}
+	}
+	if strings.Contains(dockerCommand, "never-print-this") {
+		t.Fatalf("docker preview leaked bootstrap password: %q", dockerCommand)
+	}
+
+	kubernetesOptions := defaultKubernetesInstallOptions(&rootOptions{})
+	kubernetesOptions.version = "2.7.0"
+	kubernetesOptions.ingressHost = "nopsai.example.com"
+	kubernetesOptions.values = []string{"overrides/prod values.yaml"}
+	kubernetesOptions.deploy = true
+	kubernetesOptions.wait = true
+	kubernetesOptions.lockFile = "clusters/prod/.nopsai/release.lock"
+	kubernetesCommand := commandShellJoin(kubernetesInstallPreviewArgs(kubernetesOptions))
+	for _, required := range []string{
+		"nopsai install kubernetes",
+		"--ingress-host nopsai.example.com",
+		"--values 'overrides/prod values.yaml'",
+		"--deploy",
+		"--wait",
+		"--lock-file clusters/prod/.nopsai/release.lock",
+	} {
+		if !strings.Contains(kubernetesCommand, required) {
+			t.Fatalf("kubernetes preview missing %q in %q", required, kubernetesCommand)
+		}
 	}
 }
 
@@ -705,6 +803,7 @@ func TestRootInteractiveRawAPIRequestUsesTransportOptions(t *testing.T) {
 		"n", // do not attach bearer token
 		"y", // show headers
 		"y", // send
+		"y", // execute previewed command
 		"back", "1",
 		"exit", "1",
 	}, "\n") + "\n")
@@ -718,6 +817,60 @@ func TestRootInteractiveRawAPIRequestUsesTransportOptions(t *testing.T) {
 	for _, want := range []string{"Status: ok", "HTTP/1.1 200 OK", "X-Result: ok", "pong"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("interactive raw request missing %q in:\n%s", want, output)
+		}
+	}
+}
+
+func TestRootInteractiveRawAPIRequestPreviewCanCancelBeforeSend(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz":
+			_, _ = w.Write([]byte("ok"))
+		case "/version":
+			_ = json.NewEncoder(w).Encode(map[string]string{"product_version": "2.7.0", "api_version": "v1"})
+		case "/v1/setup/preflight":
+			_, _ = w.Write([]byte(`{"ready":true,"mode":"ready"}`))
+		case "/v1/auth/me":
+			_, _ = w.Write([]byte(`{"email":"operator@example.com"}`))
+		case "/echo":
+			calls++
+			_, _ = w.Write([]byte("pong"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	dependencies := testDependencies(server.Client(), map[string]string{"NOPSAI_TOKEN": "should-not-send"})
+	dependencies.In = strings.NewReader(strings.Join([]string{
+		"api", "1",
+		"raw", "1",
+		"",
+		"/echo",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"n",
+		"n",
+		"y",
+		"n",
+		"back", "1",
+		"exit", "1",
+	}, "\n") + "\n")
+	output, err := executeCommand(dependencies, "--api", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("cancelled raw preview still sent %d request(s)", calls)
+	}
+	for _, want := range []string{"Command preview", "nopsai api request GET /echo --no-auth"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("cancelled raw preview missing %q in:\n%s", want, output)
 		}
 	}
 }

@@ -60,6 +60,16 @@ func isPasswordChangeAllowedPath(path string) bool {
 	}
 }
 
+func isFirstInstallSetupAllowedPath(path string) bool {
+	path = strings.TrimSpace(path)
+	switch path {
+	case "/v1/auth/me", "/v1/auth/password":
+		return true
+	default:
+		return strings.HasPrefix(path, "/v1/setup/")
+	}
+}
+
 func isDispatcherInternalPath(path string) bool {
 	switch {
 	case path == "/v1/run":
@@ -226,6 +236,15 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "password change required", http.StatusForbidden)
 			return
 		}
+		setupRequired, err := a.firstInstallSetupRequired(r.Context())
+		if err != nil {
+			http.Error(w, "failed to validate setup state", http.StatusInternalServerError)
+			return
+		}
+		if setupRequired && !isFirstInstallSetupAllowedPath(r.URL.Path) {
+			http.Error(w, "first-install setup required", http.StatusForbidden)
+			return
+		}
 
 		ctx := auth.WithClaims(r.Context(), claims)
 		if state := auditRequestStateFromContext(ctx); state != nil {
@@ -233,6 +252,25 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (a *App) firstInstallSetupRequired(ctx context.Context) (bool, error) {
+	if a == nil || a.db == nil {
+		return false, nil
+	}
+	var completedAt string
+	err := a.db.QueryRow(ctx, `
+		SELECT value
+		FROM setup_state
+		WHERE key = $1
+	`, setupStateKeyCompletedAt).Scan(&completedAt)
+	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(completedAt) == "", nil
 }
 
 func (a *App) authenticateServiceToken(ctx context.Context, token string) (*auth.Claims, error) {

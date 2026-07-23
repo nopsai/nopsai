@@ -152,6 +152,11 @@ func runInteractiveRawAPIRequest(command *cobra.Command, options *rootOptions, p
 		}
 		validation = err.Error()
 	}
+	if err := showInteractiveCommandPreview(prompter, "API request command preview", apiRequestPreviewArgs(method, path, requestOptions), []string{
+		"Send the configured HTTP request to the selected API context.",
+	}, commandPreviewScreenOptions([]string{"Home", "API", "Raw request", "Preview"}, "API Request Preview", sessionHeaderLines(state))); err != nil {
+		return err
+	}
 	session, err := options.resolveSessionWithToken(false, !requestOptions.noAuth)
 	if err != nil {
 		return err
@@ -224,6 +229,12 @@ func runInteractiveAPIRoutes(command *cobra.Command, prompter *interactive.Promp
 	if err != nil {
 		return err
 	}
+	if err := showInteractiveCommandPreview(prompter, "API routes command preview", apiRoutesPreviewArgs(values["domain"], values["method"], values["audience"], output), []string{
+		"Render the route catalog compiled into this CLI.",
+		"No API request is sent.",
+	}, commandPreviewScreenOptions([]string{"Home", "API", "Routes", "Preview"}, "API Routes Preview", sessionHeaderLines(state))); err != nil {
+		return err
+	}
 	routes, err := filterRoutes(apicatalog.Routes(), values["domain"], values["method"], values["audience"])
 	if err != nil {
 		return err
@@ -282,6 +293,12 @@ func runInteractiveAPIDescribe(command *cobra.Command, prompter *interactive.Pro
 	}
 	output, err := requireChoiceValue(fieldValueMap(edited)["output"], "Output format", "text", "json", "yaml")
 	if err != nil {
+		return err
+	}
+	if err := showInteractiveCommandPreview(prompter, "API describe command preview", apiDescribePreviewArgs(route.Method, route.Path, output), []string{
+		"Render the selected route description from the compiled API catalog.",
+		"No API request is sent.",
+	}, commandPreviewScreenOptions([]string{"Home", "API", "Describe", "Preview"}, "API Describe Preview", sessionHeaderLines(state))); err != nil {
 		return err
 	}
 	stdout, stderr, renderErr := captureCommandOutput(command, func() error {

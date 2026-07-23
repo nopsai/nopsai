@@ -177,7 +177,7 @@ func resolveBootstrapAdminCredentials(cfg *config.Config) (bootstrapAdminCredent
 		passwordConfigured = true
 	}
 
-	mustChangePassword := false
+	mustChangePassword := passwordConfigured
 	if admin.MustChangePassword != nil {
 		mustChangePassword = *admin.MustChangePassword
 	}

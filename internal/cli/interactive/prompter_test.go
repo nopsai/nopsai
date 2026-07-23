@@ -116,8 +116,11 @@ func TestPrompterChooseUsesLiveSelectorOnTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(contents)
-	if !strings.Contains(text, "\x1b[?1049h") || !strings.Contains(text, "\x1b[2J\x1b[H") || !strings.Contains(text, "GET /v1/auth/providers") {
+	if !strings.Contains(text, "\x1b[2J\x1b[H") || !strings.Contains(text, "GET /v1/auth/providers") {
 		t.Fatalf("live selector output = %q", contents)
+	}
+	if strings.Contains(text, "\x1b[?1049") {
+		t.Fatalf("live selector should not switch to the alternate screen buffer: %q", contents)
 	}
 	if strings.Contains(text, "Route: GET /v1/auth/providers") {
 		t.Fatalf("live selector should not leave a selected transcript line: %q", contents)
@@ -459,12 +462,35 @@ func TestRunLiveFieldEditorSupportsMultilineInput(t *testing.T) {
 	if !strings.Contains(text, "Home > API Request >") ||
 		!strings.Contains(text, "Parameters") ||
 		!strings.Contains(text, "> 1. payload source: paste") ||
-		!strings.Contains(text, "Value: 2 lines") ||
+		!strings.Contains(text, "Value:") ||
+		!strings.Contains(text, "      {") ||
+		!strings.Contains(text, "      }") ||
 		!strings.Contains(text, styleBold("Guide:")) ||
 		!strings.Contains(text, "        Paste JSON content.") ||
-		strings.Contains(text, "1 | {") ||
+		strings.Contains(text, "Value: 2 lines") ||
 		strings.Contains(text, "Input mode: multiline editor") {
 		t.Fatalf("multiline form output = %q", text)
+	}
+}
+
+func TestRunLiveFieldEditorSkipsBlankOptionalMultilineWithEnter(t *testing.T) {
+	fields := []Field{
+		{Name: "query.extra", Label: "Additional query values", Multiline: true, Description: "Optional query assignments."},
+		{Name: "auth", Label: "Attach bearer token", Value: "yes", Kind: FieldBoolean, Description: "Attach auth."},
+	}
+	var output bytes.Buffer
+	edited, err := runLiveFieldEditor(bufio.NewReader(strings.NewReader("\n"+string([]byte{19}))), &output, "API Request", fields, 100, 36, ScreenOptions{Title: "API Request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited[0].Value != "" || edited[1].Value != "yes" {
+		t.Fatalf("edited fields = %#v", edited)
+	}
+	text := output.String()
+	if !strings.Contains(text, "✓ 1. additional query values") ||
+		!strings.Contains(text, "> 2. attach bearer token") ||
+		strings.Contains(text, "<blank line>") {
+		t.Fatalf("optional multiline skip output = %q", text)
 	}
 }
 

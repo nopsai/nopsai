@@ -26,6 +26,7 @@ secrets:
     jwtSigningKey: jwt-signing-key
     serviceJWTSigningKey: service-jwt-signing-key
     aaaSharedInternalToken: aaa-shared-internal-token
+    dispatcherTLSSecret: dispatcher-tls-secret
     bootstrapAdminPassword: bootstrap-admin-password
 
 base:

@@ -39,7 +39,13 @@ import {
   type UserDraft,
 } from './setup/model';
 
-function SetupWizard({ canManage }: { canManage: boolean }) {
+function SetupWizard({
+  canManage,
+  onStatusChange,
+}: {
+  canManage: boolean;
+  onStatusChange?: (status: SetupStatus) => void;
+}) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +108,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   }, [selectedTemplatePath, templatePaths, templates]);
 
   const updateRuntimeImplementation = (nextRuntime: RuntimeImplementation) => {
-    if (nextRuntime === 'kubernetes') return;
     const previousDefaults = runtimeDefaults(runtimeImplementation);
     const nextDefaults = runtimeDefaults(nextRuntime);
     setRuntimeImplementation(nextRuntime);
@@ -116,6 +121,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     try {
       const payload = await fetchSetupStatus();
       setStatus(payload);
+      onStatusChange?.(payload);
       setNopsaiAPIURL(current => {
         const configured = (payload.github.nopsai_api_url || '').trim();
         return configured && (!current.trim() || current === runtimeDefaults('docker').nopsaiAPIURL) ? configured : current;
@@ -135,7 +141,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onStatusChange]);
 
   useEffect(() => {
     void loadStatus();
@@ -281,7 +287,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     ];
     const nopsaiLines = [
       `GIT_BOT_API_URL=${gitBotServiceURL.trim() || currentRuntimeDefaults.gitBotServiceURL}`,
-      runtimeImplementation === 'docker' ? 'DOCKER_NETWORK_NAME=nopsai-net' : '# Kubernetes runtime is under construction.',
+      runtimeImplementation === 'docker' ? 'DOCKER_NETWORK_NAME=nopsai-net' : 'RUNTIME=kubernetes',
     ];
     const gitBotLines = [
       `NOPSAI_API_URL=${nopsaiAPIURL.trim() || currentRuntimeDefaults.nopsaiAPIURL}`,
@@ -386,6 +392,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       });
       setBootstrapResult(payload);
       setStatus(payload.status);
+      onStatusChange?.(payload.status);
       setLLMAPIKey('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed');
@@ -410,6 +417,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     repositories,
     repoURL,
     saving,
+    onStatusChange,
     syncConfigRepository,
     userPayload,
   ]);
@@ -448,19 +456,19 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <div className="space-y-4">
             <StepIntro title="Collect service-level runtime values" icon={<KeyRound className="h-4 w-4" />}>
-              NopsAI needs shared signing, dispatcher, webhook, and service URLs so the UI, API, git-bot, dispatcher, runners, and agents can trust each other. Docker Compose uses service-network addresses; Kubernetes support is visible here but still under construction.
+              NopsAI needs shared signing, dispatcher, webhook, and service URLs so the UI, API, git-bot, dispatcher, runners, and agents can trust each other. Choose the runtime address family that matches this installation.
             </StepIntro>
             <div className="grid gap-3 md:grid-cols-2">
               <button type="button" onClick={() => updateRuntimeImplementation('docker')} className={`rounded-lg border p-3 text-left ${runtimeImplementation === 'docker' ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}>
                 <div className="text-sm font-semibold">Docker Compose</div>
                 <div className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">Use container DNS names like `nopsai` and `git-bot` on the `nopsai-net` bridge network.</div>
               </button>
-              <button type="button" disabled className="rounded-lg border border-[var(--border-primary)] p-3 text-left opacity-60">
+              <button type="button" onClick={() => updateRuntimeImplementation('kubernetes')} className={`rounded-lg border p-3 text-left ${runtimeImplementation === 'kubernetes' ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}>
                 <div className="flex items-center justify-between gap-2 text-sm font-semibold">
                   <span>Kubernetes</span>
-                  <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase text-amber-700 dark:text-amber-300">Under construction</span>
+                  <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase text-emerald-700 dark:text-emerald-300">Available</span>
                 </div>
-                <div className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">Service DNS defaults are planned, but this wizard will not apply K8s manifests yet.</div>
+                <div className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">Use cluster DNS names like `nopsai.nopsai.svc.cluster.local` and `nopsai-git-bot.nopsai.svc.cluster.local`.</div>
               </button>
             </div>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
@@ -511,7 +519,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <div className="space-y-4">
             <StepIntro title="Create one or two repository teams" icon={<Users className="h-4 w-4" />}>
-              This is an introduction, not a full migration. Create one or two teams and add app repositories as GitHub `owner/repo` names, for example `acme/service-api`. NopsAI uses the repository URL identity for starter triggers, pipeline-run navigation, and user access assignments.
+              This is an introduction, not a full migration. Create one or two top-level teams and add app repositories as GitHub `owner/repo` names, for example `acme/service-api`. NopsAI uses the repository URL identity for starter triggers, pipeline-run navigation, and user access assignments.
             </StepIntro>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <input type="checkbox" checked={repositoryEnabled} onChange={event => setRepositoryEnabled(event.target.checked)} disabled={!canManage} />
@@ -620,7 +628,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
                     <option value="viewer">Viewer</option>
                   </select>
                   <select className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm" value={user.team} onChange={event => updateUser(user.id, { team: event.target.value })} disabled={!canManage || !usersEnabled}>
-                    {userTeamOptions.map(team => <option key={team || 'workspace'} value={team}>{team || 'workspace'}</option>)}
+                    {userTeamOptions.map(team => <option key={team || 'no-team'} value={team}>{team || 'No team selected'}</option>)}
                   </select>
                   <button className="rounded-md border border-[var(--border-primary)] p-2 disabled:opacity-50" onClick={() => removeUser(user.id)} disabled={!canManage} title="Remove user">
                     <Trash2 className="h-4 w-4" />

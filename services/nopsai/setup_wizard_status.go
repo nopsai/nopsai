@@ -345,6 +345,10 @@ func (a *App) generateSetupSecrets() ([]string, bool, error) {
 		updates[envKey] = value
 		return nil
 	}
+	dispatcherTLSSecret := cfg.DispatcherTLSSecret
+	if strings.TrimSpace(dispatcherTLSSecret) == "" && strings.TrimSpace(cfg.EffectiveDispatcherTLSSecret()) != "" {
+		dispatcherTLSSecret = cfg.EffectiveDispatcherTLSSecret()
+	}
 	for _, candidate := range []struct {
 		current string
 		envKey  string
@@ -353,7 +357,7 @@ func (a *App) generateSetupSecrets() ([]string, bool, error) {
 		{cfg.JWTSigningKey, "JWT_SIGNING_KEY", 48},
 		{cfg.ServiceJWTSigningKey, "SERVICE_JWT_SIGNING_KEY", 48},
 		{cfg.AAASharedToken, "AAA_SHARED_INTERNAL_TOKEN", 32},
-		{cfg.DispatcherTLSSecret, "DISPATCHER_TLS_SECRET", 48},
+		{dispatcherTLSSecret, "DISPATCHER_TLS_SECRET", 48},
 	} {
 		if err := addIfEmpty(candidate.current, candidate.envKey, candidate.bytes); err != nil {
 			return nil, false, err
@@ -361,6 +365,9 @@ func (a *App) generateSetupSecrets() ([]string, bool, error) {
 	}
 	if len(updates) == 0 {
 		return nil, false, nil
+	}
+	if strings.TrimSpace(a.envFilePath) == "" {
+		return nil, false, fmt.Errorf("runtime env file path is not configured; set ENV_FILE_PATH or provide the missing secret environment variables before applying setup")
 	}
 	if err := systemconfig.WriteEnvFile(a.envFilePath, updates); err != nil {
 		return nil, false, err

@@ -4,10 +4,11 @@ The first-install wizard guides an administrator from an empty database to a
 working NopsAI workspace without reading the full configuration reference first.
 It lives in the UI at **System > Setup** and is backed by `/v1/setup/*` API
 endpoints. After the bootstrap admin clears any first-login password
-requirement, the UI checks setup status once per browser session and
-automatically opens a guided setup modal when setup is incomplete. Generated
-installs create the bootstrap admin from the operator-provided or generated
-first-install password instead of seeding a production default.
+requirement, the UI and API enforce setup completion before normal workspace
+pages and APIs are available. Direct URL changes are redirected back to
+**System > Setup** until setup is completed once. Generated installs create the
+bootstrap admin from the operator-provided or generated first-install password
+instead of seeding a production default.
 
 Before login, the UI also checks `/v1/setup/preflight`. If required
 configuration is missing, the login page shows installation guidance instead of
@@ -26,6 +27,9 @@ The authenticated setup page is a system administration surface:
   configuration before authentication is available.
 - `GET /v1/setup/*` requires `system.read` on `system:config`.
 - `POST /v1/setup/*` requires `system.update` on `system:config`.
+- Until `setup_state.completed_at` is written, authenticated API requests other
+  than `/v1/auth/me`, `/v1/auth/password`, and `/v1/setup/*` fail closed with
+  a first-install setup requirement.
 
 The local bootstrap admin can open the wizard after login, but the health
 checks will warn if the development `admin` password is still in use or if the
@@ -50,16 +54,18 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    master encryption key, and JWT signing key.
 2. Resolve any required preflight items in `docker-compose.yaml`, exported
    environment, or `config.yml`, then restart affected services.
-3. Sign in as an administrator. On an incomplete installation the UI opens the
-   setup modal automatically. If the bootstrap admin must change password, the
-   Profile page is shown first and setup opens after the password requirement is
-   cleared.
+3. Sign in as an administrator. On an incomplete installation the UI locks
+   normal navigation to **System > Setup**. If the bootstrap admin must change
+   password, the Profile page is shown first and setup opens after the password
+   requirement is cleared.
 4. Review health checks for database connectivity, local secrets, admin
    bootstrap state, git-bot service configuration, access grants, LLM/MCP
    configuration, starter pipeline presence, and runner connectivity.
 5. Review runtime values for service-to-service auth, git-bot forwarding, and
-   service discovery. The final step prints variables that can be applied as
-   container environment, secret-manager values, or an environment file.
+   service discovery. Docker Compose uses bridge-network DNS defaults;
+   Kubernetes uses cluster DNS defaults. The final step prints variables that can
+   be applied as container environment, secret-manager values, or an environment
+   file.
 6. Optionally connect a global GitOps config repository and start sync.
 7. Create one or two repository teams and place selected repositories under
    them. These teams drive starter trigger generation, run navigation, and
@@ -132,17 +138,23 @@ Production startup gates:
 
 ## Generated Service Secrets
 
-When **Generate missing service secrets** is enabled, the wizard fills missing
-values for:
+When **Generate missing service secrets** is enabled, the wizard fills genuinely
+missing values for:
 
 - `JWT_SIGNING_KEY`
 - `SERVICE_JWT_SIGNING_KEY`
 - `AAA_SHARED_INTERNAL_TOKEN`
 - `DISPATCHER_TLS_SECRET`
 
-The API response lists the names that were generated and sets
-`requires_restart` when runtime values changed. Restart services after
-generating secrets so every process reads the same values.
+Generated Docker Compose installs already provide these bootstrap-time values in
+`.env`. If `DISPATCHER_TLS_SECRET` is not set but the effective service JWT key
+already provides the dispatcher TLS trust seed, the wizard does not force an
+env-file write. If values are missing and the API was not started with
+`ENV_FILE_PATH`, setup returns a clear error instead of a generic apply failure.
+
+The API response lists the names that were generated and sets `requires_restart`
+when runtime values changed. Restart services after generating secrets so every
+process reads the same values.
 
 Do not commit these values to the config repository.
 
@@ -181,10 +193,13 @@ Required GitHub App permissions:
 
 Repository teams are entered manually as GitHub `owner/repo` names or GitHub
 URLs. Starter GitOps structure stores each app with a `repo_url`, which NopsAI
-normalizes for trigger-to-app matching. If a repository does not trigger later,
-verify the GitHub App ID, installation ID, private key, webhook secret, public
-git-bot webhook URL, internal git-bot service URL, and which repositories are
-selected in the GitHub App installation.
+normalizes for trigger-to-app matching. The direct database seed mirrors the
+selected team names as top-level teams; it does not create an extra workspace
+parent above them. If repository teams are disabled, setup does not create a
+synthetic team root. If a repository does not trigger later, verify the GitHub
+App ID, installation ID, private key, webhook secret, public git-bot webhook
+URL, internal git-bot service URL, and which repositories are selected in the
+GitHub App installation.
 
 ## Starter Templates
 
@@ -198,7 +213,7 @@ steps/setup/announce.yaml
 triggers/<owner>/<repo>.yaml
 scopes/dev/scope.yaml
 scopes/prod/scope.yaml
-knowledge/guideline/platform/setup-run.md
+knowledge/guideline/<team>/setup-run.md
 access/bootstrap.yaml
 setting/system/llm_profile.yaml
 setting/system/mcp.yaml
