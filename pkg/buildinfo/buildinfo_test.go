@@ -39,7 +39,9 @@ func TestCurrentUsesSafeDevelopmentDefaults(t *testing.T) {
 }
 
 func TestDefaultCapabilitiesIncludeInstallTargets(t *testing.T) {
-	if !strings.Contains(DefaultCapabilities, "platform.docker-compose") || !strings.Contains(DefaultCapabilities, "platform.helm") {
+	if !strings.Contains(DefaultCapabilities, "platform.docker-compose") ||
+		!strings.Contains(DefaultCapabilities, "platform.helm") ||
+		!strings.Contains(DefaultCapabilities, "runner.local-registry-auth.v1") {
 		t.Fatalf("default capabilities do not include install targets: %s", DefaultCapabilities)
 	}
 }

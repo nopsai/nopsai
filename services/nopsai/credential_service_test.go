@@ -57,6 +57,7 @@ func (s *memoryCredentialStore) UpsertCredentialMetadata(ctx context.Context, cr
 		existing := s.credentials[existingID]
 		existing.Kind = credential.Kind
 		existing.Description = credential.Description
+		existing.Metadata = credential.Metadata
 		existing.ManagedByConfigRepo = credential.ManagedByConfigRepo
 		existing.ConfigRepoID = credential.ConfigRepoID
 		existing.ConfigSourcePath = credential.ConfigSourcePath
@@ -66,6 +67,17 @@ func (s *memoryCredentialStore) UpsertCredentialMetadata(ctx context.Context, cr
 		return existing, nil
 	}
 	return s.CreateCredential(ctx, credential)
+}
+
+func (s *memoryCredentialStore) UpdateCredentialMetadata(_ context.Context, credentialID uuid.UUID, metadata map[string]any, actor string) error {
+	credential, ok := s.credentials[credentialID]
+	if !ok {
+		return credentials.ErrNotFound
+	}
+	credential.Metadata = metadata
+	credential.UpdatedBy = actor
+	s.credentials[credentialID] = credential
+	return nil
 }
 
 func (s *memoryCredentialStore) GetCredentialByID(_ context.Context, id uuid.UUID) (credentials.Credential, error) {
@@ -313,6 +325,46 @@ func TestCredentialServiceLifecycle(t *testing.T) {
 	}
 	if _, exists := store.versions[credential.ID][2]; exists {
 		t.Fatal("DeleteVersion() retained deleted version 2")
+	}
+}
+
+func TestCredentialServiceDockerConfigJSONMetadata(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryCredentialStore()
+	codec, err := credentials.NewEnvelopeCodec("01234567890123456789012345678901")
+	if err != nil {
+		t.Fatalf("NewEnvelopeCodec() error = %v", err)
+	}
+	service, err := newCredentialService(store, codec, nil)
+	if err != nil {
+		t.Fatalf("newCredentialService() error = %v", err)
+	}
+	ref, _ := credentials.ParseReference("credential://system/registry/ghcr")
+	record, err := service.Create(ctx, createCredentialInput{
+		Reference: ref,
+		Kind:      "docker_config_json",
+		Value:     []byte(`{"auths":{"GHCR.IO":{"username":"svc","password":"token"},"https://index.docker.io/v1/":{"auth":"dTpw"}}}`),
+		Actor:     "admin",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	hosts, ok := record.Metadata["registry_hosts"].([]string)
+	if !ok {
+		t.Fatalf("registry_hosts metadata = %#v, want []string", record.Metadata["registry_hosts"])
+	}
+	if got := strings.Join(hosts, ","); got != "ghcr.io,index.docker.io" {
+		t.Fatalf("registry_hosts = %q", got)
+	}
+
+	badRef, _ := credentials.ParseReference("credential://system/registry/bad")
+	if _, err := service.Create(ctx, createCredentialInput{
+		Reference: badRef,
+		Kind:      "docker_config_json",
+		Value:     []byte(`{"auths":{"ghcr.io":{}}}`),
+		Actor:     "admin",
+	}); err == nil {
+		t.Fatal("Create() succeeded with invalid docker config auth")
 	}
 }
 

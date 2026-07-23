@@ -24,6 +24,7 @@ type credentialResponse struct {
 	Reference             string                      `json:"reference"`
 	Kind                  string                      `json:"kind"`
 	Description           string                      `json:"description,omitempty"`
+	Metadata              map[string]any              `json:"metadata,omitempty"`
 	Status                string                      `json:"status"`
 	HasValue              bool                        `json:"has_value"`
 	ActiveVersion         int                         `json:"active_version"`
@@ -58,6 +59,7 @@ func credentialResponseFromRecord(record credentials.Credential) credentialRespo
 		Reference:             record.Reference.String(),
 		Kind:                  record.Kind,
 		Description:           record.Description,
+		Metadata:              record.Metadata,
 		Status:                record.Status,
 		HasValue:              record.HasValue(),
 		ActiveVersion:         record.ActiveVersion,

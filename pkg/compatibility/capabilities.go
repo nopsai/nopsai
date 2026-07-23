@@ -18,6 +18,8 @@ const (
 	CapabilityPlatformHelm       = "platform.helm"
 	CapabilityRunnerDocker       = "runner.docker"
 	CapabilityRunnerK8s          = "runner.kubernetes"
+	CapabilityRunnerLocalAuth    = "runner.local-registry-auth.v1"
+	CapabilityRunnerRegistryAuth = "runner.registry-auth.v1"
 	CapabilityCLICatalogV1       = "cli.api-catalog.v1"
 )
 

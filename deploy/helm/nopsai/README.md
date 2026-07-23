@@ -86,6 +86,19 @@ kubectl -n nopsai patch serviceaccount nopsai-runner \
   -p '{"imagePullSecrets":[{"name":"nopsai-registry"}]}'
 ```
 
+These chart-level pull secrets are infrastructure-provided release credentials.
+They remain separate from runner registry credentials managed inside NopsAI.
+For additional runners created from **System > Dispatcher > Runner Installs**,
+administrators can select active `docker_config_json` credentials. Kubernetes
+bootstrap commands turn those selected configs into a temporary
+`kubernetes.io/dockerconfigjson` Secret for the runner ServiceAccount; Docker
+bootstrap commands use a temporary Docker CLI config for the initial runner
+image pull, then pass the selected config to the Docker runner as
+`NOPSAI_REGISTRY_DOCKER_CONFIG_B64`. Docker runner and agent image pulls match
+registry hosts locally and pass per-image `RegistryAuth` to the Docker Engine
+API without calling NopsAI for every pull. Do not put registry passwords in Helm
+values.
+
 `topology.dispatcherGRPCAddress` controls the internal dispatcher gRPC endpoint
 in the API and Kubernetes runner Deployments. It defaults to `dispatcher:9090`
 and can be overridden when the dispatcher Service name, namespace, or port is

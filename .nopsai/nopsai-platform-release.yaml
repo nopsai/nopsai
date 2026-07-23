@@ -456,7 +456,7 @@ steps:
       apk add --no-cache bash docker-cli-buildx jq
       bash dist/release/publish-release-image.sh nopsai-git-bot . container/Dockerfile.git-bot
 
-  - name: publish-image-nopsai-runner
+  - name: publish-image-nopsai-docker-runner
     image: docker:27-cli
     depends_on:
       - publish-base-image
@@ -465,7 +465,7 @@ steps:
     script: |
       set -eu
       apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-runner . container/Dockerfile.docker-runner
+      bash dist/release/publish-release-image.sh nopsai-docker-runner . container/Dockerfile.docker-runner
 
   - name: publish-image-nopsai-k8s-runner
     image: docker:27-cli
@@ -519,7 +519,7 @@ steps:
       - publish-image-nopsai-agent
       - publish-image-nopsai-dispatcher
       - publish-image-nopsai-git-bot
-      - publish-image-nopsai-runner
+      - publish-image-nopsai-docker-runner
       - publish-image-nopsai-k8s-runner
       - publish-image-nopsai-docker-socket-proxy
       - publish-image-nopsai-ui
@@ -543,7 +543,7 @@ steps:
         nopsai-agent
         nopsai-dispatcher
         nopsai-git-bot
-        nopsai-runner
+        nopsai-docker-runner
         nopsai-k8s-runner
         nopsai-docker-socket-proxy
         nopsai-ui

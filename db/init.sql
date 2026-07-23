@@ -362,6 +362,7 @@ CREATE TABLE credentials (
     name TEXT NOT NULL,
     kind TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'disabled')),
     active_version INTEGER NOT NULL DEFAULT 0 CHECK (active_version >= 0),
     next_version INTEGER NOT NULL DEFAULT 1 CHECK (next_version > 0),
@@ -412,6 +413,27 @@ CREATE INDEX idx_credential_access_logs_credential_created
     ON credential_access_logs(credential_id, created_at DESC);
 CREATE INDEX idx_credential_access_logs_consumer_created
     ON credential_access_logs(consumer_service, created_at DESC);
+
+CREATE TABLE runner_registry_credentials (
+    runner_id TEXT NOT NULL,
+    credential_ref TEXT NOT NULL,
+    registry_hosts JSONB NOT NULL DEFAULT '[]'::jsonb,
+    source TEXT NOT NULL DEFAULT 'database',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (runner_id, credential_ref)
+);
+
+CREATE INDEX idx_runner_registry_credentials_runner
+    ON runner_registry_credentials(runner_id);
+CREATE INDEX idx_runner_registry_credentials_config_repo
+    ON runner_registry_credentials(config_repo_id);
 
 CREATE TABLE variables (
     id SERIAL PRIMARY KEY,

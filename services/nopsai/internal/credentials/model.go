@@ -17,6 +17,7 @@ type Credential struct {
 	Reference             Reference
 	Kind                  string
 	Description           string
+	Metadata              map[string]any
 	Status                string
 	ActiveVersion         int
 	ExpiresAt             *time.Time

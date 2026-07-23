@@ -11,6 +11,7 @@ Start here when you want to understand the system from different angles:
 - [runtime-flows.md](./runtime-flows.md): Step-by-step execution flows for request authorization, webhooks, manual runs, dispatching, agent execution, child pipelines, cancellation, and config sync.
 - [team-resource-ownership-design.md](./team-resource-ownership-design.md): Target design for separating Teams from Pipeline Runs and adding team-scoped LLM, Agent, and MCP profiles.
 - [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.
+- [runner-registry-auth.md](./runner-registry-auth.md): Private Docker registry credentials for runner bootstrap, Docker API image pulls, Kubernetes imagePullSecrets, GitOps assignments, and audit/metrics behavior.
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
 - [dashboards.md](./dashboards.md): Team dashboard model, dashboard final outputs, chart/series publication, publication history, source bindings, scheduled refresh orchestration, GitOps ownership, AAA, monitoring, and MCP.
 - [assistant-capabilities.md](./assistant-capabilities.md): User-facing assistant capabilities and example chat prompts for each NopsAI feature area.

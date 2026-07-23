@@ -407,6 +407,13 @@ dispatcher_routing:
     - runner-dev-1
   "*":
     - runner-general
+
+# Optional runner-to-registry assignments. Values stay in Credentials.
+runner_registry_credentials:
+  runner-prod-1:
+    - credential://system/registry/production-ghcr
+  k8s-runner-prod:
+    - credential://system/registry/production-ghcr
 ```
 
 `runner_id`, `runner_scopes`, and `runner_capacity` are defaults used by the UI
@@ -421,6 +428,13 @@ alongside every scope-specific route and also covers scopes without an explicit
 entry. Changes to `dispatcher_routing` are written to runtime config and exposed
 through the protected internal control-plane endpoint that the dispatcher polls,
 so new scheduling decisions can use the updated table without a restart.
+`runner_registry_credentials` assigns runner IDs to `docker_config_json`
+credential references for private registry pulls. GitOps stores only references;
+encrypted Docker config values remain in `setting/system/credentials.yaml` or
+the database-managed Credentials page. Docker bootstrap installs a local
+env-carried Docker config for runner and agent Docker API pulls, while
+Kubernetes runners use ServiceAccount `imagePullSecrets` created by bootstrap
+or by cluster infrastructure.
 Runtime settings are persisted in the database when synced. `config.yml`,
 `.env`, Docker Compose, and deployment secrets are bootstrap inputs only. On
 NopsAI restart, the persisted database snapshot is loaded before connecting to

@@ -236,9 +236,11 @@ function AppShell() {
   return (
     <div className="app-root-shell min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {isLoginRoute ? (
-        <Suspense fallback={<PageLoading />}>
-          <LoginPage onLogin={handleLoginSuccess} />
-        </Suspense>
+        <div className="h-screen overflow-auto">
+          <Suspense fallback={<PageLoading />}>
+            <LoginPage onLogin={handleLoginSuccess} />
+          </Suspense>
+        </div>
       ) : !isAuthenticated ? (
         <Navigate to="/login" replace />
       ) : (
@@ -297,7 +299,7 @@ function AppShell() {
                 userLoading={currentUserLoading}
                 onOpenProfile={handleOpenProfile}
               />
-              <div id="page-content-wrapper" className="flex-1 overflow-auto">
+              <div id="page-content-wrapper" className="flex-1 min-h-0 overflow-auto overscroll-contain">
                 <AppRoutes
                   access={access}
                   currentUser={currentUser}

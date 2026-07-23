@@ -104,11 +104,12 @@ Responsibilities:
   the `*App` HTTP, config, and persistence wiring.
 - Applies system GitOps runtime settings through shared system-config helpers
   and `runtime_settings_store.go`, persisting runner install defaults, runner
-  runtime defaults, agent defaults, and dispatcher routing in the database as
-  the source of truth. GitHub App IDs, credential references, and git-bot URLs
-  are owned by the GitHub settings file. `config.yml`, `.env`, Docker Compose,
-  and deployment secrets are bootstrap inputs. Mail notification settings stay
-  in their dedicated notification settings store.
+  runtime defaults, agent defaults, runner registry credential assignments, and
+  dispatcher routing in the database as the source of truth. GitHub App IDs,
+  credential references, and git-bot URLs are owned by the GitHub settings file.
+  `config.yml`, `.env`, Docker Compose, and deployment secrets are bootstrap
+  inputs. Mail notification settings stay in their dedicated notification
+  settings store.
 - Exposes versioned internal runtime snapshots at
   `/internal/v1/runtime-config/{service}` and a long-poll watch endpoint for
   services that can reload clients or reconnect without a container restart.
@@ -405,6 +406,8 @@ Responsibilities:
 - Connects to the dispatcher and registers its `runner_id`, scopes, capacity, and metadata.
 - Receives job assignments over gRPC.
 - Ensures the agent image exists locally.
+- Resolves assigned private registry auth from NopsAI before Docker API image
+  pulls.
 - Creates a shared Docker volume for the run.
 - Starts the agent container with Docker socket access and the shared workspace volume.
 - Streams container logs back through the dispatcher.
@@ -430,11 +433,16 @@ Outbound interfaces:
 
 - Docker Engine API
 - gRPC to the dispatcher
+- Env-carried local Docker config for assigned private image pulls
 
 Operational assumptions:
 
 - The runner has access to `/var/run/docker.sock`.
-- The runner can pull images that the pipeline or agent needs.
+- The runner can reach NopsAI and the required registries. Host `docker login`
+  is not enough for runner-owned pulls because the runner calls the Docker API;
+  selected `docker_config_json` credentials are passed as
+  `NOPSAI_REGISTRY_DOCKER_CONFIG_B64` so runner and agent pulls can supply
+  matching per-image `RegistryAuth` locally.
 
 ## `services/k8s-runner`
 
@@ -446,6 +454,8 @@ Responsibilities:
 
 - Connects to the dispatcher and registers as a `runtime=kubernetes` runner.
 - Starts an agent pod with Kubernetes runtime variables and a run workspace volume.
+- Uses ServiceAccount `imagePullSecrets` for private runner, agent, and step
+  image pulls when infra or the one-time bootstrap command attaches them.
 - Streams agent pod logs back through the dispatcher.
 - Polls run status so a cancelled run deletes the active agent pod quickly.
 - Passes namespace, service account, storage, affinity, and runtime pool settings to the agent.

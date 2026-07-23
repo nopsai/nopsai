@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"nopsai/pkg/models"
+	"nopsai/pkg/registryauth"
 	"nopsai/pkg/startupgates"
 	agentapp "nopsai/services/agent/internal/app"
 	llmruntime "nopsai/services/agent/internal/llm"
@@ -79,6 +80,14 @@ func Run() int {
 		logAgentRuntimeWiringError(runID, pipelineName, err)
 		return 1
 	}
+	registryAuthResolver, registryHosts, err := registryauth.DockerConfigResolverFromEnv(os.Getenv)
+	if err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to load local Docker registry auth config")
+		return 1
+	}
+	if registryAuthResolver.Configured() {
+		agentLog(runID, pipelineName).Info().Strs("registry_hosts", registryHosts).Msg("Loaded local Docker registry auth config")
+	}
 
 	dispatcherConn, err := connectAgentDispatcher(os.Getenv)
 	if err != nil {
@@ -115,11 +124,15 @@ func Run() int {
 		}
 	}
 
-	stepRuntime := agentapp.NewContainerStepRuntime(executionRuntime, agentapp.ContainerStepRuntimeOptions{
+	stepRuntimeOptions := agentapp.ContainerStepRuntimeOptions{
 		SharedVolumeName:  sharedVolumeName,
 		DockerNetworkName: dockerNetworkName,
 		GitRepoName:       os.Getenv("GIT_REPO_NAME"),
-	})
+	}
+	if registryAuthResolver.Configured() {
+		stepRuntimeOptions.RegistryAuth = registryAuthResolver
+	}
+	stepRuntime := agentapp.NewContainerStepRuntime(executionRuntime, stepRuntimeOptions)
 
 	result := agentapp.RunPipeline(agentapp.PipelineRunRequest{
 		RunID:                   runID,
@@ -150,11 +163,30 @@ func Run() int {
 		NotifyFinalStatus:       notifyFinalStatus,
 		WatchRunCancellation:    watchRunCancellation,
 		Env:                     os.Getenv,
-		Environment:             os.Environ,
+		Environment:             agentPipelineEnvironment,
 		Exit:                    os.Exit,
 		KnowledgePrompt:         buildEffectiveKnowledgeContextPrompt,
 		BlockingKnowledgeKinds:  effectiveBlockingKnowledgeContextKinds,
 		KnowledgeViolation:      knowledgeContextViolationFailureReason,
 	})
 	return result.ExitCode
+}
+
+func agentPipelineEnvironment() []string {
+	return filteredAgentEnvironment(os.Environ())
+}
+
+func filteredAgentEnvironment(environ []string) []string {
+	filtered := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(key, "NOPSAI_REGISTRY_DOCKER_CONFIG_") {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }

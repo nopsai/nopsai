@@ -14,6 +14,11 @@ The in-app wiki must be usable as a field reference. A user who sees
 `allowed_callers` under an external trigger should be able to search that exact
 directive and learn what it does, where it can be used, what it does not grant,
 and which options are currently supported.
+Runner-private-registry documentation must be searchable by
+`docker_config_json`, `runner_registry_credentials`, `registry_credential_ref`,
+`imagePullSecrets`, and `RegistryAuth`, and must clearly separate
+infrastructure-owned platform pull secrets from NopsAI-owned runner credential
+assignments.
 
 The wiki must be self-contained. It may list repository files as implementation
 evidence, but it must not depend on outbound GitHub, external documentation, or

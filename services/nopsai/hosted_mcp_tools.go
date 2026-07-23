@@ -119,6 +119,10 @@ func stringSchema() map[string]any {
 	return map[string]any{"type": "string"}
 }
 
+func arraySchema(items map[string]any) map[string]any {
+	return map[string]any{"type": "array", "items": items}
+}
+
 func numberSchema() map[string]any {
 	return map[string]any{"type": "number"}
 }

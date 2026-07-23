@@ -209,8 +209,19 @@ The generated manifest includes:
 - ServiceAccount
 - Role and RoleBinding scoped to that namespace
 - Secret for dispatcher service authentication
+- Optional Docker registry Secret from selected `docker_config_json`
+  credentials
 - ConfigMap for runner runtime settings
 - Deployment for `nopsai-k8s-runner`
+
+When registry credentials are selected in the install UI, the one-time
+bootstrap command resolves only those credentials, creates a
+`kubernetes.io/dockerconfigjson` Secret, and attaches it to the runner
+ServiceAccount as an `imagePullSecret`. This covers the runner image plus agent
+and step images that Kubernetes pulls in that namespace. The raw manifest
+endpoint below does not include credential material; for GitOps cluster
+manifests, create the imagePullSecret through infrastructure or secret-manager
+automation and attach it to the ServiceAccount.
 
 Refresh **System > Dispatcher** to confirm the runner is registered. Kubernetes
 runners show their runtime, namespace, service account, scope, capacity, and

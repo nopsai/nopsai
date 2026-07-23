@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if buildinfo.Requested(os.Args[1:]) {
-		_ = buildinfo.WriteVersion(os.Stdout, "nopsai-runner")
+		_ = buildinfo.WriteVersion(os.Stdout, "nopsai-docker-runner")
 		return
 	}
 	app.Run()

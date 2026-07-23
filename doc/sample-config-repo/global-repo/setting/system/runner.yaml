@@ -45,6 +45,13 @@ dispatcher_routing:
   "*":
     - runner-general
 
+# Optional runner-to-registry assignments. Values stay in Credentials.
+runner_registry_credentials:
+  runner-prod-1:
+    - credential://system/registry/production-ghcr
+  k8s-runner-prod:
+    - credential://system/registry/production-ghcr
+
 # Kubernetes runner example. Use one runner per namespace and a unique runner_id.
 # runtime: kubernetes
 # runner_id: k8s-runner-ams-1
