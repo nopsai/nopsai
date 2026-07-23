@@ -78,10 +78,13 @@ and `.nopsai/install.lock`. The `.env` file contains generated local secrets and
 must stay out of Git. The install lock is non-secret and records the generated
 version, image references, and file hashes.
 
-Kubernetes generation writes editable Helm values and `.nopsai/install.lock`.
-The values reference the versioned OCI chart and image tags, plus the Secret
-named by `secrets.existingSecret`. Create that Secret with External Secrets,
-SOPS, Sealed Secrets, or another cluster secret manager before deploying.
+Kubernetes generation writes editable Helm values, `README.md`, and
+`.nopsai/install.lock`. The values reference the versioned OCI chart and image
+tags, plus the Secret named by `secrets.existingSecret`. The generated README
+records prerequisites, the expected Secret keys, `kubectl` Secret creation
+examples, CLI deploy commands, direct Helm commands, and basic verification
+commands. Create the Secret with External Secrets, SOPS, Sealed Secrets, or
+another cluster secret manager before deploying.
 
 After editing values, deploy from the generated directory:
 

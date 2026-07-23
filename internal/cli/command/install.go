@@ -337,6 +337,7 @@ func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 					"",
 					"Generates",
 					"  - values.yaml",
+					"  - README.md with prerequisites, Secret creation, and Helm commands",
 					"  - .nopsai/install.lock",
 					"",
 					"Configurable",
