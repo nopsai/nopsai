@@ -50,15 +50,25 @@ func TestRunLogFieldsForLineDerivesStructuredMetadata(t *testing.T) {
 	}
 }
 
-func TestRunLogFieldsForLinePrefersActionOutputLevelAndFallsBackToStream(t *testing.T) {
+func TestRunLogFieldsForLinePrefersActionOutputLevelAndDoesNotTreatStderrAsSeverity(t *testing.T) {
 	fields := runLogFieldsForLine(runLogIngestPayload{Stream: "stdout"}, `{"level":"info","output_level":"debug","step":"test","task_name":"unit","message":"trace line"}`)
 	if fields.Level != "debug" || fields.StepName != "test" || fields.TaskName != "unit" {
 		t.Fatalf("fields = %#v, want debug/test/unit", fields)
 	}
 
-	stderrFields := runLogFieldsForLine(runLogIngestPayload{Stream: "stderr"}, "plain failure")
-	if stderrFields.Level != "error" {
-		t.Fatalf("stderr level = %q, want error", stderrFields.Level)
+	stderrFields := runLogFieldsForLine(runLogIngestPayload{Stream: "stderr"}, "plain build progress")
+	if stderrFields.Level != "info" {
+		t.Fatalf("stderr level = %q, want info", stderrFields.Level)
+	}
+
+	stderrErrorFields := runLogFieldsForLine(runLogIngestPayload{Stream: "stderr"}, `{"level":"error","message":"failed"}`)
+	if stderrErrorFields.Level != "error" {
+		t.Fatalf("structured stderr level = %q, want error", stderrErrorFields.Level)
+	}
+
+	plainTextErrorFields := runLogFieldsForLine(runLogIngestPayload{Stream: "stderr"}, "ERROR request failed")
+	if plainTextErrorFields.Level != "error" {
+		t.Fatalf("plain text stderr level = %q, want error", plainTextErrorFields.Level)
 	}
 }
 
