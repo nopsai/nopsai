@@ -4,10 +4,12 @@ import {
   dispatcherRoutingConfigSignature,
   dispatcherRoutingRowsToConfig,
   getRunnerMeta,
+  nopsaiImageTag,
   normalizeKubernetesRunnerManifestTemplate,
   normalizeDispatcherStatus,
   normalizeRunnerComposeTemplate,
   normalizeRuntimeScopeOptions,
+  runnerImageForVersion,
   sortRuntimeScopeOptions,
   splitRuntimeScopes,
 } from './model.js';
@@ -28,6 +30,8 @@ test('normalizes dispatcher install templates', () => {
       dispatcherAddress: 'dispatcher:9090',
       networkMode: '',
       runnerImage: '',
+      registryCredentialRefs: [],
+      registryHosts: [],
       compose: '',
       command: '',
       bootstrapCommand: 'docker compose up',
@@ -45,6 +49,15 @@ test('normalizes dispatcher install templates', () => {
   assert.equal(kubernetes.runnerCapacity, 2);
   assert.equal(kubernetes.serviceAccount, 'runner-sa');
   assert.equal(kubernetes.bootstrapCommand, 'kubectl apply -f -');
+});
+
+test('builds runner image defaults from NopsAI version tags', () => {
+  assert.equal(
+    runnerImageForVersion('ghcr.io/hosein-yousefii/nopsai-docker-runner', '2.10.648'),
+    'ghcr.io/hosein-yousefii/nopsai-docker-runner:2.10.648'
+  );
+  assert.equal(nopsaiImageTag('latest'), 'dev');
+  assert.equal(nopsaiImageTag(' unknown '), 'dev');
 });
 
 test('normalizes registered runner reachability metadata', () => {

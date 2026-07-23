@@ -14,6 +14,7 @@ var credentialSchemaStatements = []string{
 		name TEXT NOT NULL,
 		kind TEXT NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
+		metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 		status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'disabled')),
 		active_version INTEGER NOT NULL DEFAULT 0 CHECK (active_version >= 0),
 		next_version INTEGER NOT NULL DEFAULT 1 CHECK (next_version > 0),
@@ -57,6 +58,7 @@ var credentialSchemaStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_credentials_status ON credentials(status)`,
 	`ALTER TABLE credentials ADD COLUMN IF NOT EXISTS next_version INTEGER NOT NULL DEFAULT 1`,
+	`ALTER TABLE credentials ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`CREATE INDEX IF NOT EXISTS idx_credentials_config_repo ON credentials(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_credential_access_logs_credential_created
 		ON credential_access_logs(credential_id, created_at DESC)`,

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"nopsai/config"
+	"nopsai/pkg/registryauth"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicelog"
 	"nopsai/pkg/servicetls"
@@ -73,17 +74,29 @@ func Run() {
 	}
 	defer dockerClient.Close()
 
+	registryAuth, registryHosts, err := registryauth.DockerConfigResolverFromEnv(os.Getenv)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load local Docker registry auth config")
+	}
+	var registryAuthResolver service.RegistryAuthResolver
+	if registryAuth.Configured() {
+		registryAuthResolver = registryAuth
+		log.Info().Strs("registry_hosts", registryHosts).Msg("loaded local Docker registry auth config")
+	}
+
 	networkValue, networkSet := dockerNetworkFromConfig(cfg)
 	runner := service.NewDockerRunner(service.RunnerOptions{
-		RunnerID:         runnerID,
-		RunnerScopes:     cfg.RunnerScopes,
-		Capacity:         int32(cfg.RunnerCapacity),
-		DispatcherAddr:   dispatcherAddr,
-		DispatcherCreds:  dispatcherCreds,
-		TransportCreds:   transportCreds,
-		Docker:           dockerClient,
-		DockerNetwork:    networkValue,
-		DockerNetworkSet: networkSet,
+		RunnerID:                 runnerID,
+		RunnerScopes:             cfg.RunnerScopes,
+		Capacity:                 int32(cfg.RunnerCapacity),
+		DispatcherAddr:           dispatcherAddr,
+		DispatcherCreds:          dispatcherCreds,
+		TransportCreds:           transportCreds,
+		Docker:                   dockerClient,
+		DockerNetwork:            networkValue,
+		DockerNetworkSet:         networkSet,
+		RegistryAuth:             registryAuthResolver,
+		RegistryAuthConfigBase64: strings.TrimSpace(os.Getenv(registryauth.DockerConfigBase64Env)),
 	})
 	runner.ServeForever()
 }

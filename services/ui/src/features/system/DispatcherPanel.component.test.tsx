@@ -6,6 +6,7 @@ import DispatcherPanel from './DispatcherPanel';
 import type { ConfigFormState } from './config/model';
 
 const apiMocks = vi.hoisted(() => ({
+  fetchPlatformVersionTag: vi.fn(async () => '2.10.648'),
   fetchDispatcherScopeOptions: vi.fn(async () => ['default', 'prod', 'staging']),
   fetchDockerRunnerTemplate: vi.fn(async () => ({
     runnerId: 'runner-test',
@@ -13,18 +14,40 @@ const apiMocks = vi.hoisted(() => ({
     runnerCapacity: 2,
     dispatcherAddress: 'dispatcher:9090',
     networkMode: 'host',
-    runnerImage: 'hoseindocker/nopsai-runner:latest',
+    runnerImage: 'ghcr.io/hosein-yousefii/nopsai-docker-runner:2.10.648',
+    registryCredentialRefs: ['credential://system/registry/production-ghcr'],
+    registryHosts: ['ghcr.io'],
     compose: '',
     command: '',
-    bootstrapCommand: 'docker run nopsai-runner',
+    bootstrapCommand: 'docker run nopsai-docker-runner',
     expiresAt: '2026-06-08T12:00:00Z',
     warnings: [],
   })),
   fetchKubernetesRunnerTemplate: vi.fn(),
+  fetchCredentials: vi.fn(async () => [
+    {
+      id: 'credential-1',
+      reference: 'credential://system/registry/production-ghcr',
+      kind: 'docker_config_json',
+      description: 'Production GHCR pull config',
+      metadata: { registry_hosts: ['ghcr.io'] },
+      status: 'active',
+      has_value: true,
+      active_version: 1,
+      managed_by_config_repo: false,
+      created_at: '2026-06-08T12:00:00Z',
+      updated_at: '2026-06-08T12:00:00Z',
+      versions: [],
+    },
+  ]),
 }));
 
 vi.mock('./dispatcher/api', () => ({
   ...apiMocks,
+}));
+
+vi.mock('./credentials/api', () => ({
+  fetchCredentials: apiMocks.fetchCredentials,
 }));
 
 test('loads runner scopes and generates an install command through the dispatcher feature API', async () => {
@@ -58,14 +81,19 @@ test('loads runner scopes and generates an install command through the dispatche
   );
 
   expect(await screen.findByText('staging')).toBeVisible();
+  expect(await screen.findByText('production-ghcr')).toBeVisible();
+  await user.click(screen.getByRole('checkbox', { name: /production-ghcr/i }));
   await user.type(screen.getByLabelText('Dispatcher address override'), 'nopsai-dispatcher.pre-nopsai.orb.local:9090');
   await user.click(screen.getByRole('button', { name: 'Generate command' }));
 
   await waitFor(() => expect(apiMocks.fetchDockerRunnerTemplate).toHaveBeenCalled());
   expect(apiMocks.fetchDockerRunnerTemplate).toHaveBeenCalledWith(expect.objectContaining({
     dispatcherAddress: 'nopsai-dispatcher.pre-nopsai.orb.local:9090',
+    registryCredentialRefs: ['credential://system/registry/production-ghcr'],
   }));
-  expect(await screen.findByText('docker run nopsai-runner')).toBeVisible();
+  expect(await screen.findByText('1 selected')).toBeVisible();
+  expect((await screen.findAllByText('ghcr.io')).length).toBeGreaterThan(0);
+  expect(await screen.findByText('docker run nopsai-docker-runner')).toBeVisible();
 });
 
 test('edits dispatcher routing from the dispatcher panel and saves runtime config', async () => {

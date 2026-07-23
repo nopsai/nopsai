@@ -29,6 +29,7 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "config repository schema", run: ensureConfigRepositorySchema},
 		{name: "runtime settings schema", run: ensureRuntimeSettingsSchema},
 		{name: "credential schema", run: ensureCredentialSchema},
+		{name: "runner registry credential schema", run: ensureRunnerRegistryCredentialSchema},
 		{name: "team schema", run: ensureTeamSchema},
 		{name: "product access roles", run: ensureProductAccessBootstrap},
 		{name: "knowledge context schema", run: ensureKnowledgeContextSchema},

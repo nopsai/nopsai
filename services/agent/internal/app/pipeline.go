@@ -61,6 +61,7 @@ type ContainerStepRuntimeOptions struct {
 	SharedVolumeName  string
 	DockerNetworkName string
 	GitRepoName       string
+	RegistryAuth      dockerexec.RegistryAuthResolver
 }
 
 type ContainerStepRuntime struct {
@@ -68,6 +69,7 @@ type ContainerStepRuntime struct {
 	sharedVolumeName  string
 	dockerNetworkName string
 	gitRepoName       string
+	registryAuth      dockerexec.RegistryAuthResolver
 }
 
 func NewContainerStepRuntime(runtime *ExecutionRuntime, opts ContainerStepRuntimeOptions) ContainerStepRuntime {
@@ -76,6 +78,7 @@ func NewContainerStepRuntime(runtime *ExecutionRuntime, opts ContainerStepRuntim
 		sharedVolumeName:  opts.SharedVolumeName,
 		dockerNetworkName: opts.DockerNetworkName,
 		gitRepoName:       opts.GitRepoName,
+		registryAuth:      opts.RegistryAuth,
 	}
 }
 
@@ -96,7 +99,7 @@ func (r ContainerStepRuntime) PrePullImages(ctx context.Context, logger zerolog.
 		return
 	}
 	prePullLogger := logger.With().Str("component", "image-prepull").Logger()
-	dockerexec.StartImagePrePull(ctx, prePullLogger, r.runtime.Docker, queue)
+	dockerexec.StartImagePrePullWithAuth(ctx, prePullLogger, r.runtime.Docker, queue, r.registryAuth)
 }
 
 func (r ContainerStepRuntime) CreateSession(ctx context.Context, logger *zerolog.Logger, req StepRuntimeSessionRequest) (string, error) {
@@ -136,6 +139,7 @@ func (r ContainerStepRuntime) CreateSession(ctx context.Context, logger *zerolog
 		SharedVolumeName:  r.sharedVolumeName,
 		DockerNetworkName: r.dockerNetworkName,
 		ContainerName:     stepContainerName,
+		RegistryAuth:      r.registryAuth,
 	})
 }
 

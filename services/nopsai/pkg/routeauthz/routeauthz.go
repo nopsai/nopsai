@@ -97,6 +97,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 	case path == "/v1/internal/config/sync":
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
+	case path == "/v1/internal/registry-auth/docker":
+		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/internal/runs/"):
 		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/setup/"):

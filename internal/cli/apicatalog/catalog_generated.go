@@ -114,6 +114,7 @@ var generatedRoutes = []Route{
 	newRoute("POST", "/v1/internal/config/sync"),
 	newRoute("GET", "/v1/internal/dispatcher/routing"),
 	newRoute("GET", "/v1/internal/git-bot/bootstrap"),
+	newRoute("POST", "/v1/internal/registry-auth/docker"),
 	newRoute("POST", "/v1/internal/runs/{runID}/ai-usage"),
 	newRoute("POST", "/v1/internal/runs/{runID}/approvals/pause"),
 	newRoute("GET", "/v1/internal/runs/{runID}/checkpoints/{checkpointID}"),

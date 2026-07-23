@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/pkg/registryauth"
 	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/internal/runnerinstall"
 	"nopsai/services/nopsai/internal/systemconfig"
@@ -162,11 +164,11 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 	if resp.NetworkMode != runnerinstall.NetworkModeHost {
 		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
 	}
-	if resp.RunnerImage != runnerinstall.DefaultRunnerImage {
+	if resp.RunnerImage != runnerinstall.DefaultRunnerImage() {
 		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
 	}
 	for _, want := range []string{
-		`image: "hoseindocker/nopsai-runner:latest"`,
+		`image: "` + runnerinstall.DefaultRunnerImage() + `"`,
 		`RUNNER_ID: "runner-cloud-1"`,
 		`RUNNER_SCOPES: "prod"`,
 		`RUNNER_CAPACITY: "3"`,
@@ -216,17 +218,20 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	if resp.NetworkMode != runnerinstall.NetworkModeHost {
 		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
 	}
-	if resp.RunnerImage != runnerinstall.DefaultRunnerImage {
+	if resp.RunnerImage != runnerinstall.DefaultRunnerImage() {
 		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
 	}
-	const marker = "token="
+	const marker = "Authorization: Bearer "
 	idx := strings.Index(resp.BootstrapCommand, marker)
 	if idx < 0 {
 		t.Fatalf("bootstrap command missing token: %s", resp.BootstrapCommand)
 	}
 	rest := resp.BootstrapCommand[idx+len(marker):]
 	token := strings.Trim(rest[:strings.Index(rest, "'")], " ")
-	entry, ok := app.consumeRunnerBootstrapToken(token)
+	entry, ok, err := app.consumeRunnerBootstrapToken(context.Background(), token)
+	if err != nil {
+		t.Fatalf("consume bootstrap token: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected bootstrap token to be consumable")
 	}
@@ -243,8 +248,95 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	if !strings.Contains(script, "image_arch=$(docker image inspect") {
 		t.Fatalf("bootstrap script should check runner image architecture:\n%s", script)
 	}
-	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
+	if _, ok, err := app.consumeRunnerBootstrapToken(context.Background(), token); err != nil || ok {
 		t.Fatal("bootstrap token should be single-use")
+	}
+}
+
+func TestBuildDockerBootstrapScriptPassesRegistryAuthConfigAsEnv(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
+	script, err := runnerinstall.BuildDockerBootstrapScript(config.Config{
+		NopsaiAPIURL:            "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+	}, req, runnerinstall.BootstrapOptions{RegistryAuth: runnerinstall.RegistryAuthBootstrap{
+		DockerConfigJSON: []byte(`{"auths":{"ghcr.io":{"username":"robot","password":"token"}}}`),
+		RegistryHosts:    []string{"ghcr.io"},
+		CredentialRefs:   []string{"credential://system/registry/ghcr"},
+	}})
+	if err != nil {
+		t.Fatalf("BuildDockerBootstrapScript() error = %v", err)
+	}
+	for _, want := range []string{
+		"echo \"Runner image: ${runner_image}\"",
+		"if docker image inspect \"$runner_image\" >/dev/null 2>&1; then",
+		"Runner image already exists locally; skipping pull.",
+		"elif ! docker pull \"$runner_image\"; then",
+		"Build this exact image tag on the runner Docker host or publish it to a registry reachable from that host.",
+		"registry_auth_dir=$(mktemp -d)",
+		"registry_auth_config_b64=",
+		"registry_auth_env_file=\"$registry_auth_dir/runner-registry-auth.env\"",
+		registryauth.DockerConfigBase64Env,
+		"--env-file \"$registry_auth_env_file\"",
+		"export DOCKER_CONFIG=\"$registry_auth_dir\"",
+		"Using selected Docker registry credentials for runner image pull and runner runtime image pulls.",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("bootstrap script missing %q:\n%s", want, script)
+		}
+	}
+	for _, forbidden := range []string{
+		"/var/lib/nopsai/runners/runner-cloud-1/registry-auth",
+		"registry_auth_host_path",
+		"registry_auth_container_path",
+		"NOPSAI_REGISTRY_DOCKER_CONFIG_PATH",
+		"NOPSAI_REGISTRY_DOCKER_CONFIG_HOST_PATH",
+		`-v "$registry_auth_host_path`,
+		"/v1/internal/registry-auth/docker",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("bootstrap script should not use %q:\n%s", forbidden, script)
+		}
+	}
+}
+
+func TestRunnerBootstrapTokenBuildsSensitiveContentWhenRedeemed(t *testing.T) {
+	app := App{}
+	var built atomic.Int32
+	token, _, err := app.createRunnerBootstrapTokenWithBuilder(
+		"placeholder script without registry auth",
+		time.Minute,
+		"text/plain; charset=utf-8",
+		func(ctx context.Context) (string, string, error) {
+			built.Add(1)
+			return "fresh script with registry auth", "text/x-shellscript; charset=utf-8", nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("create bootstrap token: %v", err)
+	}
+	if built.Load() != 0 {
+		t.Fatal("bootstrap content builder should not run during token creation")
+	}
+	entry, ok, err := app.consumeRunnerBootstrapToken(context.Background(), token)
+	if err != nil {
+		t.Fatalf("consume bootstrap token: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected bootstrap token to be consumable")
+	}
+	if built.Load() != 1 {
+		t.Fatalf("builder calls = %d, want 1", built.Load())
+	}
+	if entry.Content != "fresh script with registry auth" {
+		t.Fatalf("content = %q", entry.Content)
+	}
+	if entry.ContentType != "text/x-shellscript; charset=utf-8" {
+		t.Fatalf("content type = %q", entry.ContentType)
 	}
 }
 
@@ -366,7 +458,7 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *
 	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" {
 		t.Fatalf("namespace/service account = %q/%q", resp.Namespace, resp.ServiceAccount)
 	}
-	const marker = "token="
+	const marker = "Authorization: Bearer "
 	idx := strings.Index(resp.BootstrapCommand, marker)
 	if idx < 0 {
 		t.Fatalf("bootstrap command missing token: %s", resp.BootstrapCommand)
@@ -377,7 +469,10 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *
 		t.Fatalf("bootstrap command token is not single-quoted: %s", resp.BootstrapCommand)
 	}
 	token := strings.TrimSpace(rest[:end])
-	entry, ok := app.consumeRunnerBootstrapToken(token)
+	entry, ok, err := app.consumeRunnerBootstrapToken(context.Background(), token)
+	if err != nil {
+		t.Fatalf("consume bootstrap token: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected bootstrap token to be consumable")
 	}
@@ -390,7 +485,7 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *
 	if !strings.Contains(entry.Content, "kubectl apply -f \"$tmp\"") || !strings.Contains(entry.Content, "rollout status deployment/") || !strings.Contains(entry.Content, "logs deployment/") {
 		t.Fatalf("bootstrap script should apply the manifest and show rollout diagnostics:\n%s", entry.Content)
 	}
-	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
+	if _, ok, err := app.consumeRunnerBootstrapToken(context.Background(), token); err != nil || ok {
 		t.Fatal("bootstrap token should be single-use")
 	}
 }

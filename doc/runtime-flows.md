@@ -108,7 +108,9 @@ directory.
 
 1. A Docker runner or Kubernetes runner stays connected to the dispatcher over a long-lived gRPC stream.
 2. When a job arrives, the runner acknowledges it and increments its active-job count.
-3. A Docker runner ensures the requested agent image exists locally, pulling it if needed.
+3. A Docker runner ensures the requested agent image exists locally, requesting
+   assigned registry auth from NopsAI and passing it to the Docker API when the
+   image is private.
 4. A Docker runner creates a shared Docker volume for the run, normally `vol-<run_id>`.
 5. A Kubernetes runner starts an agent pod with a pod-owned workspace volume in its namespace.
 6. A Docker runner starts an agent container with:
@@ -119,6 +121,9 @@ directory.
    - `NOPSAI_RUNTIME=kubernetes`
    - the shared workspace mounted at `/workspace`
    - Kubernetes namespace, service account, storage, affinity, and runtime pool settings
+   - ServiceAccount imagePullSecrets when the runner was bootstrapped with
+     selected `docker_config_json` credentials or when infra attaches them
+     separately
 8. The runner starts two background loops:
    - log streaming back through `dispatcher.IngestLogs`
    - run-cancellation polling through `dispatcher.GetRunStatus`
@@ -130,6 +135,7 @@ directory.
    - run ID
    - pipeline definition
    - secrets payload
+   - optional local Docker registry-auth config path for Docker runtime pulls
    - variables payload
    - git context
    - timeout settings

@@ -12,6 +12,7 @@ import (
 
 	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/registryauth"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicelog"
 
@@ -36,30 +37,38 @@ type Runner interface {
 }
 
 type RunnerOptions struct {
-	RunnerID         string
-	RunnerScopes     string
-	Capacity         int32
-	DispatcherAddr   string
-	DispatcherCreds  *serviceauth.Credentials
-	TransportCreds   credentials.TransportCredentials
-	Docker           *client.Client
-	DockerNetwork    string
-	DockerNetworkSet bool
+	RunnerID                 string
+	RunnerScopes             string
+	Capacity                 int32
+	DispatcherAddr           string
+	DispatcherCreds          *serviceauth.Credentials
+	TransportCreds           credentials.TransportCredentials
+	Docker                   *client.Client
+	DockerNetwork            string
+	DockerNetworkSet         bool
+	RegistryAuth             RegistryAuthResolver
+	RegistryAuthConfigBase64 string
+}
+
+type RegistryAuthResolver interface {
+	Resolve(context.Context, string) (string, error)
 }
 
 type dockerRunner struct {
-	id              string
-	scopes          []string
-	capacity        int32
-	dispatcherAddr  string
-	dispatcherCreds *serviceauth.Credentials
-	transportCreds  credentials.TransportCredentials
-	docker          *client.Client
-	active          atomic.Int32
-	dockerNetwork   string
-	networkSet      bool
-	stopMu          sync.Mutex
-	stoppedRuns     map[string]struct{}
+	id                       string
+	scopes                   []string
+	capacity                 int32
+	dispatcherAddr           string
+	dispatcherCreds          *serviceauth.Credentials
+	transportCreds           credentials.TransportCredentials
+	docker                   *client.Client
+	active                   atomic.Int32
+	dockerNetwork            string
+	networkSet               bool
+	registryAuth             RegistryAuthResolver
+	registryAuthConfigBase64 string
+	stopMu                   sync.Mutex
+	stoppedRuns              map[string]struct{}
 }
 
 func NewDockerRunner(options RunnerOptions) Runner {
@@ -77,16 +86,18 @@ func NewDockerRunner(options RunnerOptions) Runner {
 	}
 
 	return &dockerRunner{
-		id:              runnerID,
-		scopes:          parseScopes(options.RunnerScopes),
-		capacity:        capacity,
-		dispatcherAddr:  dispatcherAddr,
-		dispatcherCreds: options.DispatcherCreds,
-		transportCreds:  options.TransportCreds,
-		docker:          options.Docker,
-		dockerNetwork:   strings.TrimSpace(options.DockerNetwork),
-		networkSet:      options.DockerNetworkSet,
-		stoppedRuns:     make(map[string]struct{}),
+		id:                       runnerID,
+		scopes:                   parseScopes(options.RunnerScopes),
+		capacity:                 capacity,
+		dispatcherAddr:           dispatcherAddr,
+		dispatcherCreds:          options.DispatcherCreds,
+		transportCreds:           options.TransportCreds,
+		docker:                   options.Docker,
+		dockerNetwork:            strings.TrimSpace(options.DockerNetwork),
+		networkSet:               options.DockerNetworkSet,
+		registryAuth:             options.RegistryAuth,
+		registryAuthConfigBase64: strings.TrimSpace(options.RegistryAuthConfigBase64),
+		stoppedRuns:              make(map[string]struct{}),
 	}
 }
 
@@ -255,9 +266,12 @@ func (r *dockerRunner) handleJob(ctx context.Context, dispatcher proto.Dispatche
 		if r.networkSet {
 			runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", strings.TrimSpace(job.DockerNetwork))
 		}
+		if strings.TrimSpace(r.registryAuthConfigBase64) != "" {
+			runtimeVars = upsertRuntimeVar(runtimeVars, registryauth.DockerConfigBase64Env, r.registryAuthConfigBase64)
+		}
 
 		runCtx := context.Background()
-		if err := ensureImageExists(runCtx, r.docker, agentImage); err != nil {
+		if err := ensureImageExists(runCtx, r.docker, agentImage, r.registryAuth); err != nil {
 			sendJobResult(sendCh, job.RunId, "failed", err.Error())
 			return
 		}
@@ -485,7 +499,7 @@ func parseScopes(raw string) []string {
 	return scopes
 }
 
-func ensureImageExists(ctx context.Context, cli *client.Client, imageName string) error {
+func ensureImageExists(ctx context.Context, cli *client.Client, imageName string, authResolver RegistryAuthResolver) error {
 	imageFilters := make(client.Filters).Add("reference", imageName)
 	images, err := cli.ImageList(ctx, client.ImageListOptions{Filters: imageFilters})
 	if err != nil {
@@ -494,7 +508,17 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 
 	if len(images.Items) == 0 {
 		log.Info().Msgf("image %s not found locally, pulling", imageName)
-		out, err := cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
+		options := client.ImagePullOptions{}
+		if authResolver != nil {
+			registryAuth, err := authResolver.Resolve(ctx, imageName)
+			if err != nil {
+				log.Warn().Err(err).Str("image", imageName).Msg("failed to resolve local registry auth; pulling without registry auth")
+			} else if strings.TrimSpace(registryAuth) != "" {
+				options.RegistryAuth = registryAuth
+				log.Info().Str("image", imageName).Msg("using local Docker registry auth for image pull")
+			}
+		}
+		out, err := cli.ImagePull(ctx, imageName, options)
 		if err != nil {
 			return fmt.Errorf("pull image: %w", err)
 		}

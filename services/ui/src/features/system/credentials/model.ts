@@ -7,6 +7,7 @@ export const CREDENTIAL_KINDS = [
   'private_key',
   'webhook_secret',
   'client_secret',
+  'docker_config_json',
 ] as const;
 
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
@@ -24,6 +25,7 @@ export type CredentialRecord = {
   reference: string;
   kind: string;
   description: string;
+  metadata?: Record<string, unknown>;
   status: string;
   has_value: boolean;
   active_version: number;
@@ -131,6 +133,7 @@ export function normalizeCredential(value: unknown): CredentialRecord | null {
     reference,
     kind: readString(record.kind).trim(),
     description: readString(record.description).trim(),
+    metadata: asRecord(record.metadata) || undefined,
     status: readString(record.status).trim() || 'pending',
     has_value: Boolean(record.has_value),
     active_version: readNumber(record.active_version),

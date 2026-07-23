@@ -55,7 +55,7 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 		"publish-image-nopsai-agent",
 		"publish-image-nopsai-dispatcher",
 		"publish-image-nopsai-git-bot",
-		"publish-image-nopsai-runner",
+		"publish-image-nopsai-docker-runner",
 		"publish-image-nopsai-k8s-runner",
 		"publish-image-nopsai-docker-socket-proxy",
 		"publish-image-nopsai-ui",

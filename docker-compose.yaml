@@ -260,7 +260,7 @@ services:
   docker-runner:
     container_name: nopsai-docker-runner
     hostname: docker-runner
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-runner:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-docker-runner:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.docker-runner

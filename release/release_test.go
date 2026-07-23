@@ -51,8 +51,8 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 		"ghcr.io/hosein-yousefii/nopsai-dispatcher",
 		"ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy",
 		"ghcr.io/hosein-yousefii/nopsai-git-bot",
+		"ghcr.io/hosein-yousefii/nopsai-docker-runner",
 		"ghcr.io/hosein-yousefii/nopsai-k8s-runner",
-		"ghcr.io/hosein-yousefii/nopsai-runner",
 		"ghcr.io/hosein-yousefii/nopsai-ui",
 	}
 	for _, repository := range installRepositories {

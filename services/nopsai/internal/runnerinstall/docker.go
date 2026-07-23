@@ -1,15 +1,16 @@
 package runnerinstall
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/registryauth"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
 )
@@ -36,32 +37,51 @@ func BuildComposeResponse(cfg config.Config, r *http.Request) (ComposeResponse, 
 }
 
 func BuildBootstrapCommandResponse(cfg config.Config, r *http.Request, issueToken TokenIssuer) (BootstrapCommandResponse, error) {
+	return BuildBootstrapCommandResponseWithOptions(cfg, r, issueToken, BootstrapOptions{})
+}
+
+func BuildBootstrapCommandResponseWithOptions(cfg config.Config, r *http.Request, issueToken TokenIssuer, options BootstrapOptions) (BootstrapCommandResponse, error) {
 	if issueToken == nil {
 		return BootstrapCommandResponse{}, fmt.Errorf("runner bootstrap token issuer is required")
 	}
-	spec, err := buildInstallSpec(cfg, r)
+	script, spec, err := buildDockerBootstrapScriptSpec(cfg, r, options)
 	if err != nil {
 		return BootstrapCommandResponse{}, err
 	}
-	script := buildDockerRunScript(spec)
 	token, expiresAt, err := issueToken(script, 10*time.Minute, "text/x-shellscript; charset=utf-8")
 	if err != nil {
 		return BootstrapCommandResponse{}, err
 	}
-	bootstrapURL := strings.TrimRight(RequestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap?token=" + url.QueryEscape(token)
+	bootstrapURL := strings.TrimRight(RequestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap"
 	return BootstrapCommandResponse{
-		RunnerID:          spec.RunnerID,
-		RunnerScopes:      spec.RunnerScopes,
-		RunnerCapacity:    spec.RunnerCapacity,
-		DispatcherAddress: spec.DispatcherAddress,
-		NetworkMode:       spec.NetworkMode,
-		RunnerImage:       spec.RunnerImage,
-		BootstrapCommand:  fmt.Sprintf("tmp=$(mktemp) && curl -fsSL %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", ShellQuote(bootstrapURL)),
-		ExpiresAt:         expiresAt,
+		RunnerID:            spec.RunnerID,
+		RunnerScopes:        spec.RunnerScopes,
+		RunnerCapacity:      spec.RunnerCapacity,
+		DispatcherAddress:   spec.DispatcherAddress,
+		NetworkMode:         spec.NetworkMode,
+		RunnerImage:         spec.RunnerImage,
+		RegistryCredentials: append([]string(nil), options.RegistryAuth.CredentialRefs...),
+		RegistryHosts:       append([]string(nil), options.RegistryAuth.RegistryHosts...),
+		BootstrapCommand:    fmt.Sprintf("tmp=$(mktemp) && curl -fsSL -H %s %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", ShellQuote("Authorization: Bearer "+token), ShellQuote(bootstrapURL)),
+		ExpiresAt:           expiresAt,
 		Warnings: append([]string{
 			"This one-time install command expires in 10 minutes and is consumed by the first successful download.",
 		}, spec.Warnings...),
 	}, nil
+}
+
+func BuildDockerBootstrapScript(cfg config.Config, r *http.Request, options BootstrapOptions) (string, error) {
+	script, _, err := buildDockerBootstrapScriptSpec(cfg, r, options)
+	return script, err
+}
+
+func buildDockerBootstrapScriptSpec(cfg config.Config, r *http.Request, options BootstrapOptions) (string, installSpec, error) {
+	spec, err := buildInstallSpec(cfg, r)
+	if err != nil {
+		return "", installSpec{}, err
+	}
+	spec.RegistryAuth = options.RegistryAuth
+	return buildDockerRunScript(spec), spec, nil
 }
 
 func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
@@ -95,6 +115,13 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 	}
 
 	dispatcherAddress, adapted, warnings := ExternalDispatcherAddress(cfg, r)
+	nopsaiAPIURL := strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/")
+	if nopsaiAPIURL == "" || LooksInternalAddress(nopsaiAPIURL) {
+		if externalBase := strings.TrimRight(RequestExternalBaseURL(r), "/"); externalBase != "" {
+			nopsaiAPIURL = externalBase
+			warnings = append(warnings, "The runner will use the current NopsAI API URL derived from this request for agent control-plane callbacks. Confirm it is reachable from the runner host.")
+		}
+	}
 	tlsSecret := cfg.EffectiveDispatcherTLSSecret()
 	tlsMode := cfg.EffectiveDispatcherTLSMode()
 	if servicetls.Enabled(tlsMode) && strings.TrimSpace(tlsSecret) == "" {
@@ -125,7 +152,7 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 	}
 	runnerImage := strings.TrimSpace(query.Get("runner_image"))
 	if runnerImage == "" {
-		runnerImage = DefaultRunnerImage
+		runnerImage = DefaultRunnerImage()
 	}
 
 	serviceName := composeServiceName(runnerID)
@@ -134,6 +161,7 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 		{"RUNNER_SCOPES", runnerScopes},
 		{"RUNNER_CAPACITY", strconv.Itoa(runnerCapacity)},
 		{"DISPATCHER_GRPC_ADDRESS", dispatcherAddress},
+		{"NOPSAI_API_URL", nopsaiAPIURL},
 		{serviceauth.EnvSigningKey, serviceJWTSigningKey},
 		{serviceauth.EnvIssuer, cfg.EffectiveServiceJWTIssuer()},
 		{serviceauth.EnvAudience, cfg.EffectiveServiceJWTAudience()},
@@ -215,7 +243,41 @@ func buildDockerRunScript(spec installSpec) string {
 	builder.WriteString("runner_image=")
 	builder.WriteString(ShellQuote(spec.RunnerImage))
 	builder.WriteString("\n")
-	builder.WriteString("docker pull \"$runner_image\"\n")
+	builder.WriteString("echo \"Runner image: ${runner_image}\"\n")
+	if len(spec.RegistryAuth.DockerConfigJSON) > 0 {
+		builder.WriteString("registry_auth_dir=\n")
+		builder.WriteString("cleanup_registry_auth() {\n")
+		builder.WriteString("  if [ -n \"${registry_auth_dir:-}\" ]; then\n")
+		builder.WriteString("    rm -rf \"$registry_auth_dir\"\n")
+		builder.WriteString("  fi\n")
+		builder.WriteString("}\n")
+		builder.WriteString("trap cleanup_registry_auth EXIT INT TERM\n")
+		builder.WriteString("registry_auth_dir=$(mktemp -d)\n")
+		builder.WriteString("registry_auth_config_b64=")
+		builder.WriteString(ShellQuote(base64.StdEncoding.EncodeToString(spec.RegistryAuth.DockerConfigJSON)))
+		builder.WriteString("\n")
+		builder.WriteString("registry_auth_config=\"$registry_auth_dir/config.json\"\n")
+		builder.WriteString("if printf '%s' \"$registry_auth_config_b64\" | base64 -d > \"$registry_auth_config\" 2>/dev/null; then\n")
+		builder.WriteString("  :\n")
+		builder.WriteString("else\n")
+		builder.WriteString("  printf '%s' \"$registry_auth_config_b64\" | base64 -D > \"$registry_auth_config\"\n")
+		builder.WriteString("fi\n")
+		builder.WriteString("chmod 0400 \"$registry_auth_config\"\n")
+		builder.WriteString("export DOCKER_CONFIG=\"$registry_auth_dir\"\n")
+		builder.WriteString("registry_auth_env_file=\"$registry_auth_dir/runner-registry-auth.env\"\n")
+		builder.WriteString("printf '%s=%s\\n' ")
+		builder.WriteString(ShellQuote(registryauth.DockerConfigBase64Env))
+		builder.WriteString(" \"$registry_auth_config_b64\" > \"$registry_auth_env_file\"\n")
+		builder.WriteString("chmod 0400 \"$registry_auth_env_file\"\n")
+		builder.WriteString("echo \"Using selected Docker registry credentials for runner image pull and runner runtime image pulls.\"\n")
+	}
+	builder.WriteString("if docker image inspect \"$runner_image\" >/dev/null 2>&1; then\n")
+	builder.WriteString("  echo \"Runner image already exists locally; skipping pull.\"\n")
+	builder.WriteString("elif ! docker pull \"$runner_image\"; then\n")
+	builder.WriteString("  echo \"Failed to pull runner image: ${runner_image}\" >&2\n")
+	builder.WriteString("  echo \"Build this exact image tag on the runner Docker host or publish it to a registry reachable from that host. Development builds use the dev tag; released builds use the NopsAI product version tag.\" >&2\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n")
 	builder.WriteString("host_arch=$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)\n")
 	builder.WriteString("case \"$host_arch\" in x86_64) host_arch=amd64 ;; aarch64) host_arch=arm64 ;; esac\n")
 	builder.WriteString("image_arch=$(docker image inspect \"$runner_image\" --format '{{.Architecture}}' 2>/dev/null || true)\n")
@@ -238,6 +300,9 @@ func buildDockerRunScript(spec installSpec) string {
 		builder.WriteString("  --network ")
 		builder.WriteString(ShellQuote(spec.DockerNetwork))
 		builder.WriteString(" \\\n")
+	}
+	if len(spec.RegistryAuth.DockerConfigJSON) > 0 {
+		builder.WriteString("  --env-file \"$registry_auth_env_file\" \\\n")
 	}
 	builder.WriteString("  -v /var/run/docker.sock:/var/run/docker.sock")
 	for _, item := range spec.Env {

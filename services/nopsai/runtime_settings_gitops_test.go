@@ -31,6 +31,9 @@ dispatcher_routing:
 runner_id: runner-prod-1
 runner_scopes: prod
 runner_capacity: 2
+runner_registry_credentials:
+  runner-prod-1:
+    - credential://system/registry/ghcr
 `,
 			},
 		},
@@ -49,6 +52,9 @@ runner_capacity: 2
 	}
 	if plan.payload.RunnerCapacity == nil || *plan.payload.RunnerCapacity != 2 {
 		t.Fatalf("runner capacity = %#v, want 2", plan.payload.RunnerCapacity)
+	}
+	if got := plan.runnerRegistryCredentials["runner-prod-1"]; len(got) != 1 || got[0].String() != "credential://system/registry/ghcr" {
+		t.Fatalf("runner registry credentials = %#v", plan.runnerRegistryCredentials)
 	}
 }
 
@@ -141,6 +147,10 @@ dispatcher_routing:
 runner_id: runner-prod
 runner_scopes: prod,dev
 runner_capacity: 3
+runner_registry_credentials:
+  runner-prod:
+    - credential://system/registry/ghcr
+    - credential://system/registry/ghcr
 `, "setting/system/runner.yaml")
 	if err != nil {
 		t.Fatalf("parseGitOpsRuntimeSettingsFile() error = %v", err)
@@ -178,10 +188,24 @@ runner_capacity: 3
 	if plan.payload.RunnerCapacity == nil || *plan.payload.RunnerCapacity != 3 {
 		t.Fatalf("runner_capacity = %#v", plan.payload.RunnerCapacity)
 	}
+	if got := plan.runnerRegistryCredentials["runner-prod"]; len(got) != 1 || got[0].String() != "credential://system/registry/ghcr" {
+		t.Fatalf("runner registry credentials = %#v", plan.runnerRegistryCredentials)
+	}
 
 	_, err = parseGitOpsRuntimeSettingsFile("runner_capacity: 0", "setting/system/runner.yaml")
 	if err == nil || !strings.Contains(err.Error(), "invalid runner_capacity") {
 		t.Fatalf("expected invalid capacity error, got %v", err)
+	}
+}
+
+func TestParseGitOpsRuntimeSettingsFileRejectsInvalidRunnerRegistryCredentialRef(t *testing.T) {
+	_, err := parseGitOpsRuntimeSettingsFile(`
+runner_registry_credentials:
+  runner-prod:
+    - not-a-credential
+`, "setting/system/runner.yaml")
+	if err == nil || !strings.Contains(err.Error(), "invalid registry credential ref") {
+		t.Fatalf("expected invalid registry credential ref error, got %v", err)
 	}
 }
 

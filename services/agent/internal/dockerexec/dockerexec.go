@@ -22,6 +22,11 @@ type StepContainerRequest struct {
 	SharedVolumeName  string
 	DockerNetworkName string
 	ContainerName     string
+	RegistryAuth      RegistryAuthResolver
+}
+
+type RegistryAuthResolver interface {
+	Resolve(context.Context, string) (string, error)
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
@@ -42,7 +47,7 @@ func BuildStepContainerName(repoName, pipelineName, stepName, runID string) stri
 }
 
 func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *client.Client, req StepContainerRequest) (string, error) {
-	if err := EnsureImageExists(ctx, logger, cli, req.Image); err != nil {
+	if err := EnsureImageExistsWithAuth(ctx, logger, cli, req.Image, req.RegistryAuth); err != nil {
 		return "", err
 	}
 
@@ -125,6 +130,10 @@ func Cleanup(ctx context.Context, logger *zerolog.Logger, cli *client.Client, co
 }
 
 func EnsureImageExists(ctx context.Context, logger *zerolog.Logger, cli *client.Client, imageName string) error {
+	return EnsureImageExistsWithAuth(ctx, logger, cli, imageName, nil)
+}
+
+func EnsureImageExistsWithAuth(ctx context.Context, logger *zerolog.Logger, cli *client.Client, imageName string, authResolver RegistryAuthResolver) error {
 	imageFilters := make(client.Filters).Add("reference", imageName)
 	images, err := cli.ImageList(ctx, client.ImageListOptions{Filters: imageFilters})
 	if err != nil {
@@ -133,7 +142,17 @@ func EnsureImageExists(ctx context.Context, logger *zerolog.Logger, cli *client.
 
 	if len(images.Items) == 0 {
 		logger.Info().Str("image", imageName).Msg("Image not found locally, pulling")
-		out, err := cli.ImagePull(ctx, imageName, client.ImagePullOptions{})
+		options := client.ImagePullOptions{}
+		if authResolver != nil {
+			registryAuth, err := authResolver.Resolve(ctx, imageName)
+			if err != nil {
+				logger.Warn().Err(err).Str("image", imageName).Msg("Failed to resolve local registry auth; pulling without registry auth")
+			} else if strings.TrimSpace(registryAuth) != "" {
+				options.RegistryAuth = registryAuth
+				logger.Info().Str("image", imageName).Msg("Using local Docker registry auth for image pull")
+			}
+		}
+		out, err := cli.ImagePull(ctx, imageName, options)
 		if err != nil {
 			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
 		}
@@ -146,6 +165,10 @@ func EnsureImageExists(ctx context.Context, logger *zerolog.Logger, cli *client.
 }
 
 func StartImagePrePull(ctx context.Context, logger zerolog.Logger, cli *client.Client, queue []string) {
+	StartImagePrePullWithAuth(ctx, logger, cli, queue, nil)
+}
+
+func StartImagePrePullWithAuth(ctx context.Context, logger zerolog.Logger, cli *client.Client, queue []string, authResolver RegistryAuthResolver) {
 	if cli == nil || len(queue) == 0 {
 		return
 	}
@@ -169,7 +192,7 @@ func StartImagePrePull(ctx context.Context, logger zerolog.Logger, cli *client.C
 				Int("total", len(queue)).
 				Logger()
 
-			if err := EnsureImageExists(ctx, &imageLogger, cli, imageName); err != nil {
+			if err := EnsureImageExistsWithAuth(ctx, &imageLogger, cli, imageName, authResolver); err != nil {
 				imageLogger.Warn().Err(err).Msg("Failed to pre-pull image; will pull on demand during execution")
 			}
 		}
