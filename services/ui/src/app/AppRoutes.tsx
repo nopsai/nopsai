@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { AppAccess } from '../auth/capabilities';
 import { PermissionGuard } from '../auth/permissionGuards';
 import type { CurrentUser } from './types';
+import { isInitialSetupAllowedRoute, type InitialSetupGate } from './useInitialSetupRedirect';
 
 const PipelineRunsPage = lazy(() => import('../pages/PipelineRuns'));
 const TeamsPage = lazy(() => import('../pages/Teams'));
@@ -35,19 +36,32 @@ export function AppRoutes({
   currentUser,
   currentUserLoading,
   mustChangePassword,
+  setupGate,
   onLogout,
   onPasswordChanged,
+  onSetupStatusChange,
   onUserUpdated,
 }: {
   access: AppAccess;
   currentUser: CurrentUser | null;
   currentUserLoading: boolean;
   mustChangePassword: boolean;
+  setupGate?: InitialSetupGate;
   onLogout: () => void;
   onPasswordChanged: () => void;
+  onSetupStatusChange?: InitialSetupGate['recordStatus'];
   onUserUpdated: (updates: Partial<CurrentUser>) => void;
 }) {
   const location = useLocation();
+  const setupRouteAllowed = isInitialSetupAllowedRoute(location.pathname, mustChangePassword);
+
+  if (setupGate?.checking && !setupRouteAllowed) {
+    return <PageLoading />;
+  }
+
+  if (setupGate?.required && !setupRouteAllowed) {
+    return <Navigate to="/system/setup" replace />;
+  }
 
   return (
     <Suspense fallback={<PageLoading />}>
@@ -195,7 +209,7 @@ export function AppRoutes({
           path="/system/:tab?"
           element={
             <PermissionGuard allowed={access.canViewAnySystem} loading={currentUserLoading}>
-              <SystemPage permissions={access.systemPermissions} />
+              <SystemPage permissions={access.systemPermissions} onSetupStatusChange={onSetupStatusChange} />
             </PermissionGuard>
           }
         />

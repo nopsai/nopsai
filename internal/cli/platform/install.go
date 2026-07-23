@@ -172,6 +172,7 @@ type composeSecrets struct {
 	JWTSigningKey          string
 	ServiceJWTSigningKey   string
 	AAASharedInternalToken string
+	DispatcherTLSSecret    string
 	MasterKey              string
 	BootstrapAdminPassword string
 }
@@ -564,6 +565,10 @@ func (i Installer) generateComposeSecrets(bootstrapAdminPassword string) (compos
 	if err != nil {
 		return composeSecrets{}, err
 	}
+	dispatcherTLSSecret, err := generateInstallSecret(reader, 48)
+	if err != nil {
+		return composeSecrets{}, err
+	}
 	masterKey, err := generateInstallSecret(reader, 32)
 	if err != nil {
 		return composeSecrets{}, err
@@ -580,6 +585,7 @@ func (i Installer) generateComposeSecrets(bootstrapAdminPassword string) (compos
 		JWTSigningKey:          jwtSigningKey,
 		ServiceJWTSigningKey:   serviceJWTSigningKey,
 		AAASharedInternalToken: aaaSharedInternalToken,
+		DispatcherTLSSecret:    dispatcherTLSSecret,
 		MasterKey:              masterKey,
 		BootstrapAdminPassword: bootstrapAdminPassword,
 	}, nil
@@ -722,6 +728,8 @@ func renderComposeEnv(version string, images map[string]string, secrets composeS
 	builder.WriteString(secrets.JWTSigningKey)
 	builder.WriteString("\nAAA_SHARED_INTERNAL_TOKEN=")
 	builder.WriteString(secrets.AAASharedInternalToken)
+	builder.WriteString("\nDISPATCHER_TLS_SECRET=")
+	builder.WriteString(secrets.DispatcherTLSSecret)
 	builder.WriteString("\nNOPSAI_MASTER_KEY=")
 	builder.WriteString(secrets.MasterKey)
 	builder.WriteString("\nNOPSAI_BOOTSTRAP_ADMIN_EMAIL=")
@@ -768,6 +776,7 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString("    jwtSigningKey: jwt-signing-key\n")
 	builder.WriteString("    serviceJWTSigningKey: service-jwt-signing-key\n")
 	builder.WriteString("    aaaSharedInternalToken: aaa-shared-internal-token\n")
+	builder.WriteString("    dispatcherTLSSecret: dispatcher-tls-secret\n")
 	builder.WriteString("    bootstrapAdminPassword: ")
 	builder.WriteString(strconv.Quote(bootstrapAdminPasswordSecretKey))
 	builder.WriteString("\n\n")
@@ -1152,7 +1161,7 @@ func validateInstallBootstrapAdminPassword(raw string) error {
 		return err
 	}
 	if raw == "admin" {
-		return errors.New("bootstrap admin password cannot be the built-in development password")
+		return errors.New("bootstrap admin password cannot be the built-in development password; leave it blank to generate a unique first-login password")
 	}
 	if len([]rune(raw)) < installBootstrapAdminMinPasswordLength {
 		return fmt.Errorf("bootstrap admin password must be at least %d characters", installBootstrapAdminMinPasswordLength)
@@ -1211,6 +1220,7 @@ volumes:
 
 x-service-auth-env: &service-auth-env
   SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:?SERVICE_JWT_SIGNING_KEY is required}
+  DISPATCHER_TLS_SECRET: ${DISPATCHER_TLS_SECRET:-}
 
 x-local-topology-env: &local-topology-env
   NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}

@@ -202,7 +202,7 @@ function AppShell() {
     [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLogs, canViewSystemRuntimeConfig, canViewSystemSetup]
   );
 
-  useInitialSetupRedirect({
+  const setupGate = useInitialSetupRedirect({
     accessToken: authSession.accessToken || '',
     authSubject: authSession.sub,
     canViewSystemSetup,
@@ -214,6 +214,9 @@ function AppShell() {
     pathname: location.pathname,
     navigate,
   });
+  const setupLocked = setupGate.required && !authSession.mustChangePassword;
+  const visibleNavItems = setupLocked ? [] : navItems;
+  const visibleSystemSubNav = setupLocked ? systemSubNav.filter(item => item.path === '/system/setup') : systemSubNav;
 
   const resourceTrees = useResourceTrees({
     canWritePipelines,
@@ -242,8 +245,8 @@ function AppShell() {
           <div id="hover-hint" aria-hidden="true"></div>
           <div className="flex h-screen overflow-hidden">
             <Sidebar
-              navItems={navItems}
-              systemSubNav={systemSubNav}
+              navItems={visibleNavItems}
+              systemSubNav={visibleSystemSubNav}
               open={sidebar.open}
               onClose={sidebar.close}
               collapsed={sidebar.collapsed}
@@ -299,8 +302,10 @@ function AppShell() {
                   currentUser={currentUser}
                   currentUserLoading={currentUserLoading}
                   mustChangePassword={Boolean(authSession.mustChangePassword)}
+                  setupGate={setupGate}
                   onLogout={handleLogout}
                   onPasswordChanged={markPasswordChanged}
+                  onSetupStatusChange={setupGate.recordStatus}
                   onUserUpdated={handleUserUpdated}
                 />
               </div>

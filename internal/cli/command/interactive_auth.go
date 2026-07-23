@@ -84,6 +84,12 @@ func authMenuScreenOptions(state homeState) interactive.ScreenOptions {
 }
 
 func runInteractiveLogin(command *cobra.Command, options *rootOptions, prompter *interactive.Prompter) error {
+	state := collectHomeState(command.Context(), options)
+	if err := showInteractiveCommandPreview(prompter, "Login command preview", []string{"nopsai", "login", "--token"}, []string{
+		"Read the token from NOPSAI_TOKEN or stdin, verify it, and store it for the selected context.",
+	}, commandPreviewScreenOptions([]string{"Home", "Authentication", "Login", "Preview"}, "Login Preview", sessionHeaderLines(state))); err != nil {
+		return err
+	}
 	contextName, err := authenticateContextWithToken(command, options)
 	if err != nil {
 		return err
@@ -100,6 +106,12 @@ func runInteractiveLogin(command *cobra.Command, options *rootOptions, prompter 
 }
 
 func runInteractiveLogout(command *cobra.Command, options *rootOptions, prompter *interactive.Prompter) error {
+	state := collectHomeState(command.Context(), options)
+	if err := showInteractiveCommandPreview(prompter, "Logout command preview", []string{"nopsai", "logout"}, []string{
+		"Remove the locally stored credential for the selected context.",
+	}, commandPreviewScreenOptions([]string{"Home", "Authentication", "Logout", "Preview"}, "Logout Preview", sessionHeaderLines(state))); err != nil {
+		return err
+	}
 	contextName, err := removeStoredContextToken(options)
 	if err != nil {
 		return err

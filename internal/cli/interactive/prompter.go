@@ -270,11 +270,11 @@ func (p *Prompter) withLiveScreen(run func(width, height int) error) error {
 		}
 		cleaned = true
 		_ = restoreTerminal(int(p.inFile.Fd()), oldState)
-		_, _ = fmt.Fprint(p.out, "\x1b[?25h\x1b[?1049l")
+		_, _ = fmt.Fprint(p.out, "\x1b[?25h")
 	}
 	defer cleanup()
 
-	_, _ = fmt.Fprint(p.out, "\x1b[?1049h\x1b[?25l")
+	_, _ = fmt.Fprint(p.out, "\x1b[?25l")
 	width := fallbackChoiceTerminalWidth
 	height := fallbackChoiceTerminalHeight
 	if detectedWidth, detectedHeight, err := terminalSize(int(p.outFile.Fd())); err == nil {
@@ -403,6 +403,19 @@ func runLiveFieldEditor(reader *bufio.Reader, out io.Writer, label string, field
 			return fields, nil
 		case choiceKeyEnter:
 			if fields[selected].Multiline {
+				if !fields[selected].Required && strings.TrimSpace(fields[selected].Value) == "" {
+					completed[selected] = true
+					if selected+1 >= len(fields) {
+						if missing := firstMissingRequiredField(fields); missing >= 0 {
+							selected = missing
+							status = "Required field: " + fieldDisplayLabel(fields[missing])
+							continue
+						}
+						return fields, nil
+					}
+					selected++
+					continue
+				}
 				if !touched[selected] {
 					fields[selected].Value = ""
 					touched[selected] = true
@@ -1394,10 +1407,9 @@ func zenFieldParameterRows(field Field, index, selected int, completed []bool, w
 		return []string{truncateChoiceLine(row, width+1)}
 	}
 	row = zenFieldSelectedParameterRow(row, field, width)
-	return []string{
-		truncateChoiceLine(styleSelected(row), width+1),
-		zenFieldSelectedValueRow(field, width),
-	}
+	rows := []string{truncateChoiceLine(styleSelected(row), width+1)}
+	rows = append(rows, zenFieldSelectedValueRows(field, width)...)
+	return rows
 }
 
 func zenFieldSelectedParameterRow(row string, field Field, width int) string {
@@ -1416,7 +1428,10 @@ func zenFieldSelectedParameterRow(row string, field Field, width int) string {
 	return row + strings.Repeat(" ", spaces) + required
 }
 
-func zenFieldSelectedValueRow(field Field, width int) string {
+func zenFieldSelectedValueRows(field Field, width int) []string {
+	if field.Multiline {
+		return zenFieldSelectedMultilineValueRows(field, width)
+	}
 	value := zenFieldInlineValue(field)
 	prefix := "Value: "
 	indent := width / 2
@@ -1424,7 +1439,56 @@ func zenFieldSelectedValueRow(field Field, width int) string {
 		indent = 8
 	}
 	row := strings.Repeat(" ", indent) + prefix + value
-	return truncateChoiceLine(row, width+1)
+	return []string{truncateChoiceLine(row, width+1)}
+}
+
+func zenFieldSelectedMultilineValueRows(field Field, width int) []string {
+	value := field.Value
+	if strings.TrimSpace(value) == "" && strings.TrimSpace(field.Default) != "" {
+		value = field.Default
+	}
+	indent := width / 2
+	if indent < 8 {
+		indent = 8
+	}
+	if indent > width-16 {
+		indent = width - 16
+		if indent < 0 {
+			indent = 0
+		}
+	}
+	prefix := strings.Repeat(" ", indent)
+	if strings.TrimSpace(value) == "" {
+		return []string{truncateChoiceLine(prefix+"Value: "+styleBlink("|"), width+1)}
+	}
+	contentWidth := width - indent - 2
+	if contentWidth < 12 {
+		contentWidth = width
+		prefix = ""
+	}
+	rows := []string{truncateChoiceLine(prefix+"Value:", width+1)}
+	valueLines := strings.Split(strings.TrimRight(value, "\n"), "\n")
+	rendered := 0
+	const maxMultilineValueRows = 6
+	for _, rawLine := range valueLines {
+		wrapped := wrapScreenLinesPreserve([]string{rawLine}, contentWidth)
+		if len(wrapped) == 0 {
+			wrapped = []string{""}
+		}
+		for _, line := range wrapped {
+			if rendered >= maxMultilineValueRows {
+				rows = append(rows, truncateChoiceLine(prefix+styleDim("... more lines"), width+1))
+				return rows
+			}
+			if strings.TrimSpace(line) == "" {
+				rows = append(rows, truncateChoiceLine(prefix+styleDim("<blank line>"), width+1))
+			} else {
+				rows = append(rows, truncateChoiceLine(prefix+line, width+1))
+			}
+			rendered++
+		}
+	}
+	return rows
 }
 
 func zenFieldInlineValue(field Field) string {
@@ -1437,9 +1501,6 @@ func zenFieldInlineValue(field Field) string {
 			value = field.Default
 		}
 		lines := strings.Split(strings.TrimRight(value, "\n"), "\n")
-		if len(lines) > 1 {
-			return fmt.Sprintf("%d lines", len(lines))
-		}
 		if len(lines) == 1 && strings.TrimSpace(lines[0]) != "" {
 			return strings.TrimSpace(lines[0])
 		}

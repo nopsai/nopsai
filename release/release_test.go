@@ -151,6 +151,10 @@ func TestHelmChartTopologyDispatcherAddressIsOverrideable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dispatcherTemplateBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/dispatcher.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
 	helpersBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/_helpers.tpl")
 	if err != nil {
 		t.Fatal(err)
@@ -158,10 +162,12 @@ func TestHelmChartTopologyDispatcherAddressIsOverrideable(t *testing.T) {
 	values := string(valuesBytes)
 	apiTemplate := string(apiTemplateBytes)
 	runnerTemplate := string(runnerTemplateBytes)
+	dispatcherTemplate := string(dispatcherTemplateBytes)
 	helpers := string(helpersBytes)
 	for _, required := range []string{
 		"topology:",
 		"dispatcherGRPCAddress: dispatcher:9090",
+		"dispatcherTLSSecret: dispatcher-tls-secret",
 	} {
 		if !strings.Contains(values, required) {
 			t.Errorf("values.yaml is missing topology dispatcher contract %q", required)
@@ -170,6 +176,11 @@ func TestHelmChartTopologyDispatcherAddressIsOverrideable(t *testing.T) {
 	for name, template := range map[string]string{"api.yaml": apiTemplate, "k8s-runner.yaml": runnerTemplate} {
 		if !strings.Contains(template, `include "nopsai.topology.dispatcherGRPCAddress" . | quote`) {
 			t.Errorf("%s does not use topology dispatcher helper", name)
+		}
+	}
+	for name, template := range map[string]string{"api.yaml": apiTemplate, "dispatcher.yaml": dispatcherTemplate, "k8s-runner.yaml": runnerTemplate} {
+		if !strings.Contains(template, "DISPATCHER_TLS_SECRET") || !strings.Contains(template, ".Values.secrets.keys.dispatcherTLSSecret") {
+			t.Errorf("%s is missing dispatcher TLS secret wiring", name)
 		}
 	}
 	for _, required := range []string{

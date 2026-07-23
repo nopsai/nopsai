@@ -33,6 +33,10 @@ test('derives runtime and GitHub integration defaults', () => {
     nopsaiAPIURL: 'http://nopsai:8080',
     gitBotServiceURL: 'http://git-bot:8081',
   });
+  assert.deepEqual(runtimeDefaults('kubernetes'), {
+    nopsaiAPIURL: 'http://nopsai.nopsai.svc.cluster.local:8080',
+    gitBotServiceURL: 'http://nopsai-git-bot.nopsai.svc.cluster.local:8081',
+  });
   assert.equal(deriveGitBotBaseURL('https://hooks.example.test/webhook'), 'https://hooks.example.test');
   assert.equal(deriveGitBotBaseURL(''), 'https://nopsai.example.com/git-bot');
 });
@@ -83,9 +87,18 @@ test('lists canonical setup GitOps files without legacy aggregate structure', ()
   );
 
   assert.ok(files.includes('config-repositories/teams/platform/structure.yaml'));
+  assert.ok(files.includes('knowledge/guideline/platform/setup-run.md'));
   assert.ok(files.includes('setting/system/llm_profile.yaml'));
   assert.ok(files.includes('setting/system/mcp.yaml'));
   assert.ok(files.includes('triggers/acme/api.yaml'));
   assert.equal(files.filter(file => file === 'config-repositories/teams/platform/structure.yaml').length, 1);
   assert.ok(!files.includes('config-repositories/teams/structure.yaml'));
+
+  const customTeamFiles = buildSetupGitOpsFileList([{ name: 'ops', repositories: [] }], [], { includeLLM: false, includeMCP: false });
+  assert.ok(customTeamFiles.includes('knowledge/guideline/ops/setup-run.md'));
+  assert.ok(!customTeamFiles.includes('knowledge/guideline/platform/setup-run.md'));
+
+  const noTeamFiles = buildSetupGitOpsFileList([], [], { includeLLM: false, includeMCP: false });
+  assert.ok(!noTeamFiles.some(file => file.startsWith('config-repositories/teams/')));
+  assert.ok(!noTeamFiles.some(file => file.startsWith('knowledge/guideline/')));
 });

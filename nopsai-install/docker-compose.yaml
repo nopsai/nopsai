@@ -10,6 +10,7 @@ volumes:
 
 x-service-auth-env: &service-auth-env
   SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:?SERVICE_JWT_SIGNING_KEY is required}
+  DISPATCHER_TLS_SECRET: ${DISPATCHER_TLS_SECRET:-}
 
 x-local-topology-env: &local-topology-env
   NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}

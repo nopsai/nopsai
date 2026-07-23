@@ -75,6 +75,12 @@ func executeInteractiveHome(command *cobra.Command, options *rootOptions) error 
 		case 6:
 			actionErr = runInteractiveGuideMenu(command, prompter)
 		case 7:
+			actionErr = showInteractiveCommandPreview(prompter, "Help command preview", []string{"nopsai", "--help"}, []string{
+				"Render top-level CLI help.",
+			}, commandPreviewScreenOptions([]string{"Home", "Help", "Preview"}, "Help Preview", sessionHeaderLines(state)))
+			if actionErr != nil {
+				break
+			}
 			if prompter.CanUseLiveSelector() {
 				actionErr = prompter.ShowTextScreen("Help", helpScreenLines(command), homeTextScreenOptions("Help", state))
 			} else {
@@ -615,9 +621,15 @@ func printInteractiveContexts(command *cobra.Command, options *rootOptions) erro
 	}
 	names := sortedContextNames(cfg)
 	prompter := interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
+	state := collectHomeState(command.Context(), options)
+	if err := showInteractiveCommandPreview(prompter, "Context list command preview", []string{"nopsai", "context", "list"}, []string{
+		"Render configured local API contexts.",
+	}, commandPreviewScreenOptions([]string{"Home", "Contexts", "List", "Preview"}, "Context List Preview", sessionHeaderLines(state))); err != nil {
+		return err
+	}
 	if len(names) == 0 {
 		if prompter.CanUseLiveSelector() {
-			return prompter.ShowTextScreen("Contexts", []string{"No contexts configured."}, contextTextScreenOptions(collectHomeState(command.Context(), options), "Contexts"))
+			return prompter.ShowTextScreen("Contexts", []string{"No contexts configured."}, contextTextScreenOptions(state, "Contexts"))
 		}
 		_, err = fmt.Fprintln(command.OutOrStdout(), "No contexts configured.")
 		return err
@@ -631,7 +643,7 @@ func printInteractiveContexts(command *cobra.Command, options *rootOptions) erro
 			}
 			lines = append(lines, fmt.Sprintf("%s %s  %s", current, name, cfg.Contexts[name].API))
 		}
-		return prompter.ShowTextScreen("Contexts", lines, contextTextScreenOptions(collectHomeState(command.Context(), options), "Contexts"))
+		return prompter.ShowTextScreen("Contexts", lines, contextTextScreenOptions(state, "Contexts"))
 	}
 	for _, name := range names {
 		current := " "
@@ -656,6 +668,12 @@ func addInteractiveContext(command *cobra.Command, options *rootOptions, prompte
 			return err
 		}
 		values := fieldValueMap(edited)
+		state := collectHomeState(command.Context(), options)
+		if err := showInteractiveCommandPreview(prompter, "Context add command preview", []string{"nopsai", "context", "add", strings.TrimSpace(values["name"]), "--api", strings.TrimSpace(values["api"])}, []string{
+			"Write the local API context configuration.",
+		}, commandPreviewScreenOptions([]string{"Home", "Contexts", "Add", "Preview"}, "Context Add Preview", sessionHeaderLines(state))); err != nil {
+			return err
+		}
 		store, err := options.store()
 		if err != nil {
 			return err
@@ -676,6 +694,12 @@ func addInteractiveContext(command *cobra.Command, options *rootOptions, prompte
 	}
 	api, err := prompter.AskRequired("NopsAI API URL", valueOrDefault(options.apiURL, "http://localhost:8080"))
 	if err != nil {
+		return err
+	}
+	state := collectHomeState(command.Context(), options)
+	if err := showInteractiveCommandPreview(prompter, "Context add command preview", []string{"nopsai", "context", "add", strings.TrimSpace(name), "--api", strings.TrimSpace(api)}, []string{
+		"Write the local API context configuration.",
+	}, commandPreviewScreenOptions([]string{"Home", "Contexts", "Add", "Preview"}, "Context Add Preview", sessionHeaderLines(state))); err != nil {
 		return err
 	}
 	store, err := options.store()
@@ -714,6 +738,12 @@ func useInteractiveContext(command *cobra.Command, options *rootOptions, prompte
 		selected, err = prompter.Choose("Use context", choices)
 	}
 	if err != nil {
+		return err
+	}
+	state := collectHomeState(command.Context(), options)
+	if err := showInteractiveCommandPreview(prompter, "Context use command preview", []string{"nopsai", "context", "use", names[selected]}, []string{
+		"Set the selected context as the current local API context.",
+	}, commandPreviewScreenOptions([]string{"Home", "Contexts", "Use", "Preview"}, "Context Use Preview", sessionHeaderLines(state))); err != nil {
 		return err
 	}
 	if err := store.UseContext(names[selected]); err != nil {
@@ -779,6 +809,12 @@ func deleteInteractiveContext(command *cobra.Command, options *rootOptions, prom
 		_, err = fmt.Fprintln(command.OutOrStdout(), "Delete cancelled.")
 		return err
 	}
+	state := collectHomeState(command.Context(), options)
+	if err := showInteractiveCommandPreview(prompter, "Context delete command preview", []string{"nopsai", "context", "delete", names[selected]}, []string{
+		"Delete the local context and its stored credential.",
+	}, commandPreviewScreenOptions([]string{"Home", "Contexts", "Delete", "Preview"}, "Context Delete Preview", sessionHeaderLines(state))); err != nil {
+		return err
+	}
 	if err := store.DeleteContext(names[selected]); err != nil {
 		return err
 	}
@@ -812,6 +848,12 @@ func sortedContextNames(cfg clconfig.File) []string {
 
 func runInteractiveDoctor(command *cobra.Command, options *rootOptions) error {
 	prompter := interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
+	state := collectHomeState(command.Context(), options)
+	if err := showInteractiveCommandPreview(prompter, "Doctor command preview", []string{"nopsai", "platform", "doctor"}, []string{
+		"Run local tooling, API readiness, metrics, token, dispatcher, and runner checks.",
+	}, commandPreviewScreenOptions([]string{"Home", "Platform", "Doctor", "Preview"}, "Doctor Preview", sessionHeaderLines(state))); err != nil {
+		return err
+	}
 	session, err := options.resolveSession(false)
 	if err != nil {
 		return err
@@ -884,6 +926,14 @@ func runInteractiveGuideMenu(command *cobra.Command, prompter *interactive.Promp
 		}
 		if selected == len(choices)-1 {
 			return nil
+		}
+		if err := showInteractiveCommandPreview(prompter, "Guide command preview", []string{"nopsai", "guide", choices[selected].Label}, []string{
+			"Render the selected CLI guide topic.",
+		}, commandPreviewScreenOptions([]string{"Home", "Guide", choices[selected].Label, "Preview"}, "Guide Preview", []string{"Topic: " + choices[selected].Label})); err != nil {
+			if errors.Is(err, interactive.ErrBack) {
+				continue
+			}
+			return err
 		}
 		if prompter.CanUseLiveSelector() {
 			stdout, stderr, renderErr := captureCommandOutput(command, func() error {

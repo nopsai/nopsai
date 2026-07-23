@@ -1319,7 +1319,7 @@ const requiredEnvironmentRows: WikiConfigRow[] = [
   {
     key: 'DISPATCHER_TLS_SECRET',
     area: 'Dispatcher',
-    description: 'Shared high-entropy bootstrap secret used by dispatcher clients when TLS or mTLS is configured.',
+    description: 'Shared high-entropy bootstrap secret used by dispatcher clients when TLS or mTLS is configured. Generated Docker Compose installs include it in .env.',
     example: 'openssl rand -base64 32',
     type: 'secret',
     required: 'conditional',
@@ -1707,7 +1707,9 @@ const baseWikiSections: WikiSectionInput[] = [
         keyFacts: [
           'The wizard checks database, encryption, JWT, service-secret, internal URL, LLM/MCP, starter content, and runner readiness.',
           'Required gates must pass before the workspace is ready for normal use.',
+          'Before completion, authenticated navigation and APIs stay locked to profile password change and setup endpoints.',
           'The login readiness view marks configured required gates with a green tick.',
+          'Selected repository teams are seeded as top-level teams; setup does not add an implicit workspace parent above them, and disabling repository teams creates no synthetic team root.',
           'Optional AI and MCP seed data can be skipped and added later.',
           'Production mode does not silently accept unsafe bootstrap defaults.',
         ],
@@ -1720,8 +1722,8 @@ const baseWikiSections: WikiSectionInput[] = [
         steps: [
           {
             title: 'Open setup',
-            description: 'Navigate to the setup page from the empty workspace.',
-            verification: 'The page shows preflight status rather than the normal product workspace.',
+            description: 'Sign in and let the empty workspace redirect to setup.',
+            verification: 'Direct URL changes still return to System > Setup until setup is completed.',
           },
           {
             title: 'Resolve required preflight checks',
@@ -1740,7 +1742,7 @@ const baseWikiSections: WikiSectionInput[] = [
           },
         ],
         details: [
-          'The setup wizard owns bootstrap readiness. After the workspace is live, GitOps repositories and focused system pages own ongoing configuration.',
+          'The setup wizard owns bootstrap readiness. Until setup is completed once, the app shell and API block normal workspace routes so operators cannot bypass the empty-state gate. After the workspace is live, GitOps repositories and focused system pages own ongoing configuration.',
         ],
         configRows: [
           {
@@ -2177,6 +2179,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Preflight checks cover database reachability, master key, user JWT key, admin state, internal service secrets, service addresses, LLM/MCP readiness, starter pipeline, and runner health.',
           'The wizard can generate missing internal service secrets and output environment, secret-manager, or container snippets.',
           'Starter GitOps content includes teams, a first-run pipeline, reusable step, triggers, scopes, access bootstrap, knowledge docs, LLM profile, MCP examples, and config repository structure.',
+          'Selected starter teams are mirrored as top-level team roots in direct database seeding and per-team GitOps structure files; disabling starter teams creates no synthetic team root.',
           'Production-gate mode does not silently seed an unsafe missing administrator.',
         ],
         details: [
@@ -2230,7 +2233,7 @@ const baseWikiSections: WikiSectionInput[] = [
         summary:
           'Bootstrap secrets, internal service URLs, dispatcher transport, Docker runner networking, System Logs, and PDF rendering settings must be explicit before production traffic is allowed.',
         keyFacts: [
-          'Docker uses environment variables and Helm maps the same bootstrap values to Secret keys such as database-url, master-key, jwt-signing-key, service-jwt-signing-key, aaa-shared-internal-token, and bootstrap-admin-password.',
+          'Docker uses environment variables and Helm maps the same bootstrap values to Secret keys such as database-url, master-key, jwt-signing-key, service-jwt-signing-key, aaa-shared-internal-token, dispatcher-tls-secret, and bootstrap-admin-password.',
           'Keep NOPSAI_MASTER_KEY, JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, AAA_SHARED_INTERNAL_TOKEN, and NOPSAI_BOOTSTRAP_ADMIN_PASSWORD as separate high-entropy values.',
           'Internal URLs such as AAA_API_URL, NOPSAI_API_URL, GIT_BOT_API_URL, and DISPATCHER_GRPC_ADDRESS should point to private service discovery names.',
           'Production dispatcher clients should use tls or mtls with DISPATCHER_TLS_SECRET rather than disabled transport.',
@@ -2240,7 +2243,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Deployment owns bootstrap-only secrets. GitOps owns reviewable operating config after the platform can start, but it should not contain the root values needed to decrypt and authenticate the platform itself.',
           'The API, AAA, dispatcher, git-bot, runners, and agents rely on consistent internal addressing. A browser-facing public URL is not a replacement for service-to-service callback URLs.',
           'Helm deployments should create the bootstrap Secret before chart installation and should normally source it from External Secrets, Sealed Secrets, SOPS, or a cluster secret manager.',
-          'Compose deployments should use nopsai install docker-compose to generate the service file, local secrets, and editable internal service URLs before starting the stack.',
+          'Compose deployments should use nopsai install docker-compose to generate the service file, local secrets including dispatcher TLS, editable internal service URLs, and a temporary bootstrap password that must be changed after sign-in.',
         ],
         configRows: requiredEnvironmentRows,
         examples: [
@@ -3336,7 +3339,9 @@ const baseWikiSections: WikiSectionInput[] = [
           'The CLI rejects credential files with broader permissions.',
           'platform doctor checks local tools, API readiness, setup preflight, metrics, token acceptance, dispatcher monitoring, and runner count.',
           'The generated route catalog grants discovery only. api call and api request still traverse bearer authentication, route authorization, resource filtering, and compatibility checks.',
-          'Interactive screens use the Contextual Zen terminal layout across the full CLI surface: fixed home-style header/footer chrome, centered control, breadcrumb above nested menus, fixed 20-row menu viewport for large lists, pinned guide/details section beneath the menu, bold standalone Guide/Example/Validation keys with indented content, inline Parameters progress lists on all live forms and wizards in step order, fixed Result sections with breadcrumb scroll ranges, cursor-style empty active values, API catalog calls, raw API requests, route discovery, context management, token login/logout, install, platform doctor/release, completion, guides, help, and result viewers.',
+          'Interactive screens use the Contextual Zen terminal layout across the full CLI surface: fixed home-style header/footer chrome, centered control, breadcrumb above nested menus, fixed 20-row menu viewport for large lists, pinned guide/details section beneath the menu, bold standalone Guide/Example/Validation keys with indented content, inline Parameters progress lists on all live forms and wizards in step order, visible selected multiline values, Enter-to-skip blank optional parameters, fixed Result sections with breadcrumb scroll ranges, cursor-style empty active values, API catalog calls, raw API requests, route discovery, context management, token login/logout, install, platform doctor/release, completion, guides, help, and result viewers.',
+          'Interactive actions pause on an equivalent `nopsai ...` command preview before API sends, local config changes, completion generation, platform checks/releases, install generation, Docker Compose startup, or Helm deployment begins.',
+          'Generated Docker Compose installs reject the built-in development admin password, include dispatcher TLS in .env, and create bootstrap local admin credentials that are temporary by default and require first-login rotation.',
           'Released CLIs check GET /version before mutating API requests. Development builds keep a deliberate bypass until release metadata is injected.',
         ],
         details: [

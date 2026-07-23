@@ -94,7 +94,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 	if req.GenerateSecrets {
 		names, restart, err := a.generateSetupSecrets()
 		if err != nil {
-			http.Error(w, "failed to generate local secrets", http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("failed to generate local secrets: %v", err), http.StatusInternalServerError)
 			return
 		}
 		generatedSecrets = names
@@ -166,7 +166,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Users) > 0 && req.Profile != setupProfileProduction && req.Profile != setupProfileEmpty {
-		created, err := a.seedSetupUsers(r.Context(), req.Users, req.Profile, actor)
+		created, err := a.seedSetupUsers(r.Context(), req.Users, req.Profile, req.RepositoryTeams, actor)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

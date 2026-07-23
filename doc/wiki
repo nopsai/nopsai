@@ -90,9 +90,22 @@ viewport, and detail positioning. Result viewers use a fixed `Result` section
 and place scroll ranges in the breadcrumb only when needed. API request
 parameter lists must follow the same order as the wizard steps, expand the
 active item inline with its required marker and value, and render empty active
-values as a cursor rather than a blank placeholder. Pinned detail keys such as
-`Guide:`, `Example:`, and `Validation:` must render bold on their own line with
-indented content below.
+values as a cursor rather than a blank placeholder. Multiline fields must render
+the selected multiline value in place instead of only summarizing it as a line
+count. Blank optional parameters, including optional multiline parameters, must
+advance with Enter. Pinned detail keys such as `Guide:`, `Example:`, and
+`Validation:` must render bold on their own line with indented content below.
+Interactive actions must show the equivalent `nopsai ...` command as a final
+preview before API sends, local config changes, completion generation, platform
+checks/releases, install generation, Docker Compose startup, or Helm deployment
+begins.
+Bootstrap-created local admin credentials must rotate on first login by default,
+and generated Docker Compose installs must reject the built-in development
+`admin` password. Generated Docker Compose installs must include the dispatcher
+TLS secret in `.env` and pass it to dispatcher gRPC clients. First-install setup
+must not force an env-file write for dispatcher TLS when a valid effective
+service JWT fallback is already configured, and setup apply errors must include
+the actionable write/configuration reason.
 
 ## Wiki Sections
 
@@ -117,6 +130,7 @@ Getting Started
 
 Installation
 ├── First-install wizard
+│   └── Locks normal authenticated routes and APIs until setup is completed once
 ├── Required environment and service URLs
 ├── Docker Compose
 ├── Kubernetes and Helm

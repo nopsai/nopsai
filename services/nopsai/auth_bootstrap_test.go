@@ -42,7 +42,25 @@ func TestResolveBootstrapAdminCredentialsReadsPasswordFile(t *testing.T) {
 	if credentials.Email != "platform-admin@example.com" ||
 		credentials.Password != "first-install-secret" ||
 		!credentials.PasswordConfigured ||
-		credentials.MustChangePassword {
+		!credentials.MustChangePassword {
+		t.Fatalf("credentials = %#v", credentials)
+	}
+}
+
+func TestResolveBootstrapAdminCredentialsCanOptOutOfPasswordChange(t *testing.T) {
+	mustChange := false
+	credentials, err := resolveBootstrapAdminCredentials(&config.Config{
+		Environment: "production",
+		BootstrapAdmin: config.BootstrapAdminConfig{
+			Email:              "platform-admin@example.com",
+			Password:           "first-install-secret",
+			MustChangePassword: &mustChange,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credentials.MustChangePassword {
 		t.Fatalf("credentials = %#v", credentials)
 	}
 }

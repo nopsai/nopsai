@@ -105,6 +105,12 @@ func runInstallWizard(command *cobra.Command, root *rootOptions) error {
 				}
 				return err
 			}
+			if err := previewInteractiveDockerComposeInstall(prompter, options); err != nil {
+				if errors.Is(err, interactive.ErrBack) {
+					continue
+				}
+				return err
+			}
 			if prompter.CanUseLiveSelector() {
 				stdout, stderr, runErr := captureCommandOutput(command, func() error {
 					return executeInstallDockerCompose(command, root, options)
@@ -119,6 +125,12 @@ func runInstallWizard(command *cobra.Command, root *rootOptions) error {
 		case 1:
 			options := defaultKubernetesInstallOptions(root)
 			if err := resolveInteractiveKubernetesInstall(prompter, options, defaultPlatformVersion(root)); err != nil {
+				if errors.Is(err, interactive.ErrBack) {
+					continue
+				}
+				return err
+			}
+			if err := previewInteractiveKubernetesInstall(prompter, options); err != nil {
 				if errors.Is(err, interactive.ErrBack) {
 					continue
 				}
@@ -153,6 +165,12 @@ func newInstallDockerComposeCommand(root *rootOptions) *cobra.Command {
 			if options.interactive {
 				prompter = interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
 				if err := resolveInteractiveDockerComposeInstall(prompter, options, defaultPlatformVersion(root)); err != nil {
+					return err
+				}
+				if err := previewInteractiveDockerComposeInstall(prompter, options); err != nil {
+					if errors.Is(err, interactive.ErrBack) {
+						return renderInstallPreviewCancelled(command)
+					}
 					return err
 				}
 				if prompter.CanUseLiveSelector() {
@@ -217,6 +235,12 @@ func newInstallKubernetesCommand(root *rootOptions) *cobra.Command {
 			if options.interactive {
 				prompter = interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
 				if err := resolveInteractiveKubernetesInstall(prompter, options, defaultPlatformVersion(root)); err != nil {
+					return err
+				}
+				if err := previewInteractiveKubernetesInstall(prompter, options); err != nil {
+					if errors.Is(err, interactive.ErrBack) {
+						return renderInstallPreviewCancelled(command)
+					}
 					return err
 				}
 				if prompter.CanUseLiveSelector() {
@@ -361,6 +385,11 @@ func installResultScreenOptions(target string, root *rootOptions) interactive.Sc
 			"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter home | Esc targets | Ctrl+C quit",
 		},
 	}
+}
+
+func renderInstallPreviewCancelled(command *cobra.Command) error {
+	_, err := fmt.Fprintln(command.OutOrStdout(), "Install cancelled before execution.")
+	return err
 }
 
 func executeInstallDockerCompose(command *cobra.Command, root *rootOptions, options *installDockerComposeOptions) error {

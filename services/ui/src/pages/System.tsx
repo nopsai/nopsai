@@ -12,6 +12,7 @@ import AccessPanel from '../features/system/AccessPanel';
 import { useSystemAccess } from '../features/system/access/useSystemAccess';
 import { useSystemConfig } from '../features/system/config/useSystemConfig';
 import SystemLogsPanel from '../features/system/logs/SystemLogsPanel';
+import type { SetupStatus } from '../features/system/setup/model';
 
 type SystemTab = 'config' | 'setup' | 'data-management' | 'dispatcher' | 'logs' | 'access';
 
@@ -28,7 +29,13 @@ function resolveSystemTab(tab?: string): SystemTab {
   return 'config';
 }
 
-function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
+function SystemPage({
+  permissions,
+  onSetupStatusChange,
+}: {
+  permissions: SystemPagePermissions;
+  onSetupStatusChange?: (status: SetupStatus) => void;
+}) {
   const params = useParams<{ tab?: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -101,7 +108,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         />
       )}
       {visibleTab === 'setup' && (
-        <SetupWizard canManage={permissions.canManageSetup} />
+        <SetupWizard canManage={permissions.canManageSetup} onStatusChange={onSetupStatusChange} />
       )}
       {visibleTab === 'data-management' && (
         <DataManagementPanel canManage={permissions.canManageDataManagement} />

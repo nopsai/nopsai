@@ -310,28 +310,46 @@ target picker and editable form for required runtime choices and internal
 service topology, then generates the files itself from the selected NopsAI
 version. It does not ask for release-manifest files in the normal path. Esc from
 an install form returns to the target picker; exact noninteractive subcommands
-remain available for GitOps and CI.
+remain available for GitOps and CI. After the last install parameter is filled,
+interactive install shows the equivalent `nopsai install ...` command and waits
+for confirmation before writing files or running Docker/Helm.
+
+Across the interactive CLI, actions show an equivalent `nopsai ...` command
+preview before they execute. This includes API calls and raw requests, route
+listing/description rendering, context changes, token login/logout, completion
+generation, platform doctor/release, and install generation. Multiline fields
+such as request bodies, headers, extra query assignments, and Helm values files
+render their selected multiline content in the form instead of only showing a
+line count. Blank optional parameters, including optional multiline parameters,
+can be skipped with Enter.
 
 `install docker-compose` is the noninteractive shortcut. It generates a
-deployment-only Compose file, `.env` with generated local secrets, embedded
-`db/init.sql`, and a non-secret `.nopsai/install.lock` from `--version`. With
-`--run` it executes `docker compose --env-file .env -f docker-compose.yaml up
--d`. Re-run with `--force` only when replacing generated files is intentional.
+deployment-only Compose file, `.env` with generated local secrets including the
+master key, browser JWT key, service JWT key, AAA shared token, dispatcher TLS
+secret, and bootstrap admin password, embedded `db/init.sql`, and a non-secret
+`.nopsai/install.lock` from `--version`. With `--run` it executes
+`docker compose --env-file .env -f docker-compose.yaml up -d`. Re-run with
+`--force` only when replacing generated files is intentional.
 Service addresses are written to `.env` and can be set noninteractively with
 `--nopsai-api-url`, `--dispatcher-address`, `--aaa-api-url`,
 `--git-bot-api-url`, `--gotenberg-url`, and `--docker-network`. The bootstrap
 admin email is set with `--bootstrap-admin-email`; omit
 `--bootstrap-admin-password` to generate a strong first-login password into the
-sensitive `.env` file.
+sensitive `.env` file. Bootstrap-created local admin credentials are treated as
+temporary by default and must be changed on first login. The literal built-in
+`admin` password is rejected for generated installs; use the repository
+development Compose file for local development defaults.
 
 `install kubernetes` generates editable Helm values and a non-secret install
 lock. The generated values reference `secrets.existingSecret`; create that
 Secret through External Secrets, SOPS, Sealed Secrets, or `kubectl` before
-deploying. That Secret must include the bootstrap admin password key named by
-`--bootstrap-admin-password-secret-key` because the generated values do not
-store plaintext secrets. Add `--deploy --wait` on the first command to deploy
-immediately, or run `nopsai install kubernetes --deploy` later from the stored
-output directory after editing values. Stored-file deploys reuse `values.yaml`
+deploying. That Secret must include database URL, master key, browser JWT key,
+service JWT key, AAA shared token, dispatcher TLS secret, and the bootstrap
+admin password key named by `--bootstrap-admin-password-secret-key` because the
+generated values do not store plaintext secrets. Add `--deploy --wait` on the
+first command to deploy immediately, or run
+`nopsai install kubernetes --deploy` later from the stored output directory
+after editing values. Stored-file deploys reuse `values.yaml`
 without overwriting it, then write a GitOps-readable release lock after
 success.
 Kubernetes service topology is stored under `topology.nopsaiAPIURL`,

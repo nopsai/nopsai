@@ -117,6 +117,8 @@ spec:
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.jwtSigningKey }}}}
             - name: SERVICE_JWT_SIGNING_KEY
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.serviceJWTSigningKey }}}}
+            - name: DISPATCHER_TLS_SECRET
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ required "secrets.keys.dispatcherTLSSecret is required" .Values.secrets.keys.dispatcherTLSSecret }}}}
             - name: AAA_SHARED_INTERNAL_TOKEN
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.aaaSharedInternalToken }}}}
             {{- with .Values.secrets.keys.bootstrapAdminPassword }}
