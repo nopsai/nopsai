@@ -82,9 +82,14 @@ Kubernetes generation writes editable Helm values, `README.md`, and
 `.nopsai/install.lock`. The values reference the versioned OCI chart and image
 tags, plus the Secret named by `secrets.existingSecret`. The generated README
 records prerequisites, the expected Secret keys, `kubectl` Secret creation
-examples, CLI deploy commands, direct Helm commands, and basic verification
-commands. Create the Secret with External Secrets, SOPS, Sealed Secrets, or
-another cluster secret manager before deploying.
+examples, registry pull Secret setup, CLI deploy commands, direct Helm
+commands, and basic verification commands. Create the Secret with External
+Secrets, SOPS, Sealed Secrets, or another cluster secret manager before
+deploying. The generated values include a bundled PostgreSQL StatefulSet and
+PVC by default; set `postgres.enabled=false` and point `database-url` at a
+managed database when the cluster owns PostgreSQL separately. When release
+images are private, the operator creates a registry pull Secret in the namespace
+and references it through `global.imagePullSecrets`.
 
 After editing values, deploy from the generated directory:
 
@@ -160,9 +165,10 @@ and `.env` with digest-pinned NopsAI image references for operators who want the
 release archive instead of CLI generation. The GitHub asset
 `nopsai-helm-chart-<version>.tgz` is the deployable chart containing the same
 digest-pinned images. Kubernetes installations must create the Secret named by
-`secrets.existingSecret` before installing the chart; PostgreSQL stays
-externally managed. Override `topology.dispatcherGRPCAddress` only when the
-dispatcher Service DNS name or port differs from the chart default
+`secrets.existingSecret` before installing the chart; the chart includes
+PostgreSQL by default and can be switched to managed PostgreSQL with
+`postgres.enabled=false`. Override `topology.dispatcherGRPCAddress` only when
+the dispatcher Service DNS name or port differs from the chart default
 `dispatcher:9090`.
 
 ```bash

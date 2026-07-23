@@ -22,7 +22,7 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 	builder.WriteString("## Requirements\n\n")
 	builder.WriteString("- Kubernetes cluster access through `kubectl`.\n")
 	builder.WriteString("- Helm 3 access to the target cluster.\n")
-	builder.WriteString("- External PostgreSQL reachable from the NopsAI namespace.\n")
+	builder.WriteString("- Persistent storage for the chart-managed PostgreSQL StatefulSet, or set `postgres.enabled=false` and provide an external database URL.\n")
 	builder.WriteString("- A Kubernetes Secret named `")
 	builder.WriteString(existingSecret)
 	builder.WriteString("` in namespace `")
@@ -46,6 +46,36 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 		builder.WriteString("` |\n")
 	}
 
+	builder.WriteString("\n## Registry Pull Secret\n\n")
+	builder.WriteString("If your NopsAI release images are private, create a registry pull Secret in namespace `")
+	builder.WriteString(namespace)
+	builder.WriteString("` and reference it from `")
+	builder.WriteString(valuesFile)
+	builder.WriteString("`. The chart attaches `global.imagePullSecrets` to the API and runner service accounts and pod specs.\n\n")
+	builder.WriteString("```bash\n")
+	builder.WriteString(shellJoin([]string{"kubectl", "create", "namespace", namespace, "--dry-run=client", "-o", "yaml"}))
+	builder.WriteString(" | kubectl apply -f -\n")
+	builder.WriteString(shellJoin([]string{
+		"kubectl", "-n", namespace, "create", "secret", "docker-registry", "nopsai-registry",
+		"--docker-server=ghcr.io",
+		"--docker-username=REPLACE_ME",
+		"--docker-password=REPLACE_ME",
+		"--dry-run=client", "-o", "yaml",
+	}))
+	builder.WriteString(" | kubectl apply -f -\n")
+	builder.WriteString("```\n\n")
+	builder.WriteString("Then add this non-secret reference to `")
+	builder.WriteString(valuesFile)
+	builder.WriteString("`:\n\n")
+	builder.WriteString("```yaml\nglobal:\n  imagePullSecrets:\n    - name: nopsai-registry\n```\n")
+	builder.WriteString("\nWhen `api.serviceAccount.create=true` and `k8sRunner.serviceAccount.create=true`, the chart writes this pull Secret onto the `nopsai-api` and `nopsai-runner` ServiceAccounts and onto workload pod specs. The runner ServiceAccount is also used by dynamically created agent and step pods.\n\n")
+	builder.WriteString("If you bring your own ServiceAccounts by setting either `*.serviceAccount.create` to `false`, create or patch those ServiceAccounts before deploy:\n\n")
+	builder.WriteString("```bash\n")
+	builder.WriteString(shellJoin([]string{"kubectl", "-n", namespace, "patch", "serviceaccount", "nopsai-api", "-p", `{"imagePullSecrets":[{"name":"nopsai-registry"}]}`}))
+	builder.WriteString("\n")
+	builder.WriteString(shellJoin([]string{"kubectl", "-n", namespace, "patch", "serviceaccount", "nopsai-runner", "-p", `{"imagePullSecrets":[{"name":"nopsai-registry"}]}`}))
+	builder.WriteString("\n```\n")
+
 	builder.WriteString("\n### Secret Manifest Option\n\n")
 	builder.WriteString("Create an encrypted/managed Secret manifest, or use this plaintext example only as a local starting point before encrypting it:\n\n")
 	builder.WriteString("```yaml\n")
@@ -56,7 +86,7 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 	builder.WriteString("\ntype: Opaque\nstringData:\n")
 	builder.WriteString("  ")
 	builder.WriteString(secretKeys[0].Key)
-	builder.WriteString(": \"postgres://nopsai_user:REPLACE_ME@postgres.example.com:5432/nopsai_db?sslmode=require\"\n")
+	builder.WriteString(": \"postgres://nopsai_user:REPLACE_ME@postgres:5432/nopsai_db?sslmode=disable\"\n")
 	for _, key := range secretKeys[1:] {
 		builder.WriteString("  ")
 		builder.WriteString(key.Key)
@@ -71,9 +101,10 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 	builder.WriteString("\n```\n\n")
 
 	builder.WriteString("### Command-Line Option\n\n")
-	builder.WriteString("For a one-off installation, create or update the Secret from command-line literals. Replace the database URL before running and keep the printed bootstrap password:\n\n")
+	builder.WriteString("For a one-off installation, create or update the Secret from command-line literals. The default database URL targets the bundled `postgres` Service; change it and set `postgres.enabled=false` when using a managed database. Keep the printed bootstrap password:\n\n")
 	builder.WriteString("```bash\n")
-	builder.WriteString("DATABASE_URL='postgres://nopsai_user:REPLACE_ME@postgres.example.com:5432/nopsai_db?sslmode=require'\n")
+	builder.WriteString("POSTGRES_PASSWORD=\"$(openssl rand -hex 24)\"\n")
+	builder.WriteString("DATABASE_URL=\"postgres://nopsai_user:${POSTGRES_PASSWORD}@postgres:5432/nopsai_db?sslmode=disable\"\n")
 	builder.WriteString("MASTER_KEY=\"$(openssl rand -base64 32)\"\n")
 	builder.WriteString("JWT_SIGNING_KEY=\"$(openssl rand -base64 48)\"\n")
 	builder.WriteString("SERVICE_JWT_SIGNING_KEY=\"$(openssl rand -base64 48)\"\n")
@@ -95,21 +126,24 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 	builder.WriteString("=\"$DATABASE_URL\" \\\n")
 	builder.WriteString("  --from-literal=")
 	builder.WriteString(secretKeys[1].Key)
-	builder.WriteString("=\"$MASTER_KEY\" \\\n")
+	builder.WriteString("=\"$POSTGRES_PASSWORD\" \\\n")
 	builder.WriteString("  --from-literal=")
 	builder.WriteString(secretKeys[2].Key)
-	builder.WriteString("=\"$JWT_SIGNING_KEY\" \\\n")
+	builder.WriteString("=\"$MASTER_KEY\" \\\n")
 	builder.WriteString("  --from-literal=")
 	builder.WriteString(secretKeys[3].Key)
-	builder.WriteString("=\"$SERVICE_JWT_SIGNING_KEY\" \\\n")
+	builder.WriteString("=\"$JWT_SIGNING_KEY\" \\\n")
 	builder.WriteString("  --from-literal=")
 	builder.WriteString(secretKeys[4].Key)
-	builder.WriteString("=\"$AAA_SHARED_INTERNAL_TOKEN\" \\\n")
+	builder.WriteString("=\"$SERVICE_JWT_SIGNING_KEY\" \\\n")
 	builder.WriteString("  --from-literal=")
 	builder.WriteString(secretKeys[5].Key)
-	builder.WriteString("=\"$DISPATCHER_TLS_SECRET\" \\\n")
+	builder.WriteString("=\"$AAA_SHARED_INTERNAL_TOKEN\" \\\n")
 	builder.WriteString("  --from-literal=")
 	builder.WriteString(secretKeys[6].Key)
+	builder.WriteString("=\"$DISPATCHER_TLS_SECRET\" \\\n")
+	builder.WriteString("  --from-literal=")
+	builder.WriteString(secretKeys[7].Key)
 	builder.WriteString("=\"$BOOTSTRAP_ADMIN_PASSWORD\" \\\n")
 	builder.WriteString("  --dry-run=client -o yaml | kubectl apply -f -\n")
 	builder.WriteString("```\n\n")
@@ -118,7 +152,7 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 	builder.WriteString("- Keep `")
 	builder.WriteString(valuesFile)
 	builder.WriteString("` non-secret and GitOps tracked.\n")
-	builder.WriteString("- Review `global.releaseVersion`, image repositories/tags/digests, `topology.*`, `bootstrapAdmin.email`, ingress, resources, storage class, and runner settings.\n")
+	builder.WriteString("- Review `global.releaseVersion`, image repositories/tags/digests, `postgres.*`, `topology.*`, `bootstrapAdmin.email`, ingress, resources, storage class, and runner settings.\n")
 	builder.WriteString("- The bootstrap admin email is `")
 	builder.WriteString(bootstrapAdminEmail)
 	builder.WriteString("`; the password is read from Secret key `")
@@ -161,6 +195,7 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 func kubernetesInstallSecretKeys(bootstrapAdminPasswordSecretKey string) []kubernetesSecretKeyReference {
 	return []kubernetesSecretKeyReference{
 		{Purpose: "Database URL", Key: "database-url"},
+		{Purpose: "PostgreSQL password for bundled PostgreSQL", Key: "postgres-password"},
 		{Purpose: "Master encryption key", Key: "master-key"},
 		{Purpose: "Browser JWT signing key", Key: "jwt-signing-key"},
 		{Purpose: "Service JWT signing key", Key: "service-jwt-signing-key"},

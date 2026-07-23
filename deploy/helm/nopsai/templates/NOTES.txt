@@ -2,11 +2,19 @@ NopsAI {{ .Chart.AppVersion }} was installed in namespace {{ .Release.Namespace 
 
 The chart expects Secret {{ include "nopsai.secretName" . }} with these keys:
   {{ .Values.secrets.keys.databaseURL }}
+  {{ .Values.secrets.keys.postgresPassword }}
   {{ .Values.secrets.keys.masterKey }}
   {{ .Values.secrets.keys.jwtSigningKey }}
   {{ .Values.secrets.keys.serviceJWTSigningKey }}
   {{ .Values.secrets.keys.aaaSharedInternalToken }}
   {{ .Values.secrets.keys.dispatcherTLSSecret }}
+  {{ .Values.secrets.keys.bootstrapAdminPassword }}
+
+{{- if .Values.postgres.enabled }}
+Bundled PostgreSQL is enabled and exposed inside the namespace as service/{{ include "nopsai.postgresServiceName" . }}.
+{{- else }}
+Bundled PostgreSQL is disabled. The database URL Secret key must point at an external PostgreSQL database.
+{{- end }}
 
 Port-forward the UI when ingress is disabled:
   kubectl -n {{ .Release.Namespace }} port-forward service/nopsai-ui 8080:80

@@ -44,7 +44,7 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 	}
 	installer := string(installerBytes)
 	values := string(valuesBytes)
-	for _, repository := range []string{
+	installRepositories := []string{
 		"ghcr.io/hosein-yousefii/nopsai-aaa",
 		"ghcr.io/hosein-yousefii/nopsai-agent",
 		"ghcr.io/hosein-yousefii/nopsai-api",
@@ -54,13 +54,22 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 		"ghcr.io/hosein-yousefii/nopsai-k8s-runner",
 		"ghcr.io/hosein-yousefii/nopsai-runner",
 		"ghcr.io/hosein-yousefii/nopsai-ui",
-	} {
+	}
+	for _, repository := range installRepositories {
 		if !strings.Contains(installer, repository) {
 			t.Errorf("CLI install generator is missing %s", repository)
+		}
+	}
+	for _, repository := range installRepositories {
+		if repository == "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy" {
+			continue
 		}
 		if !strings.Contains(values, repository) {
 			t.Errorf("Helm chart values are missing %s", repository)
 		}
+	}
+	if strings.Contains(values, "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy") {
+		t.Error("Helm chart values should not include the Docker-only socket proxy image")
 	}
 	if !strings.Contains(installer, "DefaultInstallChartReference") || !strings.Contains(installer, "oci://ghcr.io/hosein-yousefii/charts/nopsai") {
 		t.Fatal("CLI install generator does not declare the default OCI chart reference")
@@ -80,6 +89,8 @@ func TestHelmChartOwnsControlPlaneAndRunnerResources(t *testing.T) {
 		"../deploy/helm/nopsai/templates/git-bot.yaml",
 		"../deploy/helm/nopsai/templates/ui.yaml",
 		"../deploy/helm/nopsai/templates/k8s-runner.yaml",
+		"../deploy/helm/nopsai/templates/postgres.yaml",
+		"../deploy/helm/nopsai/files/db/init.sql",
 	} {
 		if info, err := os.Stat(chartFile); err != nil || info.Size() == 0 {
 			t.Errorf("required Helm chart file %s is missing or empty", chartFile)
@@ -90,6 +101,89 @@ func TestHelmChartOwnsControlPlaneAndRunnerResources(t *testing.T) {
 		if !strings.Contains(pipeline, required) {
 			t.Errorf("NopsAI platform release pipeline is missing Helm publication contract %q", required)
 		}
+	}
+}
+
+func TestHelmChartConfiguresBundledPostgreSQL(t *testing.T) {
+	valuesBytes, err := os.ReadFile("../deploy/helm/nopsai/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/postgres.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notesBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/NOTES.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := string(valuesBytes)
+	template := string(templateBytes)
+	notes := string(notesBytes)
+	for _, required := range []string{
+		"postgres:",
+		"enabled: true",
+		"repository: postgres",
+		"postgresPassword: postgres-password",
+		"passwordKey: postgres-password",
+		"storageClass: \"\"",
+		"size: 20Gi",
+	} {
+		if !strings.Contains(values, required) {
+			t.Errorf("values.yaml is missing bundled PostgreSQL contract %q", required)
+		}
+	}
+	for _, required := range []string{
+		"kind: ConfigMap",
+		"kind: Service",
+		"kind: StatefulSet",
+		"POSTGRES_DB",
+		"POSTGRES_PASSWORD",
+		"files/db/init.sql",
+		"volumeClaimTemplates",
+		"app.kubernetes.io/component: postgres",
+	} {
+		if !strings.Contains(template, required) {
+			t.Errorf("postgres.yaml is missing bundled PostgreSQL contract %q", required)
+		}
+	}
+	if !strings.Contains(notes, "{{ .Values.secrets.keys.postgresPassword }}") {
+		t.Error("NOTES.txt does not tell operators about the PostgreSQL password key")
+	}
+}
+
+func TestHelmReadmeDocumentsSecretsAndServiceAccountPullSecrets(t *testing.T) {
+	readmeBytes, err := os.ReadFile("../deploy/helm/nopsai/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(readmeBytes)
+	for _, required := range []string{
+		"kubectl -n nopsai create secret generic nopsai-secrets",
+		"--from-literal=postgres-password=\"$POSTGRES_PASSWORD\"",
+		"global.imagePullSecrets",
+		"nopsai-api",
+		"nopsai-runner",
+		"patch serviceaccount nopsai-api",
+		"patch serviceaccount nopsai-runner",
+	} {
+		if !strings.Contains(readme, required) {
+			t.Errorf("Helm README is missing secret/ServiceAccount guidance %q", required)
+		}
+	}
+}
+
+func TestHelmPostgreSQLInitSQLMatchesCanonicalDatabaseBootstrap(t *testing.T) {
+	canonical, err := os.ReadFile("../db/init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chartCopy, err := os.ReadFile("../deploy/helm/nopsai/files/db/init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(chartCopy) != string(canonical) {
+		t.Fatal("Helm PostgreSQL init SQL must match db/init.sql")
 	}
 }
 
