@@ -608,11 +608,12 @@ steps:
       cp -R deploy/helm/nopsai dist/release/chart
       ruby -ryaml -e '
         path = "dist/release/chart/Chart.yaml"
+        version = ARGV.fetch(0)
         chart = YAML.load_file(path)
-        chart["version"] = ENV.fetch("VERSION")
-        chart["appVersion"] = ENV.fetch("VERSION")
+        chart["version"] = version
+        chart["appVersion"] = version
         File.write(path, chart.to_yaml)
-      '
+      ' "$VERSION"
       helm lint dist/release/chart
       helm package dist/release/chart --destination dist/release
       scripts/generate-changelog.sh "$VERSION" dist/release/CHANGELOG.md "$SOURCE_COMMIT"

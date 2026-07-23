@@ -11,10 +11,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestSampleNopsAIPlatformReleasePipelineValidates(t *testing.T) {
+func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	path := filepath.Join(
 		"..", "..", "..", "..",
-		"doc", "sample-config-repo", "global-repo", "pipelines", "platform", "prod", "nopsai-platform-release.yaml",
+		".nopsai", "nopsai-platform-release.yaml",
 	)
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -29,7 +29,7 @@ func TestSampleNopsAIPlatformReleasePipelineValidates(t *testing.T) {
 		t.Fatalf("ValidatePipeline() error = %v", err)
 	}
 	if models.PipelineLLMEnabled(&pipeline) {
-		t.Fatal("sample NopsAI release pipeline must keep LLM disabled")
+		t.Fatal("GitOps NopsAI release pipeline must keep LLM disabled")
 	}
 
 	requireVariables(t, pipeline.Variables,
@@ -116,6 +116,11 @@ func TestSampleNopsAIPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["package-helm-chart"].GetScript(), "helm package dist/release/chart --destination dist/release")
 	requireContains(t, steps["package-helm-chart"].GetScript(), "scripts/generate-changelog.sh")
 	requireContains(t, steps["package-helm-chart"].GetScript(), "rm -rf dist/assets")
+	requireContains(t, steps["package-helm-chart"].GetScript(), `version = ARGV.fetch(0)`)
+	requireContains(t, steps["package-helm-chart"].GetScript(), `' "$VERSION"`)
+	if strings.Contains(steps["package-helm-chart"].GetScript(), `ENV.fetch("VERSION")`) {
+		t.Fatal("package-helm-chart must pass VERSION to Ruby explicitly instead of requiring an exported shell variable")
+	}
 	requireContains(t, steps["publish-helm-chart"].GetScript(), "NOPSAI_RELEASE_GHCR_TOKEN is required to publish the Helm chart to GHCR")
 	requireContains(t, steps["publish-helm-chart"].GetScript(), "printf '%s' \"$NOPSAI_RELEASE_GHCR_TOKEN\" | helm registry login ghcr.io")
 	requireContains(t, steps["publish-helm-chart"].GetScript(), "helm push \"dist/release/nopsai-$VERSION.tgz\" \"$chart_repository\" 2>&1")
@@ -138,7 +143,7 @@ func TestSampleNopsAIPlatformReleasePipelineValidates(t *testing.T) {
 		script := step.GetScript()
 		for _, value := range forbidden {
 			if strings.Contains(script, value) {
-				t.Fatalf("sample release pipeline should not contain %q in step %s", value, step.GetName())
+				t.Fatalf("GitOps release pipeline should not contain %q in step %s", value, step.GetName())
 			}
 		}
 	}

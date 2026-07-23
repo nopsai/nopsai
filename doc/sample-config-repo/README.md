@@ -161,8 +161,8 @@ blocks.
 global-repo/pipelines/platform/prod/platform-maintenance.yaml
   -> pipeline platform/prod/platform-maintenance, public use access
 
-global-repo/pipelines/platform/prod/nopsai-platform-release.yaml
-  -> pipeline platform/prod/nopsai-platform-release, self-hosted release publication workflow for NopsAI images, Helm chart, CLI archives, changelog, and checksums
+.nopsai/nopsai-platform-release.yaml
+  -> pipeline platform/prod/nopsai-platform-release, repository-owned self-hosted release publication workflow for NopsAI images, Helm chart, CLI archives, changelog, and checksums
 
 global-repo/pipelines/knowledge-kind-comparison.yaml
   -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior
@@ -295,9 +295,10 @@ The `triggers/hosein-yousefii/pre-nopsai.yaml` file is the native GitHub App
 self-release trigger. It starts `platform/prod/nopsai-platform-release` when the
 GitHub App receives a `push` event for `main`; it intentionally sets
 `provider: github`, `team_path: platform/prod`, and `management: nopsai`, with
-no `webhook_source` because GitHub App ingress is automatic. The release pipeline
-and `prod` scope both grant use access to `repository:hosein-yousefii/pre-nopsai`
-so the GitHub-triggered run can pass runtime authorization. Release inputs come
+no `webhook_source` because GitHub App ingress is automatic. The release
+pipeline in `.nopsai/nopsai-platform-release.yaml` and `prod` scope both grant
+use access to `repository:hosein-yousefii/pre-nopsai` so the GitHub-triggered
+run can pass runtime authorization. Release inputs come
 from `scopes/prod/scope.yaml`, including the repository URL, source ref, GHCR
 registry, image platforms, and Docker host. GitHub and GHCR token values stay as
 secret placeholders.

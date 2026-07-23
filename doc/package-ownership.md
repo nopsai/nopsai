@@ -111,9 +111,9 @@ release model logic.
 - `deploy/helm/nopsai` owns the published NopsAI Helm chart.
 - `doc/sample-config-repo/global-repo/triggers/hosein-yousefii/pre-nopsai.yaml`
   owns the GitHub App main-branch release trigger.
-- `doc/sample-config-repo/global-repo/pipelines/platform/prod/nopsai-platform-release.yaml`
-  owns release package validation plus GHCR images, OCI Helm publication, CLI
-  archives, changelog, checksums, and GitHub Release publication.
+- `.nopsai/nopsai-platform-release.yaml` owns the GitOps release pipeline for
+  package validation, GHCR images, OCI Helm publication, CLI archives,
+  changelog, checksums, and GitHub Release publication.
 
 GitOps pipeline and trigger YAML should orchestrate these owners rather than
 duplicate their model or rendering logic inline.
