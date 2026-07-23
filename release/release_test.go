@@ -252,7 +252,7 @@ func TestInstallGeneratorDeclaresEveryCompatibilityImageKey(t *testing.T) {
 
 func readNopsAIReleasePipeline(t *testing.T) string {
 	t.Helper()
-	contents, err := os.ReadFile("../doc/sample-config-repo/global-repo/pipelines/platform/prod/nopsai-platform-release.yaml")
+	contents, err := os.ReadFile("../.nopsai/nopsai-platform-release.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
