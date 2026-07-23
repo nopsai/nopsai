@@ -40,6 +40,11 @@ var dataManagementSchemaStatements = []string{
 		last_status TEXT NOT NULL DEFAULT '',
 		last_deleted_counts JSONB NOT NULL DEFAULT '{}'::jsonb,
 		last_error TEXT NOT NULL DEFAULT '',
+		source TEXT NOT NULL DEFAULT 'database',
+		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+		config_source_path TEXT NOT NULL DEFAULT '',
+		config_source_commit_sha TEXT NOT NULL DEFAULT '',
+		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
 		created_by TEXT NOT NULL DEFAULT '',
 		updated_by TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -69,6 +74,11 @@ var dataManagementSchemaStatements = []string{
 	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS last_job_id UUID`,
 	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS last_deleted_counts JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'database'`,
+	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
+	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE data_cleanup_schedules ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE data_cleanup_jobs ADD COLUMN IF NOT EXISTS preview_counts JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE data_cleanup_jobs ADD COLUMN IF NOT EXISTS deleted_counts JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE data_cleanup_jobs ADD COLUMN IF NOT EXISTS backup_id UUID REFERENCES data_backups(id) ON DELETE SET NULL`,
@@ -87,6 +97,7 @@ var dataManagementSchemaStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_data_cleanup_jobs_created_at ON data_cleanup_jobs(created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_data_cleanup_jobs_schedule_id ON data_cleanup_jobs(schedule_id, created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_data_cleanup_schedules_next_run ON data_cleanup_schedules(enabled, next_run_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_data_cleanup_schedules_config_repo ON data_cleanup_schedules(config_repo_id)`,
 }
 
 func ensureDataManagementSchema(ctx context.Context, db *pgxpool.Pool) error {

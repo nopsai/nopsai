@@ -47,11 +47,13 @@ test('renders editable git-bot GitHub App runtime settings', async () => {
   expect(screen.getByLabelText(/GitHub App ID/)).toHaveValue('123456');
   expect(screen.getByLabelText(/GitHub installation ID/)).toHaveValue('987654');
   expect(screen.getByLabelText(/Private key credential ref/)).toHaveValue('credential://system/github/app-private-key');
+  expect(screen.getByText('Expected type: private_key')).toBeVisible();
   expect(screen.getAllByRole('link', { name: 'Open credential' })[0]).toHaveAttribute(
     'href',
     '/credentials?credential=credential%3A%2F%2Fsystem%2Fgithub%2Fapp-private-key'
   );
   expect(screen.getByLabelText(/Webhook secret credential ref/)).toHaveValue('credential://system/github/webhook-secret');
+  expect(screen.getByText('Expected type: webhook_secret')).toBeVisible();
 
   await user.clear(screen.getByLabelText(/GitHub App ID/));
   await user.type(screen.getByLabelText(/GitHub App ID/), '654321');

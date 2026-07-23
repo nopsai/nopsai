@@ -518,15 +518,17 @@ export function KnowledgeContextModals({
                 onChange={event => onUpdateConnection({ base_url: event.target.value })}
               />
             </label>
-            <label className="block text-sm font-medium text-[var(--text-secondary)]">
-              Credential reference
+            <div className="block text-sm font-medium text-[var(--text-secondary)]">
+              <label htmlFor="knowledge-connection-credential-ref">Credential reference</label>
               <input
+                id="knowledge-connection-credential-ref"
                 className="pipelines-input w-full mt-1"
                 placeholder={isEditingConnection ? 'Leave empty to keep the stored credential' : 'credential namespace/name'}
                 value={connectionModal.credential_ref}
                 onChange={event => onUpdateConnection({ credential_ref: event.target.value })}
               />
-            </label>
+              <span className="mt-1 block text-xs text-[var(--text-secondary)]">Expected type: api_key</span>
+            </div>
             {connectionModal.error ? <WorkflowInlineAlert id={connectionErrorId}>{connectionModal.error}</WorkflowInlineAlert> : null}
           </div>
           <div className="pipelines-modal-footer">

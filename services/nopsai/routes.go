@@ -388,6 +388,7 @@ func (a *App) registerRunRoutes(mux *http.ServeMux) {
 func (a *App) buildHTTPHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /version", handleVersion)
+	mux.HandleFunc("GET /healthz", handleHealthz)
 	a.registerAuthRoutes(mux)
 	a.registerAccessRoutes(mux)
 	a.registerGitHubRoutes(mux)

@@ -38,6 +38,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"credentials_synced":             0,
 		"runtime_settings_synced":        0,
 		"mail_settings_synced":           0,
+		"data_cleanup_schedules_synced":  0,
 		"notification_routes_synced":     0,
 	}
 
@@ -98,6 +99,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("auth_settings_synced", details["auth_settings_synced"]).
 		Int("credentials_synced", details["credentials_synced"]).
 		Int("mail_settings_synced", details["mail_settings_synced"]).
+		Int("data_cleanup_schedules_synced", details["data_cleanup_schedules_synced"]).
 		Int("notification_routes_synced", details["notification_routes_synced"]).
 		Msg("Configuration synchronization from Git completed")
 

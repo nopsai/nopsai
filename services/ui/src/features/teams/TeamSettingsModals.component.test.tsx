@@ -172,6 +172,7 @@ describe('TeamSettingsModals', () => {
     const handlers = createSettingsHandlers();
     render(<ConfigModalHarness handlers={handlers} />);
 
+    expect(screen.getByText('Expected type: bearer_token')).toBeVisible();
     await user.clear(screen.getByLabelText('Repository URL'));
     await user.type(screen.getByLabelText('Repository URL'), 'https://github.com/acme/new-config');
     await user.click(screen.getByRole('button', { name: 'Save Repository' }));

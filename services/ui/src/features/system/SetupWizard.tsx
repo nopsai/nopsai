@@ -593,6 +593,7 @@ function SetupWizard({
                   <label className="space-y-1 text-sm">
                     <span className="text-xs text-[var(--text-secondary)]">Credential reference{llmProviderDefinition.apiKeyMode === 'required' ? ' *' : ''}</span>
                     <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmCredentialRef} onChange={event => setLLMCredentialRef(event.target.value)} placeholder={defaultCredentialRef(llmProvider)} disabled={!canManage || !aiEnabled} />
+                    <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Expected type: api_key</span>
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="text-xs text-[var(--text-secondary)]">{llmProviderDefinition.apiKeyMode === 'required' ? `${llmProviderDefinition.label} API key value` : 'Optional API key value'}</span>

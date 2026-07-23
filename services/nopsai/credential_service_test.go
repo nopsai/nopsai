@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -384,6 +385,8 @@ func TestCredentialMetadataAndBoundDelete(t *testing.T) {
 		Kind:      "password",
 	}); err == nil {
 		t.Fatal("EnsureMetadata() accepted a conflicting credential kind")
+	} else if !strings.Contains(err.Error(), `kind "webhook_secret"`) || !strings.Contains(err.Error(), `expected kind "password"`) {
+		t.Fatalf("EnsureMetadata() conflict error = %q, want existing and expected kinds", err.Error())
 	}
 
 	managedRef, _ := credentials.ParseReference("credential://system/mcp/github")

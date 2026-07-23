@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -88,7 +89,7 @@ func (a *App) exportConfigRepositorySteps(ctx context.Context, repo models.Confi
 
 func (a *App) exportConfigRepositoryTriggers(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT repository_name, trigger_definition, COALESCE(source, 'database'), config_repo_id, managed_by_config_repo, config_source_path
+		SELECT repository_name, trigger_definition, COALESCE(source, 'database'), COALESCE(team_path, ''), config_repo_id, managed_by_config_repo, config_source_path
 		FROM triggers
 		ORDER BY repository_name ASC
 	`)
@@ -98,22 +99,39 @@ func (a *App) exportConfigRepositoryTriggers(ctx context.Context, repo models.Co
 	defer rows.Close()
 
 	for rows.Next() {
-		var identifier, definition, source, sourcePath string
+		var identifier, definition, source, teamPath, sourcePath string
 		var configRepoID sql.NullInt64
 		var managed bool
-		if err := rows.Scan(&identifier, &definition, &source, &configRepoID, &managed, &sourcePath); err != nil {
+		if err := rows.Scan(&identifier, &definition, &source, &teamPath, &configRepoID, &managed, &sourcePath); err != nil {
 			return err
 		}
-		if !configRepositoryIncludesResource(repo, identifier, source, configRepoID, managed, delegatedScopes) {
+		scope := repositoryTriggerConfigScope(repositoryTriggerRecord{RepositoryName: identifier, TeamPath: teamPath})
+		if !configRepositoryIncludesResource(repo, scope, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
-		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "triggers", ".yaml", managed, configRepoID)
+		filePath, ok := configRepositoryTriggerExportPath(repo, identifier, sourcePath, managed, configRepoID)
 		if !ok {
 			continue
 		}
 		files[filePath] = definition
 	}
 	return rows.Err()
+}
+
+func configRepositoryTriggerExportPath(repo models.ConfigRepository, repositoryName, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
+	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		return configRepositoryManagedSourcePath(repo, sourcePath)
+	}
+	identifier := strings.Trim(strings.TrimSpace(repositoryName), "/")
+	if identifier == "" {
+		return "", false
+	}
+	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
+		if rel, ok := configRepositoryRelativeResourceIdentifier(repo, identifier); ok && rel != "" {
+			identifier = rel
+		}
+	}
+	return filepath.ToSlash(filepath.Join("triggers", identifier+".yaml")), true
 }
 
 func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {

@@ -136,27 +136,32 @@ type dataCleanupScheduleInput struct {
 }
 
 type dataCleanupScheduleRecord struct {
-	ID                  string           `json:"id"`
-	Name                string           `json:"name"`
-	Description         string           `json:"description,omitempty"`
-	Enabled             bool             `json:"enabled"`
-	Target              string           `json:"target"`
-	Mode                string           `json:"mode"`
-	KeepLast            int              `json:"keep_last,omitempty"`
-	OlderThanDays       int              `json:"older_than_days,omitempty"`
-	BackupBeforeCleanup bool             `json:"backup_before_cleanup"`
-	CronExpression      string           `json:"cron_expression"`
-	Timezone            string           `json:"timezone"`
-	NextRunAt           *time.Time       `json:"next_run_at,omitempty"`
-	LastRunAt           *time.Time       `json:"last_run_at,omitempty"`
-	LastJobID           string           `json:"last_job_id,omitempty"`
-	LastStatus          string           `json:"last_status,omitempty"`
-	LastDeletedCounts   map[string]int64 `json:"last_deleted_counts"`
-	LastError           string           `json:"last_error,omitempty"`
-	CreatedBy           string           `json:"created_by,omitempty"`
-	UpdatedBy           string           `json:"updated_by,omitempty"`
-	CreatedAt           time.Time        `json:"created_at"`
-	UpdatedAt           time.Time        `json:"updated_at"`
+	ID                    string           `json:"id"`
+	Name                  string           `json:"name"`
+	Description           string           `json:"description,omitempty"`
+	Enabled               bool             `json:"enabled"`
+	Target                string           `json:"target"`
+	Mode                  string           `json:"mode"`
+	KeepLast              int              `json:"keep_last,omitempty"`
+	OlderThanDays         int              `json:"older_than_days,omitempty"`
+	BackupBeforeCleanup   bool             `json:"backup_before_cleanup"`
+	CronExpression        string           `json:"cron_expression"`
+	Timezone              string           `json:"timezone"`
+	NextRunAt             *time.Time       `json:"next_run_at,omitempty"`
+	LastRunAt             *time.Time       `json:"last_run_at,omitempty"`
+	LastJobID             string           `json:"last_job_id,omitempty"`
+	LastStatus            string           `json:"last_status,omitempty"`
+	LastDeletedCounts     map[string]int64 `json:"last_deleted_counts"`
+	LastError             string           `json:"last_error,omitempty"`
+	Source                string           `json:"source"`
+	ConfigRepoID          *int64           `json:"config_repo_id,omitempty"`
+	ConfigSourcePath      string           `json:"config_source_path,omitempty"`
+	ConfigSourceCommitSHA string           `json:"config_source_commit_sha,omitempty"`
+	ManagedByConfigRepo   bool             `json:"managed_by_config_repo"`
+	CreatedBy             string           `json:"created_by,omitempty"`
+	UpdatedBy             string           `json:"updated_by,omitempty"`
+	CreatedAt             time.Time        `json:"created_at"`
+	UpdatedAt             time.Time        `json:"updated_at"`
 }
 
 type backupJSONLine struct {

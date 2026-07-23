@@ -2577,7 +2577,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'System setting file map',
             language: 'text',
             code:
-              'setting/system/credentials.yaml\nsetting/system/github.yaml\nsetting/system/runner.yaml\nsetting/system/auth.yaml\nsetting/system/mail.yaml\nsetting/system/llm_profile.yaml\nsetting/system/mcp.yaml\nsetting/system/agent-profiles.yaml',
+              'setting/system/credentials.yaml\nsetting/system/github.yaml\nsetting/system/runner.yaml\nsetting/system/auth.yaml\nsetting/system/mail.yaml\nsetting/system/data-management.yaml\nsetting/system/llm_profile.yaml\nsetting/system/mcp.yaml\nsetting/system/agent-profiles.yaml',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
@@ -2595,6 +2595,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Bootstrap secrets remain in deployment Secrets; integration credentials live in the encrypted credential registry; pipeline secrets and variables resolve by scope and repository.',
         keyFacts: [
           'Credential references use stable URIs such as credential://system/llm/openai-primary or credential://team/platform/llm/openai.',
+          'Expected credential kinds are api_key for LLM and knowledge providers, bearer_token for MCP and config repositories, password for SMTP, client_secret for OIDC, private_key for GitHub App keys, and webhook_secret for webhook signing secrets.',
           'Credential versions use envelope encryption with AES-256-GCM and versioned key wrapping.',
           'Human-facing reads return credential metadata only; normal credential-value read is not available.',
           'Pipeline secrets are encrypted at rest, selected by scope/repository, delivered only in protected run payloads, and masked from logs and history.',
@@ -3220,10 +3221,12 @@ const baseWikiSections: WikiSectionInput[] = [
           'Cleanup targets are runs and logs.',
           'Cleanup modes include keep_last, older_than_days, all_terminal_runs, and all_logs.',
           'Cleanup may create a backup before deleting data and has scheduled job metadata.',
+          'Scheduled cleanup definitions can be managed by GitOps at setting/system/data-management.yaml.',
         ],
         details: [
           'Backup files are written with mode 0600 and the backup directory is created with mode 0700.',
           'Database recovery should use an operator-controlled, tested process until a formal NopsAI restore workflow exists.',
+          'GitOps owns cleanup schedule definitions only; backup files and cleanup job history remain runtime records.',
         ],
         configRows: [
           {
@@ -3231,6 +3234,12 @@ const baseWikiSections: WikiSectionInput[] = [
             area: 'Filesystem',
             description: 'Default API container path for product-generated backup files.',
             example: '/data/backups',
+          },
+          {
+            key: 'setting/system/data-management.yaml',
+            area: 'GitOps',
+            description: 'System config repository file for scheduled cleanup definitions.',
+            example: 'cleanup_schedules:',
           },
         ],
         examples: [],

@@ -101,9 +101,10 @@ func (s *credentialService) EnsureMetadata(ctx context.Context, input createCred
 	if err == nil {
 		if existing.Kind != kind {
 			return credentials.Credential{}, fmt.Errorf(
-				"credential %s already exists with kind %q",
+				"credential %s already exists with kind %q; expected kind %q",
 				input.Reference.String(),
 				existing.Kind,
+				kind,
 			)
 		}
 		if shouldRefreshManagedCredentialMetadata(existing, input) {

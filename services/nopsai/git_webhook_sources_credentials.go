@@ -103,9 +103,10 @@ func (a *App) prepareGitWebhookSourceCredential(
 	if err == nil {
 		if existing.Kind != gitWebhookSecretCredentialKind {
 			return source, nil, nil, fmt.Errorf(
-				"credential %s already exists with kind %q",
+				"credential %s already exists with kind %q; expected kind %q",
 				ref.String(),
 				existing.Kind,
+				gitWebhookSecretCredentialKind,
 			)
 		}
 		return source, nil, nil, nil

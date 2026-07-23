@@ -96,6 +96,10 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getByRole('button', { name: /edit server/i })).toHaveClass('ai-resource-icon-action');
   expect(screen.getAllByText('/platform/ml')[0]).toBeVisible();
 
+  await user.click(screen.getByRole('button', { name: /edit server/i }));
+  expect(screen.getByText('Expected type: bearer_token')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: /close server form/i }));
+
   await user.click(screen.getByRole('button', { name: /discover tools/i }));
   await waitFor(() => expect(apiMocks.discoverMCPServer).toHaveBeenCalledWith('platform/ml/github'));
 

@@ -76,6 +76,7 @@ function GitHubAppSettingsCard({ config, fieldMetadata, disabled, onChange }: Gi
           <CredentialReferenceLink reference={config.github_private_key_credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
             Open credential
           </CredentialReferenceLink>
+          <span className="text-xs text-[var(--text-secondary)]">Expected type: private_key</span>
         </label>
         <label className="flex flex-col gap-1 text-sm md:col-span-2">
           {labelWithApply('Webhook secret credential ref', 'github_webhook_credential_ref')}
@@ -91,6 +92,7 @@ function GitHubAppSettingsCard({ config, fieldMetadata, disabled, onChange }: Gi
           <CredentialReferenceLink reference={config.github_webhook_credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
             Open credential
           </CredentialReferenceLink>
+          <span className="text-xs text-[var(--text-secondary)]">Expected type: webhook_secret</span>
         </label>
       </div>
     </div>
