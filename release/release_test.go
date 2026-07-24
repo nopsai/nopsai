@@ -28,8 +28,8 @@ func TestCommitCountVersionSeriesMatchesCompatibilityBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(string(contents)); got != "2.10" {
-		t.Fatalf("release version series = %q, want 2.10", got)
+	if got := strings.TrimSpace(string(contents)); got != "2.11" {
+		t.Fatalf("release version series = %q, want 2.11", got)
 	}
 }
 
