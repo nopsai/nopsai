@@ -62,7 +62,7 @@ func BuildBootstrapCommandResponseWithOptions(cfg config.Config, r *http.Request
 		RunnerImage:         spec.RunnerImage,
 		RegistryCredentials: append([]string(nil), options.RegistryAuth.CredentialRefs...),
 		RegistryHosts:       append([]string(nil), options.RegistryAuth.RegistryHosts...),
-		BootstrapCommand:    fmt.Sprintf("tmp=$(mktemp) && curl -fsSL -H %s %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", ShellQuote("Authorization: Bearer "+token), ShellQuote(bootstrapURL)),
+		BootstrapCommand:    fmt.Sprintf("tmp=$(mktemp) && curl -fsSL -H %s %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"", ShellQuote("Authorization: Bearer "+token), ShellQuote(bootstrapURL)),
 		ExpiresAt:           expiresAt,
 		Warnings: append([]string{
 			"This one-time install command expires in 10 minutes and is consumed by the first successful download.",

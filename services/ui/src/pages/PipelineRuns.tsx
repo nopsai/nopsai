@@ -545,6 +545,13 @@ function PipelineRunsPage() {
     return base.slice(0, recentVisibleCount);
   }, [activeTab, recentRunsAll, recentVisibleCount, searchTerm, sourceFilter, statusFilter]);
 
+  const analysisComparisonRuns = useMemo(() => {
+    const runsById = new Map<string, RunListItem>();
+    recentRunsAll.forEach(run => runsById.set(run.run_id, run));
+    Object.values(runsByBranch).flat().forEach(run => runsById.set(run.run_id, run));
+    return Array.from(runsById.values());
+  }, [recentRunsAll, runsByBranch]);
+
   useEffect(() => {
     const triggerId = activeRunId ? runDetail?.run_info?.trigger_event_id || null : null;
     if (!triggerId) {
@@ -765,6 +772,7 @@ function PipelineRunsPage() {
       teamsError={teamsError}
       runsByBranch={runsByBranch}
       filteredRecentRuns={filteredRecentRuns}
+      comparisonRuns={analysisComparisonRuns}
       teamedEvents={teamedEvents}
       runsLoading={runsLoading}
       runsError={runsError}

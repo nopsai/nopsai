@@ -37,6 +37,7 @@ var generatedRoutes = []Route{
 	newRoute("DELETE", "/v1/admin/users/{userID}"),
 	newRoute("PATCH", "/v1/admin/users/{userID}"),
 	newRoute("PUT", "/v1/admin/users/{userID}"),
+	newRoute("POST", "/v1/analysis/evaluate"),
 	newRoute("GET", "/v1/assistant/config"),
 	newRoute("GET", "/v1/assistant/conversations"),
 	newRoute("POST", "/v1/assistant/conversations"),

@@ -1,8 +1,9 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
   Boxes,
+  BrainCircuit,
   ChevronRight,
   FolderTree,
   MoreHorizontal,
@@ -33,6 +34,7 @@ import {
   getTeamSubtree,
   getVisibleTeamItems,
   teamKindLabel,
+  type TeamScopeStats,
   type TeamTreeNode,
 } from './model';
 import {
@@ -41,6 +43,9 @@ import {
   TeamOverviewCard,
   TeamTabPanel,
 } from './TeamsWorkspacePanels';
+import { AnalysisModal } from '../analysis/AnalysisModal';
+import { buildTeamResourceAnalysis } from '../analysis/model';
+import { buildTeamAnalysisPromptContext } from './teamAnalysisEvidence';
 import {
   getTeamTableCopy,
   getTeamTableItems,
@@ -531,7 +536,7 @@ function TeamResourcesPanel({
 }: {
   team: Team | null;
   teams: Team[];
-  stats: { teams: number };
+  stats: TeamScopeStats;
   scopedApplications: Team[];
   operationsSummary: TeamOperationsSummaryState;
   resourceCatalog: TeamResourceCatalogState;
@@ -539,8 +544,10 @@ function TeamResourcesPanel({
 }) {
   const notificationCount = operationsSummary.notificationRoute?.definition?.routes?.length;
   const [selectedResourceKind, setSelectedResourceKind] = useState<TeamLinkedResourceKind | null>(null);
+  const [analysisRequest, setAnalysisRequest] = useState<{ resource: TeamLinkedResource | null } | null>(null);
   const teamPath = team ? teamPathForURL(team, teams) : '';
   const app = team ? isAppTeam(team) : false;
+  const subjectLabel = team ? teamDisplayName(team) : 'Global';
   const localResources = useMemo(
     () => app
       ? []
@@ -573,6 +580,32 @@ function TeamResourcesPanel({
   const allResources = useMemo(
     () => [...localResources, ...catalogResources],
     [catalogResources, localResources]
+  );
+  const analysisResult = useMemo(
+    () => analysisRequest
+      ? buildTeamResourceAnalysis({
+          subjectId: team ? String(team.id) : 'global',
+          subjectLabel,
+          scopePath: teamPath,
+          resources: allResources,
+          activeResource: analysisRequest.resource,
+        })
+      : null,
+    [allResources, analysisRequest, subjectLabel, team, teamPath]
+  );
+  const loadAnalysisPromptContext = useCallback(
+    async () => buildTeamAnalysisPromptContext({
+      team,
+      teams,
+      stats,
+      subjectLabel,
+      scopePath: teamPath,
+      resources: allResources,
+      activeResource: analysisRequest?.resource || null,
+      operationsSummary,
+      resourceCatalog,
+    }),
+    [allResources, analysisRequest?.resource, operationsSummary, resourceCatalog, stats, subjectLabel, team, teamPath, teams]
   );
   const resourceCounts = useMemo(() => countLinkedResourcesByKind(allResources), [allResources]);
   const firstResourceKind = firstLinkedResourceKind(resourceCounts);
@@ -615,6 +648,10 @@ function TeamResourcesPanel({
           <h3>Resources</h3>
           <p>{description}</p>
         </div>
+        <button type="button" className="teams-secondary-btn" onClick={() => setAnalysisRequest({ resource: null })}>
+          <BrainCircuit className="h-4 w-4" aria-hidden="true" />
+          Analyse Resources
+        </button>
       </div>
       <div className="teams-resource-grid">
         {resources.map(resource => (
@@ -627,7 +664,15 @@ function TeamResourcesPanel({
         loading={selectedResourceKindLoading(activeResourceKind, operationsSummary.loading, resourceCatalog.loading)}
         error={selectedResourceKindError(activeResourceKind, operationsSummary.aiProfilesError, resourceCatalog.error)}
         scopeLabel={app ? 'application' : teamPath ? 'team' : 'global'}
+        onAnalyseResource={resource => setAnalysisRequest({ resource })}
       />
+      {analysisRequest && analysisResult ? (
+        <AnalysisModal
+          result={analysisResult}
+          loadAiPromptContext={loadAnalysisPromptContext}
+          onClose={() => setAnalysisRequest(null)}
+        />
+      ) : null}
     </article>
   );
 }
@@ -638,12 +683,14 @@ function TeamLinkedResourcesBrowser({
   loading,
   error,
   scopeLabel,
+  onAnalyseResource,
 }: {
   resources: TeamLinkedResource[];
   activeKind: TeamLinkedResourceKind;
   loading: boolean;
   error: string | null;
   scopeLabel: 'application' | 'team' | 'global';
+  onAnalyseResource: (resource: TeamLinkedResource) => void;
 }) {
   const activeResources = useMemo(
     () => resources.filter(resource => resource.kind === activeKind),
@@ -673,7 +720,7 @@ function TeamLinkedResourcesBrowser({
         ) : (
           <div className="teams-profile-summary__list">
             {activeResources.map(resource => (
-              <TeamLinkedResourceRow key={resource.id} resource={resource} />
+              <TeamLinkedResourceRow key={resource.id} resource={resource} onAnalyseResource={onAnalyseResource} />
             ))}
           </div>
         )}
@@ -682,9 +729,15 @@ function TeamLinkedResourcesBrowser({
   );
 }
 
-function TeamLinkedResourceRow({ resource }: { resource: TeamLinkedResource }) {
+function TeamLinkedResourceRow({
+  resource,
+  onAnalyseResource,
+}: {
+  resource: TeamLinkedResource;
+  onAnalyseResource: (resource: TeamLinkedResource) => void;
+}) {
   return (
-    <Link className="teams-profile-summary__row teams-linked-resource-row" to={resource.href} aria-label={`Open ${resource.label}`}>
+    <div className="teams-profile-summary__row teams-linked-resource-row">
       <span className={`teams-linked-resource-row__icon teams-linked-resource-row__icon--${resource.kind}`} aria-hidden="true">
         {linkedResourceIcon(resource.kind)}
       </span>
@@ -695,9 +748,17 @@ function TeamLinkedResourceRow({ resource }: { resource: TeamLinkedResource }) {
       <div className="teams-profile-summary__tags">
         {resource.teamPath ? <span className="runner-pill runner-pill--muted">{resource.teamPath}</span> : null}
         {resource.source ? <span className="runner-pill runner-pill--muted">{resource.source}</span> : null}
-        <span className="runner-pill runner-pill--muted">Open</span>
+        <Link className="runner-pill runner-pill--muted" to={resource.href} aria-label={`Open ${resource.label}`}>Open</Link>
+        <button
+          type="button"
+          className="runner-pill runner-pill--muted"
+          onClick={() => onAnalyseResource(resource)}
+          aria-label={`Analyse ${resource.label}`}
+        >
+          Analyse
+        </button>
       </div>
-    </Link>
+    </div>
   );
 }
 

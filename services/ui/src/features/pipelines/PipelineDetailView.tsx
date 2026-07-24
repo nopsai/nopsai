@@ -1,10 +1,13 @@
-import type { KeyboardEvent, RefObject, UIEvent } from 'react';
-import { ArrowLeft, Play } from 'lucide-react';
+import { useCallback, useMemo, useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
+import { Activity, ArrowLeft, BrainCircuit, Play } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import { StepsGraph } from '../pipeline-runs/RunGraph';
+import { AnalysisModal } from '../analysis/AnalysisModal';
+import { buildPipelineAnalysis, type PipelineAnalysisScope } from '../analysis/model';
 import type { PipelineRun, PipelineTrigger } from './api';
+import { buildPipelineAnalysisPromptContext } from './pipelineAnalysisEvidence';
 import { PipelineActivityPanels } from './PipelineActivityPanels';
 import { normalizePipelineSource as normalizeSource, type PipelineDetail, type PipelineGraphData } from './model';
 
@@ -97,6 +100,51 @@ export function PipelineDetailView({
   onEditorScroll,
   onAutoIndentEnter,
 }: PipelineDetailViewProps) {
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [analysisScope, setAnalysisScope] = useState<PipelineAnalysisScope>('complete');
+  const [includeRunHistory, setIncludeRunHistory] = useState(true);
+  const analysisResult = useMemo(
+    () => detail
+      ? buildPipelineAnalysis({
+          detail,
+          graphData,
+          triggers,
+          recentRuns,
+          scope: analysisScope,
+          includeRunHistory,
+        })
+      : null,
+    [analysisScope, detail, graphData, includeRunHistory, recentRuns, triggers]
+  );
+  const loadAnalysisPromptContext = useCallback(
+    async () => detail
+      ? buildPipelineAnalysisPromptContext({
+          detail,
+          graphData,
+          triggers,
+          recentRuns,
+          includeRunHistory,
+          validationErrors,
+          triggersLoading,
+          triggersError,
+          runsLoading,
+          runsError,
+        })
+      : null,
+    [
+      detail,
+      graphData,
+      includeRunHistory,
+      recentRuns,
+      runsError,
+      runsLoading,
+      triggers,
+      triggersError,
+      triggersLoading,
+      validationErrors,
+    ]
+  );
+
   if (!detail) {
     return (
       <div id="pipelines-detail-view" className="pipelines-view">
@@ -108,6 +156,7 @@ export function PipelineDetailView({
   const source = normalizeSource(detail.source);
   const isGitSource = source === 'git';
   const executeDisabled = isEditing || source === 'draft' || !canExecuteSelectedPipeline;
+  const analysisDisabled = isEditing || source === 'draft';
   const executeTitle = source === 'draft'
     ? 'Save the draft before executing'
     : isEditing
@@ -115,9 +164,9 @@ export function PipelineDetailView({
       : canExecuteSelectedPipeline
         ? 'Execute in Lab'
         : 'You do not have permission to execute this pipeline';
-
   return (
-    <div id="pipelines-detail-view" className="pipelines-view">
+    <>
+      <div id="pipelines-detail-view" className="pipelines-view">
       <div className="min-w-0 space-y-6">
         <div className="glass-card p-6">
           <div className="flex items-start justify-between gap-4 w-full mb-4">
@@ -135,6 +184,17 @@ export function PipelineDetailView({
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                id="pipelines-analyse-btn"
+                type="button"
+                className="glass-button-ghost"
+                onClick={() => setAnalysisOpen(true)}
+                disabled={analysisDisabled}
+                title={analysisDisabled ? 'Save the pipeline before analysing this snapshot' : 'Analyse pipeline'}
+              >
+                <BrainCircuit className="h-4 w-4" aria-hidden="true" />
+                <span>Analyse Pipeline</span>
+              </button>
               <button
                 id="pipelines-execute-btn"
                 type="button"
@@ -243,6 +303,83 @@ export function PipelineDetailView({
             onOpenRun={onOpenRun}
           />
         </div>
+      </div>
+      </div>
+      {analysisOpen && analysisResult ? (
+        <AnalysisModal
+          result={analysisResult}
+          loadAiPromptContext={loadAnalysisPromptContext}
+          controls={(
+            <PipelineAnalysisControls
+              scope={analysisScope}
+              includeRunHistory={includeRunHistory}
+              onScopeChange={setAnalysisScope}
+              onIncludeRunHistoryChange={setIncludeRunHistory}
+            />
+          )}
+          actions={recentRuns[0] ? [{
+            id: 'latest-run',
+            label: 'Open latest run',
+            icon: <Activity className="h-4 w-4" aria-hidden="true" />,
+            onSelect: () => onOpenRun(recentRuns[0].run_id),
+          }] : []}
+          onClose={() => setAnalysisOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function PipelineAnalysisControls({
+  scope,
+  includeRunHistory,
+  onScopeChange,
+  onIncludeRunHistoryChange,
+}: {
+  scope: PipelineAnalysisScope;
+  includeRunHistory: boolean;
+  onScopeChange: (scope: PipelineAnalysisScope) => void;
+  onIncludeRunHistoryChange: (value: boolean) => void;
+}) {
+  const scopeOptions: Array<{ value: PipelineAnalysisScope; label: string }> = [
+    { value: 'complete', label: 'Complete analysis' },
+    { value: 'security', label: 'Security' },
+    { value: 'reliability', label: 'Reliability' },
+    { value: 'monitoring', label: 'Monitoring' },
+    { value: 'performance', label: 'Performance' },
+    { value: 'maintainability', label: 'Maintainability' },
+    { value: 'pre-execution', label: 'Pre-execution check' },
+  ];
+
+  return (
+    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_16rem]">
+      <div>
+        <div className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Scope</div>
+        <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Pipeline analysis scope">
+          {scopeOptions.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={scope === option.value}
+              className={`pipeline-runs-segment ${scope === option.value ? 'pipeline-runs-segment--active' : ''}`}
+              onClick={() => onScopeChange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Run history</div>
+        <label className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-white px-3 py-2 text-sm font-semibold text-[var(--text-primary)] dark:border-white/10 dark:bg-black/20">
+          <input
+            type="checkbox"
+            checked={includeRunHistory}
+            onChange={event => onIncludeRunHistoryChange(event.target.checked)}
+          />
+          Include last 30 runs
+        </label>
       </div>
     </div>
   );

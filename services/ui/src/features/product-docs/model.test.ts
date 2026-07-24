@@ -17,7 +17,7 @@ test('summarizes the product wiki and keeps a stable first article', () => {
   const summary = summarizeWiki();
 
   assert.equal(summary.sections, 9);
-  assert.equal(summary.articles, 44);
+  assert.equal(summary.articles, 45);
   assert.ok(summary.configKeys > 20);
   assert.ok(summary.runbooks > 20);
   assert.equal(summary.tutorials, 8);
@@ -78,6 +78,25 @@ test('documents private registry runner auth as an installed capability', () => 
   assert.ok(article.configRows.some(row => row.key === 'runner_registry_credentials'));
   assert.ok(article.relatedDocs.includes('doc/runner-registry-auth.md'));
   assert.ok(filterWikiSections(wikiSections, 'imagePullSecrets').some(section => section.id === 'installation'));
+});
+
+test('documents read-only analysis reviewers in the product wiki', () => {
+  const article = findWikiArticle(wikiSections, 'analysis-reviewers');
+
+  assert.ok(article);
+  assert.equal(article.docType, 'how-to');
+  assert.ok(article.audiences.includes('operator'));
+  assert.ok(article.keyFacts.some(fact => fact.includes('Analyse Pipeline')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('Analyse Run')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('critical x 25')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('AI Evaluation')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('POST /v1/analysis/evaluate')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('Problem, Why This Score')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('credential values')));
+  assert.ok(article.configRows.some(row => row.key === 'Analyse Resources' && row.security?.includes('redacts')));
+  assert.ok(article.sourceLinks.some(source => source.repositoryPath === 'services/ui/src/features/analysis/model.ts'));
+  assert.ok(article.sourceLinks.some(source => source.repositoryPath === 'services/ui/src/features/analysis/api.ts'));
+  assert.ok(filterWikiSections(wikiSections, 'first failed execution point').some(section => section.id === 'operations'));
 });
 
 test('documents step-level LLM profile directives', () => {

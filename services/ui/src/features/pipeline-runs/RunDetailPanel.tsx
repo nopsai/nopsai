@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, BarChart3, FileText, Info, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
+import { ArrowRight, BarChart3, BrainCircuit, FileText, GitCompare, Info, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
+import { AnalysisModal } from '../analysis/AnalysisModal';
+import { buildRunAnalysis } from '../analysis/model';
 import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
 import { BranchIcon, CommitIcon, RunIdIcon, StatusBadge, ZapIcon } from './PipelineRunCards';
 import { RunFinalOutputs } from './RunFinalOutputs';
 import { StepsGraph } from './RunGraph';
+import { buildRunAnalysisPromptContext } from './runAnalysisEvidence';
 import {
   buildPipelineLink,
   buildRunMonitoringLink,
@@ -68,6 +71,7 @@ export function RunDetailView({
   onShowDefinition,
   onApprovalDecision,
   approvalDecisionPending,
+  comparisonRuns,
 }: {
   detail: RunDetail;
   loading: boolean;
@@ -87,9 +91,11 @@ export function RunDetailView({
   onShowDefinition: () => void;
   onApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject') => void;
   approvalDecisionPending: string | null;
+  comparisonRuns: RunListItem[];
 }) {
   const run = detail.run_info;
   const [metadataOpen, setMetadataOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const normalizedStatus = normalizeStatus(run.status, run.is_complete);
   const isActiveRun = normalizedStatus === 'running' || normalizedStatus === 'pending' || normalizedStatus === 'waiting_approval';
   const approvals = detail.approvals || [];
@@ -110,6 +116,14 @@ export function RunDetailView({
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const repoLabel = formatRepoLabel(run);
   const isExternalTriggerRun = run.trigger_source === 'external_trigger' || Boolean(run.external_trigger_id);
+  const analysisResult = useMemo(
+    () => buildRunAnalysis({ detail, comparisonRuns }),
+    [comparisonRuns, detail]
+  );
+  const loadAnalysisPromptContext = useCallback(
+    () => buildRunAnalysisPromptContext(detail),
+    [detail]
+  );
   const externalCaller =
     run.external_trigger_caller_type && run.external_trigger_caller_id
       ? `${run.external_trigger_caller_type}:${run.external_trigger_caller_id}`
@@ -212,7 +226,8 @@ export function RunDetailView({
   };
 
   return (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       <div className="rounded-3xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-[0_22px_60px_rgba(8,10,24,0.12)] dark:border-white/10 dark:bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] dark:text-[var(--text-primary)] dark:shadow-[0_22px_60px_rgba(8,10,24,0.5)] overflow-hidden">
         <div className="p-6 flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -256,6 +271,10 @@ export function RunDetailView({
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
+                <button className={ghostAction} type="button" onClick={() => setAnalysisOpen(true)}>
+                  <BrainCircuit className="h-4 w-4 text-current" aria-hidden="true" />
+                  Analyse Run
+                </button>
                 <button className={ghostAction} type="button" onClick={onOpenLogs}>
                   <FileText className="h-4 w-4 text-current" aria-hidden="true" />
                   Logs
@@ -477,7 +496,46 @@ export function RunDetailView({
           </div>
         </div>
       )}
-    </div>
+      </div>
+      {analysisOpen ? (
+        <AnalysisModal
+          result={analysisResult}
+          loadAiPromptContext={loadAnalysisPromptContext}
+          actions={[
+            {
+              id: 'logs',
+              label: 'Open logs',
+              icon: <FileText className="h-4 w-4" aria-hidden="true" />,
+              onSelect: () => {
+                setAnalysisOpen(false);
+                onOpenLogs();
+              },
+            },
+            pipelineLink ? {
+              id: 'pipeline',
+              label: 'Open pipeline',
+              icon: <Workflow className="h-4 w-4" aria-hidden="true" />,
+              to: pipelineLink,
+            } : {
+              id: 'pipeline-definition',
+              label: 'Pipeline definition',
+              icon: <Workflow className="h-4 w-4" aria-hidden="true" />,
+              onSelect: () => {
+                setAnalysisOpen(false);
+                onShowDefinition();
+              },
+            },
+            ...(analysisResult.comparison?.length ? [{
+              id: 'compare',
+              label: 'Compare with last success',
+              icon: <GitCompare className="h-4 w-4" aria-hidden="true" />,
+              onSelect: () => document.getElementById('analysis-comparison')?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+            }] : []),
+          ]}
+          onClose={() => setAnalysisOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 

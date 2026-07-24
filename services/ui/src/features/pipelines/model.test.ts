@@ -200,6 +200,7 @@ version: v2
 steps:
   - name: build
     image: node:22
+    runtime_pool: ci
     script: npm run build
     secrets:
       - NPM_TOKEN
@@ -244,6 +245,7 @@ steps:
     ]
   );
   assert.deepEqual(graph.steps[0]?.configuration?.secrets, ['NPM_TOKEN']);
+  assert.equal(graph.steps[0]?.configuration?.runtime_pool, 'ci');
   assert.deepEqual(graph.steps[1]?.configuration?.approval?.teams, ['sre']);
   assert.deepEqual(graph.steps[2]?.configuration?.tasks?.[0]?.variables, { environment: 'prod' });
 });

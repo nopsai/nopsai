@@ -165,6 +165,7 @@ AI, MCP, and Knowledge
 Operations
 ├── Monitoring and metrics
 ├── Pipeline Logs and System Logs
+├── Analysis reviewers
 ├── Notifications
 ├── Backups, cleanup, and restore boundary
 └── Release integrity and compatibility
@@ -208,6 +209,35 @@ answer practical questions such as:
   use.
 - "Can a dashboard output define `dashboard.*` fields when type is `pdf`?" No.
   Dashboard target fields require `type: dashboard`.
+- "Where does an analysis health score come from?" It starts at 100 and
+  subtracts weighted visible findings: critical x 25, high x 15, medium x 8,
+  low x 3, and opportunity x 1. Category scores use the same weights filtered
+  to that category. A structured AI Evaluation can replace the displayed number
+  with an AI-reviewed score. Exact snapshot matches are current reviews; when
+  only an older same-subject review exists, the modal can show it as a labeled
+  previous-snapshot score and asks the user to regenerate for current evidence.
+- "Does Analyse Run rerun a failed step?" No. The analysis reviewer is
+  read-only and only opens existing logs/resources or copies the diagnosis
+  until a user chooses a separate confirmed action.
+- "Does AI Evaluation bypass NopsAI controls?" No. It uses the authenticated
+  analysis evaluation API, a usable configured LLM profile and credential
+  reference, and a redacted reviewer snapshot plus bounded page-owned evidence
+  context for the selected analysis surface. It does not create an Assistant
+  conversation or ask hosted MCP to inspect the pipeline, team, resource, or
+  run. If Assistant debugging or LLM profile access is unavailable,
+  deterministic analysis still works.
+- "Do I need to regenerate AI Evaluation every time?" Not for the same snapshot.
+  Structured AI reviews are cached in browser-local review history by subject
+  type, subject ID, and snapshot revision, so reopening the same analysis can
+  show the reviewed health score and explanation immediately. If the page
+  snapshot changed, the latest cached review is still shown as previous-snapshot
+  context until a fresh AI review is generated.
+- "Why is AI Evaluation asking about LLM Profiles?" Analysis uses the same
+  selectable LLM profiles as Assistant chat. Configure provider, model,
+  credential reference, and scope access in **LLM Profiles**. AI Evaluation
+  selects the configured default from the unscoped Assistant profile picker and
+  still sends the team/resource scope path to the evaluation endpoint for policy
+  validation.
 
 ## Pipeline YAML Directive Reference
 

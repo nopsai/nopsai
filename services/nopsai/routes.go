@@ -397,6 +397,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerSystemRoutes(mux)
 	a.registerMonitoringRoutes(mux)
 	a.registerAssistantRoutes(mux)
+	a.registerAnalysisRoutes(mux)
 	a.registerHostedMCPRoutes(mux)
 	a.registerPipelineRoutes(mux)
 	a.registerScheduleRoutes(mux)

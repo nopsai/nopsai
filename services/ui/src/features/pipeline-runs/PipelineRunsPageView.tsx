@@ -46,6 +46,7 @@ type PipelineRunsPageViewProps = {
   teamsError: string | null;
   runsByBranch: Record<string, RunListItem[]>;
   filteredRecentRuns: RunListItem[];
+  comparisonRuns: RunListItem[];
   teamedEvents: PipelineRunsTriggerTeam[];
   runsLoading: boolean;
   runsError: string | null;
@@ -134,6 +135,7 @@ export function PipelineRunsPageView({
   teamsError,
   runsByBranch,
   filteredRecentRuns,
+  comparisonRuns,
   teamedEvents,
   runsLoading,
   runsError,
@@ -332,6 +334,7 @@ export function PipelineRunsPageView({
                 onShowDefinition={() => setDefinitionOpen(true)}
                 onApprovalDecision={handleApprovalDecision}
                 approvalDecisionPending={approvalDecisionPending}
+                comparisonRuns={comparisonRuns}
               />
             ) : (
               <RunDetailLoadingState
