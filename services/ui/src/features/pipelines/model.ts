@@ -99,6 +99,7 @@ export type PipelineGraphStepConfiguration = {
   sync?: boolean;
   approval?: PipelineGraphApprovalDefinition;
   image?: string;
+  runtime_pool?: string;
   secrets?: string[];
   volumes?: string[];
   variables?: Record<string, string>;
@@ -349,6 +350,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
     sync?: boolean;
     approval?: PipelineGraphApprovalDefinition;
     image?: string;
+    runtime_pool?: string;
     secrets?: string[];
     volumes?: string[];
     variables?: Record<string, string>;
@@ -397,6 +399,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
           sync: typeof step.sync === 'boolean' ? step.sync : undefined,
           approval: normalizeApproval(step.approval),
           image: typeof step.image === 'string' ? step.image : undefined,
+          runtime_pool: typeof step.runtime_pool === 'string' ? step.runtime_pool : undefined,
           secrets: normalizeStringArray(step.secrets),
           volumes: normalizeStringArray(step.volumes),
           variables: normalizeVariables(step.variables),
@@ -449,6 +452,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
           sync: step.sync,
           approval: step.approval,
           image: step.image,
+          runtime_pool: step.runtime_pool,
           secrets: step.secrets,
           volumes: step.volumes,
           variables: step.variables,

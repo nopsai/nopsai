@@ -271,6 +271,49 @@ truth; this file is the source-adjacent placement guide.
   current route context. `pages/Assistant.tsx` composes the full-page route and
   accepts only sanitized route state from the dock.
 
+### Analysis
+
+- `features/analysis/model.ts` owns deterministic reviewer types, score
+  provenance, resource checks, pipeline checks, run diagnosis, redaction, and
+  baseline copy-report formatting. It also owns the canonical analysis scope
+  path sent with AI Evaluation requests. Health and category scores must explain
+  their baseline, severity weights, visible inputs, and deductions.
+- `features/analysis/ai.ts` owns subject-specific AI Evaluation prompts, the
+  redacted prompt snapshot, page context, and structured AI Evaluation parsing.
+  It must not include raw secrets, credential values, or private logs, and the
+  modal must render parsed sections and scored finding impacts rather than raw
+  model output.
+- `features/analysis/api.ts` owns usable LLM-profile selection plus calls to
+  the authenticated `/v1/analysis/evaluate` endpoint. Analysis must not call
+  model providers directly from the browser, and it must not create Assistant
+  conversations just to evaluate the reviewer snapshot. Analysis must select the
+  configured default from the unscoped Assistant profile picker, then pass the
+  team/resource scope path to the evaluation endpoint for backend validation.
+- `features/analysis/reviewedScore.ts` owns the AI-reviewed score overlay:
+  converting structured scored findings into active health/category scores while
+  preserving deterministic score provenance as the baseline.
+- `features/analysis/evaluationCache.ts` owns browser-local AI review history
+  keyed by subject type, subject ID, and exact snapshot revision.
+- `features/analysis/useAnalysisAiEvaluation.ts` owns loading, retry, stale
+  snapshot protection, cached-review hydration, and automatic run-analysis AI
+  evaluation.
+- `features/analysis/AnalysisModal.tsx` owns rendering only: left-rail health
+  basis, hoverable metric scores, structured AI Evaluation state, focused
+  findings, evidence expansion, recommendations, and safe navigation/copy
+  actions.
+- `features/pipelines/pipelineAnalysisEvidence.ts` owns pipeline-only prompt
+  context: bounded redacted YAML, validation errors, parsed step/task graph,
+  trigger bindings, dependencies, and recent-run summaries for AI Evaluation.
+- `features/teams/teamAnalysisEvidence.ts` owns team/resource-only prompt
+  context: visible resource rows, selected-resource peers, resource
+  distribution, GitOps/notification/AI-profile/access metadata, and loader
+  limitations for AI Evaluation.
+- `features/pipeline-runs/runAnalysisEvidence.ts` owns run-only prompt context:
+  bounded, tail-preserving redacted log excerpts, failed step/task command
+  context, and YAML excerpts for AI Evaluation. Generic analysis modules should
+  consume this as optional prompt context rather than fetching run logs
+  themselves.
+
 ### Dashboards
 
 - Dashboard route composition lives in `pages/Dashboards.tsx`. Keep dashboard

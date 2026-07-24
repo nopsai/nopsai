@@ -583,6 +583,125 @@ Pipeline notifications include:
   approval requested, approval approved, and approval rejected events when a
   saved or GitOps-managed route exists for the run team
 
+## Analysis Reviewers
+
+The UI includes three read-only analysis reviewers over data the current page
+already loads:
+
+- **Analyse Resources** in Teams reviews visible team/application resources for
+  duplicate resources, unused or inactive candidates, unclear ownership,
+  GitOps/database drift, inherited global resources, privileged credentials,
+  and reuse opportunities. Each individual resource row also exposes an
+  **Analyse** action scoped to that resource.
+- **Analyse Pipeline** in pipeline detail reviews the saved pipeline YAML,
+  dependency graph, trigger metadata, included dependencies, and optionally the
+  last 30 visible runs. Modes cover complete review, security, reliability,
+  monitoring, performance, maintainability, and pre-execution readiness.
+- **Analyse Run** in run detail reviews run metadata, steps/tasks, approvals,
+  child runs, final-output state, and visible peer runs. It identifies the first
+  failed execution point, classifies likely failure domain, compares against the
+  last successful run of the same pipeline when available, and also flags
+  degradation in successful runs. Run analysis also starts an AI Evaluation over
+  the redacted reviewer snapshot when Assistant pipeline debugging is enabled.
+
+Shared behavior:
+
+- all reviewers use one finding model with category, severity, evidence,
+  affected resources, recommendations, confidence, generated timestamp, and
+  snapshot revision
+- health and category scores are explained in the modal and copied reports:
+  scoring starts at 100, subtracts weighted visible findings (critical x 25,
+  high x 15, medium x 8, low x 3, opportunity x 1), and clamps between 0 and
+  100; category scores use the same weights filtered to the relevant category
+  and are shown in the left rail with hoverable basis text
+- deterministic analysis remains the baseline; when AI Evaluation returns
+  structured scored findings, the modal treats that result as the active
+  AI-reviewed health score and metric-score basis; exact snapshot matches are
+  shown as current AI-reviewed scores, while the latest same-subject structured
+  review can be reused as a clearly labeled previous-snapshot score
+- AI Evaluation uses
+  `POST /v1/analysis/evaluate`, the default or first usable selectable LLM
+  profile from the unscoped Assistant profile picker, and the redacted reviewer
+  report rather than direct browser-to-provider calls, Assistant conversations,
+  or hosted MCP planner chains. Team/resource reviewers keep subject identity
+  separate from scope: cache/API subject IDs remain stable, while the
+  team/resource path is sent to the evaluation endpoint for backend scope
+  validation.
+- AI Evaluation prompts are subject-specific for team resources, individual
+  resources, pipeline definitions, and runs; model output is parsed into
+  structured Problem, Why This Score, scored finding impacts, Suggested Fixes,
+  and More Evidence Needed sections rather than rendered as raw text
+- structured AI evaluations are cached in browser-local review history by
+  subject type, subject ID, and exact snapshot revision; cached reviews can
+  update the displayed score on reopen without regenerating, and older revisions
+  can provide the latest previous-snapshot score until AI Evaluation is
+  regenerated for current evidence
+- pipeline AI Evaluation augments the deterministic snapshot with bounded
+  redacted page context: saved YAML, validation errors, parsed step/task graph,
+  trigger bindings, dependencies, and recent-run summaries when run history is
+  enabled
+- team and resource AI Evaluation augments the deterministic snapshot with
+  bounded redacted page context: visible resource rows, resource counts by kind
+  and source, selected-resource peers, GitOps state, notification route counts,
+  AI profile counts/defaults, access grant counts, and current-user permission
+  labels
+- run AI Evaluation augments the deterministic snapshot with bounded redacted
+  failed-step context: failed step/task identity, configured script/goal, safe
+  configuration metadata, YAML around the failed step when available, and
+  tail-preserving selected run-log lines around the failed task/error signal
+- recommendations are proposal-oriented and read-only; buttons navigate to
+  existing resources/logs or copy the diagnosis, and do not rerun, edit, delete,
+  or change permissions
+- credential and secret values are never displayed; evidence is metadata-only
+  with redaction for credential-like strings before display or AI Evaluation
+- AAA compatibility is inherited from existing page data because reviewers
+  analyze only objects the current user can already see
+- GitOps compatibility is preserved because generated recommendations describe
+  candidate changes instead of mutating database or repository state
+
+Current implementation ownership:
+
+- model logic and deterministic score provenance:
+  `services/ui/src/features/analysis/model.ts`
+- AI prompt shaping and redacted snapshot:
+  `services/ui/src/features/analysis/ai.ts`
+- LLM-profile selection and analysis evaluation API transport:
+  `services/ui/src/features/analysis/api.ts`
+- AI-reviewed score overlay:
+  `services/ui/src/features/analysis/reviewedScore.ts`
+- browser-local AI review cache:
+  `services/ui/src/features/analysis/evaluationCache.ts`
+- hook orchestration and automatic run AI evaluation:
+  `services/ui/src/features/analysis/useAnalysisAiEvaluation.ts`
+- analysis rendering: `services/ui/src/features/analysis/AnalysisModal.tsx`
+- run-specific AI prompt evidence:
+  `services/ui/src/features/pipeline-runs/runAnalysisEvidence.ts`
+- pipeline-specific AI prompt evidence:
+  `services/ui/src/features/pipelines/pipelineAnalysisEvidence.ts`
+- team/resource-specific AI prompt evidence:
+  `services/ui/src/features/teams/teamAnalysisEvidence.ts`
+- Teams route composition and resource-row actions:
+  `services/ui/src/features/teams/TeamsWorkspace.tsx`
+- pipeline detail action and mode controls:
+  `services/ui/src/features/pipelines/PipelineDetailView.tsx`
+- run detail action and safe follow-ups:
+  `services/ui/src/features/pipeline-runs/RunDetailPanel.tsx`
+
+Monitoring and MCP notes:
+
+- Pipeline and run reviewers consume existing monitoring/run-history metadata
+  when it is already visible in the UI; they do not add a new metrics endpoint.
+- AI Evaluation returns per-request provider usage from
+  `POST /v1/analysis/evaluate` and uses existing Assistant feature flags,
+  credential references, and LLM profile scope controls. It does not persist an
+  Assistant conversation/message or run hosted MCP tools. The current reviewed
+  score cache is browser-local operator history, not shared governance storage.
+  When no usable profile is available, operators should configure or fix one
+  under **LLM Profiles**.
+- Hosted MCP already has run/log analysis coverage through first-party tools.
+  The UI reviewers can be promoted to server-side/MCP-backed analysis later
+  without changing the finding shape.
+
 ## API And Run Management
 
 Core run-management capabilities:
