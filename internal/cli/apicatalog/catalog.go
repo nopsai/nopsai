@@ -486,6 +486,10 @@ func bodySpec(method, path string) *BodySpec {
 	case "/v1/mcp":
 		spec.Description = "JSON-RPC request for the hosted NopsAI MCP endpoint. Empty body lists tools."
 		spec.Example = `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+	case "/v1/analysis/evaluate":
+		spec.Required = true
+		spec.Description = "Evaluate a client-provided redacted analysis snapshot with the selected/default LLM profile."
+		spec.Example = `{"subject_type":"run","subject_id":"run-id","scope":"prod","selected_llm_profile":"standard","prompt":"Return structured JSON for this redacted reviewer snapshot."}`
 	case "/v1/setup/bootstrap":
 		spec.Required = true
 		spec.Description = "First-install setup payload for users, GitOps repositories, starter teams, LLM, and MCP examples."

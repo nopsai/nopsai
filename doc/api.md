@@ -356,6 +356,15 @@ For a user-facing guide to assistant capabilities and example chat prompts, see
 
 - `GET /v1/assistant/config` returns safe assistant configuration for the authenticated subject: enabled state, docs defaults, retention/limits, feature flags, action confirmation policy, and whether a dedicated assistant credential is configured. It does not return credential refs, API key env names, base URLs, or provider extras.
 - `GET /v1/assistant/llm-profiles` lists safe, selectable LLM profile metadata for the authenticated assistant user without exposing credential refs, base URLs, or provider extras.
+- `POST /v1/analysis/evaluate` asks the selected/default LLM profile for a
+  structured second-pass evaluation of a client-provided redacted analysis
+  snapshot. It is authenticated, enforces Assistant feature flags and LLM
+  profile scope/credential resolution, returns provider/model/usage metadata,
+  and does not create an Assistant conversation, execute hosted MCP tools, or
+  read extra run/pipeline resources server-side. The UI prompt asks for scored
+  findings and category-score basis so the modal can cache and display an
+  AI-reviewed score for the submitted snapshot, or reuse the latest older
+  same-subject review as clearly labeled previous-snapshot context.
 - `POST /v1/assistant/conversations` creates a persistent assistant conversation for the authenticated subject.
 - `GET /v1/assistant/conversations` lists the subject's conversations.
 - `GET /v1/assistant/conversations/{id}` reads a conversation, messages, conversation-scoped memory, and assistant usage rollups.

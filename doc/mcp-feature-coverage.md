@@ -90,6 +90,22 @@ metadata-only secret counts by scope without reading plaintext secret values.
 The API bridge remains the compatibility surface for auth self-service and other
 guarded `/v1` routes when the current user has the matching AAA permissions.
 
+The Teams, Pipeline Detail, and Run Detail UI also expose read-only reviewer
+buttons: Analyse Resources, Analyse Pipeline, and Analyse Run. Deterministic
+scoring uses visible page snapshots and the shared UI finding model; optional
+AI Evaluation uses `POST /v1/analysis/evaluate`, a usable selectable LLM
+profile, and the redacted reviewer report rather than direct browser-to-provider
+calls or hosted MCP planner chains. The AI result is normalized into structured
+Problem, Why This Score, scored finding impacts, Suggested Fixes, and More
+Evidence Needed sections. When structured scored findings are present, the UI
+shows an AI-reviewed health score and metric-score basis. Exact snapshot matches
+are shown as current cached reviews; the latest older same-subject review can be
+shown as previous-snapshot context until the current evidence is regenerated.
+These reviewers preserve the same evidence shape and read-only posture as MCP
+analysis tools, so a future server-side/MCP-backed reviewer can reuse the
+category, severity, evidence, recommendation, confidence, score-basis, and
+snapshot fields without changing the user contract.
+
 The operator CLI adds a second client-side compatibility path without changing
 hosted MCP authorization or tool schemas:
 

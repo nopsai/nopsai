@@ -200,7 +200,7 @@ func BuildKubernetesBootstrapScript(cfg config.Config, r *http.Request, options 
 }
 
 func buildKubernetesBootstrapCommand(bootstrapURL, token string) string {
-	return fmt.Sprintf("tmp=$(mktemp) && curl -fsSL -H %s %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", ShellQuote("Authorization: Bearer "+token), ShellQuote(bootstrapURL))
+	return fmt.Sprintf("tmp=$(mktemp) && curl -fsSL -H %s %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"", ShellQuote("Authorization: Bearer "+token), ShellQuote(bootstrapURL))
 }
 
 func buildKubernetesBootstrapScript(manifest, namespace, appName string) string {
