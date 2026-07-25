@@ -31,7 +31,7 @@ secrets:
     bootstrapAdminPassword: bootstrap-admin-password
 
 base:
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-base, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-base, tag: dev, digest: ""}
 
 postgres:
   enabled: true
@@ -57,7 +57,7 @@ postgres:
 
 api:
   replicaCount: 1
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-api, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-api, tag: dev, digest: ""}
   imagePullPolicy: IfNotPresent
   serviceAccount:
     create: true
@@ -74,18 +74,18 @@ api:
 
 aaa:
   replicaCount: 1
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-aaa, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-aaa, tag: dev, digest: ""}
   imagePullPolicy: IfNotPresent
   service:
     port: 8082
   resources: {}
 
 agent:
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-agent, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-agent, tag: dev, digest: ""}
 
 dispatcher:
   replicaCount: 1
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-dispatcher, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-dispatcher, tag: dev, digest: ""}
   imagePullPolicy: IfNotPresent
   service:
     port: 9090
@@ -93,19 +93,19 @@ dispatcher:
 
 gitBot:
   replicaCount: 1
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-git-bot, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-git-bot, tag: dev, digest: ""}
   imagePullPolicy: IfNotPresent
   service:
     port: 8081
   resources: {}
 
 runner:
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-docker-runner, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-docker-runner, tag: dev, digest: ""}
 
 k8sRunner:
   enabled: true
   replicaCount: 1
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-k8s-runner, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-k8s-runner, tag: dev, digest: ""}
   imagePullPolicy: IfNotPresent
   runnerID: k8s-runner-1
   scopes: ""
@@ -140,7 +140,7 @@ systemLogs:
 
 ui:
   replicaCount: 1
-  image: {repository: ghcr.io/hosein-yousefii/nopsai-ui, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/nopsai-ui, tag: dev, digest: ""}
   imagePullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -148,7 +148,7 @@ ui:
   resources: {}
 
 pipeline:
-  image: {repository: ghcr.io/hosein-yousefii/pipeline-image, tag: dev, digest: ""}
+  image: {repository: ghcr.io/nopsai/pipeline-image, tag: dev, digest: ""}
 
 gotenberg:
   enabled: true

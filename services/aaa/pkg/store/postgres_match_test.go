@@ -131,13 +131,13 @@ func TestRepositoryIDTeamAncestorsUsesGeneralForRootRepository(t *testing.T) {
 }
 
 func TestRepositoryResourceIDRequiresRepositoryName(t *testing.T) {
-	if got := repositoryResourceID("hosein-yousefii", "test-app"); got != "hosein-yousefii/test-app" {
-		t.Fatalf("repositoryResourceID() = %q, want hosein-yousefii/test-app", got)
+	if got := repositoryResourceID("nopsai", "test-app"); got != "nopsai/test-app" {
+		t.Fatalf("repositoryResourceID() = %q, want nopsai/test-app", got)
 	}
 	if got := repositoryResourceID("", "test-app"); got != "test-app" {
 		t.Fatalf("repositoryResourceID(root) = %q, want test-app", got)
 	}
-	if got := repositoryResourceID("hosein-yousefii", ""); got != "" {
+	if got := repositoryResourceID("nopsai", ""); got != "" {
 		t.Fatalf("repositoryResourceID(missing name) = %q, want empty", got)
 	}
 }
@@ -151,11 +151,11 @@ func TestAppendInheritedResourcesDedupesResources(t *testing.T) {
 }
 
 func TestTeamSelfAndParentTeamAncestorsIncludesRepositoryLeaf(t *testing.T) {
-	got := teamSelfAndParentTeamAncestors("hosein-yousefii/test-app", []model.InheritedResource{
+	got := teamSelfAndParentTeamAncestors("nopsai/test-app", []model.InheritedResource{
 		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	})
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "team", ID: "team-1/hosein-yousefii/test-app"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1/nopsai/test-app"}, Reason: "team_inheritance"},
 		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {

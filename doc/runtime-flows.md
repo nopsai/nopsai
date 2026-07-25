@@ -24,7 +24,7 @@ Most API routes pass through the same middleware stack before reaching a handler
 4. `nopsai` parses the webhook, extracts repository, ref, commit SHA, pusher, PR info, check-run info, and delivery ID.
 5. `nopsai` loads the trigger manifest, first checking DB overrides and then falling back to `.nopsai/triggers.yaml` through `git-bot`.
 6. It matches the event against trigger rules, branches, tags, skipped branches, skipped repositories, and changed-file include/exclude filters. If changed files are unavailable, path matching fails open.
-7. For each matched pipeline source, `nopsai` treats the repository as the caller, for example `repository:hosein-yousefii/test-app`.
+7. For each matched pipeline source, `nopsai` treats the repository as the caller, for example `repository:nopsai/test-app`.
 8. Before loading the pipeline definition, it checks `pipeline.use` for that repository against the matched pipeline resource.
 9. If the repository is not allowed to use the pipeline, `nopsai` does not fetch the pipeline and does not create a real run; it creates or updates the GitHub check with a clear failure message and audits the denial.
 10. If the pipeline is allowed, `nopsai` loads or fetches the definition, checks the selected scope with `scope.use`, validates referenced reusable steps or child pipelines, and checks managed knowledge context references with the original repository identity.

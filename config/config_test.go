@@ -651,10 +651,10 @@ func TestLoadConfigAppliesSystemLogsDockerHostEnvironment(t *testing.T) {
 }
 
 func TestLoadConfigAppliesCanonicalServiceEndpoints(t *testing.T) {
-	t.Setenv("NOPSAI_API_URL", " http://nopsai-api.pre-nopsai:8080 ")
-	t.Setenv("DISPATCHER_GRPC_ADDRESS", " dispatcher.pre-nopsai:9090 ")
+	t.Setenv("NOPSAI_API_URL", " http://nopsai-api.nopsai:8080 ")
+	t.Setenv("DISPATCHER_GRPC_ADDRESS", " dispatcher.nopsai:9090 ")
 	t.Setenv("AAA_LISTEN_ADDRESS", " 0.0.0.0:8082 ")
-	t.Setenv("GIT_BOT_API_URL", " http://git-bot.pre-nopsai:8081 ")
+	t.Setenv("GIT_BOT_API_URL", " http://git-bot.nopsai:8081 ")
 	t.Setenv("SYSTEM_LOGS_PROVIDER", " kubernetes ")
 	t.Setenv("SYSTEM_LOGS_KUBERNETES_NAMESPACE", " nopsai ")
 	t.Setenv("SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR", " app.kubernetes.io/name=nopsai ")
@@ -663,10 +663,10 @@ func TestLoadConfigAppliesCanonicalServiceEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	if cfg.NopsaiAPIURL != "http://nopsai-api.pre-nopsai:8080" || cfg.AgentNopsaiAPIURL != "http://nopsai-api.pre-nopsai:8080" || cfg.GitBotNopsaiAPIURL != "http://nopsai-api.pre-nopsai:8080" {
+	if cfg.NopsaiAPIURL != "http://nopsai-api.nopsai:8080" || cfg.AgentNopsaiAPIURL != "http://nopsai-api.nopsai:8080" || cfg.GitBotNopsaiAPIURL != "http://nopsai-api.nopsai:8080" {
 		t.Fatalf("NopsAI API endpoint = (%q, %q, %q)", cfg.NopsaiAPIURL, cfg.AgentNopsaiAPIURL, cfg.GitBotNopsaiAPIURL)
 	}
-	if cfg.DispatcherAddress != "dispatcher.pre-nopsai:9090" || cfg.AAAAddr != "0.0.0.0:8082" || cfg.NopsaiGitBotAPIURL != "http://git-bot.pre-nopsai:8081" {
+	if cfg.DispatcherAddress != "dispatcher.nopsai:9090" || cfg.AAAAddr != "0.0.0.0:8082" || cfg.NopsaiGitBotAPIURL != "http://git-bot.nopsai:8081" {
 		t.Fatalf("service endpoints not applied: dispatcher=%q aaa=%q git-bot=%q", cfg.DispatcherAddress, cfg.AAAAddr, cfg.NopsaiGitBotAPIURL)
 	}
 	if cfg.EffectiveSystemLogsProvider() != "kubernetes" || cfg.SystemLogs.Kubernetes.Namespace != "nopsai" {

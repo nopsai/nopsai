@@ -79,7 +79,7 @@ access:
   visibility: restricted
   use_access:
     grants:
-      - repository: hosein-yousefii/test-app
+      - repository: nopsai/test-app
 content: Keep runtime values private.
 ---
 `
@@ -109,7 +109,7 @@ name: runtime-output-safety
 kind: guardrail
 access:
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content: Keep runtime values private.
 ---
 `
@@ -120,7 +120,7 @@ access:
   visibility: restricted
   use_access:
     grants:
-      - repository: hosein-yousefii/test-app
+      - repository: nopsai/test-app
 content: Keep runtime values private.
 ---
 `
@@ -361,7 +361,7 @@ steps:
 		UseAccess: &configRepositoryEmbeddedUseAccessFile{
 			Grants: []configRepositoryEmbeddedUseGrantFile{
 				{Team: "data-team"},
-				{Repository: "hosein-yousefii/test-app"},
+				{Repository: "nopsai/test-app"},
 				{ServiceAccount: "servicenow-prod"},
 			},
 		},
@@ -375,7 +375,7 @@ steps:
 	for _, want := range []string{
 		"visibility: restricted",
 		"team: data-team",
-		"repository: hosein-yousefii/test-app",
+		"repository: nopsai/test-app",
 		"service_account: servicenow-prod",
 	} {
 		if !strings.Contains(got, want) {
@@ -393,7 +393,7 @@ steps:
 		}
 	}
 	for _, wantIndent := range []string{
-		"\naccess:\n  visibility: restricted\n  use_access:\n    grants:\n      - team: data-team\n      - repository: hosein-yousefii/test-app\n      - service_account: servicenow-prod",
+		"\naccess:\n  visibility: restricted\n  use_access:\n    grants:\n      - team: data-team\n      - repository: nopsai/test-app\n      - service_account: servicenow-prod",
 		"\nsteps:\n  - name: run\n    script: echo ok",
 	} {
 		if !strings.Contains("\n"+got, wantIndent) {
@@ -448,7 +448,7 @@ func TestConfigRepositoryResourceAccessExportUsesTeamGrantKey(t *testing.T) {
 			{
 				ResourceType: grantResourcePipeline,
 				SubjectType:  grantSubjectRepository,
-				SubjectID:    "hosein-yousefii/test-app",
+				SubjectID:    "nopsai/test-app",
 				Actions:      []string{"pipeline.use"},
 			},
 			{
@@ -468,7 +468,7 @@ func TestConfigRepositoryResourceAccessExportUsesTeamGrantKey(t *testing.T) {
 	for _, want := range []string{
 		"visibility: restricted",
 		"team: data-team",
-		"repository: hosein-yousefii/test-app",
+		"repository: nopsai/test-app",
 		"service_account: servicenow-prod",
 	} {
 		if !strings.Contains(rendered, want) {

@@ -11,8 +11,8 @@ import (
 const (
 	NetworkModeBridge  = "bridge"
 	NetworkModeHost    = "host"
-	RunnerImageRepo    = "ghcr.io/hosein-yousefii/nopsai-docker-runner"
-	K8sRunnerImageRepo = "ghcr.io/hosein-yousefii/nopsai-k8s-runner"
+	RunnerImageRepo    = "ghcr.io/nopsai/nopsai-docker-runner"
+	K8sRunnerImageRepo = "ghcr.io/nopsai/nopsai-k8s-runner"
 )
 
 func DefaultRunnerImage() string {

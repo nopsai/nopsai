@@ -1023,7 +1023,7 @@ func TestPipelineFinalOutputGuidanceDefinesSeriesModeShape(t *testing.T) {
 
 func TestPipelineFinalOutputLogEvidenceSummaryExtractsImagesAndDurations(t *testing.T) {
 	logs := []string{
-		"Preparing agent container agent-dashboard-sample with image ghcr.io/hosein-yousefii/nopsai-agent:dev",
+		"Preparing agent container agent-dashboard-sample with image ghcr.io/nopsai/nopsai-agent:dev",
 		`2026-07-16T20:31:50Z {"level":"info","image":"python:3.11-slim","message":"Image found locally"}`,
 		`2026-07-16T20:31:50Z {"level":"info","message":"status=success action=\"echo \"we built 4 different docker images, nopsai-dashboard:latest, git-sample:dev, app-finance:prod, seed-static:3.4.5\"\" output=\"we built 4 different docker images, nopsai-dashboard:latest, git-sample:dev, app-finance:prod, seed-static:3.4.5\nthis is how each image took to be built, 24s, 55s, 60s, 12s\nThese images have vulnerabilities and can not be run in production\nmy dog name is leone, and I have a car\""}`,
 	}
@@ -1064,7 +1064,7 @@ func TestPipelineFinalOutputLogEvidenceExtractsKubernetesDirectScriptOutput(t *t
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 	logs := []string{
-		`Preparing agent container agent-dashboard-sample with image ghcr.io/hosein-yousefii/nopsai-agent:dev`,
+		`Preparing agent container agent-dashboard-sample with image ghcr.io/nopsai/nopsai-agent:dev`,
 		`2026-07-18T09:38:55Z {"level":"info","image":"python:3.11-slim","message":"Creating new Kubernetes pod for step"}`,
 		"2026-07-18T09:38:57Z " + string(payload),
 	}
@@ -1138,7 +1138,7 @@ func TestWritePipelineFinalOutputCurrentLogEvidenceMarksLogsAuthoritative(t *tes
 
 func TestGroundPipelineFinalDashboardOutputContentPreservesValidOutputIntent(t *testing.T) {
 	logs := []string{
-		"Preparing agent container agent-dashboard-sample with image ghcr.io/hosein-yousefii/nopsai-agent:dev",
+		"Preparing agent container agent-dashboard-sample with image ghcr.io/nopsai/nopsai-agent:dev",
 		`2026-07-16T20:31:50Z {"level":"info","message":"status=success action=\"echo \"we built 4 different docker images, nopsai-dashboard:latest, git-sample:dev, app-finance:prod, seed-static:3.4.5\"\" output=\"we built 4 different docker images, nopsai-dashboard:latest, git-sample:dev, app-finance:prod, seed-static:3.4.5\nthis is how each image took to be built, 24s, 55s, 60s, 12s\nThese images have vulnerabilities and can not be run in production\n some environments are not provided for images, so it might fails during running\ngit repositories are updated with proper changelog\nmy dog name is leone, and I have a car\""}`,
 	}
 	inventoryContent := `{

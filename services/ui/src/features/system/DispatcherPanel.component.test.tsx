@@ -14,7 +14,7 @@ const apiMocks = vi.hoisted(() => ({
     runnerCapacity: 2,
     dispatcherAddress: 'dispatcher:9090',
     networkMode: 'host',
-    runnerImage: 'ghcr.io/hosein-yousefii/nopsai-docker-runner:2.10.648',
+    runnerImage: 'ghcr.io/nopsai/nopsai-docker-runner:2.10.648',
     registryCredentialRefs: ['credential://system/registry/production-ghcr'],
     registryHosts: ['ghcr.io'],
     compose: '',
@@ -68,7 +68,7 @@ test('loads runner scopes and generates an install command through the dispatche
           runner_id: 'runner-test',
           runner_scopes: 'prod',
           runner_capacity: '2',
-          dispatcher_grpc_address: 'nopsai-dispatcher.pre-nopsai.orb.local:9090',
+          dispatcher_grpc_address: 'nopsai-dispatcher.nopsai.orb.local:9090',
         } as ConfigFormState}
         config={{ dispatcher_routing: {} } as ConfigFormState}
         fieldMetadata={{}}
@@ -83,12 +83,12 @@ test('loads runner scopes and generates an install command through the dispatche
   expect(await screen.findByText('staging')).toBeVisible();
   expect(await screen.findByText('production-ghcr')).toBeVisible();
   await user.click(screen.getByRole('checkbox', { name: /production-ghcr/i }));
-  await user.type(screen.getByLabelText('Dispatcher address override'), 'nopsai-dispatcher.pre-nopsai.orb.local:9090');
+  await user.type(screen.getByLabelText('Dispatcher address override'), 'nopsai-dispatcher.nopsai.orb.local:9090');
   await user.click(screen.getByRole('button', { name: 'Generate command' }));
 
   await waitFor(() => expect(apiMocks.fetchDockerRunnerTemplate).toHaveBeenCalled());
   expect(apiMocks.fetchDockerRunnerTemplate).toHaveBeenCalledWith(expect.objectContaining({
-    dispatcherAddress: 'nopsai-dispatcher.pre-nopsai.orb.local:9090',
+    dispatcherAddress: 'nopsai-dispatcher.nopsai.orb.local:9090',
     registryCredentialRefs: ['credential://system/registry/production-ghcr'],
   }));
   expect(await screen.findByText('1 selected')).toBeVisible();

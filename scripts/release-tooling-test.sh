@@ -51,7 +51,7 @@ helm show chart "$chart_file" >"$temp_dir/chart-metadata.yaml"
 require_text "version: $actual" "$temp_dir/chart-metadata.yaml" "the chart version"
 require_text "appVersion: $actual" "$temp_dir/chart-metadata.yaml" "the chart application version"
 helm show values "$chart_file" >"$temp_dir/chart-values.yaml"
-require_text "repository: ghcr.io/hosein-yousefii/nopsai-api" "$temp_dir/chart-values.yaml" "the API image repository"
+require_text "repository: ghcr.io/nopsai/nopsai-api" "$temp_dir/chart-values.yaml" "the API image repository"
 
 image_names=(
   nopsai-api
@@ -65,7 +65,7 @@ image_names=(
 )
 for image_name in "${image_names[@]}"; do
   require_text \
-    "repository: ghcr.io/hosein-yousefii/$image_name" \
+    "repository: ghcr.io/nopsai/$image_name" \
     "$temp_dir/chart-values.yaml" \
     "the $image_name repository"
 done
@@ -73,7 +73,7 @@ require_text "repository: postgres" "$temp_dir/chart-values.yaml" "the PostgreSQ
 
 (cd "$ROOT_DIR" && go run ./cmd/nopsai-cli install docker-compose --version "$actual" --output-dir "$temp_dir/compose-install" --force >/dev/null)
 require_text "NOPSAI_VERSION=$actual" "$temp_dir/compose-install/.env" "the generated Compose release version"
-require_text "ghcr.io/hosein-yousefii/nopsai-api:$actual" "$temp_dir/compose-install/.env" "the generated Compose API image"
+require_text "ghcr.io/nopsai/nopsai-api:$actual" "$temp_dir/compose-install/.env" "the generated Compose API image"
 test -s "$temp_dir/compose-install/docker-compose.yaml"
 test -s "$temp_dir/compose-install/db/init.sql"
 test ! -e "$temp_dir/compose-install/release-manifest.json"
@@ -82,16 +82,16 @@ test ! -e "$temp_dir/compose-install/release-manifest.json"
 require_text "releaseVersion: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values release version"
 require_text "tag: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values image tag"
 require_text "postgres:" "$temp_dir/kubernetes-install/values.yaml" "the generated PostgreSQL values"
-require_text "oci://ghcr.io/hosein-yousefii/charts/nopsai" "$temp_dir/kubernetes-install/.nopsai/install.lock" "the generated chart reference"
+require_text "oci://ghcr.io/nopsai/charts/nopsai" "$temp_dir/kubernetes-install/.nopsai/install.lock" "the generated chart reference"
 test ! -e "$temp_dir/kubernetes-install/release-manifest.json"
 
 helm template nopsai "$chart_file" --namespace nopsai -f "$temp_dir/kubernetes-install/values.yaml" >"$temp_dir/chart-manifests.yaml"
 require_text \
-  "image: \"ghcr.io/hosein-yousefii/nopsai-api:$actual\"" \
+  "image: \"ghcr.io/nopsai/nopsai-api:$actual\"" \
   "$temp_dir/chart-manifests.yaml" \
   "the versioned API workload image"
 require_text \
-  "name: AGENT_IMAGE, value: \"ghcr.io/hosein-yousefii/nopsai-agent:$actual\"" \
+  "name: AGENT_IMAGE, value: \"ghcr.io/nopsai/nopsai-agent:$actual\"" \
   "$temp_dir/chart-manifests.yaml" \
   "the versioned dynamic agent image"
 require_text \
