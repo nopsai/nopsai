@@ -181,10 +181,10 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 		{
 			name:       "trigger override maps nested id before mux path values",
 			method:     http.MethodGet,
-			path:       "/v1/overrides/team-1/dev/hosein-yousefii/test-app",
+			path:       "/v1/overrides/team-1/dev/nopsai/test-app",
 			wantAction: "trigger.read",
 			wantType:   "trigger",
-			wantID:     "team-1/dev/hosein-yousefii/test-app",
+			wantID:     "team-1/dev/nopsai/test-app",
 		},
 		{
 			name:       "repository branches use repository read",

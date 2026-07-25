@@ -58,7 +58,7 @@ func TestAgentEnvGatesAcceptCanonicalDispatcherAddressAlias(t *testing.T) {
 		"SERVICE_JWT_SIGNING_KEY": "service-token-secret-012345678901234",
 		"DISPATCHER_TLS_MODE":     "mtls",
 		"DISPATCHER_TLS_SECRET":   "dispatcher-tls-secret-012345678901",
-		"DISPATCHER_GRPC_ADDRESS": "dispatcher.pre-nopsai:9090",
+		"DISPATCHER_GRPC_ADDRESS": "dispatcher.nopsai:9090",
 	}
 	if err := ValidateAgentEnv(func(key string) string { return env[key] }); err != nil {
 		t.Fatalf("ValidateAgentEnv() error = %v, want nil", err)

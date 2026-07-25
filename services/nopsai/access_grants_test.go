@@ -595,10 +595,10 @@ func TestProductRoleTeamInheritance(t *testing.T) {
 
 func TestRepositoryRunInheritanceAllowsTeamOwnerToExploreRuns(t *testing.T) {
 	backend := newUserGrantBackend()
-	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "hosein-yousefii")...)
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "nopsai")...)
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline_run", ID: "run-1"})] = []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: grantResourceRepo, ID: "hosein-yousefii/test-app"}, Reason: "repository_inheritance"},
-		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceRepo, ID: "nopsai/test-app"}, Reason: "repository_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "nopsai"}, Reason: "team_inheritance"},
 	}
 
 	evaluator := aaaauthz.NewEvaluator(backend)
@@ -613,7 +613,7 @@ func TestRepositoryRunInheritanceAllowsTeamOwnerToExploreRuns(t *testing.T) {
 
 func TestTeamOwnerCanReadAssignedTriggerResources(t *testing.T) {
 	backend := newUserGrantBackend()
-	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "hosein-yousefii")...)
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "nopsai")...)
 
 	tests := []struct {
 		name        string
@@ -624,10 +624,10 @@ func TestTeamOwnerCanReadAssignedTriggerResources(t *testing.T) {
 		{
 			name:     "repository trigger",
 			action:   "trigger.read",
-			resource: model.ResourceRef{Type: grantResourceTrigger, ID: "hosein-yousefii/test-app"},
+			resource: model.ResourceRef{Type: grantResourceTrigger, ID: "nopsai/test-app"},
 			inheritance: []model.InheritedResource{
-				{Resource: model.ResourceRef{Type: grantResourceRepo, ID: "hosein-yousefii/test-app"}, Reason: "repository_inheritance"},
-				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
+				{Resource: model.ResourceRef{Type: grantResourceRepo, ID: "nopsai/test-app"}, Reason: "repository_inheritance"},
+				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "nopsai"}, Reason: "team_inheritance"},
 			},
 		},
 		{
@@ -635,7 +635,7 @@ func TestTeamOwnerCanReadAssignedTriggerResources(t *testing.T) {
 			action:   "external_trigger.read",
 			resource: model.ResourceRef{Type: grantResourceExternalTrigger, ID: "production-release-hook"},
 			inheritance: []model.InheritedResource{
-				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
+				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "nopsai"}, Reason: "team_inheritance"},
 			},
 		},
 		{
@@ -643,7 +643,7 @@ func TestTeamOwnerCanReadAssignedTriggerResources(t *testing.T) {
 			action:   "git_webhook_source.read",
 			resource: model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "github-main-source"},
 			inheritance: []model.InheritedResource{
-				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
+				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "nopsai"}, Reason: "team_inheritance"},
 			},
 		},
 	}

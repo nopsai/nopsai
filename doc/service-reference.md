@@ -8,7 +8,7 @@ Use `*_LISTEN_ADDRESS` for the socket a service binds inside its own container
 or pod, and use `*_URL` or `*_GRPC_ADDRESS` for the endpoint other services
 dial. For example, the API can listen on `0.0.0.0:8080` while agents and
 git-bot use `NOPSAI_API_URL=http://nopsai:8080` in Compose or a cluster DNS name
-such as `http://nopsai.pre-nopsai:8080` in Kubernetes. The dispatcher similarly
+such as `http://nopsai.nopsai:8080` in Kubernetes. The dispatcher similarly
 listens on `DISPATCHER_LISTEN_ADDRESS` and is reached through
 `DISPATCHER_GRPC_ADDRESS`.
 

@@ -218,7 +218,7 @@ Current resource Access UI behavior:
   configuration surfaces list team paths only; application/repository nodes are
   reserved for the Teams and run-navigation resource trees.
 - Auth-team subject pickers use SSO/AAA entries from `GET /v1/access/auth-teams`.
-- Repository sharing accepts canonical repository IDs such as `hosein-yousefii/test-app`.
+- Repository sharing accepts canonical repository IDs such as `nopsai/test-app`.
 - Sensitive resources such as scopes do not expose `Public`.
 - The default scope is addressed as `scope:default` in the API/UI. Secret and variable rows store it only as `scope = 'default'`; runtime lookups do not fall back to `NULL` or empty scope values.
 
@@ -343,7 +343,7 @@ access:
   use_access:
     grants:
       - subject_type: repository
-        subject_id: hosein-yousefii/test-app
+        subject_id: nopsai/test-app
       - subject_type: team
         subject_id: data-team
 steps:
@@ -366,7 +366,7 @@ also accepted.
 ```yaml
 access:
   teams: [data-team]
-  repositories: [hosein-yousefii/test-app]
+  repositories: [nopsai/test-app]
   use_access:
     grants:
       - service_account: webhook-deployer

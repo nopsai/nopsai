@@ -54,7 +54,7 @@ steps:
         ignore_failure: false
         script: |
           #!/bin/bash
-          git clone https://github.com/hosein-yousefii/test-app.git
+          git clone https://github.com/nopsai/test-app.git
           echo $TEST_SECRET|awk '{print $2,$1,$3,$4,$5}'
           echo $API_VERSION
           ls -l /tmp

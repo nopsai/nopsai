@@ -18,7 +18,7 @@ access:
   teams:
     - team-1
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content:
   # ADR: Use PostgreSQL for Pipeline Run State
   ## Status
@@ -68,7 +68,7 @@ content:
 
 	repoGrant := accessGrantPlanKey{
 		subjectType:  aaamodel.SubjectTypeRepository,
-		subjectID:    "hosein-yousefii/test-app",
+		subjectID:    "nopsai/test-app",
 		resourceType: grantResourceKnowledgeContext,
 		resourceID:   key,
 	}
@@ -220,7 +220,7 @@ access:
   teams:
     - team-1
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content:
   # Repository Check Guardrail
 

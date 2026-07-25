@@ -85,7 +85,7 @@ func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
 	binding := models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
 		ScopeID:   models.ConfigRepositorySystemGlobalID,
-		RepoURL:   "https://github.com/hosein-yousefii/nopsai-global-config",
+		RepoURL:   "https://github.com/nopsai/nopsai-global-config",
 	}
 	repoCtx, err := newConfigSyncRepositoryContext(binding)
 	if err != nil {
@@ -93,7 +93,7 @@ func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
 	}
 
 	sampleRoot := filepath.Join("..", "..", "doc", "sample-config-repo", "global-repo")
-	triggerPath := filepath.Join(sampleRoot, "triggers", "hosein-yousefii", "pre-nopsai.yaml")
+	triggerPath := filepath.Join(sampleRoot, "triggers", "nopsai", "nopsai.yaml")
 	triggerRaw, err := os.ReadFile(triggerPath)
 	if err != nil {
 		t.Fatalf("os.ReadFile(%q) error = %v", triggerPath, err)
@@ -117,15 +117,15 @@ func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
 			"scopes/prod/scope.yaml": string(scopeRaw),
 		},
 		triggers: map[string]string{
-			"triggers/hosein-yousefii/pre-nopsai.yaml": string(triggerRaw),
+			"triggers/nopsai/nopsai.yaml": string(triggerRaw),
 		},
 	})
 	if err != nil {
 		t.Fatalf("parseConfigSyncPlan() error = %v", err)
 	}
-	trigger, ok := plan.triggers["hosein-yousefii/pre-nopsai"]
+	trigger, ok := plan.triggers["nopsai/nopsai"]
 	if !ok {
-		t.Fatalf("triggers = %#v, want hosein-yousefii/pre-nopsai", plan.triggers)
+		t.Fatalf("triggers = %#v, want nopsai/nopsai", plan.triggers)
 	}
 	if trigger.record.Provider != "github" || trigger.record.TeamPath != "platform/prod" || trigger.record.WebhookSourceID != "" {
 		t.Fatalf("trigger metadata = %#v, want GitHub App trigger assigned to platform/prod with automatic ingress", trigger.record)
@@ -133,8 +133,8 @@ func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
 	if trigger.record.Management != repositoryTriggerManagementNopsAI {
 		t.Fatalf("Management = %q, want %q", trigger.record.Management, repositoryTriggerManagementNopsAI)
 	}
-	if trigger.record.RepositoryForWebhook != "hosein-yousefii/pre-nopsai" {
-		t.Fatalf("RepositoryForWebhook = %q, want hosein-yousefii/pre-nopsai", trigger.record.RepositoryForWebhook)
+	if trigger.record.RepositoryForWebhook != "nopsai/nopsai" {
+		t.Fatalf("RepositoryForWebhook = %q, want nopsai/nopsai", trigger.record.RepositoryForWebhook)
 	}
 	if got := strings.Join(repositoryTriggerScopesFromDefinition(trigger.definition), ","); got != "prod" {
 		t.Fatalf("trigger scopes = %q, want prod", got)
@@ -150,8 +150,8 @@ func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
 		}
 	}
 
-	assertUseGrant(t, plan.accessPlan, aaamodel.SubjectTypeRepository, "hosein-yousefii/pre-nopsai", grantResourcePipeline, "platform/prod/nopsai-platform-release", "pipeline.use")
-	assertUseGrant(t, plan.accessPlan, aaamodel.SubjectTypeRepository, "hosein-yousefii/pre-nopsai", grantResourceScope, "prod", "scope.use")
+	assertUseGrant(t, plan.accessPlan, aaamodel.SubjectTypeRepository, "nopsai/nopsai", grantResourcePipeline, "platform/prod/nopsai-platform-release", "pipeline.use")
+	assertUseGrant(t, plan.accessPlan, aaamodel.SubjectTypeRepository, "nopsai/nopsai", grantResourceScope, "prod", "scope.use")
 }
 
 func TestParseConfigSyncPlanTriggerExplicitTeamOverridesRepositoryOwner(t *testing.T) {

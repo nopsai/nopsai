@@ -27,7 +27,7 @@ x-release-build-args: &release-build-args
 services:
   base:
     container_name: nopsai-base
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-base:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: Dockerfile
@@ -58,7 +58,7 @@ services:
 
   nopsai:
     container_name: nopsai
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-api:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-api:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.nopsai
@@ -102,7 +102,7 @@ services:
 
   docker-socket-proxy:
     container_name: nopsai-docker-socket-proxy
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-docker-socket-proxy:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-docker-socket-proxy:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.socket-proxy
@@ -146,7 +146,7 @@ services:
 
   aaa:
     container_name: nopsai-aaa
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-aaa:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-aaa:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.aaa
@@ -171,7 +171,7 @@ services:
 
   dispatcher:
     container_name: nopsai-dispatcher
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-dispatcher:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-dispatcher:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.dispatcher
@@ -194,7 +194,7 @@ services:
 
   git-bot:
     container_name: nopsai-git-bot
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-git-bot:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-git-bot:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.git-bot
@@ -219,7 +219,7 @@ services:
 
   nopsai-ui:
     container_name: nopsai-ui
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-ui:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-ui:${NOPSAI_VERSION:-dev}
     build:
       context: ./services/ui
       dockerfile: Dockerfile
@@ -244,7 +244,7 @@ services:
   
   agent:
     container_name: nopsai-agent
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-agent:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-agent:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.agent
@@ -260,7 +260,7 @@ services:
   docker-runner:
     container_name: nopsai-docker-runner
     hostname: docker-runner
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-docker-runner:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-docker-runner:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.docker-runner
@@ -284,7 +284,7 @@ services:
 
   k8s-runner:
     container_name: nopsai-k8s-runner-image
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-k8s-runner:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-k8s-runner:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.k8s-runner
@@ -299,7 +299,7 @@ services:
 
   pipeline:
     container_name: pipeline-image
-    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/pipeline-image:${NOPSAI_VERSION:-dev}
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/pipeline-image:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.pipeline

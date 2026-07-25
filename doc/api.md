@@ -1187,13 +1187,13 @@ curl -X PUT \
 # Share with a repository
 curl -X POST \
   -H "Content-Type: application/json" \
-  -d '{"subject_type":"repository","subject_id":"hosein-yousefii/test-app","actions":["pipeline.use"]}' \
+  -d '{"subject_type":"repository","subject_id":"nopsai/test-app","actions":["pipeline.use"]}' \
   http://localhost:8080/v1/resources/pipeline/team-1/build/grants
 
 # Share a knowledge context with a repository
 curl -X POST \
   -H "Content-Type: application/json" \
-  -d '{"subject_type":"repository","subject_id":"hosein-yousefii/test-app","actions":["knowledge_context.use"]}' \
+  -d '{"subject_type":"repository","subject_id":"nopsai/test-app","actions":["knowledge_context.use"]}' \
   http://localhost:8080/v1/resources/knowledge_context/guardrail/security/repo-check/grants
 
 # Share with an existing team path
@@ -1215,13 +1215,13 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "caller_type":"repository",
-    "caller_id":"hosein-yousefii/test-app",
+    "caller_id":"nopsai/test-app",
     "action":"pipeline.use",
     "resource_type":"pipeline",
     "resource_id":"team-1/build",
     "event_type":"push",
     "ref":"refs/heads/main",
-    "repo":"hosein-yousefii/test-app"
+    "repo":"nopsai/test-app"
   }' \
   http://localhost:8080/v1/authz/resource-use/check
 ```
@@ -1473,7 +1473,7 @@ curl -X DELETE http://localhost:8080/v1/secrets/TEST_SECRET
 curl -X PUT \
   -H "Content-Type: application/json" \
   -d '{"value":"repo level secret"}' \
-  "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/secrets/TEST_SECRET"
+  "http://localhost:8080/v1/repositories/nopsai/test-app/secrets/TEST_SECRET"
 ```
 
 - Repository endpoints also accept `?scope=` to target scoped values.
@@ -1498,7 +1498,7 @@ curl -X PUT -d '{"value":"general"}' \
 
 # Repository scope variable
 curl -X PUT -d '{"value":"repo"}' \
-  "http://localhost:8080/v1/repositories/hosein-yousefii/test-app/variables/TEST_SCOPE"
+  "http://localhost:8080/v1/repositories/nopsai/test-app/variables/TEST_SCOPE"
 
 # Fetch scoped variables
 curl "http://localhost:8080/v1/variables?scope=prod"
@@ -1699,26 +1699,26 @@ platform:
 team-1:
   description: Team 1 workspace
   config:
-    repo_url: git@github.com:hosein-yousefii/nopsai-team-1-config.git
+    repo_url: git@github.com:nopsai/nopsai-team-1-config.git
     branch: main
     base_path: ""
     enabled: true
   apps:
     - name: general-app
-      repo_url: https://github.com/hosein-yousefii/general-app
+      repo_url: https://github.com/nopsai/general-app
   dev:
     description: This is new
     apps:
       - name: test-app
-        repo_url: https://github.com/hosein-yousefii/test-app
+        repo_url: https://github.com/nopsai/test-app
       - name: t-app
-        repo_url: https://github.com/hosein-yousefii/t-app
+        repo_url: https://github.com/nopsai/t-app
 team-2:
   bank:
     description: Handles bank-facing apps
     apps:
       - name: all-app
-        repo_url: https://github.com/hosein-yousefii/all-app
+        repo_url: https://github.com/nopsai/all-app
 ```
 
 - Running config sync ingests this file, creating or updating teams in the compatibility `teams` table and assigning apps to their Git-defined parents by normalized repository URL. Existing manual teams not referenced in the file are left untouched.
@@ -1840,14 +1840,14 @@ curl -X DELETE http://localhost:8080/v1/steps/shared/utilities/archive-step
 
 ```bash
 curl http://localhost:8080/v1/overrides                               # list
-curl http://localhost:8080/v1/overrides/hosein-yousefii/test-app      # inspect
+curl http://localhost:8080/v1/overrides/nopsai/test-app      # inspect
 
 curl -X PUT \
   -H "Content-Type: application/x-yaml" \
   --data-binary "@.nopsai/triggers.yaml" \
-  http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+  http://localhost:8080/v1/overrides/nopsai/test-app
 
-curl -X DELETE http://localhost:8080/v1/overrides/hosein-yousefii/test-app
+curl -X DELETE http://localhost:8080/v1/overrides/nopsai/test-app
 ```
 
 - Overrides let you replace or augment the config-repo trigger manifest for a given repository.
@@ -2001,7 +2001,7 @@ curl -X POST http://localhost:8080/v1/git/events \
   --data-binary "@doc/sample-git-event.json"
 
 # List branches known to the API (for branch clean-up helpers)
-curl http://localhost:8080/v1/repositories/hosein-yousefii/test-app/branches
+curl http://localhost:8080/v1/repositories/nopsai/test-app/branches
 ```
 
 - The git-bot exposes additional HTTP helpers (from `services/git-bot`) for file content, directory listings, repository access checks, and child check-run creation.

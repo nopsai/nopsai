@@ -45,15 +45,15 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 	installer := string(installerBytes)
 	values := string(valuesBytes)
 	installRepositories := []string{
-		"ghcr.io/hosein-yousefii/nopsai-aaa",
-		"ghcr.io/hosein-yousefii/nopsai-agent",
-		"ghcr.io/hosein-yousefii/nopsai-api",
-		"ghcr.io/hosein-yousefii/nopsai-dispatcher",
-		"ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy",
-		"ghcr.io/hosein-yousefii/nopsai-git-bot",
-		"ghcr.io/hosein-yousefii/nopsai-docker-runner",
-		"ghcr.io/hosein-yousefii/nopsai-k8s-runner",
-		"ghcr.io/hosein-yousefii/nopsai-ui",
+		"ghcr.io/nopsai/nopsai-aaa",
+		"ghcr.io/nopsai/nopsai-agent",
+		"ghcr.io/nopsai/nopsai-api",
+		"ghcr.io/nopsai/nopsai-dispatcher",
+		"ghcr.io/nopsai/nopsai-docker-socket-proxy",
+		"ghcr.io/nopsai/nopsai-git-bot",
+		"ghcr.io/nopsai/nopsai-docker-runner",
+		"ghcr.io/nopsai/nopsai-k8s-runner",
+		"ghcr.io/nopsai/nopsai-ui",
 	}
 	for _, repository := range installRepositories {
 		if !strings.Contains(installer, repository) {
@@ -61,17 +61,17 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 		}
 	}
 	for _, repository := range installRepositories {
-		if repository == "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy" {
+		if repository == "ghcr.io/nopsai/nopsai-docker-socket-proxy" {
 			continue
 		}
 		if !strings.Contains(values, repository) {
 			t.Errorf("Helm chart values are missing %s", repository)
 		}
 	}
-	if strings.Contains(values, "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy") {
+	if strings.Contains(values, "ghcr.io/nopsai/nopsai-docker-socket-proxy") {
 		t.Error("Helm chart values should not include the Docker-only socket proxy image")
 	}
-	if !strings.Contains(installer, "DefaultInstallChartReference") || !strings.Contains(installer, "oci://ghcr.io/hosein-yousefii/charts/nopsai") {
+	if !strings.Contains(installer, "DefaultInstallChartReference") || !strings.Contains(installer, "oci://ghcr.io/nopsai/charts/nopsai") {
 		t.Fatal("CLI install generator does not declare the default OCI chart reference")
 	}
 	if strings.Contains(installer, ":latest") || strings.Contains(values, ":latest") {

@@ -11,7 +11,7 @@ access:
   use_access:
     grants:
       - subject_type: repository
-        subject_id: hosein-yousefii/test-app
+        subject_id: nopsai/test-app
       - subject_type: team
         subject_id: data-team
 variables:

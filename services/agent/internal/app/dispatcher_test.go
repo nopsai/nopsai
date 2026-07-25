@@ -39,7 +39,7 @@ func TestLoadDispatcherClientConfigUsesEnterpriseFallbacks(t *testing.T) {
 
 func TestLoadDispatcherClientConfigAcceptsCanonicalAddress(t *testing.T) {
 	env := map[string]string{
-		"DISPATCHER_GRPC_ADDRESS": " dispatcher.pre-nopsai:9090 ",
+		"DISPATCHER_GRPC_ADDRESS": " dispatcher.nopsai:9090 ",
 		serviceauth.EnvSigningKey: "jwt-secret",
 	}
 
@@ -47,7 +47,7 @@ func TestLoadDispatcherClientConfigAcceptsCanonicalAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDispatcherClientConfig() error = %v", err)
 	}
-	if cfg.Address != "dispatcher.pre-nopsai:9090" {
+	if cfg.Address != "dispatcher.nopsai:9090" {
 		t.Fatalf("address = %q, want canonical address", cfg.Address)
 	}
 }

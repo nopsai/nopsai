@@ -45,8 +45,8 @@ func TestRuntimeScopeEqualsSQLUsesCanonicalScopeOnly(t *testing.T) {
 }
 
 func TestRuntimeNamedResourceIDForResourceNormalizesDefaultScope(t *testing.T) {
-	raw := model.BuildNamedResourceID("hosein-yousefii/test-app", "default", "TOKEN")
-	want := model.BuildNamedResourceID("hosein-yousefii/test-app", "", "TOKEN")
+	raw := model.BuildNamedResourceID("nopsai/test-app", "default", "TOKEN")
+	want := model.BuildNamedResourceID("nopsai/test-app", "", "TOKEN")
 	if got := runtimeNamedResourceIDForResource(raw); got != want {
 		t.Fatalf("runtimeNamedResourceIDForResource() = %q, want %q", got, want)
 	}

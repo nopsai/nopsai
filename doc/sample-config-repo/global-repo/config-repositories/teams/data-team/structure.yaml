@@ -1,6 +1,6 @@
 description: Owns data-team scoped configuration
 config:
-  repo_url: https://github.com/hosein-yousefii/nopsai-config-data-team.git
+  repo_url: https://github.com/nopsai/nopsai-config-data-team.git
   branch: main
   base_path: ""
   enabled: true

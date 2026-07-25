@@ -200,7 +200,7 @@ global-repo/triggers/acme/service-api.yaml
 global-repo/triggers/acme/deploy-webhook.yaml
   -> trigger override acme/deploy-webhook for the webhook-deployer service account sample
 
-global-repo/triggers/hosein-yousefii/pre-nopsai.yaml
+global-repo/triggers/nopsai/nopsai.yaml
   -> GitHub App repository trigger for self-hosted NopsAI release on push to main, assigned to platform/prod with scope prod
 
 global-repo/external-triggers/deploy-prod.yaml
@@ -294,13 +294,13 @@ The paired `external-triggers/deploy-prod.yaml` file shows the enterprise path:
 `servicenow-prod` has an advanced role that can invoke `deploy-prod`, execute
 and use `platform/prod/platform-maintenance`; `scopes/prod/scope.yaml` shares restricted
 `scope.use` access with that service account.
-The `triggers/hosein-yousefii/pre-nopsai.yaml` file is the native GitHub App
+The `triggers/nopsai/nopsai.yaml` file is the native GitHub App
 self-release trigger. It starts `platform/prod/nopsai-platform-release` when the
 GitHub App receives a `push` event for `main`; it intentionally sets
 `provider: github`, `team_path: platform/prod`, and `management: nopsai`, with
 no `webhook_source` because GitHub App ingress is automatic. The release
 pipeline in `.nopsai/nopsai-platform-release.yaml` and `prod` scope both grant
-use access to `repository:hosein-yousefii/pre-nopsai` so the GitHub-triggered
+use access to `repository:nopsai/nopsai` so the GitHub-triggered
 run can pass runtime authorization. Release inputs come
 from `scopes/prod/scope.yaml`, including the repository URL, source ref, GHCR
 registry, image platforms, and Docker host. GitHub and GHCR token values stay as
@@ -594,7 +594,7 @@ access:
   use_access:
     grants:
       - subject_type: repository
-        subject_id: hosein-yousefii/test-app
+        subject_id: nopsai/test-app
       - subject_type: team
         subject_id: data-team
 steps:
@@ -607,7 +607,7 @@ For the common UI subjects, the shorter form is also accepted:
 ```yaml
 access:
   teams: [data-team]
-  repositories: [hosein-yousefii/test-app]
+  repositories: [nopsai/test-app]
 ```
 
 When grants are present and `visibility` is omitted, Nopsai treats the resource
@@ -629,7 +629,7 @@ kind: guardrail
 access:
   visibility: restricted
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content: |
   # Repository Check Guardrail
 

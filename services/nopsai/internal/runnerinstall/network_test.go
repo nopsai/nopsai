@@ -28,7 +28,7 @@ func TestExternalDispatcherAddressAdaptsInternalHost(t *testing.T) {
 }
 
 func TestExternalDispatcherAddressAdaptsUIServiceHostToDispatcherServiceHost(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-bootstrap-command", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-bootstrap-command", nil)
 
 	got, adapted, warnings := ExternalDispatcherAddress(config.Config{
 		DispatcherAddress:       "dispatcher:9090",
@@ -41,13 +41,13 @@ func TestExternalDispatcherAddressAdaptsUIServiceHostToDispatcherServiceHost(t *
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %#v, want none", warnings)
 	}
-	if got != "nopsai-dispatcher.pre-nopsai.orb.local:9090" {
+	if got != "nopsai-dispatcher.nopsai.orb.local:9090" {
 		t.Fatalf("address = %q, want dispatcher service host", got)
 	}
 }
 
 func TestExternalDispatcherAddressUsesRequestOverride(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-bootstrap-command?dispatcher_grpc_address=nopsai-dispatcher.pre-nopsai.orb.local%3A9443", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-bootstrap-command?dispatcher_grpc_address=nopsai-dispatcher.nopsai.orb.local%3A9443", nil)
 
 	got, adapted, warnings := ExternalDispatcherAddress(config.Config{
 		DispatcherAddress:       "dispatcher:9090",
@@ -60,7 +60,7 @@ func TestExternalDispatcherAddressUsesRequestOverride(t *testing.T) {
 	if len(warnings) == 0 {
 		t.Fatal("warnings should explain explicit dispatcher override")
 	}
-	if got != "nopsai-dispatcher.pre-nopsai.orb.local:9443" {
+	if got != "nopsai-dispatcher.nopsai.orb.local:9443" {
 		t.Fatalf("address = %q, want request override", got)
 	}
 }

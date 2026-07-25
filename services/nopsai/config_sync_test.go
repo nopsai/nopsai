@@ -404,7 +404,7 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 }
 
 func TestBuildKubernetesRunnerManifestResponseUsesDispatcherAddressOverride(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&dispatcher_grpc_address=nopsai-dispatcher.pre-nopsai.orb.local%3A9090", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&dispatcher_grpc_address=nopsai-dispatcher.nopsai.orb.local%3A9090", nil)
 	resp, err := runnerinstall.BuildKubernetesManifestResponse(config.Config{
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -416,10 +416,10 @@ func TestBuildKubernetesRunnerManifestResponseUsesDispatcherAddressOverride(t *t
 	if err != nil {
 		t.Fatalf("buildKubernetesRunnerManifestResponse() error = %v", err)
 	}
-	if resp.DispatcherAddress != "nopsai-dispatcher.pre-nopsai.orb.local:9090" {
+	if resp.DispatcherAddress != "nopsai-dispatcher.nopsai.orb.local:9090" {
 		t.Fatalf("dispatcher address = %q, want explicit override", resp.DispatcherAddress)
 	}
-	if !strings.Contains(resp.Manifest, "DISPATCHER_GRPC_ADDRESS: nopsai-dispatcher.pre-nopsai.orb.local:9090") {
+	if !strings.Contains(resp.Manifest, "DISPATCHER_GRPC_ADDRESS: nopsai-dispatcher.nopsai.orb.local:9090") {
 		t.Fatalf("manifest missing canonical dispatcher address:\n%s", resp.Manifest)
 	}
 	if len(resp.Warnings) == 0 {
@@ -784,11 +784,11 @@ func TestConfigRepositoryTeamStructureAppliesInsideDelegatedTeam(t *testing.T) {
 description: Team 1 apps
 apps:
   - name: test-app
-    repo_url: https://github.com/hosein-yousefii/test-app
+    repo_url: https://github.com/nopsai/test-app
 dev:
   apps:
     - name: dev-app
-      repo_url: https://github.com/hosein-yousefii/dev-app
+      repo_url: https://github.com/nopsai/dev-app
 `)
 	if err != nil {
 		t.Fatalf("configsync.ParseConfigRepositoryTeamPipelineRunStructure() error = %v", err)
@@ -808,15 +808,15 @@ dev:
 	if team1.Description != "Team 1 apps" {
 		t.Fatalf("team-1 description = %q", team1.Description)
 	}
-	if len(team1.Apps) != 1 || team1.Apps[0].RepositoryFullName != "hosein-yousefii/test-app" {
-		t.Fatalf("team-1 apps = %#v, want hosein-yousefii/test-app", team1.Apps)
+	if len(team1.Apps) != 1 || team1.Apps[0].RepositoryFullName != "nopsai/test-app" {
+		t.Fatalf("team-1 apps = %#v, want nopsai/test-app", team1.Apps)
 	}
 	dev, ok := team1.Children["dev"]
 	if !ok {
 		t.Fatal("expected team-1/dev from config-repositories team structure")
 	}
-	if len(dev.Apps) != 1 || dev.Apps[0].RepositoryFullName != "hosein-yousefii/dev-app" {
-		t.Fatalf("team-1/dev apps = %#v, want hosein-yousefii/dev-app", dev.Apps)
+	if len(dev.Apps) != 1 || dev.Apps[0].RepositoryFullName != "nopsai/dev-app" {
+		t.Fatalf("team-1/dev apps = %#v, want nopsai/dev-app", dev.Apps)
 	}
 }
 
@@ -824,7 +824,7 @@ func TestConfigRepositoryTeamStructureCollectsInlineConfig(t *testing.T) {
 	structure, ok, err := configsync.ParseConfigRepositoryTeamPipelineRunStructure("teams/data-team/structure.yaml", `
 description: Owns data-team scoped configuration
 config:
-  repo_url: git@github.com:hosein-yousefii/nopsai-data-team-config.git
+  repo_url: git@github.com:nopsai/nopsai-data-team-config.git
   branch: main
   base_path: ""
   enabled: true
@@ -849,7 +849,7 @@ config:
 	if binding.scopeType != models.ConfigRepositoryScopeTeam || binding.scopeID != "data-team" {
 		t.Fatalf("binding scope = (%q, %q), want (team, data-team)", binding.scopeType, binding.scopeID)
 	}
-	if binding.repoURL != "git@github.com:hosein-yousefii/nopsai-data-team-config.git" {
+	if binding.repoURL != "git@github.com:nopsai/nopsai-data-team-config.git" {
 		t.Fatalf("repoURL = %q", binding.repoURL)
 	}
 	if binding.branch != "main" || binding.basePath != "" || !binding.enabled {
@@ -907,16 +907,16 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		{scopePath: "prod", name: "API_VERSION"}:          {},
 	}
 	repoScopeVars := map[repoScopeVarKey]storedScopeVar{
-		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}: {},
-		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}:          {},
+		{repo: "nopsai/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}: {},
+		{repo: "nopsai/test-app", scopePath: "prod", name: "TEST_SCOPE"}:          {},
 	}
 	generalScopeSecrets := map[generalScopeSecretKey]storedScopeSecret{
 		{scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
 		{scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
 	}
 	repoScopeSecrets := map[repoScopeSecretKey]storedScopeSecret{
-		{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
-		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
+		{repo: "nopsai/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}: {},
+		{repo: "nopsai/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
 	}
 	externalTriggers := map[string]storedExternalTrigger{
 		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev", RunTeamPath: "data-team/dev"}},
@@ -952,7 +952,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	if _, ok := generalScopeVars[generalScopeVarKey{scopePath: "data-team/dev", name: "API_VERSION"}]; ok {
 		t.Fatal("expected delegated general scope variable to be filtered")
 	}
-	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}]; ok {
+	if _, ok := repoScopeVars[repoScopeVarKey{repo: "nopsai/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}]; ok {
 		t.Fatal("expected delegated repository scope variable to be filtered by scope")
 	}
 	if _, ok := gitWebhookSources["data-team-gitlab"]; ok {
@@ -964,19 +964,19 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	if _, ok := generalScopeVars[generalScopeVarKey{scopePath: "prod", name: "API_VERSION"}]; !ok {
 		t.Fatal("expected unrelated general scope variable to remain")
 	}
-	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "TEST_SCOPE"}]; !ok {
+	if _, ok := repoScopeVars[repoScopeVarKey{repo: "nopsai/test-app", scopePath: "prod", name: "TEST_SCOPE"}]; !ok {
 		t.Fatal("expected unrelated repository scope variable to remain")
 	}
 	if _, ok := generalScopeSecrets[generalScopeSecretKey{scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}]; ok {
 		t.Fatal("expected delegated general scope secret to be filtered")
 	}
-	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}]; ok {
+	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "nopsai/test-app", scopePath: "data-team/dev", name: "DEPLOY_TOKEN"}]; ok {
 		t.Fatal("expected delegated repository scope secret to be filtered by scope")
 	}
 	if _, ok := generalScopeSecrets[generalScopeSecretKey{scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
 		t.Fatal("expected unrelated general scope secret to remain")
 	}
-	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
+	if _, ok := repoScopeSecrets[repoScopeSecretKey{repo: "nopsai/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}]; !ok {
 		t.Fatal("expected unrelated repository scope secret to remain")
 	}
 	if _, ok := externalTriggers["data-team-deploy"]; ok {
@@ -1000,10 +1000,10 @@ access:
   visibility: restricted
   use_access:
     repositories:
-      - hosein-yousefii/test-app
+      - nopsai/test-app
 variables:
   API_VERSION: "2026.05"
-  hosein-yousefii/test-app/IMAGE_NAME: "ghcr.io/team-1/service-api:dev"
+  nopsai/test-app/IMAGE_NAME: "ghcr.io/team-1/service-api:dev"
 `), &raw); err != nil {
 		t.Fatalf("yaml.Unmarshal() error = %v", err)
 	}
@@ -1034,7 +1034,7 @@ variables:
 	if got := generalScopeVars[generalScopeVarKey{scopePath: "team-1/dev", name: "API_VERSION"}].value; got != "2026.05" {
 		t.Fatalf("API_VERSION = %q, want 2026.05", got)
 	}
-	if got := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "team-1/dev", name: "IMAGE_NAME"}].value; got != "ghcr.io/team-1/service-api:dev" {
+	if got := repoScopeVars[repoScopeVarKey{repo: "nopsai/test-app", scopePath: "team-1/dev", name: "IMAGE_NAME"}].value; got != "ghcr.io/team-1/service-api:dev" {
 		t.Fatalf("repo IMAGE_NAME = %q", got)
 	}
 }
@@ -1084,7 +1084,7 @@ secrets:
   API_TOKEN: "`+encrypted+`"
   EMPTY_TOKEN:
   BAD_TOKEN: "plain text"
-  hosein-yousefii/test-app/DEPLOY_TOKEN: "`+encrypted+`"
+  nopsai/test-app/DEPLOY_TOKEN: "`+encrypted+`"
 `), &raw); err != nil {
 		t.Fatalf("yaml.Unmarshal() error = %v", err)
 	}
@@ -1114,7 +1114,7 @@ secrets:
 	if got := generalScopeSecrets[generalScopeSecretKey{scopePath: "team-1/dev", name: "BAD_TOKEN"}].encryptedValue; got != nil {
 		t.Fatalf("BAD_TOKEN encrypted value = %#v, want nil for invalid encrypted data", got)
 	}
-	repoToken := repoScopeSecrets[repoScopeSecretKey{repo: "hosein-yousefii/test-app", scopePath: "team-1/dev", name: "DEPLOY_TOKEN"}]
+	repoToken := repoScopeSecrets[repoScopeSecretKey{repo: "nopsai/test-app", scopePath: "team-1/dev", name: "DEPLOY_TOKEN"}]
 	if repoToken.encryptedValue == nil || *repoToken.encryptedValue != encrypted {
 		t.Fatalf("repo DEPLOY_TOKEN encrypted value = %#v, want %q", repoToken.encryptedValue, encrypted)
 	}

@@ -85,8 +85,8 @@ export type KubernetesRunnerManifestTemplate = {
 
 export type RunnerInstallRuntime = 'docker' | 'kubernetes';
 
-export const DOCKER_RUNNER_IMAGE_REPOSITORY = 'ghcr.io/hosein-yousefii/nopsai-docker-runner';
-export const KUBERNETES_RUNNER_IMAGE_REPOSITORY = 'ghcr.io/hosein-yousefii/nopsai-k8s-runner';
+export const DOCKER_RUNNER_IMAGE_REPOSITORY = 'ghcr.io/nopsai/nopsai-docker-runner';
+export const KUBERNETES_RUNNER_IMAGE_REPOSITORY = 'ghcr.io/nopsai/nopsai-k8s-runner';
 export const DEFAULT_DOCKER_RUNNER_IMAGE = runnerImageForVersion(DOCKER_RUNNER_IMAGE_REPOSITORY, 'dev');
 export const DEFAULT_KUBERNETES_RUNNER_IMAGE = runnerImageForVersion(KUBERNETES_RUNNER_IMAGE_REPOSITORY, 'dev');
 
