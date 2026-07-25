@@ -213,16 +213,16 @@ test('filters application resources by app path and repository identity only', (
 test('keeps app repository triggers when Git owner differs from team path', () => {
   const allResources = buildTriggerTeamResources([
     {
-      slug: 'hosein-yousefii/test-app',
+      slug: 'nopsai/test-app',
       source: 'database',
       teamPath: 'team-1',
-      repositoryForWebhook: 'hosein-yousefii/test-app',
+      repositoryForWebhook: 'nopsai/test-app',
     },
     {
-      slug: 'hosein-yousefii/test-app22',
+      slug: 'nopsai/test-app22',
       source: 'database',
       teamPath: 'team-1',
-      repositoryForWebhook: 'hosein-yousefii/test-app22',
+      repositoryForWebhook: 'nopsai/test-app22',
     },
     {
       slug: 'workspace/test-app22',
@@ -237,22 +237,22 @@ test('keeps app repository triggers when Git owner differs from team path', () =
   );
 
   assert.deepEqual(teamResources.map(resource => [resource.id, resource.teamPath]), [
-    ['trigger:hosein-yousefii/test-app', 'team-1'],
-    ['trigger:hosein-yousefii/test-app22', 'team-1'],
+    ['trigger:nopsai/test-app', 'team-1'],
+    ['trigger:nopsai/test-app22', 'team-1'],
   ]);
   assert.deepEqual(
     filterApplicationLinkedResources(teamResources, {
       appPath: 'team-1/test-app',
       appName: 'test-app',
-      repository: 'hosein-yousefii/test-app',
+      repository: 'nopsai/test-app',
     }).map(resource => resource.id),
-    ['trigger:hosein-yousefii/test-app']
+    ['trigger:nopsai/test-app']
   );
   assert.deepEqual(
     filterApplicationLinkedResources(allResources, {
       appPath: 'team-1/t-app',
       appName: 't-app',
-      repository: 'hosein-yousefii/t-app',
+      repository: 'nopsai/t-app',
     }).map(resource => resource.id),
     []
   );

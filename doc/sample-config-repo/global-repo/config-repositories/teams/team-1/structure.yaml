@@ -1,5 +1,5 @@
 config:
-  repo_url: https://github.com/hosein-yousefii/nopsai-config-team-1.git
+  repo_url: https://github.com/nopsai/nopsai-config-team-1.git
   branch: main
   base_path: ""
   enabled: true
@@ -8,11 +8,11 @@ config:
 description: Team 1 workspace
 apps:
   - name: test-app
-    repo_url: https://github.com/hosein-yousefii/test-app
+    repo_url: https://github.com/nopsai/test-app
   - name: general-app
-    repo_url: https://github.com/hosein-yousefii/general-app
+    repo_url: https://github.com/nopsai/general-app
 dev:
   description: This is new
   apps:
     - name: t-app
-      repo_url: https://github.com/hosein-yousefii/t-app
+      repo_url: https://github.com/nopsai/t-app

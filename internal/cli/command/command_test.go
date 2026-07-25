@@ -615,7 +615,7 @@ func TestInstallDockerComposeGeneratesFromVersionWithoutReleaseManifest(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(lockContents), "manifestSource") || !strings.Contains(string(lockContents), "ghcr.io/hosein-yousefii/nopsai-api:2.7.0") {
+	if strings.Contains(string(lockContents), "manifestSource") || !strings.Contains(string(lockContents), "ghcr.io/nopsai/nopsai-api:2.7.0") {
 		t.Fatalf("install lock did not record versioned generated images: %s", lockContents)
 	}
 }

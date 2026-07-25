@@ -41,7 +41,7 @@ const (
 	DefaultInstallGotenbergURL                       = "http://gotenberg:3000"
 	DefaultInstallDockerNetworkName                  = "nopsai-net"
 	DefaultInstallBootstrapAdminEmail                = "admin@example.com"
-	DefaultInstallChartReference                     = "oci://ghcr.io/hosein-yousefii/charts/nopsai"
+	DefaultInstallChartReference                     = "oci://ghcr.io/nopsai/charts/nopsai"
 	DefaultKubernetesValuesFile                      = "values.yaml"
 	DefaultKubernetesExistingSecret                  = "nopsai-secrets"
 	DefaultKubernetesBootstrapAdminPasswordSecretKey = "bootstrap-admin-password"
@@ -651,15 +651,15 @@ func normalizeInstallCLIInfo(cli buildinfo.Info) buildinfo.Info {
 
 func versionedInstallImages(version string) map[string]string {
 	repositories := map[string]string{
-		"aaa":               "ghcr.io/hosein-yousefii/nopsai-aaa",
-		"agent":             "ghcr.io/hosein-yousefii/nopsai-agent",
-		"api":               "ghcr.io/hosein-yousefii/nopsai-api",
-		"dispatcher":        "ghcr.io/hosein-yousefii/nopsai-dispatcher",
-		"dockerSocketProxy": "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy",
-		"gitBot":            "ghcr.io/hosein-yousefii/nopsai-git-bot",
-		"k8sRunner":         "ghcr.io/hosein-yousefii/nopsai-k8s-runner",
-		"runner":            "ghcr.io/hosein-yousefii/nopsai-docker-runner",
-		"ui":                "ghcr.io/hosein-yousefii/nopsai-ui",
+		"aaa":               "ghcr.io/nopsai/nopsai-aaa",
+		"agent":             "ghcr.io/nopsai/nopsai-agent",
+		"api":               "ghcr.io/nopsai/nopsai-api",
+		"dispatcher":        "ghcr.io/nopsai/nopsai-dispatcher",
+		"dockerSocketProxy": "ghcr.io/nopsai/nopsai-docker-socket-proxy",
+		"gitBot":            "ghcr.io/nopsai/nopsai-git-bot",
+		"k8sRunner":         "ghcr.io/nopsai/nopsai-k8s-runner",
+		"runner":            "ghcr.io/nopsai/nopsai-docker-runner",
+		"ui":                "ghcr.io/nopsai/nopsai-ui",
 	}
 	images := make(map[string]string, len(repositories))
 	for key, repository := range repositories {

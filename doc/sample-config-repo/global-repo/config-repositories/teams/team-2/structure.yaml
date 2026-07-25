@@ -2,9 +2,9 @@ bank:
   description: Handles bank-facing apps
   apps:
     - name: all-app
-      repo_url: https://github.com/hosein-yousefii/all-app
+      repo_url: https://github.com/nopsai/all-app
   config:
-    repo_url: https://github.com/hosein-yousefii/nopsai-config-bank-team.git
+    repo_url: https://github.com/nopsai/nopsai-config-bank-team.git
     branch: main
     base_path: ""
     enabled: true

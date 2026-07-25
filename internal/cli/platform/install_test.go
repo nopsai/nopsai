@@ -85,7 +85,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 		"DISPATCHER_TLS_SECRET=",
 		"NOPSAI_BOOTSTRAP_ADMIN_EMAIL=platform-admin@example.com",
 		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD=custom-admin-password",
-		"NOPSAI_DOCKER_SOCKET_PROXY_IMAGE=ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy:2.7.0",
+		"NOPSAI_DOCKER_SOCKET_PROXY_IMAGE=ghcr.io/nopsai/nopsai-docker-socket-proxy:2.7.0",
 	} {
 		if !strings.Contains(envText, required) {
 			t.Fatalf(".env missing %q in:\n%s", required, envText)
@@ -111,7 +111,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	if err := json.Unmarshal(rawLock, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if lock.Target != "docker-compose" || lock.Version != "2.7.0" || lock.Images["api"] != "ghcr.io/hosein-yousefii/nopsai-api:2.7.0" || lock.FileHashes[".env"] != "" || strings.Contains(string(rawLock), "manifestDigest") {
+	if lock.Target != "docker-compose" || lock.Version != "2.7.0" || lock.Images["api"] != "ghcr.io/nopsai/nopsai-api:2.7.0" || lock.FileHashes[".env"] != "" || strings.Contains(string(rawLock), "manifestDigest") {
 		t.Fatalf("lock = %#v", lock)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "db", "init.sql")); err != nil {
@@ -194,7 +194,7 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 		`passwordKey: postgres-password`,
 		`storageClass: ""`,
 		`provider: kubernetes`,
-		`repository: "ghcr.io/hosein-yousefii/nopsai-k8s-runner"`,
+		`repository: "ghcr.io/nopsai/nopsai-k8s-runner"`,
 		`tag: "2.7.0"`,
 		`digest: ""`,
 	} {
@@ -230,8 +230,8 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 		"--from-literal=initial-admin-password=\"$BOOTSTRAP_ADMIN_PASSWORD\"",
 		"nopsai install kubernetes --output-dir . --values-file prod/values.yaml --release nopsai-prod --namespace nopsai-system --deploy",
 		"--values overrides/prod.yaml",
-		"helm upgrade --install nopsai-prod oci://ghcr.io/hosein-yousefii/charts/nopsai --version 2.7.0 --namespace nopsai-system --create-namespace --values prod/values.yaml",
-		"helm template nopsai-prod oci://ghcr.io/hosein-yousefii/charts/nopsai --version 2.7.0 --namespace nopsai-system --values prod/values.yaml",
+		"helm upgrade --install nopsai-prod oci://ghcr.io/nopsai/charts/nopsai --version 2.7.0 --namespace nopsai-system --create-namespace --values prod/values.yaml",
+		"helm template nopsai-prod oci://ghcr.io/nopsai/charts/nopsai --version 2.7.0 --namespace nopsai-system --values prod/values.yaml",
 	} {
 		if !strings.Contains(readmeText, required) {
 			t.Fatalf("README missing %q in:\n%s", required, readmeText)
@@ -298,7 +298,7 @@ func TestKubernetesInstallDeploysVersionedOCIChartAndWritesLock(t *testing.T) {
 	if err := json.Unmarshal(rawLock, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if lock.Target != "kubernetes" || lock.ChartReference != DefaultInstallChartReference || lock.Images["api"] != "ghcr.io/hosein-yousefii/nopsai-api:2.7.0" {
+	if lock.Target != "kubernetes" || lock.ChartReference != DefaultInstallChartReference || lock.Images["api"] != "ghcr.io/nopsai/nopsai-api:2.7.0" {
 		t.Fatalf("lock = %#v", lock)
 	}
 	if _, ok := lock.Images["dockerSocketProxy"]; ok {

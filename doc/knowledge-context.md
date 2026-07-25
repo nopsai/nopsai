@@ -146,7 +146,7 @@ access:
   teams:
     - team-1
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content: |
   # Repository Check Guardrail
 
@@ -162,7 +162,7 @@ access:
   teams:
     - team-1
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content: |
   # Repository Check Guardrail
 
@@ -436,7 +436,7 @@ Actions:
 - `knowledge_context.manage_access`
 
 Runtime checks use `knowledge_context.use`. For example, a Git-triggered run
-from `repository:hosein-yousefii/test-app` can use
+from `repository:nopsai/test-app` can use
 `knowledge_context:guardrail/security/repo-check` only if that repository has
 the required use permission through its team, visibility, or an explicit
 resource-access grant.

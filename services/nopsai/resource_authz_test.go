@@ -190,7 +190,7 @@ func TestParentScopeForRuntimeResourceUse(t *testing.T) {
 			name:         "repo scoped variable",
 			action:       "variable.use",
 			resourceType: grantResourceVariable,
-			resourceID:   model.BuildNamedResourceID("hosein-yousefii/test-app", "team-1/dev", "API_URL"),
+			resourceID:   model.BuildNamedResourceID("nopsai/test-app", "team-1/dev", "API_URL"),
 			wantScope:    "team-1/dev",
 			wantOK:       true,
 		},
@@ -274,7 +274,7 @@ func TestAuthorizeResourceUseAllowsScopedSecretThroughScopeUse(t *testing.T) {
 
 	result, err := app.AuthorizeResourceUse(context.Background(), ResourceUseAuthInput{
 		CallerType:   model.SubjectTypeRepository,
-		CallerID:     "hosein-yousefii/test-app",
+		CallerID:     "nopsai/test-app",
 		Action:       "secret.use",
 		ResourceType: grantResourceSecret,
 		ResourceID:   model.BuildNamedResourceID("", "prod", "TEST_SECRET"),
@@ -314,7 +314,7 @@ func TestAuthorizeResourceUseAllowsDefaultSecretThroughDefaultScopeUse(t *testin
 
 	result, err := app.AuthorizeResourceUse(context.Background(), ResourceUseAuthInput{
 		CallerType:   model.SubjectTypeRepository,
-		CallerID:     "hosein-yousefii/test-app",
+		CallerID:     "nopsai/test-app",
 		Action:       "secret.use",
 		ResourceType: grantResourceSecret,
 		ResourceID:   model.BuildNamedResourceID("", "", "OTHER_SEC"),
@@ -345,14 +345,14 @@ func TestResourceUseFailureSummaryIncludesDecisionDetails(t *testing.T) {
 		Visibility:   resourceVisibilityTeam,
 		EventType:    "push",
 		Ref:          "refs/heads/main",
-		Repo:         "hosein-yousefii/test-app",
+		Repo:         "nopsai/test-app",
 	}
 
-	got := resourceUseFailureSummary(model.SubjectTypeRepository, "hosein-yousefii/test-app", result, nil)
+	got := resourceUseFailureSummary(model.SubjectTypeRepository, "nopsai/test-app", result, nil)
 
-	assertContains(t, got, "repository:hosein-yousefii/test-app is not allowed to use pipeline platform/shared/deploy")
-	assertContains(t, got, "Caller: repository:hosein-yousefii/test-app")
-	assertContains(t, got, "Repository: hosein-yousefii/test-app")
+	assertContains(t, got, "repository:nopsai/test-app is not allowed to use pipeline platform/shared/deploy")
+	assertContains(t, got, "Caller: repository:nopsai/test-app")
+	assertContains(t, got, "Repository: nopsai/test-app")
 	assertContains(t, got, "Action: pipeline.use")
 	assertContains(t, got, "Resource: pipeline:platform/shared/deploy")
 	assertContains(t, got, "Event: push")
@@ -372,10 +372,10 @@ func TestResourceUseFailureSummaryIncludesAuthorizationError(t *testing.T) {
 		ResourceID:   "platform/prod",
 	}
 
-	got := resourceUseFailureSummary(model.SubjectTypeRepository, "hosein-yousefii/test-app", result, errors.New("aaa offline"))
+	got := resourceUseFailureSummary(model.SubjectTypeRepository, "nopsai/test-app", result, errors.New("aaa offline"))
 
 	assertContains(t, got, "Authorization unavailable for scope:platform/prod: aaa offline")
-	assertContains(t, got, "Caller: repository:hosein-yousefii/test-app")
+	assertContains(t, got, "Caller: repository:nopsai/test-app")
 	assertContains(t, got, "Action: scope.use")
 	assertContains(t, got, "Resource: scope:platform/prod")
 	assertContains(t, got, "Decision reason: authorization_error")
@@ -390,14 +390,14 @@ func TestResourceUseDeniedMessageIncludesNamedResourceScope(t *testing.T) {
 		ResourceID:   model.BuildNamedResourceID("", "", "OTHER_SEC"),
 	}
 
-	got := resourceUseDeniedMessage(model.SubjectTypeRepository, "hosein-yousefii/test-app", result)
+	got := resourceUseDeniedMessage(model.SubjectTypeRepository, "nopsai/test-app", result)
 
-	assertContains(t, got, "repository:hosein-yousefii/test-app is not allowed to use secret:name=OTHER_SEC scope=default")
+	assertContains(t, got, "repository:nopsai/test-app is not allowed to use secret:name=OTHER_SEC scope=default")
 }
 
 func TestFormatResourceLabelIncludesNamedResourceScopeAndRepo(t *testing.T) {
-	got := formatResourceLabel(grantResourceVariable, model.BuildNamedResourceID("hosein-yousefii/test-app", "dev", "TEST_ENV"))
-	want := "variable:name=TEST_ENV scope=dev repo=hosein-yousefii/test-app"
+	got := formatResourceLabel(grantResourceVariable, model.BuildNamedResourceID("nopsai/test-app", "dev", "TEST_ENV"))
+	want := "variable:name=TEST_ENV scope=dev repo=nopsai/test-app"
 	if got != want {
 		t.Fatalf("formatResourceLabel() = %q, want %q", got, want)
 	}

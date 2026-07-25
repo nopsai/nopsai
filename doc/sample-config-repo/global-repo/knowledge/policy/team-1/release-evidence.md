@@ -7,7 +7,7 @@ access:
   teams:
     - team-1
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content: |
   # Release Evidence Policy
 

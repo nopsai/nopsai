@@ -14,7 +14,7 @@ steps:
   - name: git-clone
     script: |
       #!/bin/bash
-      git clone https://github.com/hosein-yousefii/test-app.git
+      git clone https://github.com/nopsai/test-app.git
     ignore_failure: false
 
   - name: waiting-time

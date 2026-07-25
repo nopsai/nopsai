@@ -6,7 +6,7 @@ access:
   teams:
     - security
   repositories:
-    - hosein-yousefii/test-app
+    - nopsai/test-app
 content: |
   # Repository Check Guardrail
 

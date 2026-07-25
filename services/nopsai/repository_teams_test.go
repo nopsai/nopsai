@@ -6,15 +6,15 @@ import (
 )
 
 func TestRepositoryTriggerOverrideKeysPreferTeamedRepository(t *testing.T) {
-	specific, ownerWide := repositoryTriggerOverrideKeys("hosein-yousefii", "test-app", []string{
-		"team-1/hosein-yousefii/test-app",
+	specific, ownerWide := repositoryTriggerOverrideKeys("nopsai", "test-app", []string{
+		"team-1/nopsai/test-app",
 	})
 
-	wantSpecific := []string{"team-1/hosein-yousefii/test-app", "hosein-yousefii/test-app"}
+	wantSpecific := []string{"team-1/nopsai/test-app", "nopsai/test-app"}
 	if !reflect.DeepEqual(specific, wantSpecific) {
 		t.Fatalf("specific keys = %#v, want %#v", specific, wantSpecific)
 	}
-	wantOwnerWide := []string{"team-1/hosein-yousefii/all", "hosein-yousefii/all"}
+	wantOwnerWide := []string{"team-1/nopsai/all", "nopsai/all"}
 	if !reflect.DeepEqual(ownerWide, wantOwnerWide) {
 		t.Fatalf("owner-wide keys = %#v, want %#v", ownerWide, wantOwnerWide)
 	}

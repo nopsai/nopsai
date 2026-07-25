@@ -416,7 +416,7 @@ func TestGetActionWithMCPRequiresToolCallWhenRuntimeRequiresMCP(t *testing.T) {
 
 	chatResponses := []string{
 		`{"action":{"type":"EXECUTE_COMMAND","command_action":{"command":"ls -R test-app"}}}`,
-		`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"issues_list","arguments":{"owner":"hosein-yousefii","repo":"test-app"}}}}`,
+		`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"issues_list","arguments":{"owner":"nopsai","repo":"test-app"}}}}`,
 		`{"action":{"type":"RETURN_ANSWER","answer_action":{"answer":"Repository metadata was read through MCP."}}}`,
 	}
 	var chatCalls int32
@@ -648,7 +648,7 @@ func TestGetActionWithMCPReusesSuccessfulToolResultAfterRetry(t *testing.T) {
 	defer mcpServer.Close()
 
 	chatResponses := []string{
-		`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"list_commits","arguments":{"owner":"hosein-yousefii","repo":"test-app"}}}}`,
+		`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"list_commits","arguments":{"owner":"nopsai","repo":"test-app"}}}}`,
 		`not json`,
 		`{"action":{"type":"RETURN_ANSWER","answer_action":{"answer":"abc123 Update README.md"}}}`,
 	}
@@ -774,7 +774,7 @@ func TestGetActionWithMCPFailsMissingCommitToolInsteadOfGitLogFallback(t *testin
 	runtime.recordSuccessfulToolCall(
 		"github",
 		"get_repository",
-		json.RawMessage(`{"owner":"hosein-yousefii","repo":"test-app"}`),
+		json.RawMessage(`{"owner":"nopsai","repo":"test-app"}`),
 		json.RawMessage(`{"default_branch":"main"}`),
 	)
 
@@ -840,7 +840,7 @@ func TestGetActionWithMCPFailsMissingToolReturnAnswer(t *testing.T) {
 	runtime.recordSuccessfulToolCall(
 		"github",
 		"get_file_contents",
-		json.RawMessage(`{"owner":"hosein-yousefii","repo":"test-app","path":"README.md"}`),
+		json.RawMessage(`{"owner":"nopsai","repo":"test-app","path":"README.md"}`),
 		json.RawMessage(`{"content":"sample app"}`),
 	)
 

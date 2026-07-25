@@ -53,8 +53,8 @@ test('normalizes dispatcher install templates', () => {
 
 test('builds runner image defaults from NopsAI version tags', () => {
   assert.equal(
-    runnerImageForVersion('ghcr.io/hosein-yousefii/nopsai-docker-runner', '2.10.648'),
-    'ghcr.io/hosein-yousefii/nopsai-docker-runner:2.10.648'
+    runnerImageForVersion('ghcr.io/nopsai/nopsai-docker-runner', '2.10.648'),
+    'ghcr.io/nopsai/nopsai-docker-runner:2.10.648'
   );
   assert.equal(nopsaiImageTag('latest'), 'dev');
   assert.equal(nopsaiImageTag(' unknown '), 'dev');

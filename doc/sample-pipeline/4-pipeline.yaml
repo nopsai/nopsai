@@ -14,7 +14,7 @@ steps:
   - name: git-clone
     script: |
       #!/bin/bash
-      git clone https://github.com/hosein-yousefii/test-app.git
+      git clone https://github.com/nopsai/test-app.git
       echo $TEST_SECRET
     session: pipeline-image
     ignore_failure: false

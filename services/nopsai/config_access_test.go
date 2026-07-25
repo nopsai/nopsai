@@ -288,7 +288,7 @@ advanced_role_bindings:
 func TestAccessGrantConfigWritableAdoptsOrphanManagedGrantInScope(t *testing.T) {
 	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	resource := accessGrantResource{Type: grantResourceKnowledgeContext, ID: "guardrail/team-1/repo-check"}
-	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:hosein-yousefii/test-app knowledge_context:guardrail/team-1/repo-check", sql.NullInt64{}, true)
+	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:nopsai/test-app knowledge_context:guardrail/team-1/repo-check", sql.NullInt64{}, true)
 	if err != nil {
 		t.Fatalf("accessGrantConfigWritableDecision() error = %v", err)
 	}
@@ -300,7 +300,7 @@ func TestAccessGrantConfigWritableAdoptsOrphanManagedGrantInScope(t *testing.T) 
 func TestAccessGrantConfigWritableRejectsOrphanManagedGrantOutsideScope(t *testing.T) {
 	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	resource := accessGrantResource{Type: grantResourceKnowledgeContext, ID: "guardrail/team-2/repo-check"}
-	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:hosein-yousefii/test-app knowledge_context:guardrail/team-2/repo-check", sql.NullInt64{}, true)
+	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:nopsai/test-app knowledge_context:guardrail/team-2/repo-check", sql.NullInt64{}, true)
 	if err == nil {
 		t.Fatal("expected out-of-scope orphaned managed access grant to fail")
 	}
@@ -489,7 +489,7 @@ access:
     grants:
       - subject_type: team
         subject_id: data-team
-      - repository: hosein-yousefii/test-app
+      - repository: nopsai/test-app
 `, "pipelines/deploy.yaml", grantResourcePipeline, "team-1/deploy", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
@@ -523,7 +523,7 @@ access:
 
 	repoKey := accessGrantPlanKey{
 		subjectType:  model.SubjectTypeRepository,
-		subjectID:    "hosein-yousefii/test-app",
+		subjectID:    "nopsai/test-app",
 		resourceType: grantResourcePipeline,
 		resourceID:   "team-1/deploy",
 	}
@@ -707,7 +707,7 @@ func TestFilterDelegatedAccessResourcesRemovesSystemEmbeddedKnowledgeAccess(t *t
 	}
 	grantKey := accessGrantPlanKey{
 		subjectType:  model.SubjectTypeRepository,
-		subjectID:    "hosein-yousefii/test-app",
+		subjectID:    "nopsai/test-app",
 		resourceType: grantResourceKnowledgeContext,
 		resourceID:   "guardrail/team-1/repo-check",
 	}
@@ -720,7 +720,7 @@ func TestFilterDelegatedAccessResourcesRemovesSystemEmbeddedKnowledgeAccess(t *t
 	}
 	plan.grants[grantKey] = storedAccessGrant{
 		subjectType:  model.SubjectTypeRepository,
-		subjectID:    "hosein-yousefii/test-app",
+		subjectID:    "nopsai/test-app",
 		role:         customUseGrantRole,
 		resourceType: grantResourceKnowledgeContext,
 		resourceID:   "guardrail/team-1/repo-check",

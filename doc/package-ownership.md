@@ -109,7 +109,7 @@ release model logic.
   Docker Compose rendering, Helm values rendering, install locks, and
   first-install Helm deployment locks.
 - `deploy/helm/nopsai` owns the published NopsAI Helm chart.
-- `doc/sample-config-repo/global-repo/triggers/hosein-yousefii/pre-nopsai.yaml`
+- `doc/sample-config-repo/global-repo/triggers/nopsai/nopsai.yaml`
   owns the GitHub App main-branch release trigger.
 - `.nopsai/nopsai-platform-release.yaml` owns the GitOps release pipeline for
   package validation, GHCR images, OCI Helm publication, CLI archives,

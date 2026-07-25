@@ -8,7 +8,7 @@ variables:
   - DOCKER_HOST
 steps:
   - name: git-clone
-    goal: "clone repository: https://github.com/hosein-yousefii/test-app.git"
+    goal: "clone repository: https://github.com/nopsai/test-app.git"
     ignore_failure: false
 
   - name: waiting-time

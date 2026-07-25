@@ -2,27 +2,27 @@ access:
   visibility: restricted
   use_access:
     grants:
-      - repository: hosein-yousefii/pre-nopsai
+      - repository: nopsai/nopsai
       - service_account: servicenow-prod
       - service_account: nopsai-release-bot
 variables:
   PLATFORM_SCOPE: "production"
-  NOPSAI_RELEASE_REPOSITORY_URL: "https://github.com/hosein-yousefii/pre-nopsai.git"
+  NOPSAI_RELEASE_REPOSITORY_URL: "https://github.com/nopsai/nopsai.git"
   NOPSAI_RELEASE_SOURCE_REF: "main"
   NOPSAI_RELEASE_REQUIRE_MAIN: "true"
   NOPSAI_RELEASE_ALLOW_EXISTING: "false"
-  NOPSAI_RELEASE_REGISTRY: "ghcr.io/hosein-yousefii"
-  NOPSAI_RELEASE_GITHUB_REPOSITORY: "hosein-yousefii/pre-nopsai"
-  NOPSAI_RELEASE_GHCR_USERNAME: "hosein-yousefii"
+  NOPSAI_RELEASE_REGISTRY: "ghcr.io/nopsai"
+  NOPSAI_RELEASE_GITHUB_REPOSITORY: "nopsai/nopsai"
+  NOPSAI_RELEASE_GHCR_USERNAME: "nopsai"
   NOPSAI_RELEASE_PLATFORMS: "linux/amd64,linux/arm64"
   NOPSAI_RELEASE_ENABLE_QEMU: "true"
   NOPSAI_RELEASE_BUILDX_NAME: "nopsai-release-builder"
   NOPSAI_RELEASE_HELM_VERSION: "3.17.3"
   NOPSAI_RELEASE_GH_VERSION: "2.74.2"
   DOCKER_HOST: "tcp://docker:2375"
-  hosein-yousefii/test-app/TEST_SCOPE: "ghcr.io/acme/service-api:stable"
+  nopsai/test-app/TEST_SCOPE: "ghcr.io/acme/service-api:stable"
 secrets:
   GEMINI_API_KEY:
   NOPSAI_RELEASE_GITHUB_TOKEN:
   NOPSAI_RELEASE_GHCR_TOKEN:
-  hosein-yousefii/test-app/DEPLOY_TOKEN:
+  nopsai/test-app/DEPLOY_TOKEN:
