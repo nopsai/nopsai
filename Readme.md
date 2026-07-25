@@ -5,7 +5,6 @@
   </picture>
 </p>
 
-
 # NopsAI
 
 NopsAI is a self-hosted, Git-aware automation platform for running AI-assisted
