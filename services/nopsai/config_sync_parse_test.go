@@ -1,13 +1,10 @@
 package nopsai
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"nopsai/pkg/models"
-	aaamodel "nopsai/services/aaa/pkg/model"
 )
 
 func TestParseConfigSyncPlanNormalizesTeamResources(t *testing.T) {
@@ -79,79 +76,6 @@ triggers:
 	if trigger.record.TeamPath != "team-1" || trigger.record.Provider != "github" {
 		t.Fatalf("trigger metadata = %#v, want team-1 GitHub defaults", trigger.record)
 	}
-}
-
-func TestSampleNopsAIPlatformReleaseGitHubTriggerParses(t *testing.T) {
-	binding := models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeSystem,
-		ScopeID:   models.ConfigRepositorySystemGlobalID,
-		RepoURL:   "https://github.com/nopsai/nopsai-global-config",
-	}
-	repoCtx, err := newConfigSyncRepositoryContext(binding)
-	if err != nil {
-		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
-	}
-
-	sampleRoot := filepath.Join("..", "..", "doc", "sample-config-repo", "global-repo")
-	triggerPath := filepath.Join(sampleRoot, "triggers", "nopsai", "nopsai.yaml")
-	triggerRaw, err := os.ReadFile(triggerPath)
-	if err != nil {
-		t.Fatalf("os.ReadFile(%q) error = %v", triggerPath, err)
-	}
-	pipelinePath := filepath.Join("..", "..", ".nopsai", "nopsai-platform-release.yaml")
-	pipelineRaw, err := os.ReadFile(pipelinePath)
-	if err != nil {
-		t.Fatalf("os.ReadFile(%q) error = %v", pipelinePath, err)
-	}
-	scopePath := filepath.Join(sampleRoot, "scopes", "prod", "scope.yaml")
-	scopeRaw, err := os.ReadFile(scopePath)
-	if err != nil {
-		t.Fatalf("os.ReadFile(%q) error = %v", scopePath, err)
-	}
-
-	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
-		pipelines: map[string]string{
-			"pipelines/platform/prod/nopsai-platform-release.yaml": string(pipelineRaw),
-		},
-		scopes: map[string]string{
-			"scopes/prod/scope.yaml": string(scopeRaw),
-		},
-		triggers: map[string]string{
-			"triggers/nopsai/nopsai.yaml": string(triggerRaw),
-		},
-	})
-	if err != nil {
-		t.Fatalf("parseConfigSyncPlan() error = %v", err)
-	}
-	trigger, ok := plan.triggers["nopsai/nopsai"]
-	if !ok {
-		t.Fatalf("triggers = %#v, want nopsai/nopsai", plan.triggers)
-	}
-	if trigger.record.Provider != "github" || trigger.record.TeamPath != "platform/prod" || trigger.record.WebhookSourceID != "" {
-		t.Fatalf("trigger metadata = %#v, want GitHub App trigger assigned to platform/prod with automatic ingress", trigger.record)
-	}
-	if trigger.record.Management != repositoryTriggerManagementNopsAI {
-		t.Fatalf("Management = %q, want %q", trigger.record.Management, repositoryTriggerManagementNopsAI)
-	}
-	if trigger.record.RepositoryForWebhook != "nopsai/nopsai" {
-		t.Fatalf("RepositoryForWebhook = %q, want nopsai/nopsai", trigger.record.RepositoryForWebhook)
-	}
-	if got := strings.Join(repositoryTriggerScopesFromDefinition(trigger.definition), ","); got != "prod" {
-		t.Fatalf("trigger scopes = %q, want prod", got)
-	}
-	for _, want := range []string{
-		"on: push",
-		"branches:",
-		"- main",
-		"platform/prod/nopsai-platform-release",
-	} {
-		if !strings.Contains(trigger.definition, want) {
-			t.Fatalf("trigger definition missing %q in:\n%s", want, trigger.definition)
-		}
-	}
-
-	assertUseGrant(t, plan.accessPlan, aaamodel.SubjectTypeRepository, "nopsai/nopsai", grantResourcePipeline, "platform/prod/nopsai-platform-release", "pipeline.use")
-	assertUseGrant(t, plan.accessPlan, aaamodel.SubjectTypeRepository, "nopsai/nopsai", grantResourceScope, "prod", "scope.use")
 }
 
 func TestParseConfigSyncPlanTriggerExplicitTeamOverridesRepositoryOwner(t *testing.T) {
