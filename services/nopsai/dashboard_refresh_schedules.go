@@ -449,7 +449,7 @@ func (a *App) executeDashboardRefreshSchedule(ctx context.Context, record dashbo
 			updated_at = NOW()
 		WHERE id::text = $1
 	`, record.ID, response.ID, response.Status)
-	a.auditDashboardAction(ctx, nil, "dashboard.refreshed", dashboard, "success", map[string]any{
+	a.auditDashboardAction(ctx, nil, "dashboard.refreshed", dashboard, map[string]any{
 		"refresh_id":            response.ID,
 		"trigger_type":          response.TriggerType,
 		"dashboard_schedule_id": record.ID,

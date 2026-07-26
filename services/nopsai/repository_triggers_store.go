@@ -61,19 +61,16 @@ func (a *App) getRepositoryTriggerRecord(ctx context.Context, repositoryName str
 	return record, true, nil
 }
 
-func (a *App) enrichRepositoryTriggerRecord(ctx context.Context, record repositoryTriggerRecord) (repositoryTriggerRecord, error) {
+func (a *App) enrichRepositoryTriggerRecord(ctx context.Context, record repositoryTriggerRecord) repositoryTriggerRecord {
 	if a == nil || a.db == nil {
 		record.Ingress = repositoryTriggerIngress(record.Provider, record.WebhookSourceName, record.WebhookSourceID)
-		return record, nil
+		return record
 	}
-	status, sourceName, err := repositoryTriggerAllowlistStatus(ctx, a.db, record)
-	if err != nil {
-		return record, err
-	}
+	status, sourceName := repositoryTriggerAllowlistStatus(ctx, a.db, record)
 	record.AllowlistStatus = status
 	record.WebhookSourceName = sourceName
 	record.Ingress = repositoryTriggerIngress(record.Provider, sourceName, record.WebhookSourceID)
-	return record, nil
+	return record
 }
 
 func (a *App) repositoryTriggerTeamPathForRepository(ctx context.Context, repositoryID string) (string, bool, error) {

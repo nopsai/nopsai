@@ -108,17 +108,17 @@ func (c *gotenbergPDFConverter) ConvertHTML(ctx context.Context, documentHTML []
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("Gotenberg returned %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
+		return nil, fmt.Errorf("gotenberg returned %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxRenderedPDFBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read Gotenberg response: %w", err)
 	}
 	if len(payload) > maxRenderedPDFBytes {
-		return nil, fmt.Errorf("Gotenberg response exceeds %d bytes", maxRenderedPDFBytes)
+		return nil, fmt.Errorf("gotenberg response exceeds %d bytes", maxRenderedPDFBytes)
 	}
 	if !bytes.HasPrefix(payload, []byte("%PDF-")) {
-		return nil, fmt.Errorf("Gotenberg response is not a PDF")
+		return nil, fmt.Errorf("gotenberg response is not a PDF")
 	}
 	return payload, nil
 }

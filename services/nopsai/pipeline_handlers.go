@@ -125,12 +125,7 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
 				return
 			}
-			record, err = a.enrichRepositoryTriggerRecord(r.Context(), record)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to enrich trigger override entry")
-				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
-				return
-			}
+			record = a.enrichRepositoryTriggerRecord(r.Context(), record)
 			entries = append(entries, triggerEntry{
 				name: record.RepositoryName,
 				item: repositoryTriggerListItem{
@@ -303,11 +298,7 @@ func (a *App) handleGetTriggerOverride(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
-		record, err = a.enrichRepositoryTriggerRecord(r.Context(), record)
-		if err != nil {
-			http.Error(w, "failed to load trigger metadata", http.StatusInternalServerError)
-			return
-		}
+		record = a.enrichRepositoryTriggerRecord(r.Context(), record)
 		_ = httpapi.WriteJSON(w, http.StatusOK, repositoryTriggerDetailResponse{
 			Slug:                 record.RepositoryName,
 			Source:               record.Source,

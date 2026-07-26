@@ -36,10 +36,10 @@ func TestRuntimeScopeStorageAndResourceMapping(t *testing.T) {
 }
 
 func TestRuntimeScopeEqualsSQLUsesCanonicalScopeOnly(t *testing.T) {
-	if got := runtimeScopeEqualsSQL("scope", 1, "default"); got != "scope = $1" {
+	if got := runtimeScopeEqualsSQL("scope", 1); got != "scope = $1" {
 		t.Fatalf("runtimeScopeEqualsSQL(default) = %q", got)
 	}
-	if got := runtimeScopeEqualsSQL("variables.scope", 3, "prod"); got != "variables.scope = $3" {
+	if got := runtimeScopeEqualsSQL("variables.scope", 3); got != "variables.scope = $3" {
 		t.Fatalf("runtimeScopeEqualsSQL(prod) = %q", got)
 	}
 }

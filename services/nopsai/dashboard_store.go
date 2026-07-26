@@ -39,21 +39,21 @@ func (a *App) resolveDashboardTeam(ctx context.Context, req dashboardRequest) (i
 	return 0, "", fmt.Errorf("team not found")
 }
 
-func (a *App) resolveDashboardRefTeam(ctx context.Context, ref string) (teamID int, teamPath, slug string, err error) {
-	teamPath, slug, err = splitDashboardRef(ref)
+func (a *App) resolveDashboardRefTeam(ctx context.Context, ref string) (teamID int, slug string, err error) {
+	teamPath, slug, err := splitDashboardRef(ref)
 	if err != nil {
-		return 0, "", "", err
+		return 0, "", err
 	}
 	records, err := loadTeamPathRecords(ctx, a.db)
 	if err != nil {
-		return 0, "", "", err
+		return 0, "", err
 	}
 	for _, record := range records {
 		if record.Path == teamPath {
-			return record.ID, teamPath, slug, nil
+			return record.ID, slug, nil
 		}
 	}
-	return 0, "", "", fmt.Errorf("team not found")
+	return 0, "", fmt.Errorf("team not found")
 }
 
 func (a *App) listDashboardRecords(ctx context.Context, teamFilter, queryFilter string) ([]dashboardRecord, error) {
@@ -104,7 +104,7 @@ func (a *App) getDashboardRecord(ctx context.Context, dashboardID string) (dashb
 	if looksLikeUUID(dashboardID) {
 		return scanDashboardRecord(a.db.QueryRow(ctx, baseDashboardSelect()+` WHERE d.id::text = $1 GROUP BY d.id LIMIT 1`, dashboardID), teamPaths)
 	}
-	teamID, _, slug, err := a.resolveDashboardRefTeam(ctx, dashboardID)
+	teamID, slug, err := a.resolveDashboardRefTeam(ctx, dashboardID)
 	if err != nil {
 		return dashboardRecord{}, err
 	}

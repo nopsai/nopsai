@@ -163,7 +163,7 @@ func (a *App) generatePipelineFinalOutputs(ctx context.Context, runID string) {
 	if len(outputs) == 0 {
 		return
 	}
-	if err := a.waitForPipelineFinalOutputLogDrain(ctx, runID); err != nil {
+	if err := a.waitForPipelineFinalOutputLogDrain(ctx); err != nil {
 		log.Debug().Err(err).Str("run_id", runID).Msg("Pipeline final output log drain wait skipped")
 	}
 	runContext, err := a.buildPipelineFinalOutputRunContext(ctx, runID)
@@ -183,7 +183,7 @@ func (a *App) generatePipelineFinalOutputs(ctx context.Context, runID string) {
 	}
 }
 
-func (a *App) waitForPipelineFinalOutputLogDrain(ctx context.Context, runID string) error {
+func (a *App) waitForPipelineFinalOutputLogDrain(ctx context.Context) error {
 	if a == nil || a.db == nil || pipelineFinalOutputLogDrainWait <= 0 {
 		return nil
 	}
@@ -291,7 +291,7 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 		return nil
 	}
 	if normalizePipelineFinalOutputType(output.Type) == "dashboard" {
-		content, err := a.groundPipelineFinalDashboardOutputContent(ctx, runID, result.Content, output, runContext.LogEvidence)
+		content, err := groundPipelineFinalDashboardOutputContent(result.Content, output, runContext.LogEvidence)
 		if err != nil {
 			_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
 			a.markDashboardRefreshOutputFailureIfDashboard(ctx, runID, output, err)
@@ -502,10 +502,6 @@ func pipelineFinalOutputRecordContentValidator(output pipelineFinalOutputRecord)
 		}
 		return nil
 	}
-}
-
-func (a *App) groundPipelineFinalDashboardOutputContent(ctx context.Context, runID, content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
-	return groundPipelineFinalDashboardOutputContent(content, output, evidence)
 }
 
 func groundPipelineFinalDashboardOutputContent(content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
@@ -1652,27 +1648,27 @@ func (a *App) buildPipelineFinalOutputRunContext(ctx context.Context, runID stri
 			if stepName == "" {
 				stepName = "unknown"
 			}
-			builder.WriteString(fmt.Sprintf("- Step: %s | status: %s", stepName, step.Status))
+			fmt.Fprintf(&builder, "- Step: %s | status: %s", stepName, step.Status)
 			if strings.TrimSpace(step.Duration) != "" {
-				builder.WriteString(" | duration: " + step.Duration)
+				fmt.Fprintf(&builder, " | duration: %s", step.Duration)
 			}
 			builder.WriteString("\n")
 			for _, task := range step.Tasks {
-				builder.WriteString(fmt.Sprintf("  - Task: %s | status: %s", task.TaskName, task.Status))
+				fmt.Fprintf(&builder, "  - Task: %s | status: %s", task.TaskName, task.Status)
 				if task.ExitCode != nil {
-					builder.WriteString(fmt.Sprintf(" | exit_code: %d", *task.ExitCode))
+					fmt.Fprintf(&builder, " | exit_code: %d", *task.ExitCode)
 				}
 				if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
-					builder.WriteString(" | duration: " + task.FinishedAt.Sub(task.StartedAt).Round(time.Second).String())
+					fmt.Fprintf(&builder, " | duration: %s", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
 				}
 				builder.WriteString("\n")
 			}
 		}
 	} else {
 		for stepName, tasks := range tasksByStep {
-			builder.WriteString("- Step: " + stepName + "\n")
+			fmt.Fprintf(&builder, "- Step: %s\n", stepName)
 			for _, task := range tasks {
-				builder.WriteString(fmt.Sprintf("  - Task: %s | status: %s\n", task.TaskName, task.Status))
+				fmt.Fprintf(&builder, "  - Task: %s | status: %s\n", task.TaskName, task.Status)
 			}
 		}
 	}
@@ -1680,7 +1676,7 @@ func (a *App) buildPipelineFinalOutputRunContext(ctx context.Context, runID stri
 	if len(childRuns) > 0 {
 		builder.WriteString("\nChild runs\n")
 		for _, child := range childRuns {
-			builder.WriteString(fmt.Sprintf("- %s | pipeline: %s | step: %s | status: %s\n", child.RunID, child.PipelineName, child.ParentStepName, child.Status))
+			fmt.Fprintf(&builder, "- %s | pipeline: %s | step: %s | status: %s\n", child.RunID, child.PipelineName, child.ParentStepName, child.Status)
 		}
 	}
 
@@ -1804,24 +1800,24 @@ func writePipelineFinalOutputRunHistory(builder *strings.Builder, history []mode
 		if runID == "" {
 			runID = "unknown"
 		}
-		builder.WriteString("- " + runID)
+		fmt.Fprintf(builder, "- %s", runID)
 		pipeline := strings.Trim(strings.TrimSpace(item.PipelinePath+"/"+item.PipelineName), "/")
 		if pipeline != "" {
-			builder.WriteString(" | pipeline: " + pipeline)
+			fmt.Fprintf(builder, " | pipeline: %s", pipeline)
 		}
 		if version := strings.TrimSpace(item.PipelineVersion); version != "" {
-			builder.WriteString(" | version: " + version)
+			fmt.Fprintf(builder, " | version: %s", version)
 		}
 		if status := strings.TrimSpace(item.Status); status != "" {
-			builder.WriteString(" | status: " + status)
+			fmt.Fprintf(builder, " | status: %s", status)
 		}
 		if duration := strings.TrimSpace(item.Duration); duration != "" {
-			builder.WriteString(" | duration: " + duration)
+			fmt.Fprintf(builder, " | duration: %s", duration)
 		}
 		writeFinalOutputTimeFragment(builder, "started_at", item.StartedAt)
 		writeFinalOutputTimeFragment(builder, "finished_at", item.FinishedAt)
 		if reason := strings.TrimSpace(item.FailureReason); reason != "" {
-			builder.WriteString(" | failure_reason: " + reason)
+			fmt.Fprintf(builder, " | failure_reason: %s", reason)
 		}
 		builder.WriteString("\n")
 	}
@@ -1836,24 +1832,24 @@ func writePipelineFinalOutputCurrentLogEvidence(builder *strings.Builder, logs [
 	if summary := pipelineFinalOutputLogEvidenceSummaryFromEvidence(evidence); len(summary) > 0 {
 		builder.WriteString("Extracted facts from current log lines\n")
 		for _, line := range summary {
-			builder.WriteString("- " + line + "\n")
+			fmt.Fprintf(builder, "- %s\n", line)
 		}
 	}
 	if len(evidence.Structured) > 0 {
 		builder.WriteString("Structured emitted evidence\n")
 		for _, line := range evidence.Structured {
-			builder.WriteString("- " + line + "\n")
+			fmt.Fprintf(builder, "- %s\n", line)
 		}
 	}
 	if len(evidence.Lines) > 0 {
 		builder.WriteString("Emitted step output lines\n")
 		for _, line := range evidence.Lines {
-			builder.WriteString("- " + line + "\n")
+			fmt.Fprintf(builder, "- %s\n", line)
 		}
 	}
 	builder.WriteString("Raw operational log excerpt (use only for run status and operational metadata unless it contains emitted step output)\n")
 	for _, line := range logs {
-		builder.WriteString("- " + line + "\n")
+		fmt.Fprintf(builder, "- %s\n", line)
 	}
 }
 
@@ -2241,8 +2237,8 @@ func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutpu
 	builder.WriteString("If a file is mentioned but its contents are not present in the run context, do not infer or invent its values. Prefer operationally relevant subjects over incidental personal/noise lines unless the user specifically asks for those details.\n")
 	builder.WriteString("For intent-level dashboard requests, infer the dashboard structure from the requested facts and available evidence. Keep the dashboard scoped to the user instruction; do not add generic run metadata, configured runtime/container details, or incidental facts unless requested. Use run history, step, and task duration metadata for operational run timing only when current log evidence does not answer the requested business timing.\n")
 	builder.WriteString("The system output contract defines the required response envelope.\n\n")
-	builder.WriteString("Output name: " + output.Name + "\n")
-	builder.WriteString("Output type: " + output.Type + "\n")
+	fmt.Fprintf(&builder, "Output name: %s\n", output.Name)
+	fmt.Fprintf(&builder, "Output type: %s\n", output.Type)
 	if normalizePipelineFinalOutputType(output.Type) == "dashboard" {
 		writeFinalOutputLine(&builder, "Dashboard ref", output.Dashboard.Ref)
 		writeFinalOutputLine(&builder, "Dashboard section", output.Dashboard.Section)
@@ -2250,9 +2246,9 @@ func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutpu
 		writeFinalOutputLine(&builder, "Dashboard publish mode", output.Dashboard.Mode)
 		writeFinalOutputLine(&builder, "Dashboard preset", output.Dashboard.Preset)
 	}
-	builder.WriteString("Format requirements: " + pipelineFinalOutputFormatGuidance(output) + "\n\n")
+	fmt.Fprintf(&builder, "Format requirements: %s\n\n", pipelineFinalOutputFormatGuidance(output))
 	builder.WriteString("User instruction:\n")
-	builder.WriteString(strings.TrimSpace(output.Prompt) + "\n\n")
+	fmt.Fprintf(&builder, "%s\n\n", strings.TrimSpace(output.Prompt))
 	builder.WriteString("Run context:\n")
 	builder.WriteString(runContext)
 	return builder.String()
@@ -2397,21 +2393,21 @@ func writeFinalOutputLine(builder *strings.Builder, label, value string) {
 	if value == "" {
 		return
 	}
-	builder.WriteString(label + ": " + value + "\n")
+	fmt.Fprintf(builder, "%s: %s\n", label, value)
 }
 
 func writeFinalOutputTime(builder *strings.Builder, label string, value time.Time) {
 	if value.IsZero() {
 		return
 	}
-	builder.WriteString(label + ": " + value.UTC().Format(time.RFC3339) + "\n")
+	fmt.Fprintf(builder, "%s: %s\n", label, value.UTC().Format(time.RFC3339))
 }
 
 func writeFinalOutputTimeFragment(builder *strings.Builder, label string, value time.Time) {
 	if value.IsZero() {
 		return
 	}
-	builder.WriteString(" | " + label + ": " + value.UTC().Format(time.RFC3339))
+	fmt.Fprintf(builder, " | %s: %s", label, value.UTC().Format(time.RFC3339))
 }
 
 func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, outputID string) (models.PipelineRunFinalOutput, error) {

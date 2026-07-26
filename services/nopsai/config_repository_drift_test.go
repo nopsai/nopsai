@@ -183,7 +183,7 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 
 func TestConfigRepositoryNotificationRoutePathUsesColocatedSystemPath(t *testing.T) {
 	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
-	got, ok := configRepositoryNotificationRoutePath(repo, "team-1/dev", "config-repositories/teams/team-1/dev/notifications.yaml", true, sql.NullInt64{Int64: 7, Valid: true})
+	got, ok := configRepositoryNotificationRoutePath(repo, "team-1/dev")
 	if !ok || got != "config-repositories/teams/team-1/dev/notifications.yaml" {
 		t.Fatalf("notification route path = %q, %t; want colocated team-1/dev path", got, ok)
 	}
@@ -191,11 +191,11 @@ func TestConfigRepositoryNotificationRoutePathUsesColocatedSystemPath(t *testing
 
 func TestConfigRepositoryNotificationRoutePathUsesRootFileForBoundTeam(t *testing.T) {
 	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
-	got, ok := configRepositoryNotificationRoutePath(repo, "team-1", "", false, sql.NullInt64{})
+	got, ok := configRepositoryNotificationRoutePath(repo, "team-1")
 	if !ok || got != "notifications.yaml" {
 		t.Fatalf("notification route path = %q, %t; want team root notifications.yaml", got, ok)
 	}
-	got, ok = configRepositoryNotificationRoutePath(repo, "team-1/dev", "", false, sql.NullInt64{})
+	got, ok = configRepositoryNotificationRoutePath(repo, "team-1/dev")
 	if !ok || got != "config-repositories/teams/dev/notifications.yaml" {
 		t.Fatalf("child notification route path = %q, %t; want colocated child path", got, ok)
 	}
@@ -266,22 +266,22 @@ func TestConfigRepositoryTeamStructureFilesUseScopedPaths(t *testing.T) {
 
 func TestConfigRepositoryExportPathForTeamScope(t *testing.T) {
 	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
-	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{})
+	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "", "pipelines", false, sql.NullInt64{})
 	if !ok || got != "pipelines/services/api/deploy.yaml" {
 		t.Fatalf("export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
 	}
-	if _, ok := configRepositoryExportPath(repo, "team-2/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{}); ok {
+	if _, ok := configRepositoryExportPath(repo, "team-2/services/api/deploy", "", "pipelines", false, sql.NullInt64{}); ok {
 		t.Fatal("resource outside team scope was accepted")
 	}
 }
 
 func TestConfigRepositoryExportPathStripsBasePathFromManagedSource(t *testing.T) {
 	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1", BasePath: "configs/team-1"}
-	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true})
+	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/services/api/deploy.yaml", "pipelines", true, sql.NullInt64{Int64: 7, Valid: true})
 	if !ok || got != "pipelines/services/api/deploy.yaml" {
 		t.Fatalf("managed export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
 	}
-	got, ok = configRepositoryExportPath(repo, "team-1/services/api/deploy", "pipelines/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true})
+	got, ok = configRepositoryExportPath(repo, "team-1/services/api/deploy", "pipelines/services/api/deploy.yaml", "pipelines", true, sql.NullInt64{Int64: 7, Valid: true})
 	if !ok || got != "pipelines/services/api/deploy.yaml" {
 		t.Fatalf("relative managed export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
 	}

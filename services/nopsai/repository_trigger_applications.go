@@ -137,7 +137,7 @@ func (a *App) ensureRepositoryTriggerApplication(ctx context.Context, runner que
 		if !parentPointersEqual(existing.ParentID, parentID) {
 			return 0, false, fmt.Errorf("application for repository %s already belongs to another team", app.RepositoryFullName)
 		}
-		_, err := reassignRepositoryRunsToApplication(ctx, runner, existing.ID, parentID, app.RepositoryFullName)
+		err := reassignRepositoryRunsToApplication(ctx, runner, existing.ID, parentID, app.RepositoryFullName)
 		return existing.ID, false, err
 	}
 	if existing := existingTeams.byName[app.Name]; existing != nil {
@@ -160,13 +160,13 @@ func (a *App) ensureRepositoryTriggerApplication(ctx context.Context, runner que
 				if !parentPointersEqual(existing.ParentID, parentID) {
 					return 0, false, fmt.Errorf("application for repository %s already belongs to another team", app.RepositoryFullName)
 				}
-				_, reassignErr := reassignRepositoryRunsToApplication(ctx, runner, existing.ID, parentID, app.RepositoryFullName)
+				reassignErr := reassignRepositoryRunsToApplication(ctx, runner, existing.ID, parentID, app.RepositoryFullName)
 				return existing.ID, false, reassignErr
 			}
 		}
 		return 0, false, err
 	}
-	_, err = reassignRepositoryRunsToApplication(ctx, runner, appID, parentID, app.RepositoryFullName)
+	err = reassignRepositoryRunsToApplication(ctx, runner, appID, parentID, app.RepositoryFullName)
 	return appID, true, err
 }
 
@@ -192,16 +192,16 @@ func repositoryTriggerApplicationParentID(ctx context.Context, runner queryRunne
 	return nil, nil
 }
 
-func reassignRepositoryRunsToApplication(ctx context.Context, runner queryRunner, appID int, parentID *int, repositoryFullName string) (int64, error) {
+func reassignRepositoryRunsToApplication(ctx context.Context, runner queryRunner, appID int, parentID *int, repositoryFullName string) error {
 	owner, repo := splitRepositoryFullName(repositoryFullName)
 	if strings.TrimSpace(repo) == "" {
-		return 0, nil
+		return nil
 	}
 	var parent any
 	if parentID != nil {
 		parent = *parentID
 	}
-	tag, err := runner.Exec(ctx, `
+	_, err := runner.Exec(ctx, `
 		UPDATE pipeline_runs
 		SET team_id = $1
 		WHERE LOWER(COALESCE(git_repo_owner, '')) = LOWER($2)
@@ -213,9 +213,9 @@ func reassignRepositoryRunsToApplication(ctx context.Context, runner queryRunner
 		  )
 	`, appID, owner, repo, parent)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	return tag.RowsAffected(), nil
+	return nil
 }
 
 func repositoryApplicationExists(ctx context.Context, runner queryRunner, record repositoryTriggerRecord) (bool, *int, error) {

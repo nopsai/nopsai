@@ -184,6 +184,7 @@ Interfaces
 Security and Reference
 ├── Production hardening checklist
 ├── Troubleshooting index
+├── Browser console troubleshooting
 └── Confirmed gaps and limits
 ```
 
@@ -238,6 +239,10 @@ answer practical questions such as:
   show the reviewed health score and explanation immediately. If the page
   snapshot changed, the latest cached review is still shown as previous-snapshot
   context until a fresh AI review is generated.
+- "Do `contentscript.js` `ObjectMultiplex` warnings come from NopsAI?" Usually
+  no. If the stack points to `contentscript.js` and mentions
+  `app-init-liveness` or `background-liveness`, treat it as injected browser
+  extension code until a clean profile reproduces a NopsAI source-file stack.
 - "Why is AI Evaluation asking about LLM Profiles?" Analysis uses the same
   selectable LLM profiles as Assistant chat. Configure provider, model,
   credential reference, and scope access in **LLM Profiles**. AI Evaluation

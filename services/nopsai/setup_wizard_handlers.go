@@ -166,7 +166,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Users) > 0 && req.Profile != setupProfileProduction && req.Profile != setupProfileEmpty {
-		created, err := a.seedSetupUsers(r.Context(), req.Users, req.Profile, req.RepositoryTeams, actor)
+		created, err := a.seedSetupUsers(r.Context(), req.Users, req.RepositoryTeams, actor)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

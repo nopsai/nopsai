@@ -77,8 +77,6 @@ func (a *App) buildSetupStatus(ctx context.Context) (setupStatusResponse, error)
 	if repo, err := a.store.GetConfigRepositoryByScope(ctx, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID); err == nil {
 		copy := repo
 		globalRepo = &copy
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		// store adapters may wrap not-found; the health check below keeps the user-facing status useful.
 	}
 
 	completedAt := strings.TrimSpace(state[setupStateKeyCompletedAt])

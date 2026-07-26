@@ -355,7 +355,8 @@ func normalizeNotificationHTTPURL(raw string) string {
 }
 
 func buildPipelineNotificationMailView(notificationCtx pipelineNotificationContext, eventType string, branding pipelineNotificationBranding, progress pipelineNotificationProgress) pipelineNotificationMailView {
-	statusLabel, headline, statusBackground, statusForeground := pipelineNotificationPresentation(notificationCtx.Status, eventType)
+	statusLabel, headline, statusBackground := pipelineNotificationPresentation(notificationCtx.Status, eventType)
+	statusForeground := template.CSS("#ffffff")
 	pipeline := pipelineNotificationDisplayName(notificationCtx)
 	failureLocation := pipelineNotificationFailureLocationLabel(notificationCtx.FailureStep, notificationCtx.FailureTask)
 	repository := strings.Trim(strings.Join([]string{notificationCtx.RepoOwner, notificationCtx.RepoName}, "/"), "/")
@@ -431,23 +432,23 @@ func buildPipelineNotificationMailView(notificationCtx pipelineNotificationConte
 	}
 }
 
-func pipelineNotificationPresentation(status, eventType string) (string, string, template.CSS, template.CSS) {
+func pipelineNotificationPresentation(status, eventType string) (string, string, template.CSS) {
 	normalized := runquery.NormalizeRunDetailStatus(firstNonEmptyString(status, eventType))
 	switch normalized {
 	case "success":
-		return "SUCCEEDED", "Pipeline succeeded", template.CSS("#16794b"), template.CSS("#ffffff")
+		return "SUCCEEDED", "Pipeline succeeded", template.CSS("#16794b")
 	case "failure":
-		return "FAILED", "Pipeline failed", template.CSS("#b42318"), template.CSS("#ffffff")
+		return "FAILED", "Pipeline failed", template.CSS("#b42318")
 	case "cancelled":
-		return "CANCELLED", "Pipeline cancelled", template.CSS("#b54708"), template.CSS("#ffffff")
+		return "CANCELLED", "Pipeline cancelled", template.CSS("#b54708")
 	case "waiting_approval":
-		return "ACTION REQUIRED", "Pipeline needs approval", template.CSS("#b54708"), template.CSS("#ffffff")
+		return "ACTION REQUIRED", "Pipeline needs approval", template.CSS("#b54708")
 	case "rejected":
-		return "REJECTED", "Pipeline approval rejected", template.CSS("#b42318"), template.CSS("#ffffff")
+		return "REJECTED", "Pipeline approval rejected", template.CSS("#b42318")
 	case "running":
-		return "RUNNING", "Pipeline is running", template.CSS("#175cd3"), template.CSS("#ffffff")
+		return "RUNNING", "Pipeline is running", template.CSS("#175cd3")
 	default:
-		return strings.ToUpper(strings.ReplaceAll(normalized, "_", " ")), "Pipeline update", template.CSS("#344054"), template.CSS("#ffffff")
+		return strings.ToUpper(strings.ReplaceAll(normalized, "_", " ")), "Pipeline update", template.CSS("#344054")
 	}
 }
 

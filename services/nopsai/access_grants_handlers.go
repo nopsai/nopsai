@@ -262,7 +262,7 @@ func (a *App) handleDeleteAccessGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.deleteProductRoleGrant(r.Context(), grantID); err != nil {
+	if err := a.deleteProductRoleGrant(r.Context(), grantID); err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
