@@ -50,11 +50,15 @@ Supported pipeline features:
 - single-task `script` steps
 - approval steps with `approval.type`, assigned `approval.teams`, and optional `approval.allow_self_approval`
 - reusable step inclusion with `step:<identifier>`
-- child pipeline inclusion with `pipeline:<identifier>`
+- child pipeline inclusion with `pipeline:<identifier>` and include variables
+  that override child scope variables
 - conditional execution with `condition`
 - named Docker volume mounting
 - per-step and per-task variable overrides
 - per-step secret declaration
+- task runtime outputs declared with `outputs`, produced as files under the
+  reserved `/nopsai/outputs` mount, and consumed by dependent tasks with
+  `$steps.<step>.<task>.outputs.<name>`
 - ignored failures
 - LLM content and output sharing controls
 - pipeline-level final outputs under `output.items` for Markdown, PDF, Excel,
@@ -91,6 +95,40 @@ output:
         next action.
 ```
 
+Runtime output example:
+
+```yaml
+steps:
+  - name: prepare
+    tasks:
+      - name: generate-tag
+        outputs:
+          - image_tag
+          - name: access_token
+            sensitive: true
+        script: |
+          printf %s "v1.2.3" > /nopsai/outputs/image_tag
+          generate-token > /nopsai/outputs/access_token
+
+  - name: build
+    tasks:
+      - name: image
+        depends_on:
+          - prepare.generate-tag
+        variables:
+          IMAGE_TAG: $steps.prepare.generate-tag.outputs.image_tag
+        script: docker build -t "app:${IMAGE_TAG}" .
+```
+
+Runtime outputs are case-sensitive and must match
+`^[A-Za-z_][A-Za-z0-9_]*$`. `/nopsai/outputs` is reserved: user-defined
+volumes cannot mount there, and each output-producing task gets its own
+isolated Docker `tmpfs` or Kubernetes `emptyDir`. Missing files fail only when
+another task references the declared output; undeclared files are ignored.
+Sensitive output values are encrypted when persisted, masked after collection,
+excluded from normal run-detail/API responses, and passed only as authorized
+runtime variables to dependent consumers.
+
 Approval step example:
 
 ```yaml
@@ -114,7 +152,9 @@ The runtime supports:
 - dependency-aware execution order
 - one shared workspace volume per run
 - one reusable container session per step
-- child pipeline triggering with inherited execution history
+- child pipeline triggering with inherited execution history and resolved include
+  variables; sensitive include variables are excluded from visible child run
+  metadata
 - optional asynchronous child pipeline monitoring
 - aggregate parent/child run status in Pipeline Runs, so parent cards and
   detail graphs stay running while direct child runs are active and surface
@@ -256,6 +296,10 @@ Variables:
 - Declared as required pipeline inputs in the top-level `variables` array
 - Can be overridden at run time through the run API
 - Can be overridden at step and task level for container execution context
+- For `step:` includes, reusable-step default variables are merged with include
+  variables and include variables win key-by-key
+- For `pipeline:` includes, include variables are sent to the child run as
+  runtime overrides before child step/task variables are applied
 
 Scope behavior:
 
@@ -491,12 +535,13 @@ Sync behavior:
 - prune Git-sourced items removed from the config repo
 - preserve non-Git teams to avoid deleting user-managed structure
 - reject flat top-level variable entries in scope files; scoped variables must
-  be nested under `variables:`
+  be nested under `variables:` and runtime variable/secret names must match
+  `^[A-Za-z0-9_.-]+$`
 - import GitOps secret values only when they decrypt with the current NopsAI
   master key; otherwise keep the secret key with no value
 - sync system/global config repositories before team config repositories, so team bindings defined in Git can be picked up during the same sync-all run
 - team config repositories are authoritative for resources under their team path; parent repos prune their own managed resources in delegated teams
-- team-scoped LLM, Agent, and MCP profile rows carry config repository metadata; Teams exposes profile editors, team config repositories import/export root `ai-profiles.yaml`, and run launch merges team profiles over the system catalog while system profile GitOps remains under `setting/system/*`
+- team-scoped LLM, Agent, and MCP profile rows carry config repository metadata; LLM and Agent Profile pages edit team defaults after a concrete team is selected, include matching slash-scoped catalog LLM/Agent profiles in that team view, Teams shows read-only profile/default summaries, team config repositories import/export root `ai-profiles.yaml`, and run launch merges team profiles over the system catalog while system profile GitOps remains under `setting/system/*`
 - config repository bindings support GitHub, GitLab, Bitbucket Cloud-compatible, and Gitea providers; non-GitHub providers use `credential_ref` bearer-token credentials for sync and write operations
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
 - config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run team/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.

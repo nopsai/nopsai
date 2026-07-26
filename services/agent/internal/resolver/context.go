@@ -148,6 +148,37 @@ func (c ExecutionContext) PromptVariables() map[string]string {
 	return variables
 }
 
+func (c ExecutionContext) SelectedVariableOverrides(names map[string]string) (map[string]string, []string) {
+	if len(names) == 0 {
+		return map[string]string{}, nil
+	}
+	variables := make(map[string]string, len(names))
+	sensitiveSet := make(map[string]bool)
+	for rawName, rawValue := range names {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			continue
+		}
+		value, ok := c.values[name]
+		if !ok {
+			value = runtimeValue{
+				Value:     rawValue,
+				Sensitive: isSensitiveVariableName(name),
+			}
+		}
+		variables[name] = value.Value
+		if value.Sensitive {
+			sensitiveSet[name] = true
+		}
+	}
+	sensitiveNames := make([]string, 0, len(sensitiveSet))
+	for name := range sensitiveSet {
+		sensitiveNames = append(sensitiveNames, name)
+	}
+	sort.Strings(sensitiveNames)
+	return variables, sensitiveNames
+}
+
 func (c ExecutionContext) BuildConditionRequest(goal, history, knowledgeContext string, secrets map[string]string) *proto.ConditionRequest {
 	return &proto.ConditionRequest{
 		Goal:             goal,

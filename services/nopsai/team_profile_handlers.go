@@ -186,6 +186,14 @@ func (a *App) handleReplaceTeamLLMProfiles(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if defaultProfile != "" {
+		canonical, ok := canonicalTeamLLMDefaultProfileValue(record, defaultProfile, profiles, a.getConfigSnapshot().EffectiveLLMProfiles())
+		if !ok {
+			http.Error(w, "default LLM profile must be a team profile or a scoped profile in this team", http.StatusBadRequest)
+			return
+		}
+		defaultProfile = canonical
+	}
 	if err := a.ensureLLMProfileCredentialReferences(r.Context(), profiles, credentialActorFromContext(r.Context())); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -287,10 +295,16 @@ func (a *App) handleSetTeamDefaultLLMProfile(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "failed to load team LLM profiles", http.StatusInternalServerError)
 			return
 		}
-		if _, ok := profiles[defaultProfile]; !ok {
-			http.Error(w, "default LLM profile must be a team profile", http.StatusBadRequest)
+		canonical, ok, err := a.canonicalTeamLLMDefaultProfile(r.Context(), record, defaultProfile, profiles)
+		if err != nil {
+			http.Error(w, "failed to validate team LLM default profile", http.StatusInternalServerError)
 			return
 		}
+		if !ok {
+			http.Error(w, "default LLM profile must be a team profile or a scoped profile in this team", http.StatusBadRequest)
+			return
+		}
+		defaultProfile = canonical
 	}
 	if err := a.persistTeamProfileSetting(r.Context(), record.ID, teamLLMDefaultProfileSetting, defaultProfile); err != nil {
 		http.Error(w, "failed to save team LLM default profile", http.StatusInternalServerError)
@@ -422,10 +436,16 @@ func (a *App) handleSetTeamDefaultAgentProfile(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if defaultProfile != "" {
-		if profile, ok := profiles[defaultProfile]; !ok || !profile.Enabled {
-			http.Error(w, "default agent profile must be an enabled team profile", http.StatusBadRequest)
+		canonical, ok, err := a.canonicalTeamAgentDefaultProfile(r.Context(), record, defaultProfile, profiles)
+		if err != nil {
+			http.Error(w, "failed to validate team default agent profile", http.StatusInternalServerError)
 			return
 		}
+		if !ok {
+			http.Error(w, "default agent profile must be an enabled team profile or scoped profile in this team", http.StatusBadRequest)
+			return
+		}
+		defaultProfile = canonical
 	}
 	if err := a.persistTeamProfileSetting(r.Context(), record.ID, teamAgentDefaultProfileSetting, defaultProfile); err != nil {
 		http.Error(w, "failed to save team default agent profile", http.StatusInternalServerError)
@@ -621,18 +641,60 @@ func parseTeamLLMProfilesPayload(payload llmProfilesRequest) (string, map[string
 		}
 		profiles[profileName] = profile
 	}
-	if defaultProfile != "" {
-		if _, ok := profiles[defaultProfile]; !ok {
-			return "", nil, fmt.Errorf("default LLM profile %q is not defined for this team", defaultProfile)
+	return defaultProfile, profiles, nil
+}
+
+func (a *App) canonicalTeamLLMDefaultProfile(ctx context.Context, record teamPathRecord, defaultProfile string, profiles map[string]config.LLMProfile) (string, bool, error) {
+	canonical, ok := canonicalTeamLLMDefaultProfileValue(record, defaultProfile, profiles, a.getConfigSnapshot().EffectiveLLMProfiles())
+	return canonical, ok, nil
+}
+
+func canonicalTeamLLMDefaultProfileValue(record teamPathRecord, defaultProfile string, profiles map[string]config.LLMProfile, catalogProfiles map[string]config.LLMProfile) (string, bool) {
+	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+	if defaultProfile == "" {
+		return "", true
+	}
+	if _, ok := profiles[defaultProfile]; ok {
+		return defaultProfile, true
+	}
+	teamPath := strings.Trim(strings.TrimSpace(record.Path), "/")
+	defaultTeamPath := aiResourceTeamPath(defaultProfile)
+	localName := aiResourceLocalName(defaultProfile)
+	if defaultTeamPath == "" && localName != "" && teamPath != "" {
+		scopedDefault := fmt.Sprintf("%s/%s", teamPath, localName)
+		if _, ok := catalogProfiles[scopedDefault]; ok {
+			return scopedDefault, true
 		}
 	}
-	return defaultProfile, profiles, nil
+	if !strings.EqualFold(defaultTeamPath, teamPath) {
+		return "", false
+	}
+	if localName != "" {
+		if _, ok := profiles[localName]; ok {
+			return localName, true
+		}
+	}
+	if _, ok := catalogProfiles[defaultProfile]; ok {
+		return defaultProfile, true
+	}
+	return "", false
 }
 
 func (a *App) buildTeamLLMProfilesResponse(ctx context.Context, record teamPathRecord) (teamLLMProfilesResponse, error) {
 	defaultProfile, profiles, err := a.loadTeamLLMProfilesFromDB(ctx, record.ID)
 	if err != nil {
 		return teamLLMProfilesResponse{}, err
+	}
+	if defaultProfile != "" {
+		canonical, ok, err := a.canonicalTeamLLMDefaultProfile(ctx, record, defaultProfile, profiles)
+		if err != nil {
+			return teamLLMProfilesResponse{}, err
+		}
+		if ok {
+			defaultProfile = canonical
+		} else {
+			defaultProfile = ""
+		}
 	}
 	names := make([]string, 0, len(profiles))
 	for name := range profiles {
@@ -736,11 +798,6 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 		return "", nil, fmt.Errorf("iterate team LLM profiles: %w", err)
 	}
 	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
-	if defaultProfile != "" {
-		if _, ok := profiles[defaultProfile]; !ok {
-			defaultProfile = ""
-		}
-	}
 	return defaultProfile, profiles, nil
 }
 
@@ -845,6 +902,46 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 	return nil
 }
 
+func (a *App) canonicalTeamAgentDefaultProfile(ctx context.Context, record teamPathRecord, defaultProfile string, profiles map[string]models.AgentProfile) (string, bool, error) {
+	effectiveProfiles, _, err := a.effectiveAgentProfiles(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	canonical, ok := canonicalTeamAgentDefaultProfileValue(record, defaultProfile, profiles, effectiveProfiles)
+	return canonical, ok, nil
+}
+
+func canonicalTeamAgentDefaultProfileValue(record teamPathRecord, defaultProfile string, profiles map[string]models.AgentProfile, catalogProfiles map[string]models.AgentProfile) (string, bool) {
+	defaultProfile = normalizeAgentProfileDefault(defaultProfile)
+	if defaultProfile == "" {
+		return "", true
+	}
+	if profile, ok := profiles[defaultProfile]; ok && profile.Enabled {
+		return defaultProfile, true
+	}
+	teamPath := strings.Trim(strings.TrimSpace(record.Path), "/")
+	defaultTeamPath := aiResourceTeamPath(defaultProfile)
+	localID := aiResourceLocalName(defaultProfile)
+	if defaultTeamPath == "" && localID != "" && teamPath != "" {
+		scopedDefault := fmt.Sprintf("%s/%s", teamPath, localID)
+		if profile, ok := catalogProfiles[scopedDefault]; ok && profile.Enabled {
+			return scopedDefault, true
+		}
+	}
+	if !strings.EqualFold(defaultTeamPath, teamPath) {
+		return "", false
+	}
+	if localID != "" {
+		if profile, ok := profiles[localID]; ok && profile.Enabled {
+			return localID, true
+		}
+	}
+	if profile, ok := catalogProfiles[defaultProfile]; ok && profile.Enabled {
+		return defaultProfile, true
+	}
+	return "", false
+}
+
 func (a *App) buildTeamAgentProfilesResponse(ctx context.Context, record teamPathRecord) (teamAgentProfilesResponse, error) {
 	defaultProfile, err := a.loadTeamProfileSetting(ctx, record.ID, teamAgentDefaultProfileSetting)
 	if err != nil {
@@ -870,7 +967,13 @@ func (a *App) buildTeamAgentProfilesResponse(ctx context.Context, record teamPat
 	}
 	defaultProfile = normalizeAgentProfileDefault(defaultProfile)
 	if defaultProfile != "" {
-		if _, ok := profiles[defaultProfile]; !ok {
+		canonical, ok, err := a.canonicalTeamAgentDefaultProfile(ctx, record, defaultProfile, profiles)
+		if err != nil {
+			return teamAgentProfilesResponse{}, err
+		}
+		if ok {
+			defaultProfile = canonical
+		} else {
 			defaultProfile = ""
 		}
 	}

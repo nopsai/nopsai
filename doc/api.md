@@ -697,6 +697,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. Updating a config-repo-managed alert rule stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
 - `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.
 - Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Agent-reported metadata may include `prompt_sha256`, `prompt_bytes`, `estimated_input_tokens`, `cached_input_tokens`, `uncached_input_tokens`, `cache_write_tokens`, `stable_prefix_tokens`, `dynamic_context_tokens`, `static_context_sha256`, `static_context_cache_key`, `cache_identity_sha256`, `prompt_schema_version`, `execution_mode`, `logical_session_id`, `provider_state_id`, `provider_state_supported`, `provider_state_used`, `provider_state_mode`, `prompt_cache_supported`, `prompt_cache_hit`, `prompt_cache_mode`, `history_revision`, `workspace_revision`, `knowledge_revision`, `policy_revision`, `effective_policy_snapshot_hash`, `policy_merge_mode`, `policy_precedence_version`, `shared_file_count`, `shared_file_bytes`, `workspace_tool_call_count`, and `workspace_tool_result_bytes`; prompt bodies and shared file contents are not stored in AI usage events. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
+- Agents record declared task runtime outputs with `POST /v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs` using an agent service JWT. Normal run-detail/API responses expose only output metadata (`name`, `sensitive`, `size_bytes`) on task rows; values remain run-state/internal data, and sensitive values are encrypted before persistence. The handler writes an audit log entry with output names and sizes but never output values. Hosted MCP run-log reads see the same audit metadata and no plaintext runtime output values.
 - `GET /v1/internal/runs/{runID}/policy-revision` remains available for diagnostics and audit. It returns `run_start_policy_revision`, `current_policy_revision`, `blocking_context_count`, and the current blocking knowledge snapshots used to calculate the revision. Active agent runs use their pinned scope snapshots as the correctness boundary; emergency policy response cancels the run instead of mutating policy in place.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `teamId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
@@ -759,6 +760,7 @@ Mail presentation and links are configured through **System > Config** or
 | Runtime setting | Purpose |
 | --- | --- |
 | `public_url` | Browser-reachable application URL used for run links and the default logo URL. |
+| `runtime_output_max_bytes` | Per-file byte limit for task runtime outputs written under `/nopsai/outputs`; applies to new agent runs. |
 | `notification_mail_logo_url` | Optional absolute mail logo URL. |
 | `notification_mail_website_url` | Optional footer website; defaults to `public_url`. |
 | `notification_mail_support_url` | Optional footer support link. |
@@ -1888,6 +1890,8 @@ curl -X DELETE http://localhost:8080/v1/steps/shared/utilities/archive-step
 ```
 
 - Reusable steps can be referenced from pipelines through the `include:` directive.
+- Reusable step default variables are merged with variables on the calling
+  include step; include-step variables win key-by-key.
 - When `include_source=true` each item includes `identifier`, `path`, `name`, `source`, and `updated_at`, allowing the UI to distinguish Git-managed definitions from database overrides.
 - Using a reusable step from a pipeline requires `step.use`. Managing step definitions is effectively admin-only in the predefined role set.
 
@@ -1922,7 +1926,7 @@ curl -X DELETE http://localhost:8080/v1/overrides/nopsai/test-app
 # Start a run (pipeline name optional in path)
 curl -X POST \
   -H "Content-Type: application/json" \
-  -d '{"pipeline":"main-pipeline"}' \
+  -d '{"pipeline":"main-pipeline","variables":{"RELEASE_CHANNEL":"nightly"},"sensitive_variables":[]}' \
   http://localhost:8080/v1/run
 
 curl -X POST http://localhost:8080/v1/run/team-1/dev/main-pipeline
@@ -1959,6 +1963,10 @@ curl -X DELETE \
   http://localhost:8080/v1/repositories/<owner>/<repo>/branches/<branch>
 ```
 
+- JSON run requests accept `pipeline`, `definition`, `scope`, `variables`, and
+  `sensitive_variables`. `sensitive_variables` is a list of variable override
+  names whose values should be used for launch but omitted from visible run
+  metadata; NopsAI stores those values encrypted only for pending-run recovery.
 - Step/task status updates are posted by the agent to `/v1/runs/{runID}/steps/{step}/tasks/{task}` (payload includes status, exit code, and LLM timing).
 - Approval steps move runs to `waiting_approval`; approval resumes the stored checkpoint, while rejection marks the run `rejected`.
 - Internal approval checkpoint, AI usage, and policy-revision endpoints under
@@ -1972,8 +1980,10 @@ curl -X DELETE \
   stored output counts. It never includes generated output content. Run details
   additionally expose run-created/timeout timestamps, scope, team ID, trigger
   source/event, requested/effective subject, schedule/external trigger
-  metadata, Git repository/commit/pusher metadata, and runtime variable
-  overrides. Authorization snapshots remain server-side audit data.
+  metadata, Git repository/commit/pusher metadata, and non-sensitive runtime
+  variable overrides. Sensitive variable overrides are not exposed in run
+  detail metadata; child-pipeline include triggers store them only as encrypted
+  recovery launch inputs. Authorization snapshots remain server-side audit data.
 - Pipeline YAML can define run-level final deliverables under `output.items`.
   When a run finalizes, NopsAI creates run-owned output records and generates
   matching items asynchronously from the full run context. Each item can set

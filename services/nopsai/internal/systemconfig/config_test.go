@@ -92,6 +92,17 @@ func TestBuildResponseFiltersEjectedRunnerIDsFromDispatcherRouting(t *testing.T)
 	}
 }
 
+func TestBuildResponseIncludesRuntimeOutputMaxBytesMetadata(t *testing.T) {
+	resp := BuildResponse(config.Config{RuntimeOutputMaxBytes: 131072}, "")
+	if resp["runtime_output_max_bytes"] != 131072 {
+		t.Fatalf("runtime_output_max_bytes = %#v, want 131072", resp["runtime_output_max_bytes"])
+	}
+	metadata := resp["field_metadata"].(map[string]FieldMetadata)
+	if metadata["runtime_output_max_bytes"].Scope != config.ConfigScopeNextRunOnly {
+		t.Fatalf("runtime_output_max_bytes metadata = %#v", metadata["runtime_output_max_bytes"])
+	}
+}
+
 func TestBuildResponseIncludesGitHubAppCompatibilityFields(t *testing.T) {
 	resp := BuildResponse(config.Config{
 		GitHubAppID:                   "123456",

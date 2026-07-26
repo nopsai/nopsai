@@ -167,8 +167,14 @@ Team-scoped LLM profile storage and REST APIs are available at
 `GET|PUT /v1/teams/{teamID}/llm-profiles` and
 `PUT /v1/teams/{teamID}/llm-profiles/default`,
 `PUT|DELETE /v1/teams/{teamID}/llm-profiles/{profileName}` for callers with
-`team.read` or `team.update` on the team resource. The Teams settings modal exposes
-these controls under **AI profiles**.
+`team.read` or `team.update` on the team resource. The **LLM Profiles** page
+loads those team-owned rows when a concrete team is selected in the profile
+tree or `?team=` query, and the top default selector updates that team's
+`llm_default_profile`. The selected-team view also includes system-catalog
+profiles whose slash-scoped names belong to that team, such as
+`platform/ml/chatgpt`; those profiles can be selected as the team default
+without copying them into the team-local table. The Teams area is a read-only
+summary for these defaults and links into the scoped profile page.
 
 Team config repositories can manage the same team-owned LLM entries in root
 `ai-profiles.yaml`:
@@ -247,6 +253,13 @@ least-specific:
 3. Pipeline `llm_profile`
 4. `llm_default_profile`
 
+For team-owned pipeline runs, `llm_default_profile` must be the default
+configured on the owning team. If no explicit profile is selected and that team
+has no default, validation fails instead of falling back to a system or viewer
+preference. Team overview shows the configured default and links to the
+team-scoped profile page, where users with `team.update` on that team can
+change the default from the top selector.
+
 Step-level conditions use the resolved step profile. Task-level goals use the
 resolved task profile. Script-only tasks can declare `llm_profile`, but it only
 matters when an LLM-backed operation is performed.
@@ -323,7 +336,9 @@ each setting.
 
 Deletion rules:
 
-- The active default profile cannot be deleted.
+- The active system default profile cannot be deleted from the global view, and
+  the active team default profile cannot be deleted from that team's scoped
+  view.
 - A profile referenced by pipelines or reusable steps cannot be deleted unless
   the deletion is forced with a migration target.
 

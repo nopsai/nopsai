@@ -7,6 +7,11 @@ import { LLMFeatureControls } from './llm-profiles/LLMFeatureControls';
 import { useLLMProfiles } from './llm-profiles/useLLMProfiles';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 import {
+  teamLLMProfileRecords,
+  teamScopedDefaultID,
+} from './teamProfileAdapters';
+import { useTeamProfileWriteAccess } from './useTeamProfileWriteAccess';
+import {
   AIResourceEmptyState,
   AIResourceIconAction,
   AIResourceTeamBadge,
@@ -25,7 +30,7 @@ import {
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
-  selectableAIResourceTeamPath,
+  normalizeAIResourceTeamPath,
 } from './aiResourceTeams';
 import {
   formatAIResourceRatio,
@@ -102,10 +107,19 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const [createTeamPath, setCreateTeamPath] = useState('');
   const [selectedProfileName, setSelectedProfileName] = useState('');
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
+  const selectedTeamPath = useMemo(() => {
+    if (teamFilter === AI_RESOURCE_TEAM_FILTER_ALL || teamFilter === AI_RESOURCE_TEAM_FILTER_GLOBAL) return '';
+    return normalizeAIResourceTeamPath(teamFilter);
+  }, [teamFilter]);
+  const teamWriteAccess = useTeamProfileWriteAccess(selectedTeamPath);
+  const canManageTeamProfiles = canManage || teamWriteAccess.allowed;
   const {
     payload,
+    teamProfilesPayload,
     loading,
+    teamProfilesLoading,
     error,
+    teamProfilesError,
     saving,
     testing,
     testResult,
@@ -117,17 +131,22 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     panelMode,
     setPanelMode,
     loadProfiles,
+    loadTeamProfiles,
     startCreate,
     startEdit,
     saveProfile,
     saveDefaultProfile,
     deleteProfile,
     testProfile,
-  } = useLLMProfiles({ canManage });
+  } = useLLMProfiles({ canManage, canManageTeamProfiles });
 
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);
   }, [requestedTeamFilter]);
+
+  useEffect(() => {
+    void loadTeamProfiles(selectedTeamPath);
+  }, [loadTeamProfiles, selectedTeamPath]);
 
   useEffect(() => {
     if (!panelMode) return;
@@ -142,22 +161,53 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     });
   }, [editingName, panelMode]);
 
-  const canDelete = (profile: LLMProfileRecord) => canManage && profile.name !== payload.default_profile;
   const migrationTargets = payload.profiles.filter(profile => profile.name !== deleteBlocker?.name).map(profile => profile.name);
   const showProfilePanel = panelMode !== null || deleteBlocker !== null;
   const showProfileForm = panelMode === 'create' || panelMode === 'edit';
   const formProvider = getLLMProvider(form.provider);
-  const defaultProfileOptions = useMemo(
-    () => payload.profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === ''),
-    [payload.profiles]
-  );
-  const canManageGlobalDefault = canManage && defaultProfileOptions.length > 0;
   const teamFilterOptions = useMemo(
     () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.name), teamPaths),
     [payload.profiles, teamPaths]
   );
+  const selectedTeamPayload = selectedTeamPath && normalizeAIResourceTeamPath(teamProfilesPayload?.team_path || '') === selectedTeamPath
+    ? teamProfilesPayload
+    : null;
+  const teamScopedProfiles = useMemo(
+    () => teamLLMProfileRecords(selectedTeamPayload),
+    [selectedTeamPayload]
+  );
+  const catalogScopedProfiles = useMemo(
+    () => selectedTeamPath ? payload.profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === selectedTeamPath) : [],
+    [payload.profiles, selectedTeamPath]
+  );
+  const sourceProfiles = useMemo(() => {
+    if (!selectedTeamPath) return payload.profiles;
+    const byName = new Map<string, LLMProfileRecord>();
+    catalogScopedProfiles.forEach(profile => byName.set(profile.name, profile));
+    teamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalogScopedProfiles, payload.profiles, selectedTeamPath, teamScopedProfiles]);
+  const workspaceProfiles = useMemo(() => {
+    const byName = new Map<string, LLMProfileRecord>();
+    payload.profiles.forEach(profile => byName.set(profile.name, profile));
+    teamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [payload.profiles, teamScopedProfiles]);
+  const globalDefaultProfileOptions = useMemo(
+    () => payload.profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === ''),
+    [payload.profiles]
+  );
+  const defaultProfileOptions = selectedTeamPath ? sourceProfiles : globalDefaultProfileOptions;
+  const activeDefaultProfile = selectedTeamPath
+    ? teamScopedDefaultID(selectedTeamPath, selectedTeamPayload?.default_profile || '')
+    : payload.default_profile;
+  const canManageCurrentScope = selectedTeamPath ? canManageTeamProfiles : canManage;
+  const canManageDefault = canManageCurrentScope && defaultProfileOptions.length > 0;
+  const defaultControlLoading = loading || saving || (selectedTeamPath ? teamProfilesLoading || teamWriteAccess.loading : false);
+  const listLoading = loading || (selectedTeamPath ? teamProfilesLoading : false);
+  const canDelete = (profile: LLMProfileRecord) => canManageCurrentScope && profile.name !== activeDefaultProfile;
   const visibleProfiles = useMemo(
-    () => payload.profiles.filter(profile => {
+    () => sourceProfiles.filter(profile => {
       const provider = getLLMProvider(profile.provider);
       if (!aiResourceMatchesTeamFilter(profile.name, teamFilter)) return false;
       return matchesAIResourceSearch(
@@ -176,19 +226,19 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         profile.disabled_reason
       );
     }),
-    [payload.profiles, searchTerm, teamFilter]
+    [sourceProfiles, searchTerm, teamFilter]
   );
   const selectedProfile = useMemo(() => {
     if (!selectedProfileName) return null;
     return visibleProfiles.find(profile => profile.name === selectedProfileName) ?? null;
   }, [selectedProfileName, visibleProfiles]);
-  const emptyProfilesMessage = payload.profiles.length === 0 ? 'No LLM profiles configured.' : 'No LLM profiles match your filters.';
+  const emptyProfilesMessage = sourceProfiles.length === 0 ? 'No LLM profiles configured.' : 'No LLM profiles match your filters.';
   const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
   const visibleHealthyCount = visibleProfiles.filter(isProfileHealthy).length;
   const visibleProviderCount = new Set(visibleProfiles.map(profile => getLLMProvider(profile.provider).id)).size;
   const visibleCredentialCount = visibleProfiles.filter(profile => Boolean(profile.credential_ref)).length;
   const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
-    () => payload.profiles.map(profile => {
+    () => workspaceProfiles.map(profile => {
       const provider = getLLMProvider(profile.provider);
       return {
         id: profile.name,
@@ -196,7 +246,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         description: `${provider.label} ${profile.model || ''}`.trim(),
       };
     }),
-    [payload.profiles]
+    [workspaceProfiles]
   );
   const selectedWorkspaceProfileName = showProfileForm ? null : selectedProfile?.name ?? null;
   const detailOpen = showProfilePanel || Boolean(selectedWorkspaceProfileName);
@@ -218,13 +268,15 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     setPanelMode(null);
   };
   const openCreate = () => {
-    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL
-      ? selectableAIResourceTeamPath(teamFilter, teamPaths)
-      : '';
+    const initialTeamPath = selectedTeamPath;
     setSelectedProfileName('');
     setCreateTeamPath(initialTeamPath);
     startCreate();
     setForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
+  };
+  const reloadProfiles = () => {
+    void loadProfiles();
+    if (selectedTeamPath) void loadTeamProfiles(selectedTeamPath);
   };
   const setCreateScopedName = (localName: string) => {
     setForm(prev => ({ ...prev, name: buildAIResourceScopedID(createTeamPath, localName) }));
@@ -240,14 +292,15 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         <h2 className="sr-only">LLM Profiles</h2>
         <div className="ai-resource-default-control">
           <span>Default profile</span>
-          {canManageGlobalDefault ? (
+          {canManageDefault ? (
             <select
               className="ai-resource-default-select"
-              value={payload.default_profile}
-              onChange={event => void saveDefaultProfile(event.target.value)}
-              disabled={loading || saving}
+              value={activeDefaultProfile}
+              onChange={event => void saveDefaultProfile(event.target.value, selectedTeamPath ? { teamPath: selectedTeamPath } : undefined)}
+              disabled={defaultControlLoading}
               aria-label="Default LLM profile"
             >
+              {selectedTeamPath && <option value="">No default</option>}
               {defaultProfileOptions.map(profile => (
                 <option key={profile.name} value={profile.name}>
                   {profile.name}
@@ -255,7 +308,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
               ))}
             </select>
           ) : (
-            <strong>{payload.default_profile || '-'}</strong>
+            <strong>{activeDefaultProfile || (selectedTeamPath ? 'No default' : '-')}</strong>
           )}
         </div>
         {!detailOpen && (
@@ -269,11 +322,11 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
           />
         )}
         <div className="ai-resource-page-actions">
-          {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
-          <button type="button" className="ai-resource-icon-button" onClick={() => void loadProfiles()} disabled={loading || saving} aria-label="Reload">
+          {!canManageCurrentScope && <span className="runner-pill runner-pill--muted">Read-only</span>}
+          <button type="button" className="ai-resource-icon-button" onClick={reloadProfiles} disabled={defaultControlLoading} aria-label="Reload">
             <RefreshIcon />
           </button>
-          {canManage && (
+          {canManageCurrentScope && (
             <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
               <PlusIcon />
               New profile
@@ -282,6 +335,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         </div>
       </div>
       {error && <div className="ai-resource-alert ai-resource-alert--error">{error}</div>}
+      {teamProfilesError && <div className="ai-resource-alert ai-resource-alert--error">{teamProfilesError}</div>}
 
       <AIResourceWorkspace
         storageKey="llm-profiles"
@@ -302,8 +356,8 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         listHeader={(
           <AIResourceTableHeader
             title="Profiles"
-            count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, filteredCountToken)}
-            loading={loading}
+            count={formatFilteredCount(visibleProfiles.length, sourceProfiles.length, filteredCountToken)}
+            loading={listLoading}
             searchLabel="Search LLM profiles"
             searchPlaceholder="Search profiles..."
             searchValue={searchTerm}
@@ -322,7 +376,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
           <LLMProfileTable
             profiles={visibleProfiles}
             selectedProfileName={selectedWorkspaceProfileName}
-            loading={loading}
+            loading={listLoading}
             emptyMessage={emptyProfilesMessage}
             onSelectProfile={selectProfile}
           />
@@ -349,7 +403,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                       teamPathsLoading={teamPathsLoading}
                       localName={aiResourceLocalName(form.name)}
                       resourceLabel="Profile"
-                      disabled={!canManage}
+                      disabled={!canManageCurrentScope}
                     />
                   )}
                   <label className="flex flex-col gap-1 text-sm">
@@ -359,7 +413,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                       className="pipelines-input"
                       value={panelMode === 'create' ? aiResourceLocalName(form.name) : form.name}
                       onChange={event => panelMode === 'create' ? setCreateScopedName(event.target.value) : setForm(prev => ({ ...prev, name: event.target.value }))}
-                      disabled={!canManage || Boolean(editingName)}
+                      disabled={!canManageCurrentScope || Boolean(editingName)}
                       placeholder="reasoning"
                     />
                   </label>
@@ -381,19 +435,19 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                           thinking: nextProvider.supportsThinking ? prev.thinking : 'default',
                         };
                       })}
-                      disabled={!canManage}
+                      disabled={!canManageCurrentScope}
                     >
                       {LLM_PROVIDERS.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
                     <span>Model</span>
-                    <input className="pipelines-input" value={form.model} onChange={event => setForm(prev => ({ ...prev, model: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultModel} />
+                    <input className="pipelines-input" value={form.model} onChange={event => setForm(prev => ({ ...prev, model: event.target.value }))} disabled={!canManageCurrentScope} placeholder={formProvider.defaultModel} />
                   </label>
                   {formProvider.baseURLMode !== 'hidden' && (
                     <label className="flex flex-col gap-1 text-sm">
                       <span>Base URL{formProvider.baseURLMode === 'required' ? ' *' : ''}</span>
-                      <input className="pipelines-input" value={form.base_url} onChange={event => setForm(prev => ({ ...prev, base_url: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultBaseURL || 'https://resource.openai.azure.com'} />
+                      <input className="pipelines-input" value={form.base_url} onChange={event => setForm(prev => ({ ...prev, base_url: event.target.value }))} disabled={!canManageCurrentScope} placeholder={formProvider.defaultBaseURL || 'https://resource.openai.azure.com'} />
                     </label>
                   )}
                   {formProvider.apiKeyMode !== 'none' && (
@@ -404,18 +458,18 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                           Open credential
                         </CredentialReferenceLink>
                       </span>
-                      <input className="pipelines-input" value={form.credential_ref} onChange={event => setForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultCredentialRef} />
+                      <input className="pipelines-input" value={form.credential_ref} onChange={event => setForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManageCurrentScope} placeholder={formProvider.defaultCredentialRef} />
                       <span className="text-xs text-[var(--text-secondary)]">Expected type: api_key</span>
                     </label>
                   )}
                   <label className="flex flex-col gap-1 text-sm">
                     <span>Allowed scopes</span>
-                    <input className="pipelines-input" value={form.allowed_scopes} onChange={event => setForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, internal" />
+                    <input className="pipelines-input" value={form.allowed_scopes} onChange={event => setForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManageCurrentScope} placeholder="dev, internal" />
                   </label>
                   {formProvider.supportsReasoning && (
                     <label className="flex flex-col gap-1 text-sm">
                       <OptionLabel help="Controls how much internal reasoning the model performs before answering.">Reasoning</OptionLabel>
-                      <select className="pipelines-input" value={form.reasoning} onChange={event => setForm(prev => ({ ...prev, reasoning: event.target.value }))} disabled={!canManage}>
+                      <select className="pipelines-input" value={form.reasoning} onChange={event => setForm(prev => ({ ...prev, reasoning: event.target.value }))} disabled={!canManageCurrentScope}>
                         <option value="">Provider default</option>
                         <option value="off">Off</option>
                         <option value="low">Low</option>
@@ -428,7 +482,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                   {formProvider.supportsThinking && (
                     <label className="flex flex-col gap-1 text-sm">
                       <OptionLabel help="Turns the provider's extended thinking mode on or off when no reasoning level is selected.">Thinking</OptionLabel>
-                      <select className="pipelines-input" value={form.thinking} onChange={event => setForm(prev => ({ ...prev, thinking: event.target.value as LLMProfileFormState['thinking'] }))} disabled={!canManage}>
+                      <select className="pipelines-input" value={form.thinking} onChange={event => setForm(prev => ({ ...prev, thinking: event.target.value as LLMProfileFormState['thinking'] }))} disabled={!canManageCurrentScope}>
                         <option value="default">Provider default</option>
                         <option value="true">True</option>
                         <option value="false">False</option>
@@ -438,35 +492,35 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                   <div className="grid items-end gap-3 sm:grid-cols-3">
                     <label className="flex flex-col gap-1 text-sm">
                       <OptionLabel help="Maximum time to wait for the provider before the request is cancelled.">Timeout seconds</OptionLabel>
-                      <input className="pipelines-input" type="number" min="0" value={form.timeout_seconds} onChange={event => setForm(prev => ({ ...prev, timeout_seconds: event.target.value }))} disabled={!canManage} placeholder="60" />
+                      <input className="pipelines-input" type="number" min="0" value={form.timeout_seconds} onChange={event => setForm(prev => ({ ...prev, timeout_seconds: event.target.value }))} disabled={!canManageCurrentScope} placeholder="60" />
                     </label>
                     {formProvider.supportsMaxTokens && (
                       <label className="flex flex-col gap-1 text-sm">
                         <OptionLabel help="Maximum number of tokens the model may generate in its response.">Max tokens</OptionLabel>
-                        <input className="pipelines-input" type="number" min="0" value={form.max_tokens} onChange={event => setForm(prev => ({ ...prev, max_tokens: event.target.value }))} disabled={!canManage} placeholder="2048" />
+                        <input className="pipelines-input" type="number" min="0" value={form.max_tokens} onChange={event => setForm(prev => ({ ...prev, max_tokens: event.target.value }))} disabled={!canManageCurrentScope} placeholder="2048" />
                       </label>
                     )}
                     {formProvider.supportsTemperature && (
                       <label className="flex flex-col gap-1 text-sm">
                         <OptionLabel help="Controls response randomness: lower values are more predictable, higher values are more varied.">Temperature</OptionLabel>
-                        <input className="pipelines-input" type="number" min="0" max={formProvider.temperatureMax} step="0.1" value={form.temperature} onChange={event => setForm(prev => ({ ...prev, temperature: event.target.value }))} disabled={!canManage} placeholder="Provider default" />
+                        <input className="pipelines-input" type="number" min="0" max={formProvider.temperatureMax} step="0.1" value={form.temperature} onChange={event => setForm(prev => ({ ...prev, temperature: event.target.value }))} disabled={!canManageCurrentScope} placeholder="Provider default" />
                       </label>
                     )}
                   </div>
                   <p className="text-xs text-[var(--text-secondary)]">{formProvider.generationOptionsNote}</p>
-                  <LLMFeatureControls form={form} setForm={setForm} disabled={!canManage} />
+                  <LLMFeatureControls form={form} setForm={setForm} disabled={!canManageCurrentScope} />
                   <label className="flex flex-col gap-1 text-sm">
                     <OptionLabel help="Additional provider-specific settings entered as one key=value pair per line.">Provider options</OptionLabel>
                     <textarea
                       className="pipelines-input min-h-24 font-mono text-xs"
                       value={form.extra}
                       onChange={event => setForm(prev => ({ ...prev, extra: event.target.value }))}
-                      disabled={!canManage}
+                      disabled={!canManageCurrentScope}
                       placeholder={form.provider === 'azure-openai' ? 'deployment=my-deployment\napi_version=2024-10-21' : form.provider === 'openrouter' ? 'http_referer=https://nopsai.example.com\nx_title=NopsAI' : 'key=value'}
                     />
                     <span className="text-xs text-[var(--text-secondary)]">One `key=value` option per line.</span>
                   </label>
-                  <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>
+                  <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManageCurrentScope || saving}>
                     {saving ? 'Saving…' : 'Save profile'}
                   </button>
                 </form>
@@ -505,14 +559,15 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
             {!showProfilePanel && selectedProfile && (
               <LLMProfileDetail
                 profile={selectedProfile}
-                isDefault={selectedProfile.name === payload.default_profile}
+                isDefault={selectedProfile.name === activeDefaultProfile}
                 canDelete={canDelete(selectedProfile)}
-                canManage={canManage}
+                canManage={canManageCurrentScope}
                 saving={saving}
                 testing={testing}
                 testResult={testResult}
+                canTest={selectedProfile.scope !== 'team'}
                 onEdit={() => startEdit(selectedProfile)}
-                onDelete={() => void deleteProfile(selectedProfile.name)}
+                onDelete={() => void deleteProfile(selectedProfile.name, { teamPath: selectedProfile.team_path })}
                 onTest={() => void testProfile(selectedProfile.name)}
               />
             )}
@@ -616,6 +671,7 @@ function LLMProfileDetail({
   saving,
   testing,
   testResult,
+  canTest,
   onEdit,
   onDelete,
   onTest,
@@ -627,6 +683,7 @@ function LLMProfileDetail({
   saving: boolean;
   testing: string | null;
   testResult: string | null;
+  canTest: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onTest: () => void;
@@ -634,6 +691,9 @@ function LLMProfileDetail({
   const provider = getLLMProvider(profile.provider);
   const healthy = isProfileHealthy(profile);
   const scopedTestResult = testResult?.startsWith(`${profile.name}:`) ? testResult : null;
+  const testLabel = canTest
+    ? testing === profile.name ? 'Testing connection' : 'Test connection'
+    : 'Team profile test unavailable';
 
   return (
     <div className="ai-resource-detail">
@@ -653,7 +713,7 @@ function LLMProfileDetail({
           </div>
         </div>
         <div className="ai-resource-detail__actions">
-          <AIResourceIconAction label={testing === profile.name ? 'Testing connection' : 'Test connection'} tone="primary" onClick={onTest} disabled={Boolean(testing)}>
+          <AIResourceIconAction label={testLabel} tone="primary" onClick={onTest} disabled={!canTest || Boolean(testing)}>
             {testing === profile.name ? <RefreshIcon /> : <CheckCircle2 className="h-4 w-4" aria-hidden="true" />}
           </AIResourceIconAction>
           <AIResourceIconAction label="Edit profile" tone="accent" onClick={onEdit} disabled={!canManage || saving}>

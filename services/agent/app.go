@@ -41,6 +41,7 @@ func Run() int {
 	pipelineTimeoutStr := runtimeConfig.PipelineTimeout
 	dockerNetworkName := runtimeConfig.DockerNetworkName
 	llmTimeout := runtimeConfig.LLMTimeout
+	runtimeOutputMaxBytes := runtimeConfig.RuntimeOutputMaxBytes
 	secrets := runtimeConfig.Secrets
 	variables := runtimeConfig.Variables
 	resumeCheckpointID := runtimeConfig.ResumeCheckpointID
@@ -150,6 +151,7 @@ func Run() int {
 		KnowledgeSnapshots:      knowledgeSnapshots,
 		PipelineLLMEnabled:      runtimeAdapters.PipelineLLMEnabled,
 		LLMTimeout:              llmTimeout,
+		RuntimeOutputMaxBytes:   runtimeOutputMaxBytes,
 		StepRuntime:             stepRuntime,
 		ConditionClientResolver: runtimeAdapters.ConditionClientResolver,
 		ActionSessionResolver:   runtimeAdapters.ActionSessionResolver,
@@ -160,6 +162,7 @@ func Run() int {
 		Logger:                  agentLog,
 		StepLogger:              stepLog,
 		UpdateTaskStatus:        updateTaskStatus,
+		ReportTaskOutputs:       reportTaskOutputs,
 		NotifyFinalStatus:       notifyFinalStatus,
 		WatchRunCancellation:    watchRunCancellation,
 		Env:                     os.Getenv,

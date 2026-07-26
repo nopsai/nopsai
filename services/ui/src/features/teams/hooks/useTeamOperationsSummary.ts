@@ -246,17 +246,65 @@ function globalMCPProfilesSummary(payload: Awaited<ReturnType<typeof fetchMCPReg
   };
 }
 
+function teamCatalogLLMProfilesSummary(
+  payload: Awaited<ReturnType<typeof fetchLLMProfiles>> | null,
+  teamPath: string,
+  teamID = 0
+): TeamLLMProfilesResponse | null {
+  if (!payload) return null;
+  return {
+    team_id: teamID,
+    team_path: teamPath,
+    default_profile: '',
+    profiles: payload.profiles
+      .filter(profile => aiResourceTeamScope(profile.name).teamPath === teamPath)
+      .map(profile => ({
+        ...profile,
+        scope: 'team' as const,
+        team_id: teamID,
+        team_path: teamPath,
+      })),
+  };
+}
+
+function teamCatalogAgentProfilesSummary(
+  payload: Awaited<ReturnType<typeof fetchAgentProfiles>> | null,
+  teamPath: string,
+  teamID = 0
+): TeamAgentProfilesResponse | null {
+  if (!payload) return null;
+  return {
+    team_id: teamID,
+    team_path: teamPath,
+    default_profile: '',
+    profiles: payload.profiles
+      .filter(profile => aiResourceTeamScope(profile.id).teamPath === teamPath)
+      .map(profile => ({
+        id: profile.id,
+        display_name: profile.display_name,
+        role: profile.role,
+        description: profile.description,
+        instructions: profile.instructions,
+        enabled: profile.enabled,
+        source: profile.source,
+        scope: 'team' as const,
+        team_id: teamID,
+        team_path: teamPath,
+      })),
+  };
+}
+
 function mergeTeamLLMProfiles(
   teamProfiles: TeamLLMProfilesResponse | null,
-  globalProfiles: TeamLLMProfilesResponse | null
+  catalogProfiles: TeamLLMProfilesResponse | null
 ): TeamLLMProfilesResponse | null {
-  if (!teamProfiles) return globalProfiles;
-  if (!globalProfiles) return teamProfiles;
+  if (!teamProfiles) return catalogProfiles;
+  if (!catalogProfiles) return teamProfiles;
   const teamNames = new Set(teamProfiles.profiles.map(profile => profile.name));
   return {
     ...teamProfiles,
     profiles: [
-      ...globalProfiles.profiles.filter(profile => !teamNames.has(profile.name)),
+      ...catalogProfiles.profiles.filter(profile => !teamNames.has(profile.name)),
       ...teamProfiles.profiles,
     ],
   };
@@ -264,15 +312,15 @@ function mergeTeamLLMProfiles(
 
 function mergeTeamAgentProfiles(
   teamProfiles: TeamAgentProfilesResponse | null,
-  globalProfiles: TeamAgentProfilesResponse | null
+  catalogProfiles: TeamAgentProfilesResponse | null
 ): TeamAgentProfilesResponse | null {
-  if (!teamProfiles) return globalProfiles;
-  if (!globalProfiles) return teamProfiles;
+  if (!teamProfiles) return catalogProfiles;
+  if (!catalogProfiles) return teamProfiles;
   const teamIDs = new Set(teamProfiles.profiles.map(profile => profile.id));
   return {
     ...teamProfiles,
     profiles: [
-      ...globalProfiles.profiles.filter(profile => !teamIDs.has(profile.id)),
+      ...catalogProfiles.profiles.filter(profile => !teamIDs.has(profile.id)),
       ...teamProfiles.profiles,
     ],
   };
@@ -402,8 +450,8 @@ export function useTeamOperationsSummary({
         llmResult,
         agentResult,
         mcpResult,
-        globalLLMResult,
-        globalAgentResult,
+        catalogLLMResult,
+        catalogAgentResult,
         globalMCPResult,
         accessGrantsResult,
         permissionsResult,
@@ -413,8 +461,8 @@ export function useTeamOperationsSummary({
         fetchTeamLLMProfiles(teamPath),
         fetchTeamAgentProfiles(teamPath),
         fetchTeamMCPProfiles(teamPath),
-        fetchLLMProfiles().then(globalLLMProfilesSummary),
-        fetchAgentProfiles().then(globalAgentProfilesSummary),
+        fetchLLMProfiles(),
+        fetchAgentProfiles(),
         fetchMCPRegistry().then(globalMCPProfilesSummary),
         fetchJson<unknown>(`/v1/access/grants?resource_type=team&resource_id=${encodedTeamPath}`).then(normalizeAccessGrantList),
         Promise.all(
@@ -426,6 +474,8 @@ export function useTeamOperationsSummary({
       ] as const);
 
       if (cancelled) return;
+      const teamLLMProfiles = resultValue(llmResult, null);
+      const teamAgentProfiles = resultValue(agentResult, null);
       setSummary({
         teamPath,
         loading: false,
@@ -433,10 +483,16 @@ export function useTeamOperationsSummary({
         configRepoError: resultError(repoResult, 'Unable to load GitOps configuration'),
         notificationRoute: resultValue(notificationResult, null),
         notificationError: resultError(notificationResult, 'Unable to load notification policy'),
-        llmProfiles: mergeTeamLLMProfiles(resultValue(llmResult, null), resultValue(globalLLMResult, null)),
-        agentProfiles: mergeTeamAgentProfiles(resultValue(agentResult, null), resultValue(globalAgentResult, null)),
+        llmProfiles: mergeTeamLLMProfiles(
+          teamLLMProfiles,
+          teamCatalogLLMProfilesSummary(resultValue(catalogLLMResult, null), teamPath, teamLLMProfiles?.team_id ?? 0)
+        ),
+        agentProfiles: mergeTeamAgentProfiles(
+          teamAgentProfiles,
+          teamCatalogAgentProfilesSummary(resultValue(catalogAgentResult, null), teamPath, teamAgentProfiles?.team_id ?? 0)
+        ),
         mcpProfiles: mergeTeamMCPProfiles(resultValue(mcpResult, null), resultValue(globalMCPResult, null)),
-        aiProfilesError: [llmResult, agentResult, mcpResult, globalLLMResult, globalAgentResult, globalMCPResult]
+        aiProfilesError: [llmResult, agentResult, mcpResult, catalogLLMResult, catalogAgentResult, globalMCPResult]
           .map(result => resultError(result, 'Unable to load AI profiles'))
           .find(Boolean) || null,
         accessGrants: resultValue(accessGrantsResult, []),

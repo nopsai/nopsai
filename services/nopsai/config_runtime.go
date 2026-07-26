@@ -50,6 +50,15 @@ func (a *App) getLLMAgentTimeout() string {
 	return strings.TrimSpace(a.cfg.LLMAgentTimeout)
 }
 
+func (a *App) getRuntimeOutputMaxBytes() int {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	if a.cfg.RuntimeOutputMaxBytes <= 0 {
+		return 64 * 1024
+	}
+	return a.cfg.RuntimeOutputMaxBytes
+}
+
 func containerReachableLMStudioBaseURL(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

@@ -69,6 +69,7 @@ type Step interface {
 	GetMCPProfiles() []string
 	GetRuntimePool() string
 	GetVariables() map[string]string
+	GetOutputs() []TaskOutput
 	GetKnowledgeContext() []KnowledgeContextRef
 	GetPolicyMergeMode() string
 
@@ -95,6 +96,7 @@ type BaseStep struct {
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	RuntimePool      string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Outputs          []TaskOutput          `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 }
@@ -137,6 +139,9 @@ func (s *BaseStep) GetRuntimePool() string { return s.RuntimePool }
 
 // GetVariables returns the step's inline variables.
 func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
+
+// GetOutputs returns outputs declared on legacy single-task step forms.
+func (s *BaseStep) GetOutputs() []TaskOutput { return s.Outputs }
 
 // GetKnowledgeContext returns the step's requested knowledge context.
 func (s *BaseStep) GetKnowledgeContext() []KnowledgeContextRef { return s.KnowledgeContext }
@@ -507,6 +512,13 @@ func (ps PipelineStep) GetVariables() map[string]string {
 	return nil
 }
 
+func (ps PipelineStep) GetOutputs() []TaskOutput {
+	if base := ps.baseStep(); base != nil {
+		return base.Outputs
+	}
+	return nil
+}
+
 func (ps PipelineStep) GetKnowledgeContext() []KnowledgeContextRef {
 	if ps.Step == nil {
 		return nil
@@ -676,6 +688,12 @@ func (ps *PipelineStep) SetVariables(variables map[string]string) {
 	}
 }
 
+func (ps *PipelineStep) SetOutputs(outputs []TaskOutput) {
+	if base := ps.baseStep(); base != nil {
+		base.Outputs = outputs
+	}
+}
+
 func (ps *PipelineStep) SetKnowledgeContext(context []KnowledgeContextRef) {
 	if base := ps.baseStep(); base != nil {
 		base.KnowledgeContext = context
@@ -733,6 +751,49 @@ type DashboardOutputTarget struct {
 	Mode     string `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Preset   string `yaml:"preset,omitempty" json:"preset,omitempty"`
 	TTL      string `yaml:"ttl,omitempty" json:"ttl,omitempty"`
+}
+
+const RuntimeOutputsMountPath = "/nopsai/outputs"
+
+// TaskOutput declares a file-based runtime value produced by a task.
+type TaskOutput struct {
+	Name      string `yaml:"name" json:"name"`
+	Sensitive bool   `yaml:"sensitive,omitempty" json:"sensitive,omitempty"`
+}
+
+func (o *TaskOutput) UnmarshalYAML(value *yaml.Node) error {
+	*o = TaskOutput{}
+	if value.Kind == yaml.ScalarNode {
+		var name string
+		if err := value.Decode(&name); err != nil {
+			return err
+		}
+		o.Name = name
+		return nil
+	}
+	type rawOutput TaskOutput
+	var parsed rawOutput
+	if err := value.Decode(&parsed); err != nil {
+		return err
+	}
+	*o = TaskOutput(parsed)
+	return nil
+}
+
+func (o *TaskOutput) UnmarshalJSON(data []byte) error {
+	*o = TaskOutput{}
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		o.Name = name
+		return nil
+	}
+	type rawOutput TaskOutput
+	var parsed rawOutput
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	*o = TaskOutput(parsed)
+	return nil
 }
 
 type Pipeline struct {
@@ -797,6 +858,7 @@ type Task struct {
 	LLMProfile       string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
+	Outputs          []TaskOutput          `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 }

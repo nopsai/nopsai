@@ -77,6 +77,8 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 	}
 
 	totalTasks := scheduler.CountPipelineTasks(&pipeline)
+	requiredRuntimeOutputs := referencedRuntimeOutputs(&pipeline)
+	runtimeOutputs := newRuntimeOutputStore()
 	prePullCtx := timeoutController.ContextOrDefault(context.Background())
 	if req.StepRuntime != nil {
 		req.StepRuntime.PrePullImages(prePullCtx, *logger, &pipeline, totalTasks)
@@ -200,6 +202,16 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				for _, secretName := range missingSecrets {
 					taskLogger.Warn().Str("secret", secretName).Msg("Secret was requested by step but not provided")
 				}
+				if resolvedOutputs, err := resolveRuntimeOutputVariables(step.GetVariables(), runtimeOutputs); err != nil {
+					taskLogger.Error().Err(err).Msg("Failed to resolve step runtime output variables")
+					ignored := finalizeFailure("failure", 1, llmDurationMs, true)
+					results <- taskResult{name: runnable.GlobalKey, success: ignored}
+					return
+				} else {
+					for variableName, output := range resolvedOutputs {
+						stepContext.SetValue(variableName, output.Value, output.Sensitive)
+					}
+				}
 
 				historyMutex.Lock()
 				conditionHistorySnapshot := llmHistorySnapshotWithRevision(history.String(), historyRevision)
@@ -290,6 +302,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						return
 					}
 					includeContext := timeoutController.ContextOrDefault(context.Background())
+					includeVariables, sensitiveIncludeVariables := stepContext.SelectedVariableOverrides(step.GetVariables())
 					includeResult := req.IncludeRunner.Run(includeContext, includeflow.Request{
 						Logger:             taskLogger,
 						ParentRunID:        runID,
@@ -297,6 +310,8 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						StepName:           stepName,
 						IncludeTarget:      includeTarget,
 						History:            historySnapshot,
+						Variables:          includeVariables,
+						SensitiveVariables: sensitiveIncludeVariables,
 						Sync:               step.GetSync(),
 						LLMDurationMs:      llmDurationMs,
 						FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
@@ -321,6 +336,16 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 
 				stepRuntimeVars := stepContext.ContainerVariables()
 				taskContext := stepContext.WithTask(task)
+				if resolvedOutputs, err := resolveRuntimeOutputVariables(task.Variables, runtimeOutputs); err != nil {
+					taskLogger.Error().Err(err).Msg("Failed to resolve task runtime output variables")
+					ignored := finalizeFailure("failure", 1, llmDurationMs, true)
+					results <- taskResult{name: runnable.GlobalKey, success: ignored}
+					return
+				} else {
+					for variableName, output := range resolvedOutputs {
+						taskContext.SetValue(variableName, output.Value, output.Sensitive)
+					}
+				}
 				taskRuntimeVars := taskContext.ContainerVariables()
 
 				imageName := step.GetImage()
@@ -328,19 +353,28 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					imageName = pipeline.ContainerImage
 				}
 
-				stepSessionID, createdSession, err := sessionRegistry.GetOrCreate(stepName, func() (string, error) {
+				taskOutputs := task.Outputs
+				outputsEnabled := len(taskOutputs) > 0
+				sessionKey := stepName
+				runtimeStepName := stepName
+				if outputsEnabled {
+					sessionKey = stepName + "/" + task.Name
+					runtimeStepName = stepName + "-" + task.Name
+				}
+				stepSessionID, createdSession, err := sessionRegistry.GetOrCreate(sessionKey, func() (string, error) {
 					if req.StepRuntime == nil {
 						return "", fmt.Errorf("step runtime is not configured")
 					}
 					return req.StepRuntime.CreateSession(context.Background(), taskLogger, StepRuntimeSessionRequest{
 						RunID:            runID,
 						PipelineName:     pipeline.Name,
-						StepName:         stepName,
+						StepName:         runtimeStepName,
 						GitRepoName:      req.env("GIT_REPO_NAME"),
 						Image:            imageName,
 						WorkingDirectory: req.WorkingDirectory,
 						Env:              stepRuntimeVars,
 						Volumes:          step.GetVolumes(),
+						OutputsEnabled:   outputsEnabled,
 						RuntimePool:      firstNonEmpty(step.GetRuntimePool(), pipeline.RuntimePool),
 					})
 				})
@@ -435,6 +469,12 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						if req.StepRuntime == nil {
 							stdout, stderr, exitCode = "", "step runtime is not configured", 1
 						} else {
+							if outputsEnabled {
+								if err := req.StepRuntime.PrepareOutputDirectory(context.Background(), stepSessionID); err != nil {
+									stdout, stderr, exitCode = "", err.Error(), 1
+									break
+								}
+							}
 							actionExecuted = true
 							liveOutput := func(stream executor.OutputStream, line string) {
 								maskedLine := taskContext.MaskRuntimeText(line, req.Secrets)
@@ -451,6 +491,26 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				if actionExecuted && actionMayMutateWorkspace(action) {
 					newRevision := advanceWorkspaceRevision()
 					taskLogger.Debug().Uint64("workspace_revision", newRevision).Msg("Advanced workspace revision after mutating action")
+				}
+				if actionExecuted && exitCode == 0 && outputsEnabled {
+					requiredForTask := outputRequiredByName(requiredRuntimeOutputs, stepName, task.Name)
+					collected, err := req.StepRuntime.CollectOutputs(context.Background(), stepSessionID, taskOutputs, requiredForTask, req.RuntimeOutputMaxBytes)
+					if err != nil {
+						stdout, stderr, exitCode = "", err.Error(), 1
+					} else if len(collected) > 0 {
+						runtimeOutputs.Set(stepName, task.Name, collected)
+						for _, output := range collected {
+							if output.Sensitive {
+								taskContext.SetValue(output.Name, output.Value, true)
+							}
+						}
+						if err := req.reportTaskOutputs(stepName, task.Name, collected); err != nil {
+							taskLogger.Error().Err(err).Strs("outputs", sortedRuntimeOutputNames(collected)).Msg("Failed to persist runtime outputs")
+							stdout, stderr, exitCode = "", fmt.Sprintf("persist runtime outputs: %v", err), 1
+						} else {
+							taskLogger.Info().Strs("outputs", sortedRuntimeOutputNames(collected)).Msg("Collected runtime outputs")
+						}
+					}
 				}
 
 				status := "success"

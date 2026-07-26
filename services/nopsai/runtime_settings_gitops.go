@@ -63,6 +63,7 @@ type runtimeSettingsGitOpsFile struct {
 	DockerNetworkName             *string                       `json:"docker_network_name" yaml:"docker_network_name,omitempty"`
 	AutoRemovalAgentContainer     *bool                         `json:"auto_removal_agent_container" yaml:"auto_removal_agent_container,omitempty"`
 	DefaultPipelineTimeout        *string                       `json:"default_pipeline_timeout" yaml:"default_pipeline_timeout,omitempty"`
+	RuntimeOutputMaxBytes         *int                          `json:"runtime_output_max_bytes" yaml:"runtime_output_max_bytes,omitempty"`
 	LLMAgentTimeout               *string                       `json:"llm_agent_timeout" yaml:"llm_agent_timeout,omitempty"`
 	DispatcherRouting             map[string][]string           `json:"dispatcher_routing" yaml:"dispatcher_routing,omitempty"`
 	EjectedRunnerIDs              []string                      `json:"ejected_runner_ids,omitempty" yaml:"-"`
@@ -156,6 +157,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		DockerNetworkName:             file.DockerNetworkName,
 		AutoRemovalAgentContainer:     file.AutoRemovalAgentContainer,
 		DefaultPipelineTimeout:        file.DefaultPipelineTimeout,
+		RuntimeOutputMaxBytes:         file.RuntimeOutputMaxBytes,
 		LLMAgentTimeout:               file.LLMAgentTimeout,
 		DispatcherRouting:             file.DispatcherRouting,
 		EjectedRunnerIDs:              file.EjectedRunnerIDs,
@@ -170,6 +172,9 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 	}
 	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
 		return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid runner_capacity", sourcePath)
+	}
+	if payload.RuntimeOutputMaxBytes != nil && *payload.RuntimeOutputMaxBytes <= 0 {
+		return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid runtime_output_max_bytes", sourcePath)
 	}
 	if payload.Limits != nil {
 		if err := systemconfig.ValidateRunnerLimits(*payload.Limits); err != nil {
@@ -255,6 +260,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		DockerNetworkName:             stringPtr(cfg.DockerNetworkName),
 		AutoRemovalAgentContainer:     boolPtr(cfg.AutoRemovalAgentContainer),
 		DefaultPipelineTimeout:        stringPtr(cfg.DefaultPipelineTimeout),
+		RuntimeOutputMaxBytes:         intPtr(cfg.RuntimeOutputMaxBytes),
 		LLMAgentTimeout:               stringPtr(cfg.LLMAgentTimeout),
 		DispatcherRouting:             dispatcherRouting,
 		EjectedRunnerIDs:              config.NormalizeRunnerIDs(cfg.EjectedRunnerIDs),

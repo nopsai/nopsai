@@ -144,7 +144,10 @@ func parseGitOpsTeamAIProfileFile(content, sourcePath, teamPath string) (*gitOps
 	llmDefault := normalizeOptionalLLMDefault(file.LLMDefaultProfile)
 	if llmDefault != nil && *llmDefault != "" {
 		if _, ok := llmProfiles[*llmDefault]; !ok {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' sets LLM default profile %q but does not define it", sourcePath, *llmDefault)
+			defaultTeamPath := aiResourceTeamPath(*llmDefault)
+			if defaultTeamPath != "" && !strings.EqualFold(defaultTeamPath, teamPath) {
+				return nil, fmt.Errorf("team AI profile GitOps file '%s' sets LLM default profile %q outside team %q", sourcePath, *llmDefault, teamPath)
+			}
 		}
 	}
 	agentDefault := normalizeOptionalAgentDefault(file.AgentDefaultProfile)
@@ -203,7 +206,7 @@ func (a *App) persistTeamAIProfilesToTx(ctx context.Context, tx pgx.Tx, binding 
 	if err := a.persistGitOpsTeamLLMProfilesToTx(ctx, tx, teamID, binding.ID, plan, commitSHA); err != nil {
 		return err
 	}
-	if err := persistGitOpsTeamAgentProfilesToTx(ctx, tx, teamID, binding.ID, plan, commitSHA); err != nil {
+	if err := a.persistGitOpsTeamAgentProfilesToTx(ctx, tx, teamID, binding.ID, plan, commitSHA); err != nil {
 		return err
 	}
 	if err := a.persistGitOpsTeamMCPProfilesToTx(ctx, tx, teamID, binding.ID, plan, commitSHA); err != nil {
@@ -260,14 +263,18 @@ func (a *App) persistGitOpsTeamLLMProfilesToTx(ctx context.Context, tx pgx.Tx, t
 		}
 	}
 	if plan.llmDefaultProfile != nil {
-		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamLLMDefaultProfileSetting, *plan.llmDefaultProfile); err != nil {
+		canonical, ok := canonicalTeamLLMDefaultProfileValue(teamPathRecord{ID: teamID, Path: plan.teamPath}, *plan.llmDefaultProfile, plan.llmProfiles, a.getConfigSnapshot().EffectiveLLMProfiles())
+		if !ok {
+			return fmt.Errorf("team AI profile GitOps file '%s' sets unknown LLM default profile %q", plan.sourcePath, *plan.llmDefaultProfile)
+		}
+		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamLLMDefaultProfileSetting, canonical); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func persistGitOpsTeamAgentProfilesToTx(ctx context.Context, tx pgx.Tx, teamID int, configRepoID int64, plan *gitOpsTeamAIProfilePlan, commitSHA string) error {
+func (a *App) persistGitOpsTeamAgentProfilesToTx(ctx context.Context, tx pgx.Tx, teamID int, configRepoID int64, plan *gitOpsTeamAIProfilePlan, commitSHA string) error {
 	ids := make([]string, 0, len(plan.agentProfiles))
 	for id := range plan.agentProfiles {
 		ids = append(ids, id)
@@ -292,7 +299,15 @@ func persistGitOpsTeamAgentProfilesToTx(ctx context.Context, tx pgx.Tx, teamID i
 		}
 	}
 	if plan.agentDefaultProfile != nil {
-		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamAgentDefaultProfileSetting, *plan.agentDefaultProfile); err != nil {
+		effectiveProfiles, _, err := a.effectiveAgentProfiles(ctx)
+		if err != nil {
+			return fmt.Errorf("load agent profiles for team default validation: %w", err)
+		}
+		canonical, ok := canonicalTeamAgentDefaultProfileValue(teamPathRecord{ID: teamID, Path: plan.teamPath}, *plan.agentDefaultProfile, plan.agentProfiles, effectiveProfiles)
+		if !ok {
+			return fmt.Errorf("team AI profile GitOps file '%s' sets unknown or disabled agent default profile %q", plan.sourcePath, *plan.agentDefaultProfile)
+		}
+		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamAgentDefaultProfileSetting, canonical); err != nil {
 			return err
 		}
 	}

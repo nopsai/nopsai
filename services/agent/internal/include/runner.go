@@ -9,7 +9,7 @@ import (
 )
 
 type DefinitionFetcher func(context.Context, string) ([]byte, error)
-type PipelineTrigger func(context.Context, string, string, string, string, []byte, string) (string, error)
+type PipelineTrigger func(context.Context, string, string, string, string, []byte, string, map[string]string, []string) (string, error)
 type PipelineMonitor func(context.Context, *zerolog.Logger, string) (string, error)
 type Finalizer func(stepName, taskName, status string, exitCode int, llmDurationMs int64)
 type NotFoundClassifier func(error) bool
@@ -32,6 +32,8 @@ type Request struct {
 	StepName           string
 	IncludeTarget      string
 	History            string
+	Variables          map[string]string
+	SensitiveVariables []string
 	Sync               bool
 	LLMDurationMs      int64
 	FinalizeTask       Finalizer
@@ -92,7 +94,7 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 		req.finalize(req.StepName, req.StepName, "failure", 1)
 		return Result{Handled: true, Success: false, Status: "failure"}
 	}
-	childRunID, err := r.config.TriggerPipeline(ctx, req.ParentRunID, req.ParentPipelineName, req.StepName, childPipelineName, childDef, req.History)
+	childRunID, err := r.config.TriggerPipeline(ctx, req.ParentRunID, req.ParentPipelineName, req.StepName, childPipelineName, childDef, req.History, req.Variables, req.SensitiveVariables)
 	if err != nil {
 		r.logError(req.Logger, err, "Failed to trigger child pipeline")
 		req.finalize(req.StepName, req.StepName, "failure", 1)

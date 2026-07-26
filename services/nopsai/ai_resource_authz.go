@@ -63,6 +63,20 @@ func aiResourceTeamPath(resourceID string) string {
 	return strings.Join(clean[:len(clean)-1], "/")
 }
 
+func aiResourceLocalName(resourceID string) string {
+	if strings.HasSuffix(strings.TrimSpace(resourceID), "/") {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(strings.TrimSpace(resourceID), "/"), "/")
+	for index := len(parts) - 1; index >= 0; index-- {
+		part := strings.TrimSpace(parts[index])
+		if part != "" {
+			return part
+		}
+	}
+	return ""
+}
+
 func aiResourceVisibleDefault(defaultID string, visibleIDs []string) string {
 	defaultID = strings.TrimSpace(defaultID)
 	for _, id := range visibleIDs {

@@ -73,6 +73,37 @@ func TestNextRunnableTasksCopiesSingleModeStepIgnoreFailure(t *testing.T) {
 	}
 }
 
+func TestNextRunnableTasksHonorsQualifiedCrossStepTaskDependency(t *testing.T) {
+	pipeline := models.Pipeline{
+		Name:           "release",
+		ContainerImage: "alpine:3.20",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.TaskStep{
+					BaseStep: models.BaseStep{Name: "prepare"},
+					Tasks: []models.Task{
+						{Name: "generate", Script: "echo tag"},
+					},
+				},
+			},
+			{
+				Step: &models.TaskStep{
+					BaseStep: models.BaseStep{Name: "build"},
+					Tasks: []models.Task{
+						{Name: "image", Script: "echo build", DependsOn: []string{"prepare.generate"}},
+					},
+				},
+			},
+		},
+	}
+
+	runnable := NextRunnableTasks(&pipeline, map[string]bool{})
+	assertRunnableKeys(t, runnable, []string{"prepare/generate"})
+
+	runnable = NextRunnableTasks(&pipeline, map[string]bool{"prepare/generate": true})
+	assertRunnableKeys(t, runnable, []string{"build/image"})
+}
+
 func TestImagePullQueueSkipsApprovalSteps(t *testing.T) {
 	pipeline := schedulerTestPipeline()
 

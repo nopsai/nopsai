@@ -8,6 +8,7 @@ import (
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/internal/mcpregistry"
+	"nopsai/services/nopsai/pkg/validation"
 
 	"gopkg.in/yaml.v3"
 )
@@ -366,6 +367,9 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		stepName := step.GetName()
 		if stepName == "" {
 			return configSyncPlan{}, fmt.Errorf("reusable step '%s' is missing the required 'name' field", normalized)
+		}
+		if err := validation.ValidateReusableStep(&step); err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid reusable step '%s': %w", normalized, err)
 		}
 
 		stepPath, fileBase, _, err := configsync.SplitStepIdentifier(rel)

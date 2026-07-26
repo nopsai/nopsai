@@ -1069,6 +1069,34 @@ variables:
 	}
 }
 
+func TestScopeConfigRejectsInvalidRuntimeNames(t *testing.T) {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(`
+variables:
+  BAD/NAME: "2026.05"
+`), &raw); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	_, err := (&App{}).addScopeConfigEntries(
+		raw,
+		map[generalScopeVarKey]storedScopeVar{},
+		map[repoScopeVarKey]storedScopeVar{},
+		map[generalScopeSecretKey]storedScopeSecret{},
+		map[repoScopeSecretKey]storedScopeSecret{},
+		"team-1/prod",
+		"scopes/prod/scope.yaml",
+		models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeSystem,
+			ScopeID:   models.ConfigRepositorySystemGlobalID,
+		},
+		"",
+	)
+	if err == nil || !strings.Contains(err.Error(), "BAD/NAME") {
+		t.Fatalf("addScopeConfigEntries() error = %v, want invalid runtime name", err)
+	}
+}
+
 func TestScopeSecretsSectionImportsEncryptedValuesAndNullPlaceholders(t *testing.T) {
 	app := &App{encKey: []byte("12345678901234567890123456789012")}
 	encrypted, err := app.encrypt("super-secret")

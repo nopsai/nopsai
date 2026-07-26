@@ -14,6 +14,7 @@ import (
 
 	"nopsai/pkg/correlation"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/runmetadata"
 	"nopsai/pkg/serviceauth"
 
 	"google.golang.org/grpc/codes"
@@ -162,11 +163,31 @@ func (c *nopsaiHTTPClient) TriggerPipeline(ctx context.Context, req *proto.Trigg
 	}
 
 	target := fmt.Sprintf("%s/v1/run", c.baseURL)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(req.PipelineDefinition))
+	body := req.PipelineDefinition
+	contentType := "application/x-yaml"
+	if overrides, ok, err := runmetadata.VariableOverridesFromIncomingContext(ctx); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode trigger variables: %v", err)
+	} else if ok {
+		payload, marshalErr := json.Marshal(struct {
+			Definition         string            `json:"definition"`
+			Variables          map[string]string `json:"variables,omitempty"`
+			SensitiveVariables []string          `json:"sensitive_variables,omitempty"`
+		}{
+			Definition:         string(req.PipelineDefinition),
+			Variables:          overrides.Variables,
+			SensitiveVariables: overrides.SensitiveVariables,
+		})
+		if marshalErr != nil {
+			return nil, status.Errorf(codes.Internal, "marshal trigger variables: %v", marshalErr)
+		}
+		body = payload
+		contentType = "application/json"
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build trigger request: %v", err)
 	}
-	httpReq.Header.Set("Content-Type", "application/x-yaml")
+	httpReq.Header.Set("Content-Type", contentType)
 	if err := c.authorize(ctx, httpReq); err != nil {
 		return nil, status.Errorf(codes.Internal, "authorize trigger request: %v", err)
 	}
@@ -205,20 +226,20 @@ func (c *nopsaiHTTPClient) TriggerPipeline(ctx context.Context, req *proto.Trigg
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	responseBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated {
 		return &proto.TriggerPipelineResponse{
 			Status: resp.Status,
-			Error:  fmt.Sprintf("nopsai trigger returned %d: %s", resp.StatusCode, string(body)),
+			Error:  fmt.Sprintf("nopsai trigger returned %d: %s", resp.StatusCode, string(responseBody)),
 		}, nil
 	}
 
 	const prefix = "Pipeline run created successfully with ID: "
-	runID := strings.TrimSpace(strings.TrimPrefix(string(body), prefix))
+	runID := strings.TrimSpace(strings.TrimPrefix(string(responseBody), prefix))
 	if runID == "" {
 		return &proto.TriggerPipelineResponse{
 			Status: resp.Status,
-			Error:  fmt.Sprintf("unexpected response body: %s", string(body)),
+			Error:  fmt.Sprintf("unexpected response body: %s", string(responseBody)),
 		}, nil
 	}
 	return &proto.TriggerPipelineResponse{RunId: runID, Status: "created"}, nil

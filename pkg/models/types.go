@@ -99,6 +99,7 @@ type StepConfiguration struct {
 	Secrets          []string              `json:"secrets,omitempty"`
 	Volumes          []string              `json:"volumes,omitempty"`
 	Variables        map[string]string     `json:"variables,omitempty"`
+	Outputs          []TaskOutput          `json:"outputs,omitempty"`
 	IgnoreFailure    bool                  `json:"ignore_failure"`
 	LlmOutputSharing *bool                 `json:"llm_output_sharing,omitempty"`
 	AgentProfile     string                `json:"agent_profile,omitempty"`
@@ -120,15 +121,24 @@ type StepDetail struct {
 }
 
 type TaskDetail struct {
-	TaskID     string         `json:"task_id"`
-	StepName   string         `json:"step_name"`
-	TaskName   string         `json:"task_name"`
-	Status     string         `json:"status"`
-	ExitCode   *int           `json:"exit_code"`
-	StartedAt  time.Time      `json:"started_at"`
-	FinishedAt time.Time      `json:"finished_at"`
-	TaskIndex  int            `json:"task_index"`
-	AIUsage    AIUsageSummary `json:"ai_usage"`
+	TaskID     string              `json:"task_id"`
+	StepName   string              `json:"step_name"`
+	TaskName   string              `json:"task_name"`
+	Status     string              `json:"status"`
+	ExitCode   *int                `json:"exit_code"`
+	StartedAt  time.Time           `json:"started_at"`
+	FinishedAt time.Time           `json:"finished_at"`
+	TaskIndex  int                 `json:"task_index"`
+	Outputs    []TaskRuntimeOutput `json:"outputs,omitempty"`
+	AIUsage    AIUsageSummary      `json:"ai_usage"`
+}
+
+type TaskRuntimeOutput struct {
+	StepName  string `json:"step_name,omitempty"`
+	TaskName  string `json:"task_name,omitempty"`
+	Name      string `json:"name"`
+	Sensitive bool   `json:"sensitive,omitempty"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
 }
 
 type ParentRunInfo struct {

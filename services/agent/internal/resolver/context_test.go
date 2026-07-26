@@ -141,6 +141,26 @@ func TestExecutionContextZeroValueCanBePopulated(t *testing.T) {
 	}
 }
 
+func TestSelectedVariableOverridesReturnsRawValuesAndSensitiveNames(t *testing.T) {
+	context := NewExecutionContext()
+	context.SetValue("CHANNEL", "stable", false)
+	context.SetValue("TOKEN", "secret", true)
+	context.SetValue("API_KEY", "literal-sensitive-by-name", false)
+
+	variables, sensitive := context.SelectedVariableOverrides(map[string]string{
+		"CHANNEL": "ignored",
+		"TOKEN":   "ignored",
+		"API_KEY": "ignored",
+	})
+
+	if variables["CHANNEL"] != "stable" || variables["TOKEN"] != "secret" || variables["API_KEY"] != "literal-sensitive-by-name" {
+		t.Fatalf("variables = %#v, want raw runtime values", variables)
+	}
+	if len(sensitive) != 2 || sensitive[0] != "API_KEY" || sensitive[1] != "TOKEN" {
+		t.Fatalf("sensitive = %#v, want API_KEY and TOKEN", sensitive)
+	}
+}
+
 func TestBuildStepExecutionContextInjectsScopedRuntimeRefsByName(t *testing.T) {
 	pipeline := &models.Pipeline{
 		Variables: []string{"dev:TEST_ENV"},

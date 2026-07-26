@@ -11,6 +11,7 @@ import {
   Trash2,
   UsersRound,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   formatConfigRepoTimestamp,
@@ -162,6 +163,8 @@ export function TeamOverviewCard({
   operationsSummary: TeamOperationsSummaryState;
 }) {
   const parent = getTeamParent(team, teams);
+  const currentTeamPath = team ? teamPathForURL(team, teams) : '';
+  const profileQuery = team ? `?team=${encodeURIComponent(currentTeamPath)}` : '?team=global';
   const latestRunApplication = getLatestRunApplication(teams, team?.id ?? null);
   const ownerLabels = teamOwnerLabels(operationsSummary);
   const ownerSummary = operationsSummary.loading
@@ -174,14 +177,26 @@ export function TeamOverviewCard({
   const latestRunLabel = latestRunApplication
     ? `${teamDisplayName(latestRunApplication)} / ${formatTeamTimestamp(latestRunApplication.last_run_at)}`
     : 'No app runs';
-  const rows = [
-    ['Kind', teamKindLabel(team)],
-    ['Path', team ? teamPathForURL(team, teams) : 'global'],
-    ['Parent', parent ? teamDisplayName(parent) : 'Global'],
-    ['Direct children', String(stats.directChildren)],
-    ['Applications', String(stats.applications)],
-    ['Owners', ownerSummary],
-    ['Latest run app', latestRunLabel],
+  const llmDefaultProfile = operationsSummary.loading ? 'Loading...' : operationsSummary.llmProfiles?.default_profile || '';
+  const agentDefaultProfile = operationsSummary.loading ? 'Loading...' : operationsSummary.agentProfiles?.default_profile || '';
+  const rows: TeamOverviewRow[] = [
+    { label: 'Kind', value: teamKindLabel(team) },
+    { label: 'Path', value: currentTeamPath || 'global' },
+    { label: 'Parent', value: parent ? teamDisplayName(parent) : 'Global' },
+    {
+      label: 'Default LLM profile',
+      value: profileDefaultLink(llmDefaultProfile, `/llm-profiles${profileQuery}`),
+      title: llmDefaultProfile || 'Not configured',
+    },
+    {
+      label: 'Default agent profile',
+      value: profileDefaultLink(agentDefaultProfile, `/agent-profiles${profileQuery}`),
+      title: agentDefaultProfile || 'Not configured',
+    },
+    { label: 'Direct children', value: String(stats.directChildren) },
+    { label: 'Applications', value: String(stats.applications) },
+    { label: 'Owners', value: ownerSummary },
+    { label: 'Latest run app', value: latestRunLabel },
   ];
   return (
     <article className="teams-card teams-overview-card">
@@ -192,14 +207,29 @@ export function TeamOverviewCard({
         </div>
       </div>
       <dl className="teams-kv-list">
-        {rows.map(([label, value]) => (
+        {rows.map(({ label, value, title }) => (
           <div key={label}>
             <dt>{label}</dt>
-            <dd title={value}>{value}</dd>
+            <dd title={title || (typeof value === 'string' ? value : undefined)}>{value}</dd>
           </div>
         ))}
       </dl>
     </article>
+  );
+}
+
+type TeamOverviewRow = {
+  label: string;
+  value: ReactNode;
+  title?: string;
+};
+
+function profileDefaultLink(defaultProfile: string, href: string) {
+  const label = defaultProfile || 'Not configured';
+  return (
+    <Link className="teams-inline-link" to={href}>
+      {label}
+    </Link>
   );
 }
 
