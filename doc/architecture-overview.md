@@ -14,7 +14,7 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 
 - `services/nopsai`: Main API, source-of-truth database access, auth, AAA-backed product access control, config sync, Git webhook source ingress, run creation, run tracking.
 - `services/aaa`: Internal authorization service for subject introspection, checks, filtering, and authz decision audit writes.
-- `services/git-bot`: GitHub App integration, webhook ingress, repository file access, check-run updates.
+- `services/git-bot`: GitHub App integration, webhook ingress, per-installation repository file access, check-run updates.
 - `services/dispatcher`: Scheduler and bridge between HTTP-oriented control-plane APIs and gRPC-oriented runners and agents.
 - `services/docker-runner`: Long-lived worker that starts agent containers on Docker-capable hosts.
 - `services/agent`: Per-run orchestrator that executes pipeline logic and talks to the configured LLM provider.
@@ -78,7 +78,7 @@ The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/g
   authenticated provider-normalized Git webhook deliveries.
 - It authenticates requests, asks AAA for route-level decisions, resolves reusable step includes, validates pipeline shape, creates DB records, resolves knowledge context, secrets, and variables, and submits jobs to the dispatcher.
 - `aaa` is the internal policy decision service. It handles introspection, check, batch-check, filter, and audit-record requests behind a shared internal token.
-- `git-bot` is the GitHub-facing edge. It validates webhook signatures, proxies webhook payloads to `nopsai`, fetches repository contents for config-driven features, and keeps GitHub checks in sync.
+- `git-bot` is the GitHub-facing edge. It validates webhook signatures, rejects unknown or disabled GitHub App installations, proxies webhook payloads to `nopsai`, fetches repository contents through per-installation clients, and keeps GitHub checks in sync.
 - GitLab, Bitbucket, Gitea, and generic webhook adapters live in `nopsai`.
   They normalize and audit ingress but intentionally do not own provider
   repository reads or status/check APIs.

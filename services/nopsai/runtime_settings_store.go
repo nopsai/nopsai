@@ -79,7 +79,7 @@ func ensureRuntimeSettingsSchema(ctx context.Context, db *pgxpool.Pool) error {
 }
 
 func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConfigPayload {
-	return systemConfigPayload{
+	payload := systemConfigPayload{
 		LogLevel:                      file.LogLevel,
 		LogFormat:                     file.LogFormat,
 		Environment:                   file.Environment,
@@ -107,11 +107,32 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		RuntimePools:                  file.RuntimePools,
 		Assistant:                     file.Assistant,
 		GitBotAPIURL:                  file.GitBotAPIURL,
-		GitHubAppID:                   file.GitHubAppID,
+		GitHubAppID:                   firstPresentStringPtr(file.AppID, file.GitHubAppID),
 		GitHubInstallationID:          file.GitHubInstallationID,
-		GitHubPrivateKeyRef:           file.GitHubPrivateKeyRef,
-		GitHubWebhookRef:              file.GitHubWebhookRef,
+		GitHubPrivateKeyRef:           firstPresentStringPtr(file.PrivateKeyCredentialRef, file.GitHubPrivateKeyRef),
+		GitHubWebhookRef:              firstPresentStringPtr(file.WebhookCredentialRef, file.GitHubWebhookRef),
 	}
+	if gitHubInstallationSettingsPresent(file.githubSettingsGitOpsFile) {
+		installations := file.Installations
+		if len(installations) == 0 {
+			installations = file.GitHubInstallations
+		}
+		payload.GitHubInstallations = &installations
+	}
+	return payload
+}
+
+func gitHubInstallationSettingsPresent(file githubSettingsGitOpsFile) bool {
+	return file.GitHubInstallationID != nil || file.Installations != nil || file.GitHubInstallations != nil
+}
+
+func firstPresentStringPtr(values ...*string) *string {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) (config.Config, error) {
@@ -201,6 +222,12 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	}
 	if payload.GitHubInstallationID != nil {
 		cfg.GitHubInstallID = strings.TrimSpace(*payload.GitHubInstallationID)
+	}
+	if payload.GitHubInstallations != nil {
+		cfg.GitHubInstallations = config.NormalizeGitHubInstallations(*payload.GitHubInstallations, cfg.GitHubInstallID)
+		cfg.GitHubInstallID = ""
+	} else {
+		cfg.GitHubInstallations = config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID)
 	}
 	if payload.GitHubPrivateKeyRef != nil {
 		cfg.GitHubPrivateKeyCredentialRef = strings.TrimSpace(*payload.GitHubPrivateKeyRef)

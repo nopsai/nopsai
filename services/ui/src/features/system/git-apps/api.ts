@@ -1,0 +1,67 @@
+import { fetchSystemJson } from '../api.js';
+import {
+  gitHubAppInstallationPayloadFromForm,
+  gitHubAppPayloadFromForm,
+  normalizeGitHubAppInstallation,
+  normalizeGitHubAppInstallationRepository,
+  normalizeGitHubAppPayload,
+  type GitHubAppFormState,
+  type GitHubAppInstallation,
+  type GitHubAppInstallationFormState,
+  type GitHubAppInstallationRepository,
+  type GitHubAppResource,
+} from './model.js';
+
+export async function fetchGitHubApp(): Promise<GitHubAppResource> {
+  return normalizeGitHubAppPayload(await fetchSystemJson('/v1/git-apps/github'));
+}
+
+export async function saveGitHubApp(
+  form: GitHubAppFormState,
+  installations: readonly GitHubAppInstallation[]
+): Promise<GitHubAppResource> {
+  return normalizeGitHubAppPayload(await fetchSystemJson('/v1/git-apps/github', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(gitHubAppPayloadFromForm(form, installations)),
+  }));
+}
+
+export async function saveGitHubAppInstallation(
+  form: GitHubAppInstallationFormState
+): Promise<GitHubAppInstallation> {
+  return normalizeGitHubAppInstallation(await fetchSystemJson('/v1/git-apps/github/installations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(gitHubAppInstallationPayloadFromForm(form)),
+  }));
+}
+
+export async function deleteGitHubAppInstallation(installationID: string): Promise<void> {
+  await fetchSystemJson(`/v1/git-apps/github/installations/${encodeURIComponent(installationID)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function verifyGitHubAppInstallation(installationID: string): Promise<GitHubAppInstallation> {
+  return normalizeGitHubAppInstallation(await fetchSystemJson(
+    `/v1/git-apps/github/installations/${encodeURIComponent(installationID)}/verify`,
+    { method: 'POST' }
+  ));
+}
+
+export async function refreshGitHubAppInstallation(installationID: string): Promise<GitHubAppInstallation> {
+  return normalizeGitHubAppInstallation(await fetchSystemJson(
+    `/v1/git-apps/github/installations/${encodeURIComponent(installationID)}/refresh`,
+    { method: 'POST' }
+  ));
+}
+
+export async function fetchGitHubAppInstallationRepositories(
+  installationID: string
+): Promise<GitHubAppInstallationRepository[]> {
+  const payload = await fetchSystemJson(
+    `/v1/git-apps/github/installations/${encodeURIComponent(installationID)}/repositories`
+  );
+  return Array.isArray(payload) ? payload.map(normalizeGitHubAppInstallationRepository) : [];
+}

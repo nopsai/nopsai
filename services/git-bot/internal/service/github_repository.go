@@ -18,6 +18,7 @@ type repositoryProvider interface {
 	CheckAccess(context.Context, RepositoryAccessRequest) (RepositoryAccessResponse, error)
 	BranchHasOpenPR(context.Context, BranchPROpenRequest) (BranchPROpenResponse, error)
 	ListInstalled(context.Context) ([]InstalledRepository, error)
+	ListInstalledForInstallation(context.Context, int64) ([]InstalledRepository, error)
 	FetchPipeline(context.Context, PipelineContentRequest) (string, error)
 }
 
@@ -39,15 +40,19 @@ func (e providerError) Unwrap() error {
 }
 
 type githubRepositoryProvider struct {
-	client *github.Client
+	resolver GitHubClientResolver
 }
 
-func newGitHubRepositoryProvider(client *github.Client) repositoryProvider {
-	return githubRepositoryProvider{client: client}
+func newGitHubRepositoryProvider(resolver GitHubClientResolver) repositoryProvider {
+	return githubRepositoryProvider{resolver: resolver}
 }
 
 func (p githubRepositoryProvider) FetchFile(ctx context.Context, req FileContentRequest) (string, error) {
-	fileContent, _, _, err := p.client.Repositories.GetContents(
+	client, _, err := p.resolver.ClientForRepository(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return "", err
+	}
+	fileContent, _, _, err := client.Repositories.GetContents(
 		ctx,
 		req.Owner,
 		req.Repo,
@@ -71,8 +76,12 @@ func (p githubRepositoryProvider) FetchFile(ctx context.Context, req FileContent
 }
 
 func (p githubRepositoryProvider) FetchDirectory(ctx context.Context, req DirectoryContentsRequest) (map[string]string, error) {
+	client, _, err := p.resolver.ClientForRepository(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return nil, err
+	}
 	files := make(map[string]string)
-	if err := p.collectRepositoryContents(ctx, req.Owner, req.Repo, strings.TrimPrefix(req.Path, "/"), req.Ref, files); err != nil {
+	if err := p.collectRepositoryContents(ctx, client, req.Owner, req.Repo, strings.TrimPrefix(req.Path, "/"), req.Ref, files); err != nil {
 		if isGitHubStatus(err, http.StatusNotFound) {
 			return nil, providerError{Status: http.StatusNotFound, Message: "path not found", Err: err}
 		}
@@ -82,7 +91,11 @@ func (p githubRepositoryProvider) FetchDirectory(ctx context.Context, req Direct
 }
 
 func (p githubRepositoryProvider) CheckAccess(ctx context.Context, req RepositoryAccessRequest) (RepositoryAccessResponse, error) {
-	repo, resp, err := p.client.Repositories.Get(ctx, req.Owner, req.Repo)
+	client, _, err := p.resolver.ClientForRepository(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return RepositoryAccessResponse{}, err
+	}
+	repo, resp, err := client.Repositories.Get(ctx, req.Owner, req.Repo)
 	if err != nil {
 		var ghErr *github.ErrorResponse
 		if errors.As(err, &ghErr) && ghErr.Response != nil {
@@ -114,6 +127,10 @@ func (p githubRepositoryProvider) CheckAccess(ctx context.Context, req Repositor
 }
 
 func (p githubRepositoryProvider) BranchHasOpenPR(ctx context.Context, req BranchPROpenRequest) (BranchPROpenResponse, error) {
+	client, _, err := p.resolver.ClientForRepository(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return BranchPROpenResponse{}, err
+	}
 	options := &github.PullRequestListOptions{
 		State: "open",
 		Head:  fmt.Sprintf("%s:%s", req.Owner, req.Branch),
@@ -121,7 +138,7 @@ func (p githubRepositoryProvider) BranchHasOpenPR(ctx context.Context, req Branc
 			PerPage: 1,
 		},
 	}
-	prs, _, err := p.client.PullRequests.List(ctx, req.Owner, req.Repo, options)
+	prs, _, err := client.PullRequests.List(ctx, req.Owner, req.Repo, options)
 	if err != nil {
 		return BranchPROpenResponse{}, providerError{Status: http.StatusInternalServerError, Message: "failed to check pull requests", Err: err}
 	}
@@ -129,10 +146,35 @@ func (p githubRepositoryProvider) BranchHasOpenPR(ctx context.Context, req Branc
 }
 
 func (p githubRepositoryProvider) ListInstalled(ctx context.Context) ([]InstalledRepository, error) {
+	// Preserve the legacy endpoint by aggregating repositories from all enabled
+	// registered installations visible to the resolver.
+	installations, err := p.installations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var repositories []InstalledRepository
+	for _, installation := range installations {
+		if !installation.Enabled {
+			continue
+		}
+		next, err := p.ListInstalledForInstallation(ctx, installation.InstallationID)
+		if err != nil {
+			return nil, err
+		}
+		repositories = append(repositories, next...)
+	}
+	return repositories, nil
+}
+
+func (p githubRepositoryProvider) ListInstalledForInstallation(ctx context.Context, installationID int64) ([]InstalledRepository, error) {
+	client, _, err := p.resolver.ClientForInstallation(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
 	var repositories []InstalledRepository
 	opts := &github.ListOptions{PerPage: 100}
 	for {
-		result, resp, err := p.client.Apps.ListRepos(ctx, opts)
+		result, resp, err := client.Apps.ListRepos(ctx, opts)
 		if err != nil {
 			return nil, providerError{Status: http.StatusBadGateway, Message: "failed to list installation repositories", Err: err}
 		}
@@ -184,8 +226,8 @@ func (p githubRepositoryProvider) FetchPipeline(ctx context.Context, req Pipelin
 	return content, nil
 }
 
-func (p githubRepositoryProvider) collectRepositoryContents(ctx context.Context, owner, repo, path, ref string, results map[string]string) error {
-	fileContent, dirContents, _, err := p.client.Repositories.GetContents(
+func (p githubRepositoryProvider) collectRepositoryContents(ctx context.Context, client *github.Client, owner, repo, path, ref string, results map[string]string) error {
+	fileContent, dirContents, _, err := client.Repositories.GetContents(
 		ctx,
 		owner,
 		repo,
@@ -210,11 +252,11 @@ func (p githubRepositoryProvider) collectRepositoryContents(ctx context.Context,
 
 		switch entry.GetType() {
 		case "dir":
-			if err := p.collectRepositoryContents(ctx, owner, repo, entryPath, ref, results); err != nil {
+			if err := p.collectRepositoryContents(ctx, client, owner, repo, entryPath, ref, results); err != nil {
 				return err
 			}
 		case "file":
-			fileContent, _, _, err := p.client.Repositories.GetContents(
+			fileContent, _, _, err := client.Repositories.GetContents(
 				ctx,
 				owner,
 				repo,
@@ -235,6 +277,23 @@ func (p githubRepositoryProvider) collectRepositoryContents(ctx context.Context,
 		}
 	}
 	return nil
+}
+
+func (p githubRepositoryProvider) installations(ctx context.Context) ([]GitHubInstallation, error) {
+	resolver, ok := p.resolver.(*githubClientResolver)
+	if !ok {
+		return nil, githubIntegrationUnavailableError()
+	}
+	if err := resolver.refreshIfNeeded(ctx, true); err != nil {
+		return nil, err
+	}
+	resolver.mu.Lock()
+	defer resolver.mu.Unlock()
+	out := make([]GitHubInstallation, 0, len(resolver.byID))
+	for _, installation := range resolver.byID {
+		out = append(out, installation)
+	}
+	return out, nil
 }
 
 func writeProviderError(w http.ResponseWriter, err error, fallbackMessage string) {

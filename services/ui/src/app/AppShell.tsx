@@ -193,6 +193,7 @@ function AppShell() {
     () =>
       baseSystemSubNav.filter(item => {
         if (item.path === '/system/config') return canViewSystemConfig;
+        if (item.path === '/system/git-apps') return access.systemPermissions.canViewGitApps;
         if (item.path === '/system/setup') return canViewSystemSetup;
         if (item.path === '/system/data-management') return canViewSystemRuntimeConfig;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
@@ -200,7 +201,7 @@ function AppShell() {
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLogs, canViewSystemRuntimeConfig, canViewSystemSetup]
+    [access.systemPermissions.canViewGitApps, canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLogs, canViewSystemRuntimeConfig, canViewSystemSetup]
   );
 
   const setupGate = useInitialSetupRedirect({

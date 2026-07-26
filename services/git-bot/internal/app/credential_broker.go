@@ -16,10 +16,9 @@ import (
 )
 
 type gitHubBootstrap struct {
-	GitHubAppID          string `json:"github_app_id"`
-	GitHubInstallationID string `json:"github_installation_id"`
-	GitHubPrivateKey     string `json:"github_private_key"`
-	GitHubWebhookSecret  string `json:"github_webhook_secret"`
+	GitHubAppID         string `json:"github_app_id"`
+	GitHubPrivateKey    string `json:"github_private_key"`
+	GitHubWebhookSecret string `json:"github_webhook_secret"`
 }
 
 type gitHubBootstrapEnvelope struct {
@@ -103,7 +102,6 @@ func requestGitHubBootstrap(
 		return result, err
 	}
 	if strings.TrimSpace(result.GitHubAppID) == "" ||
-		strings.TrimSpace(result.GitHubInstallationID) == "" ||
 		strings.TrimSpace(result.GitHubPrivateKey) == "" ||
 		strings.TrimSpace(result.GitHubWebhookSecret) == "" {
 		return gitHubBootstrap{}, fmt.Errorf("credential broker returned incomplete GitHub configuration")

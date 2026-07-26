@@ -9,7 +9,6 @@ import type {
   NotificationMailSettingsRecord,
 } from './config/model';
 import { ApplyBadge } from './config/ConfigApplyBadge';
-import GitHubAppSettingsCard from './config/GitHubAppSettingsCard';
 import { RuntimePoolsEditor } from './config/RuntimePoolsEditor';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 import { CONFIG_REPOSITORY_PROVIDER_OPTIONS } from '../../lib/configRepositoryProviders.js';
@@ -411,13 +410,6 @@ function SystemConfig({
             </label>
           </div>
         </div>
-
-        <GitHubAppSettingsCard
-          config={config}
-          fieldMetadata={fieldMetadata}
-          disabled={!canManageRuntimeConfig || configLoading || saving}
-          onChange={onChange}
-        />
 
         <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

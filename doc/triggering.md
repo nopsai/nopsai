@@ -8,6 +8,8 @@ Use this guide to simulate GitHub webhook traffic against the git-bot and verify
 
 - Git-bot running locally and reachable on `http://localhost:8081/webhook` (default from `docker-compose`).
 - The webhook secret used by your GitHub App. For local testing you can generate a new random string.
+- A matching enabled installation in **System > Git Apps**. The sample payload
+  uses installation ID `987654`.
 - A sample payload. `doc/sample-git-event.json` mirrors a GitHub `push` event and references the repository/branch used throughout the examples.
 
 ---
@@ -55,6 +57,7 @@ curl -X POST \
 ## Customising the Payload
 
 - Update `doc/sample-git-event.json` to reflect the repository, commit, and branch you want to test.
+- Keep `installation.id` aligned with an enabled GitHub App installation record.
 - To mimic pull requests, change `"event": "push"` to `"pull_request"` and provide the corresponding PR payload structure.
 - Ensure that the referenced repository is installed on your GitHub App and that triggers exist for the event/branch combination.
 
@@ -64,6 +67,8 @@ curl -X POST \
 
 - **Signature mismatch**: Confirm the GitHub App, your local test variable, and
   the active webhook credential version use the same value.
+- **Unknown installation**: Confirm `installation.id` exists and is enabled in
+  **System > Git Apps**.
 - **Run not created**: Check the git-bot logs for repository access issues or trigger mismatches. The API logs (container `nopsai`) will also record trigger evaluations.
 - **No UI updates**: Refresh the Pipeline runs page and verify authenticated `/v1/runs` requests are succeeding.
 

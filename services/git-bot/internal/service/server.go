@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +28,7 @@ import (
 )
 
 type GitBotApp struct {
-	ghClient           *github.Client
+	clientResolver     GitHubClientResolver
 	webhookSecret      string
 	checkRunStates     map[int64]*checkrender.State
 	stateLock          sync.Mutex
@@ -191,7 +192,7 @@ type FindSuiteCheckRunResponse struct {
 
 func NewGitBotApp(
 	cfg *config.Config,
-	ghClient *github.Client,
+	resolver GitHubClientResolver,
 	httpClient *http.Client,
 	githubAppID int64,
 	webhookSecret string,
@@ -200,12 +201,12 @@ func NewGitBotApp(
 ) *GitBotApp {
 	repositoryProvider := repositoryProvider(unavailableRepositoryProvider{})
 	checksProvider := checksProvider(unavailableChecksProvider{})
-	if ghClient != nil {
-		repositoryProvider = newGitHubRepositoryProvider(ghClient)
-		checksProvider = newGitHubChecksProvider(ghClient)
+	if resolver != nil {
+		repositoryProvider = newGitHubRepositoryProvider(resolver)
+		checksProvider = newGitHubChecksProvider(resolver)
 	}
 	return &GitBotApp{
-		ghClient:           ghClient,
+		clientResolver:     resolver,
 		webhookSecret:      webhookSecret,
 		checkRunStates:     make(map[int64]*checkrender.State),
 		githubAppID:        githubAppID,
@@ -226,6 +227,7 @@ func (a *GitBotApp) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/github/repo/access", a.handleCheckRepoAccess)
 	mux.HandleFunc("POST /v1/github/branch/has-open-pr", a.handleCheckBranchHasOpenPR)
 	mux.HandleFunc("GET /v1/github/installation/repositories", a.handleListInstalledRepositories)
+	mux.HandleFunc("GET /v1/github/installations/{installationID}/repositories", a.handleListInstallationRepositories)
 	mux.HandleFunc("POST /v1/github/pipeline", a.handleFetchPipeline)
 	mux.HandleFunc("POST /v1/checks/create", a.handleCreateCheckRun)
 	mux.HandleFunc("POST /v1/checks/initialize", a.handleInitializeCheckRun)
@@ -456,8 +458,37 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
+	installationID, ok := githubWebhookInstallationID(body)
+	if !ok {
+		http.Error(w, "Missing GitHub App installation", http.StatusBadRequest)
+		return
+	}
+	if a.clientResolver == nil {
+		http.Error(w, githubIntegrationUnavailableMessage, http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := a.clientResolver.InstallationForID(r.Context(), installationID); err != nil {
+		writeProviderError(w, err, "GitHub App installation is not registered")
+		return
+	}
+	r.Header.Set("X-GitHub-Installation-ID", fmt.Sprintf("%d", installationID))
 
 	a.webhookForwarder.ForwardWebhook(w, r, body)
+}
+
+func githubWebhookInstallationID(body []byte) (int64, bool) {
+	var envelope struct {
+		Installation *struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return 0, false
+	}
+	if envelope.Installation == nil || envelope.Installation.ID == 0 {
+		return 0, false
+	}
+	return envelope.Installation.ID, true
 }
 
 func (a *GitBotApp) handleFetchFile(w http.ResponseWriter, r *http.Request) {
@@ -534,7 +565,7 @@ func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "files is required")
 		return
 	}
-	if a == nil || a.ghClient == nil {
+	if a == nil || a.clientResolver == nil {
 		_ = httpapi.WriteJSONError(w, http.StatusServiceUnavailable, githubIntegrationUnavailableMessage)
 		return
 	}
@@ -575,7 +606,12 @@ func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	baseRef, _, err := a.ghClient.Git.GetRef(ctx, req.Owner, req.Repo, baseRefName)
+	client, _, err := a.clientResolver.ClientForRepository(ctx, req.Owner, req.Repo)
+	if err != nil {
+		writeProviderError(w, err, "failed to resolve GitHub App installation")
+		return
+	}
+	baseRef, _, err := client.Git.GetRef(ctx, req.Owner, req.Repo, baseRefName)
 	if err != nil {
 		writeGitHubCommitError(w, err, http.StatusNotFound, "base ref not found")
 		return
@@ -589,14 +625,14 @@ func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetRef, _, err := a.ghClient.Git.GetRef(ctx, req.Owner, req.Repo, branchName)
+	targetRef, _, err := client.Git.GetRef(ctx, req.Owner, req.Repo, branchName)
 	if err != nil {
 		var ghErr *github.ErrorResponse
 		if !errors.As(err, &ghErr) || ghErr.Response == nil || ghErr.Response.StatusCode != http.StatusNotFound {
 			writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to read push branch")
 			return
 		}
-		targetRef, _, err = a.ghClient.Git.CreateRef(ctx, req.Owner, req.Repo, &github.Reference{
+		targetRef, _, err = client.Git.CreateRef(ctx, req.Owner, req.Repo, &github.Reference{
 			Ref: github.String("refs/" + branchName),
 			Object: &github.GitObject{
 				SHA: github.String(baseSHA),
@@ -616,7 +652,7 @@ func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 		_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "push branch did not include a commit sha")
 		return
 	}
-	parentCommit, _, err := a.ghClient.Git.GetCommit(ctx, req.Owner, req.Repo, parentSHA)
+	parentCommit, _, err := client.Git.GetCommit(ctx, req.Owner, req.Repo, parentSHA)
 	if err != nil {
 		writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to read push branch commit")
 		return
@@ -630,12 +666,12 @@ func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tree, _, err := a.ghClient.Git.CreateTree(ctx, req.Owner, req.Repo, baseTreeSHA, entries)
+	tree, _, err := client.Git.CreateTree(ctx, req.Owner, req.Repo, baseTreeSHA, entries)
 	if err != nil {
 		writeGitHubCommitError(w, err, http.StatusBadGateway, "failed to create push tree")
 		return
 	}
-	commit, _, err := a.ghClient.Git.CreateCommit(ctx, req.Owner, req.Repo, &github.Commit{
+	commit, _, err := client.Git.CreateCommit(ctx, req.Owner, req.Repo, &github.Commit{
 		Message: github.String(strings.TrimSpace(req.Message)),
 		Tree:    tree,
 		Parents: []*github.Commit{{SHA: github.String(parentSHA)}},
@@ -650,7 +686,7 @@ func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, err = a.ghClient.Git.UpdateRef(ctx, req.Owner, req.Repo, &github.Reference{
+	_, _, err = client.Git.UpdateRef(ctx, req.Owner, req.Repo, &github.Reference{
 		Ref: github.String("refs/" + branchName),
 		Object: &github.GitObject{
 			SHA: github.String(commitSHA),
@@ -773,6 +809,21 @@ func (a *GitBotApp) handleListInstalledRepositories(w http.ResponseWriter, r *ht
 	repositories, err := a.repositoryProvider.ListInstalled(r.Context())
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list GitHub App installation repositories")
+		writeProviderError(w, err, "failed to list installation repositories")
+		return
+	}
+	_ = httpapi.WriteJSON(w, http.StatusOK, InstalledRepositoriesResponse{Repositories: repositories})
+}
+
+func (a *GitBotApp) handleListInstallationRepositories(w http.ResponseWriter, r *http.Request) {
+	installationID, err := ParseGitHubInstallationID(r.PathValue("installationID"))
+	if err != nil {
+		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	repositories, err := a.repositoryProvider.ListInstalledForInstallation(r.Context(), installationID)
+	if err != nil {
+		log.Error().Err(err).Int64("installation_id", installationID).Msg("Failed to list GitHub App installation repositories")
 		writeProviderError(w, err, "failed to list installation repositories")
 		return
 	}

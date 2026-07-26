@@ -29,6 +29,10 @@ func (unavailableRepositoryProvider) ListInstalled(context.Context) ([]Installed
 	return nil, githubIntegrationUnavailableError()
 }
 
+func (unavailableRepositoryProvider) ListInstalledForInstallation(context.Context, int64) ([]InstalledRepository, error) {
+	return nil, githubIntegrationUnavailableError()
+}
+
 func (unavailableRepositoryProvider) FetchPipeline(context.Context, PipelineContentRequest) (string, error) {
 	return "", githubIntegrationUnavailableError()
 }

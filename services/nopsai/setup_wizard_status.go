@@ -272,6 +272,7 @@ func (a *App) setupGitHubInfo() setupGitHubInfo {
 	cfg := a.getConfigSnapshot()
 	gitBotServiceURL := strings.TrimRight(strings.TrimSpace(cfg.NopsaiGitBotAPIURL), "/")
 	nopsaiAPIURL := strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/")
+	installationIDConfigured := strings.TrimSpace(cfg.GitHubInstallID) != "" || len(cfg.GitHubInstallations) > 0
 	webhookURL := ""
 	if gitBotServiceURL != "" {
 		if joined, err := url.JoinPath(gitBotServiceURL, "webhook"); err == nil {
@@ -296,7 +297,7 @@ func (a *App) setupGitHubInfo() setupGitHubInfo {
 			"checks":        "read_and_write",
 		},
 		AppIDConfigured:            strings.TrimSpace(cfg.GitHubAppID) != "",
-		InstallationIDConfigured:   strings.TrimSpace(cfg.GitHubInstallID) != "",
+		InstallationIDConfigured:   installationIDConfigured,
 		PrivateKeyConfigured:       strings.TrimSpace(cfg.GitHubPrivateKeyCredentialRef) != "",
 		WebhookSecretConfigured:    strings.TrimSpace(cfg.GitHubWebhookCredentialRef) != "",
 		GitBotURLConfigured:        gitBotServiceURL != "",

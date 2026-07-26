@@ -314,7 +314,7 @@ GitOps-style configuration sync supports:
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
 - `setting/system/agent-profiles.yaml` -> system Agent Profile persona registry and default profile setting from a global config repo
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
-- `setting/system/github.yaml` -> GitHub App IDs, credential references, and git-bot URLs from a global config repo
+- `setting/git-apps/github.yaml` -> GitHub App IDs, credential references, and installation records from a global config repo
 - `setting/system/runner.yaml` -> runner install defaults, runtime defaults, dispatcher routing, and assistant settings from a global config repo
 - `setting/system/data-management.yaml` -> scheduled data cleanup definitions from a global config repo
 - `setting/system/credentials.yaml` -> encrypted system credential envelopes from a global config repo

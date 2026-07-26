@@ -106,7 +106,8 @@ Responsibilities:
   and `runtime_settings_store.go`, persisting runner install defaults, runner
   runtime defaults, agent defaults, runner registry credential assignments, and
   dispatcher routing in the database as the source of truth. GitHub App IDs,
-  credential references, and git-bot URLs are owned by the GitHub settings file.
+  credential references, and installation records are owned by
+  `setting/git-apps/github.yaml`; git-bot URLs remain system/service settings.
   `config.yml`, `.env`, Docker Compose, and deployment secrets are bootstrap
   inputs. Mail notification settings stay in their dedicated notification
   settings store.
@@ -589,6 +590,9 @@ Responsibilities:
 - Keeps repository reads, repository access checks, branch PR checks,
   installation repository listing, and pipeline content fetches behind a
   GitHub repository provider boundary.
+- Resolves GitHub clients per installation with `GitHubClientResolver`, using
+  the repository owner or webhook `installation.id` to choose the correct
+  installation token.
 - Creates, initializes, finds, and updates GitHub check runs.
 - Keeps check-run create/update/list operations behind a dedicated GitHub checks
   provider boundary.
@@ -605,6 +609,7 @@ Key files:
 - `services/git-bot/internal/app`
 - `services/git-bot/internal/service`
 - `services/git-bot/internal/service/nopsai_forwarder.go`
+- `services/git-bot/internal/service/github_resolver.go`
 - `services/git-bot/internal/service/github_repository.go`
 - `services/git-bot/internal/service/github_checks.go`
 - `services/git-bot/internal/checkrender`

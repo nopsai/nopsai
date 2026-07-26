@@ -222,7 +222,7 @@ runner_id: runner-a
 github_app_id: "123456"
 git_bot_api_url: http://git-bot:8081
 `, "setting/system/runner.yaml")
-	if err == nil || !strings.Contains(err.Error(), "setting/system/github.yaml") {
+	if err == nil || !strings.Contains(err.Error(), "setting/git-apps/github.yaml") {
 		t.Fatalf("expected move-to-github error, got %v", err)
 	}
 }
@@ -407,16 +407,18 @@ func TestExportConfigRepositoryRuntimeSettingsUsesCanonicalRunnerPath(t *testing
 	if _, ok := files["setting/system/runner.yaml"]; !ok {
 		t.Fatalf("missing canonical runner settings export path: %#v", files)
 	}
-	if _, ok := files["setting/system/github.yaml"]; !ok {
+	if _, ok := files["setting/git-apps/github.yaml"]; !ok {
 		t.Fatalf("missing canonical GitHub settings export path: %#v", files)
 	}
 	if strings.Contains(files["setting/system/runner.yaml"], "github_") ||
 		strings.Contains(files["setting/system/runner.yaml"], "git_bot_") {
 		t.Fatalf("runner export contains GitHub-owned settings:\n%s", files["setting/system/runner.yaml"])
 	}
-	if strings.Contains(files["setting/system/github.yaml"], "runner_") ||
-		strings.Contains(files["setting/system/github.yaml"], "dispatcher_") {
-		t.Fatalf("GitHub export contains runner-owned settings:\n%s", files["setting/system/github.yaml"])
+	if strings.Contains(files["setting/git-apps/github.yaml"], "runner_") ||
+		strings.Contains(files["setting/git-apps/github.yaml"], "dispatcher_") ||
+		strings.Contains(files["setting/git-apps/github.yaml"], "git_bot_api_url") ||
+		strings.Contains(files["setting/git-apps/github.yaml"], "github_installation_id") {
+		t.Fatalf("GitHub export contains unsupported settings:\n%s", files["setting/git-apps/github.yaml"])
 	}
 	for _, unexpected := range []string{"setting/system/runtime.yaml", "settings/system/runtime.yaml", "settings/system/runner.yaml", "settings/system/github.yaml"} {
 		if _, ok := files[unexpected]; ok {
@@ -432,6 +434,7 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 			RunnerCapacity:         9,
 			DispatcherRouting:      map[string][]string{"old": {"old-runner"}},
 			NopsaiAPIURL:           "http://old-nopsai",
+			NopsaiGitBotAPIURL:     "http://existing-git-bot:8081",
 			DockerNetworkName:      "old-net",
 			DefaultPipelineTimeout: "20m",
 		},
@@ -453,13 +456,17 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 		},
 	}
 	githubPlan := &gitOpsGitHubSettingsPlan{
-		sourcePath: "setting/system/github.yaml",
+		sourcePath: "setting/git-apps/github.yaml",
 		payload: systemConfigPayload{
-			GitBotAPIURL:         stringPtr(" http://git-bot:8081 "),
-			GitHubAppID:          stringPtr(" 123456 "),
-			GitHubInstallationID: stringPtr(" 987654 "),
-			GitHubPrivateKeyRef:  stringPtr(" credential://system/github/app-private-key "),
-			GitHubWebhookRef:     stringPtr(" credential://system/github/webhook-secret "),
+			GitHubAppID: stringPtr(" 123456 "),
+			GitHubInstallations: &[]config.GitHubInstallationConfig{{
+				InstallationID: " 987654 ",
+				AccountLogin:   " nopsai ",
+				AccountType:    " org ",
+				Enabled:        boolPtr(true),
+			}},
+			GitHubPrivateKeyRef: stringPtr(" credential://system/github/app-private-key "),
+			GitHubWebhookRef:    stringPtr(" credential://system/github/webhook-secret "),
 		},
 	}
 
@@ -484,12 +491,16 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 		t.Fatalf("dispatcher routing = %#v", cfg.DispatcherRouting)
 	}
 	if cfg.GitHubAppID != "123456" ||
-		cfg.GitHubInstallID != "987654" ||
+		cfg.GitHubInstallID != "" ||
+		len(cfg.GitHubInstallations) != 1 ||
+		cfg.GitHubInstallations[0].InstallationID != "987654" ||
+		cfg.GitHubInstallations[0].AccountLogin != "nopsai" ||
+		cfg.GitHubInstallations[0].AccountType != "organization" ||
 		cfg.GitHubPrivateKeyCredentialRef != "credential://system/github/app-private-key" ||
 		cfg.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
-		t.Fatalf("github settings = (%q, %q, %q, %q)", cfg.GitHubAppID, cfg.GitHubInstallID, cfg.GitHubPrivateKeyCredentialRef, cfg.GitHubWebhookCredentialRef)
+		t.Fatalf("github settings = (%q, %q, %#v, %q, %q)", cfg.GitHubAppID, cfg.GitHubInstallID, cfg.GitHubInstallations, cfg.GitHubPrivateKeyCredentialRef, cfg.GitHubWebhookCredentialRef)
 	}
-	if cfg.NopsaiGitBotAPIURL != "http://git-bot:8081" {
+	if cfg.NopsaiGitBotAPIURL != "http://existing-git-bot:8081" {
 		t.Fatalf("git-bot URL = %q", cfg.NopsaiGitBotAPIURL)
 	}
 }
@@ -506,12 +517,20 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 			" prod ": {" runner-prod ", "runner-a", ""},
 			"":       {" runner-default "},
 		},
-		RunnerID:                      "runner-prod",
-		RunnerScopes:                  "prod,dev",
-		RunnerCapacity:                3,
-		EjectedRunnerIDs:              []string{" runner-z ", "runner-a", "runner-a"},
-		GitHubAppID:                   "123456",
-		GitHubInstallID:               "987654",
+		RunnerID:         "runner-prod",
+		RunnerScopes:     "prod,dev",
+		RunnerCapacity:   3,
+		EjectedRunnerIDs: []string{" runner-z ", "runner-a", "runner-a"},
+		GitHubAppID:      "123456",
+		GitHubInstallations: []config.GitHubInstallationConfig{{
+			InstallationID:          "987654",
+			AccountLogin:            "nopsai",
+			AccountType:             "organization",
+			Enabled:                 boolPtr(true),
+			AccessibleRepositories:  7,
+			LastRepositoryRefreshAt: "2026-07-25T10:00:00Z",
+			LastError:               "cached failure",
+		}},
 		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
 		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
 	}
@@ -549,10 +568,15 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 	if got := stored.EjectedRunnerIDs; len(got) != 2 || got[0] != "runner-a" || got[1] != "runner-z" {
 		t.Fatalf("stored ejected runner ids = %#v, want sorted unique IDs", got)
 	}
-	if stored.GitHubAppID == nil || *stored.GitHubAppID != "123456" ||
-		stored.GitHubInstallationID == nil || *stored.GitHubInstallationID != "987654" ||
-		stored.GitHubPrivateKeyRef == nil || *stored.GitHubPrivateKeyRef != "credential://system/github/app-private-key" ||
-		stored.GitHubWebhookRef == nil || *stored.GitHubWebhookRef != "credential://system/github/webhook-secret" {
+	if stored.AppID == nil || *stored.AppID != "123456" ||
+		stored.GitHubInstallationID != nil ||
+		len(stored.Installations) != 1 ||
+		stored.Installations[0].InstallationID != "987654" ||
+		stored.Installations[0].AccessibleRepositories != 7 ||
+		stored.Installations[0].LastRepositoryRefreshAt != "2026-07-25T10:00:00Z" ||
+		stored.Installations[0].LastError != "cached failure" ||
+		stored.PrivateKeyCredentialRef == nil || *stored.PrivateKeyCredentialRef != "credential://system/github/app-private-key" ||
+		stored.WebhookCredentialRef == nil || *stored.WebhookCredentialRef != "credential://system/github/webhook-secret" {
 		t.Fatalf("stored GitHub settings = %#v", stored)
 	}
 }
@@ -625,10 +649,84 @@ func TestLoadRuntimeSettingsRecordAppliesPersistedGitOpsSnapshot(t *testing.T) {
 		t.Fatalf("ejected runner ids = %#v, want sorted unique IDs", got)
 	}
 	if next.GitHubAppID != "123456" ||
-		next.GitHubInstallID != "987654" ||
+		next.GitHubInstallID != "" ||
+		len(next.GitHubInstallations) != 1 ||
+		next.GitHubInstallations[0].InstallationID != "987654" ||
 		next.GitHubPrivateKeyCredentialRef != "credential://system/github/app-private-key" ||
 		next.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
-		t.Fatalf("GitHub settings = (%q, %q, %q, %q)", next.GitHubAppID, next.GitHubInstallID, next.GitHubPrivateKeyCredentialRef, next.GitHubWebhookCredentialRef)
+		t.Fatalf("GitHub settings = (%q, %q, %#v, %q, %q)", next.GitHubAppID, next.GitHubInstallID, next.GitHubInstallations, next.GitHubPrivateKeyCredentialRef, next.GitHubWebhookCredentialRef)
+	}
+}
+
+func TestRuntimeSettingsSnapshotRestoresCanonicalGitHubInstallations(t *testing.T) {
+	raw := []byte(`{
+		"app_id": "123456",
+		"private_key_credential_ref": " credential://system/github/app-private-key ",
+		"webhook_credential_ref": " credential://system/github/webhook-secret ",
+		"installations": [{
+			"installation_id": "987654",
+			"account_login": " nopsai ",
+			"account_type": "organization",
+			"accessible_repositories": 7,
+			"last_repository_refresh_at": "2026-07-25T10:00:00Z",
+			"last_error": "cached failure"
+		}]
+	}`)
+	var file runtimeSettingsSnapshotFile
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+
+	cfg := config.Config{}
+	next, err := applySystemConfigToConfig(&cfg, runtimeSettingsPayloadFromFile(file))
+	if err != nil {
+		t.Fatalf("applySystemConfigToConfig() error = %v", err)
+	}
+	if next.GitHubAppID != "123456" ||
+		next.GitHubInstallID != "" ||
+		len(next.GitHubInstallations) != 1 ||
+		next.GitHubInstallations[0].InstallationID != "987654" ||
+		next.GitHubInstallations[0].AccountLogin != "nopsai" ||
+		next.GitHubInstallations[0].AccessibleRepositories != 7 ||
+		next.GitHubInstallations[0].LastRepositoryRefreshAt != "2026-07-25T10:00:00Z" ||
+		next.GitHubInstallations[0].LastError != "cached failure" ||
+		next.GitHubPrivateKeyCredentialRef != "credential://system/github/app-private-key" ||
+		next.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
+		t.Fatalf("GitHub settings = (%q, %q, %#v, %q, %q)", next.GitHubAppID, next.GitHubInstallID, next.GitHubInstallations, next.GitHubPrivateKeyCredentialRef, next.GitHubWebhookCredentialRef)
+	}
+}
+
+func TestRuntimeSettingsSnapshotPreservesGitHubInstallationsWhenAbsent(t *testing.T) {
+	raw := []byte(`{"runner_capacity": 4}`)
+	var file runtimeSettingsSnapshotFile
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+
+	cfg := config.Config{
+		RunnerCapacity:                1,
+		GitHubAppID:                   "123456",
+		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
+		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
+		GitHubInstallations: []config.GitHubInstallationConfig{{
+			InstallationID: "987654",
+			AccountLogin:   "nopsai",
+			AccountType:    "organization",
+		}},
+	}
+	next, err := applySystemConfigToConfig(&cfg, runtimeSettingsPayloadFromFile(file))
+	if err != nil {
+		t.Fatalf("applySystemConfigToConfig() error = %v", err)
+	}
+	if next.RunnerCapacity != 4 {
+		t.Fatalf("runner capacity = %d, want 4", next.RunnerCapacity)
+	}
+	if next.GitHubAppID != "123456" ||
+		len(next.GitHubInstallations) != 1 ||
+		next.GitHubInstallations[0].InstallationID != "987654" ||
+		next.GitHubPrivateKeyCredentialRef != "credential://system/github/app-private-key" ||
+		next.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
+		t.Fatalf("GitHub settings were not preserved: (%q, %#v, %q, %q)", next.GitHubAppID, next.GitHubInstallations, next.GitHubPrivateKeyCredentialRef, next.GitHubWebhookCredentialRef)
 	}
 }
 
