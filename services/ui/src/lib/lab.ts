@@ -1,4 +1,11 @@
 import * as yaml from 'js-yaml';
+import {
+  RUNTIME_OUTPUT_REFERENCE_PREFIX,
+  parseRuntimeOutputRef,
+  parseScopedRuntimeRef,
+  parseTaskOutputDeclarations,
+  validateRuntimeVariableMap,
+} from './yamlValidation.js';
 
 export type LabValidationError = {
   message: string;
@@ -52,6 +59,7 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'goal', hint: 'LLM goal prompt' },
   { key: 'script', hint: 'Shell script body' },
   { key: 'depends_on', hint: 'Upstream steps' },
+  { key: 'outputs', hint: 'Runtime task outputs' },
   { key: 'ignore_failure', hint: 'Ignore failures' },
   { key: 'agent_profile', hint: 'Select AI role/persona' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
@@ -66,6 +74,7 @@ export const TASK_DIRECTIVES: LabDirective[] = [
   { key: 'goal', hint: 'Task goal prompt' },
   { key: 'script', hint: 'Task script body' },
   { key: 'depends_on', hint: 'Dependent tasks' },
+  { key: 'outputs', hint: 'Runtime task outputs' },
   { key: 'ignore_failure', hint: 'Ignore task errors' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for this goal task' },
@@ -85,7 +94,7 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
 
 export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
 export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'mcp_profiles', 'llm_content_include', 'llm_content_ignore']);
-export const ARRAY_KEYS = new Set(['steps', 'tasks', 'items', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'mcp_profiles', 'knowledge_context', 'llm_content_include', 'llm_content_ignore']);
+export const ARRAY_KEYS = new Set(['steps', 'tasks', 'items', 'variables', 'secrets', 'volumes', 'depends_on', 'outputs', 'artifacts', 'mcp_profiles', 'knowledge_context', 'llm_content_include', 'llm_content_ignore']);
 
 const OVERRIDE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
 export const DEFAULT_PIPELINE_NAME = 'ad-hoc-pipeline';
@@ -216,6 +225,100 @@ export function validateOverrideKey(key: string): boolean {
   return OVERRIDE_KEY_PATTERN.test(key);
 }
 
+type RuntimeOutputConsumer = {
+  stepName: string;
+  taskName: string;
+  stepDependsOn: string[];
+  taskDependsOn: string[];
+};
+
+type RuntimeVariableConsumer = {
+  variables: Record<string, unknown>;
+  consumer: RuntimeOutputConsumer;
+  path: string;
+};
+
+function producerTaskKey(stepName: string, taskName: string): string {
+  return `${stepName.trim()}/${taskName.trim()}`;
+}
+
+function resolvePipelineTaskDependency(
+  depNameRaw: string,
+  currentStep: string,
+  stepNames: Set<string>,
+  stepToTaskNames: Map<string, Set<string>>
+): { stepName: string; taskName: string; ok: boolean } {
+  const depName = depNameRaw.trim();
+  const localTasks = stepToTaskNames.get(currentStep);
+  if (localTasks?.has(depName)) {
+    return { stepName: currentStep, taskName: depName, ok: true };
+  }
+
+  let bestStep = '';
+  let bestTask = '';
+  stepToTaskNames.forEach((taskNames, stepName) => {
+    const prefix = `${stepName}.`;
+    if (!depName.startsWith(prefix)) return;
+    const taskName = depName.slice(prefix.length).trim();
+    if (!taskName || !taskNames.has(taskName)) return;
+    if (stepName.length > bestStep.length) {
+      bestStep = stepName;
+      bestTask = taskName;
+    }
+  });
+  if (bestStep) {
+    return { stepName: bestStep, taskName: bestTask, ok: true };
+  }
+  if (stepNames.has(depName)) {
+    return { stepName: depName, taskName: '', ok: true };
+  }
+  return { stepName: '', taskName: '', ok: false };
+}
+
+function consumerDependsOnOutputProducer(consumer: RuntimeOutputConsumer, ref: { stepName: string; taskName: string }): boolean {
+  if (consumer.stepName === ref.stepName && consumer.taskName === ref.taskName) return false;
+  if (consumer.stepDependsOn.some(dep => dep.trim() === ref.stepName || dep.trim() === `${ref.stepName}.${ref.taskName}`)) {
+    return true;
+  }
+  return consumer.taskDependsOn.some(dep => {
+    const trimmed = dep.trim();
+    if (consumer.stepName === ref.stepName && trimmed === ref.taskName) return true;
+    return trimmed === `${ref.stepName}.${ref.taskName}`;
+  });
+}
+
+function validateRuntimeOutputRefsInVariables(
+  variables: Record<string, unknown>,
+  consumer: RuntimeOutputConsumer,
+  stepToTaskNames: Map<string, Set<string>>,
+  outputDeclarations: Map<string, Set<string>>
+): string | null {
+  for (const [name, rawValue] of Object.entries(variables)) {
+    if (typeof rawValue !== 'string') continue;
+    const parsed = parseRuntimeOutputRef(rawValue);
+    if (parsed.error) {
+      return `Validation Error: Variable '${name}' in step '${consumer.stepName}' references an invalid runtime output: ${parsed.error}.`;
+    }
+    if (!parsed.found) {
+      if (rawValue.includes(RUNTIME_OUTPUT_REFERENCE_PREFIX)) {
+        return `Validation Error: Variable '${name}' in step '${consumer.stepName}' uses a runtime output in an unsupported expression; use the full value $steps.<step>.<task>.outputs.<name>.`;
+      }
+      continue;
+    }
+    const ref = parsed.ref!;
+    if (!stepToTaskNames.get(ref.stepName)?.has(ref.taskName)) {
+      return `Validation Error: Variable '${name}' references missing output producer task ${ref.stepName}.${ref.taskName}.`;
+    }
+    if (!outputDeclarations.get(producerTaskKey(ref.stepName, ref.taskName))?.has(ref.outputName)) {
+      return `Validation Error: Variable '${name}' references undeclared output ${ref.stepName}.${ref.taskName}.outputs.${ref.outputName}.`;
+    }
+    if (!consumerDependsOnOutputProducer(consumer, ref)) {
+      return `Validation Error: Variable '${name}' consumes output ${ref.stepName}.${ref.taskName}.outputs.${ref.outputName} without a valid dependency.`;
+    }
+  }
+  return null;
+}
+
 export function validatePipelineYamlStrict(yamlString: string): LabValidationResult {
   const pathIndex = buildYamlPathIndex(yamlString);
 
@@ -257,6 +360,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'goal',
     'script',
     'depends_on',
+    'outputs',
     'ignore_failure',
     'agent_profile',
     'llm_profile',
@@ -270,6 +374,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'goal',
     'script',
     'depends_on',
+    'outputs',
     'ignore_failure',
     'llm_profile',
     'mcp_profiles',
@@ -530,12 +635,45 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       return { errors: [createError(`Validation Error: Pipeline version '${pipelineVersion}' contains invalid characters.`, ['version'])] };
     }
 
+    if (hasOwn(pipeline, 'variables')) {
+      if (!Array.isArray(pipeline.variables)) {
+        return { errors: [createError("Validation Error: 'variables' must be a list of runtime variable references.", ['variables'])] };
+      }
+      const runtimeNames = new Map<string, string>();
+      for (let variableIndex = 0; variableIndex < pipeline.variables.length; variableIndex += 1) {
+        const rawVariable = pipeline.variables[variableIndex];
+        const variablePath = `variables[${variableIndex}]`;
+        if (typeof rawVariable !== 'string' || !rawVariable.trim()) {
+          return { errors: [createError(`Validation Error: Pipeline variable declaration #${variableIndex + 1} must be a non-empty string.`, [variablePath, 'variables'])] };
+        }
+        const parsedRef = parseScopedRuntimeRef(rawVariable);
+        if (parsedRef.error || !parsedRef.ref) {
+          return { errors: [createError(`Validation Error: Pipeline variable '${rawVariable}' is invalid: ${parsedRef.error}.`, [variablePath, 'variables'])] };
+        }
+        const previous = runtimeNames.get(parsedRef.ref.name);
+        if (previous) {
+          return {
+            errors: [
+              createError(`Validation Error: Pipeline variable '${rawVariable}' declares runtime variable '${parsedRef.ref.name}' more than once; previous declaration was '${previous}'.`, [
+                variablePath,
+                'variables',
+              ]),
+            ],
+          };
+        }
+        runtimeNames.set(parsedRef.ref.name, rawVariable.trim());
+      }
+    }
+
     const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
     if (steps.length === 0) {
       return { errors: [createError("Validation Error: At least one step is required in 'steps'.", ['steps'])] };
     }
 
     const stepNames = new Set<string>();
+    const stepToTaskNames = new Map<string, Set<string>>();
+    const outputDeclarations = new Map<string, Set<string>>();
+    const runtimeVariableConsumers: RuntimeVariableConsumer[] = [];
     for (let index = 0; index < steps.length; index += 1) {
       const step = steps[index] as unknown;
       const stepPath = `steps[${index}]`;
@@ -551,6 +689,41 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
         return { errors: [createError(`Validation Error: Duplicate step name '${stepName}' found.`, [`${stepPath}.name`, stepPath])] };
       }
       stepNames.add(stepName);
+      stepToTaskNames.set(stepName, new Set<string>());
+
+      const stepVariables = step.variables;
+      const stepVariablesError = validateRuntimeVariableMap(stepVariables, `Step '${stepName}' variables`);
+      if (stepVariablesError) {
+        return { errors: [createError(`Validation Error: ${stepVariablesError}`, [`${stepPath}.variables`, stepPath])] };
+      }
+      if (isPlainObject(stepVariables)) {
+        runtimeVariableConsumers.push({
+          variables: stepVariables,
+          consumer: {
+            stepName,
+            taskName: stepName,
+            stepDependsOn: Array.isArray(step.depends_on) ? step.depends_on.map(dep => safeString(dep)) : [],
+            taskDependsOn: [],
+          },
+          path: `${stepPath}.variables`,
+        });
+      }
+
+      if (hasOwn(step, 'secrets')) {
+        if (!Array.isArray(step.secrets)) {
+          return { errors: [createError(`Validation Error: Step '${stepName}' secrets must be a list.`, [`${stepPath}.secrets`, stepPath])] };
+        }
+        for (let secretIndex = 0; secretIndex < step.secrets.length; secretIndex += 1) {
+          const rawSecret = step.secrets[secretIndex];
+          if (typeof rawSecret !== 'string' || !rawSecret.trim()) {
+            return { errors: [createError(`Validation Error: Step '${stepName}' secret #${secretIndex + 1} must be a non-empty string.`, [`${stepPath}.secrets`, stepPath])] };
+          }
+          const parsedSecret = parseScopedRuntimeRef(rawSecret);
+          if (parsedSecret.error) {
+            return { errors: [createError(`Validation Error: Step '${stepName}' secret '${rawSecret}' is invalid: ${parsedSecret.error}.`, [`${stepPath}.secrets`, stepPath])] };
+          }
+        }
+      }
 
       const hasIncludeKey = hasOwn(step, 'include');
       const includeValue = hasIncludeKey ? step.include : null;
@@ -608,6 +781,23 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       }
 
       const hasLegacyContent = hasGoalContent || hasScriptContent;
+      const stepOutputs = parseTaskOutputDeclarations(step.outputs, `Step '${stepName}' outputs`);
+      if (stepOutputs.error) {
+        return { errors: [createError(`Validation Error: ${stepOutputs.error}`, [`${stepPath}.outputs`, stepPath])] };
+      }
+      if (stepOutputs.outputs.length > 0) {
+        if (isInclude) {
+          return { errors: [createError(`Validation Error: Include step '${stepName}' cannot declare task outputs.`, [`${stepPath}.outputs`, stepPath])] };
+        }
+        if (hasApprovalKey) {
+          return { errors: [createError(`Validation Error: Approval step '${stepName}' cannot declare task outputs.`, [`${stepPath}.outputs`, stepPath])] };
+        }
+        if (hasTasks) {
+          return { errors: [createError(`Validation Error: Step '${stepName}' has tasks, so outputs must be declared on individual tasks.`, [`${stepPath}.outputs`, stepPath])] };
+        }
+        stepToTaskNames.get(stepName)?.add(stepName);
+        outputDeclarations.set(producerTaskKey(stepName, stepName), new Set(stepOutputs.outputs.map(output => output.name)));
+      }
 
       if (hasApprovalKey) {
         if (!isPlainObject(approvalValue)) {
@@ -758,6 +948,33 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
             return { errors: [createError(`Validation Error: Duplicate task name '${taskName}' in step '${stepName}'.`, [`${taskPath}.name`, taskPath])] };
           }
           taskNames.add(taskName);
+          stepToTaskNames.get(stepName)?.add(taskName);
+
+          const taskVariables = task.variables;
+          const taskVariablesError = validateRuntimeVariableMap(taskVariables, `Task '${taskName}' in step '${stepName}' variables`);
+          if (taskVariablesError) {
+            return { errors: [createError(`Validation Error: ${taskVariablesError}`, [`${taskPath}.variables`, taskPath])] };
+          }
+          if (isPlainObject(taskVariables)) {
+            runtimeVariableConsumers.push({
+              variables: taskVariables,
+              consumer: {
+                stepName,
+                taskName,
+                stepDependsOn: Array.isArray(step.depends_on) ? step.depends_on.map(dep => safeString(dep)) : [],
+                taskDependsOn: Array.isArray(task.depends_on) ? task.depends_on.map(dep => safeString(dep)) : [],
+              },
+              path: `${taskPath}.variables`,
+            });
+          }
+
+          const taskOutputs = parseTaskOutputDeclarations(task.outputs, `Task '${taskName}' in step '${stepName}' outputs`);
+          if (taskOutputs.error) {
+            return { errors: [createError(`Validation Error: ${taskOutputs.error}`, [`${taskPath}.outputs`, taskPath])] };
+          }
+          if (taskOutputs.outputs.length > 0) {
+            outputDeclarations.set(producerTaskKey(stepName, taskName), new Set(taskOutputs.outputs.map(output => output.name)));
+          }
 
           const taskHasGoalKey = hasOwn(task, 'goal');
           const taskGoalValue = taskHasGoalKey ? task.goal : null;
@@ -819,7 +1036,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
           if (Array.isArray(task.depends_on)) {
             for (const dep of task.depends_on) {
               const depName = safeString(dep);
-              if (depName && !taskNames.has(depName)) {
+              if (depName && !taskNames.has(depName) && !depName.includes('.')) {
                 const taskPath = `${stepPath}.tasks[${taskIndex}].depends_on`;
                 return {
                   errors: [createError(`Validation Error: Task '${taskName}' in step '${stepName}' depends on unknown task '${depName}'.`, [taskPath])],
@@ -839,7 +1056,18 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       if (Array.isArray(step.depends_on)) {
         for (const dep of step.depends_on) {
           const depName = safeString(dep);
-          if (depName && !stepNames.has(depName)) {
+          if (depName.includes(RUNTIME_OUTPUT_REFERENCE_PREFIX)) {
+            return {
+              errors: [
+                createError(`Validation Error: Step '${stepName}' dependency '${depName}' cannot use a runtime output reference.`, [
+                  `steps[${index}].depends_on`,
+                  `steps[${index}]`,
+                ]),
+              ],
+            };
+          }
+          const resolved = resolvePipelineTaskDependency(depName, stepName, stepNames, stepToTaskNames);
+          if (depName && !resolved.ok) {
             return {
               errors: [
                 createError(`Validation Error: Step '${stepName}' depends on unknown step '${depName}'.`, [
@@ -850,6 +1078,44 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
             };
           }
         }
+      }
+      const tasks = Array.isArray(step.tasks) ? step.tasks : [];
+      for (let taskIndex = 0; taskIndex < tasks.length; taskIndex += 1) {
+        const task = tasks[taskIndex] as unknown;
+        if (!isPlainObject(task)) continue;
+        const taskName = safeString(task.name);
+        if (!taskName || !Array.isArray(task.depends_on)) continue;
+        for (const dep of task.depends_on) {
+          const depName = safeString(dep);
+          if (depName.includes(RUNTIME_OUTPUT_REFERENCE_PREFIX)) {
+            return {
+              errors: [
+                createError(`Validation Error: Task '${taskName}' in step '${stepName}' dependency '${depName}' cannot use a runtime output reference.`, [
+                  `steps[${index}].tasks[${taskIndex}].depends_on`,
+                  `steps[${index}].tasks[${taskIndex}]`,
+                ]),
+              ],
+            };
+          }
+          const resolved = resolvePipelineTaskDependency(depName, stepName, stepNames, stepToTaskNames);
+          if (!depName || !resolved.ok || !resolved.taskName) {
+            return {
+              errors: [
+                createError(`Validation Error: Task '${taskName}' in step '${stepName}' has invalid dependency '${depName}'. Tasks can depend on another task in the same step or use a qualified step.task dependency.`, [
+                  `steps[${index}].tasks[${taskIndex}].depends_on`,
+                  `steps[${index}].tasks[${taskIndex}]`,
+                ]),
+              ],
+            };
+          }
+        }
+      }
+    }
+
+    for (const entry of runtimeVariableConsumers) {
+      const error = validateRuntimeOutputRefsInVariables(entry.variables, entry.consumer, stepToTaskNames, outputDeclarations);
+      if (error) {
+        return { errors: [createError(error, [entry.path])] };
       }
     }
 

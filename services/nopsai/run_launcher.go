@@ -284,6 +284,7 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		DispatcherAddress:       dispatcherAddr,
 		Timeout:                 req.Timeout,
 		LLMAgentTimeout:         a.getLLMAgentTimeout(),
+		RuntimeOutputMaxBytes:   a.getRuntimeOutputMaxBytes(),
 		ParentHistory:           req.ParentHistory,
 		Scope:                   req.Scope,
 		PreferredRunnerID:       preferredRunnerID,
@@ -346,6 +347,7 @@ type agentEnvironmentInput struct {
 	DispatcherAddress       string
 	Timeout                 time.Duration
 	LLMAgentTimeout         string
+	RuntimeOutputMaxBytes   int
 	ParentHistory           string
 	Scope                   string
 	PreferredRunnerID       string
@@ -384,6 +386,9 @@ func buildAgentEnvironment(cfg config.Config, input agentEnvironmentInput) []str
 	}
 	if input.LLMAgentTimeout != "" {
 		envVars = append(envVars, fmt.Sprintf("LLM_AGENT_TIMEOUT=%s", input.LLMAgentTimeout))
+	}
+	if input.RuntimeOutputMaxBytes > 0 {
+		envVars = append(envVars, fmt.Sprintf("NOPSAI_RUNTIME_OUTPUT_MAX_BYTES=%d", input.RuntimeOutputMaxBytes))
 	}
 	if input.ParentHistory != "" {
 		envVars = append(envVars, fmt.Sprintf("PARENT_EXECUTION_HISTORY=%s", input.ParentHistory))

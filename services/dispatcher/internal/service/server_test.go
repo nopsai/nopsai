@@ -12,6 +12,7 @@ import (
 
 	"nopsai/pkg/correlation"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/runmetadata"
 	"nopsai/pkg/serviceauth"
 
 	"google.golang.org/grpc"
@@ -797,6 +798,60 @@ func TestNopsaiHTTPClientIngestLogsSendsCorrelationMetadata(t *testing.T) {
 	}
 	if capturedPayload["request_id"] != "req-ingest" || capturedPayload["traceparent"] != "trace-ingest" {
 		t.Fatalf("payload correlation = %#v, want req/trace", capturedPayload)
+	}
+}
+
+func TestNopsaiHTTPClientTriggerPipelineSendsIncludeVariablesAsJSON(t *testing.T) {
+	var capturedContentType string
+	var capturedPayload struct {
+		Definition         string            `json:"definition"`
+		Variables          map[string]string `json:"variables"`
+		SensitiveVariables []string          `json:"sensitive_variables"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedContentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&capturedPayload); err != nil {
+			t.Fatalf("decode trigger payload: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte("Pipeline run created successfully with ID: child-run-1"))
+	}))
+	defer server.Close()
+
+	encoded, err := runmetadata.EncodeVariableOverrides(runmetadata.VariableOverrides{
+		Variables: map[string]string{
+			"CHANNEL": "stable",
+			"TOKEN":   "secret",
+		},
+		SensitiveVariables: []string{"TOKEN"},
+	})
+	if err != nil {
+		t.Fatalf("EncodeVariableOverrides() error = %v", err)
+	}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(runmetadata.VariableOverridesMetadataKey, encoded))
+
+	client := newNopsaiHTTPClient(server.URL, newTestDispatcherCredentials(t))
+	client.setHTTPClient(server.Client())
+	resp, err := client.TriggerPipeline(ctx, &proto.TriggerPipelineRequest{
+		PipelineDefinition: []byte("name: child\nsteps: []\n"),
+	})
+	if err != nil {
+		t.Fatalf("TriggerPipeline() error = %v", err)
+	}
+	if resp.GetRunId() != "child-run-1" {
+		t.Fatalf("run id = %q, want child-run-1", resp.GetRunId())
+	}
+	if capturedContentType != "application/json" {
+		t.Fatalf("content type = %q, want application/json", capturedContentType)
+	}
+	if capturedPayload.Definition != "name: child\nsteps: []\n" {
+		t.Fatalf("definition = %q, want child definition", capturedPayload.Definition)
+	}
+	if capturedPayload.Variables["CHANNEL"] != "stable" || capturedPayload.Variables["TOKEN"] != "secret" {
+		t.Fatalf("variables = %#v, want CHANNEL and TOKEN", capturedPayload.Variables)
+	}
+	if len(capturedPayload.SensitiveVariables) != 1 || capturedPayload.SensitiveVariables[0] != "TOKEN" {
+		t.Fatalf("sensitive variables = %#v, want TOKEN", capturedPayload.SensitiveVariables)
 	}
 }
 

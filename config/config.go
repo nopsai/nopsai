@@ -315,6 +315,7 @@ type Config struct {
 	DockerNetworkName         string `yaml:"docker_network_name" env:"DOCKER_NETWORK_NAME"`
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container" env:"AUTO_REMOVAL_AGENT_CONTAINER"`
 	DefaultPipelineTimeout    string `yaml:"default_pipeline_timeout" env:"DEFAULT_PIPELINE_TIMEOUT"`
+	RuntimeOutputMaxBytes     int    `yaml:"runtime_output_max_bytes" env:"RUNTIME_OUTPUT_MAX_BYTES"`
 	AgentImage                string `yaml:"agent_image" env:"AGENT_IMAGE"`
 	LLMAgentTimeout           string `yaml:"llm_agent_timeout" env:"LLM_AGENT_TIMEOUT"`
 	DataBackupDir             string `yaml:"data_backup_dir" env:"DATA_BACKUP_DIR"`
@@ -495,6 +496,9 @@ func LoadConfig(path string) (*Config, error) {
 	config.Auth = NormalizeAuthConfig(config.Auth)
 	config.Assistant = NormalizeAssistantConfig(config.Assistant)
 	config.Runtime = NormalizeRuntime(config.Runtime)
+	if config.RuntimeOutputMaxBytes <= 0 {
+		config.RuntimeOutputMaxBytes = 64 * 1024
+	}
 	config.Kubernetes = NormalizeKubernetesConfig(config.Kubernetes)
 	config.SystemLogs = NormalizeSystemLogsConfig(config.SystemLogs)
 	config.RuntimePools = NormalizeRuntimePools(config.RuntimePools)

@@ -138,6 +138,13 @@ Important enterprise boundaries:
   returns contract-validated `DocumentSpec`/`SpreadsheetSpec` source where
   applicable, plus generation timestamps, generation duration, and generation
   and render counts for operational auditing.
+- Runtime-generated task outputs are visible to hosted MCP only as normal run
+  detail/log metadata: output names, sensitivity flags, and byte sizes. Stored
+  output values, including non-sensitive values, are not exposed through MCP
+  run-log or run-detail tools.
+- Pipeline run metadata exposes only non-sensitive runtime variable overrides.
+  Sensitive include-variable overrides for child pipelines are omitted from MCP
+  run detail output.
 - `nopsai.list_dashboards`, `nopsai.get_dashboard`,
   `nopsai.list_dashboard_refreshes`,
   `nopsai.list_dashboard_refresh_schedules`, and `nopsai://dashboards` are

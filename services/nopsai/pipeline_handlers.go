@@ -20,6 +20,7 @@ import (
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/routeauthz"
+	"nopsai/services/nopsai/pkg/validation"
 )
 
 func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
@@ -608,15 +609,35 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		if secrets := step.GetSecrets(); len(secrets) > 0 {
 			includedStep.SetSecrets(secrets)
 		}
-		if vars := step.GetVariables(); len(vars) > 0 {
-			includedStep.SetVariables(vars)
-		}
+		includedStep.SetVariables(mergeReusableStepVariables(includedStep.GetVariables(), step.GetVariables()))
 
 		finalSteps = append(finalSteps, includedStep)
 	}
 
 	pipeline.Steps = finalSteps
 	return pipeline, nil
+}
+
+func mergeReusableStepVariables(defaults, overrides map[string]string) map[string]string {
+	if len(defaults) == 0 && len(overrides) == 0 {
+		return nil
+	}
+	merged := make(map[string]string, len(defaults)+len(overrides))
+	for key, value := range defaults {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		merged[key] = value
+	}
+	for key, value := range overrides {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
 }
 
 func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
@@ -943,6 +964,10 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 	stepName := step.GetName()
 	if stepName == "" {
 		http.Error(w, "Validation failed: a reusable step must have a 'name' field in its definition.", http.StatusBadRequest)
+		return
+	}
+	if err := validation.ValidateReusableStep(&step); err != nil {
+		http.Error(w, fmt.Sprintf("Validation failed: %v", err), http.StatusBadRequest)
 		return
 	}
 

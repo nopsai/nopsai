@@ -716,6 +716,7 @@ func renderComposeEnv(version string, images map[string]string, secrets composeS
 	builder.WriteString(topology.GitBotAPIURL)
 	builder.WriteString("\nFINAL_OUTPUT_PDF_RENDERER_URL=")
 	builder.WriteString(topology.GotenbergURL)
+	builder.WriteString("\nRUNTIME_OUTPUT_MAX_BYTES=65536")
 	builder.WriteString("\nDOCKER_NETWORK_NAME=")
 	builder.WriteString(topology.DockerNetworkName)
 	builder.WriteString("\nPOSTGRES_DB=")
@@ -790,7 +791,7 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString(strconv.Quote(bootstrapAdminPasswordSecretKey))
 	builder.WriteString("\n\n")
 	builder.WriteString("postgres:\n  enabled: true\n  database: nopsai_db\n  username: nopsai_user\n  image:\n    repository: postgres\n    tag: \"15\"\n    digest: \"\"\n  auth:\n    passwordKey: postgres-password\n  service:\n    name: postgres\n    port: 5432\n  persistence:\n    enabled: true\n    storageClass: \"\"\n    size: 20Gi\n\n")
-	builder.WriteString("api:\n  replicaCount: 1\n")
+	builder.WriteString("api:\n  replicaCount: 1\n  runtimeOutputMaxBytes: 65536\n")
 	if err := writeKubernetesImage(&builder, images, "api"); err != nil {
 		return nil, err
 	}
@@ -1334,6 +1335,7 @@ services:
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?AAA_SHARED_INTERNAL_TOKEN is required}
       GIT_BOT_API_URL: ${GIT_BOT_API_URL:-http://git-bot:8081}
       FINAL_OUTPUT_PDF_RENDERER_URL: ${FINAL_OUTPUT_PDF_RENDERER_URL:-http://gotenberg:3000}
+      RUNTIME_OUTPUT_MAX_BYTES: ${RUNTIME_OUTPUT_MAX_BYTES:-65536}
       SYSTEM_LOGS_PROVIDER: docker
       SYSTEM_LOGS_DOCKER_HOST: tcp://docker-socket-proxy:2375
       AGENT_IMAGE: ${NOPSAI_AGENT_IMAGE:?NOPSAI_AGENT_IMAGE is required}

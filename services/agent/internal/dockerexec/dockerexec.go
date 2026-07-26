@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/models"
+
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -19,6 +21,7 @@ type StepContainerRequest struct {
 	WorkingDirectory  string
 	Env               []string
 	Volumes           []string
+	OutputsEnabled    bool
 	SharedVolumeName  string
 	DockerNetworkName string
 	ContainerName     string
@@ -52,6 +55,10 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 	}
 
 	binds := []string{fmt.Sprintf("%s:%s", req.SharedVolumeName, req.WorkingDirectory)}
+	tmpfs := map[string]string(nil)
+	if req.OutputsEnabled {
+		tmpfs = map[string]string{models.RuntimeOutputsMountPath: "rw"}
+	}
 	for _, vol := range req.Volumes {
 		parts := strings.Split(vol, ":")
 		if len(parts) != 2 {
@@ -86,6 +93,7 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 		},
 		HostConfig: &container.HostConfig{
 			Binds:       binds,
+			Tmpfs:       tmpfs,
 			NetworkMode: container.NetworkMode(req.DockerNetworkName),
 		},
 		Name: req.ContainerName,

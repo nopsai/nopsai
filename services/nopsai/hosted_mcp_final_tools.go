@@ -17,6 +17,7 @@ import (
 	aaamodel "nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/internal/credentials"
+	"nopsai/services/nopsai/pkg/validation"
 )
 
 func hostedMCPFinalTools() []hostedMCPTool {
@@ -559,6 +560,9 @@ func hostedMCPProposeReusableStep(args map[string]any, mode string) (map[string]
 	stepName := strings.TrimSpace(step.GetName())
 	if stepName == "" {
 		return map[string]any{"proposal_type": "reusable_step_" + mode, "applies": false, "valid": false, "error": "a reusable step must have a name field"}, nil
+	}
+	if err := validation.ValidateReusableStep(&step); err != nil {
+		return map[string]any{"proposal_type": "reusable_step_" + mode, "applies": false, "valid": false, "error": err.Error()}, nil
 	}
 	if namePart != "" && namePart != stepName {
 		return map[string]any{"proposal_type": "reusable_step_" + mode, "applies": false, "valid": false, "error": fmt.Sprintf("target name %q must match YAML name %q", namePart, stepName)}, nil

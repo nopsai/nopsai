@@ -501,6 +501,7 @@ func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPi
 			Secrets:          pStep.GetSecrets(),
 			Volumes:          pStep.GetVolumes(),
 			Variables:        pStep.GetVariables(),
+			Outputs:          pStep.GetOutputs(),
 			IgnoreFailure:    pStep.GetIgnoreFailure(),
 			LlmOutputSharing: pStep.GetLlmOutputSharing(),
 			AgentProfile:     pStep.GetAgentProfile(),
@@ -643,6 +644,27 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 				task.FinishedAt.UnixNano(),
 			)
 			fmt.Fprintf(hasher, "exit|%s|", exitCode)
+			taskOutputs := append([]models.TaskRuntimeOutput(nil), task.Outputs...)
+			sort.Slice(taskOutputs, func(i, j int) bool {
+				if taskOutputs[i].StepName != taskOutputs[j].StepName {
+					return taskOutputs[i].StepName < taskOutputs[j].StepName
+				}
+				if taskOutputs[i].TaskName != taskOutputs[j].TaskName {
+					return taskOutputs[i].TaskName < taskOutputs[j].TaskName
+				}
+				return taskOutputs[i].Name < taskOutputs[j].Name
+			})
+			for _, output := range taskOutputs {
+				fmt.Fprintf(
+					hasher,
+					"task_output|%s|%s|%s|%t|%d|",
+					strings.TrimSpace(output.StepName),
+					strings.TrimSpace(output.TaskName),
+					strings.TrimSpace(output.Name),
+					output.Sensitive,
+					output.SizeBytes,
+				)
+			}
 		}
 	}
 

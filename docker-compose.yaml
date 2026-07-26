@@ -96,6 +96,7 @@ services:
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
       FINAL_OUTPUT_PDF_RENDERER_URL: http://gotenberg:3000
       FINAL_OUTPUT_PDF_TIMEOUT_SECONDS: ${FINAL_OUTPUT_PDF_TIMEOUT_SECONDS:-45}
+      RUNTIME_OUTPUT_MAX_BYTES: ${RUNTIME_OUTPUT_MAX_BYTES:-65536}
       SYSTEM_LOGS_DOCKER_HOST: tcp://docker-socket-proxy:2375
     networks:
       - nopsai-net
@@ -269,18 +270,11 @@ services:
       args:
         <<: *release-build-args
         BASE_IMAGE: base
-    restart: always
+    entrypoint: 'true'
     depends_on:
       - dispatcher
     environment:
       <<: [*service-auth-env, *observability-env]
-      NOPSAI_SERVICE_NAME: docker-runner
-      DISPATCHER_GRPC_ADDRESS: dispatcher:9090
-      DOCKER_NETWORK_NAME: nopsai-net
-    networks:
-      - nopsai-net
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
 
   k8s-runner:
     container_name: nopsai-k8s-runner-image

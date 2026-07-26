@@ -4,6 +4,9 @@ export type AgentProfileSource = 'built-in' | 'ui' | 'gitops' | string;
 
 export type AgentProfileRecord = {
   id: string;
+  scope?: 'global' | 'team';
+  team_path?: string;
+  team_local_name?: string;
   display_name: string;
   role: string;
   description: string;
@@ -125,6 +128,7 @@ export function agentProfileSourceLabel(source: AgentProfileSource): string {
   const normalized = (source || '').trim().toLowerCase();
   if (normalized === 'built-in') return 'Built-in';
   if (normalized === 'gitops') return 'GitOps';
+  if (normalized === 'team') return 'Team';
   if (normalized === 'ui') return 'Custom';
   return source || 'Custom';
 }

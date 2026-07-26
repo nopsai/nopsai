@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"nopsai/config"
+	"nopsai/pkg/models"
 )
 
 func TestParseTeamLLMProfilesPayloadAcceptsTeamDefault(t *testing.T) {
@@ -28,7 +29,7 @@ func TestParseTeamLLMProfilesPayloadAcceptsTeamDefault(t *testing.T) {
 	}
 }
 
-func TestParseTeamLLMProfilesPayloadRejectsUnknownDefault(t *testing.T) {
+func TestParseTeamLLMProfilesPayloadPreservesDefaultForTeamScopeValidation(t *testing.T) {
 	payload := llmProfilesRequest{
 		DefaultProfile: "standard",
 		Profiles: []llmProfileForm{{
@@ -38,9 +39,15 @@ func TestParseTeamLLMProfilesPayloadRejectsUnknownDefault(t *testing.T) {
 		}},
 	}
 
-	_, _, err := parseTeamLLMProfilesPayload(payload)
-	if err == nil {
-		t.Fatal("parseTeamLLMProfilesPayload() error = nil, want error")
+	defaultProfile, profiles, err := parseTeamLLMProfilesPayload(payload)
+	if err != nil {
+		t.Fatalf("parseTeamLLMProfilesPayload() error = %v", err)
+	}
+	if defaultProfile != "standard" {
+		t.Fatalf("default profile = %q, want standard", defaultProfile)
+	}
+	if _, ok := profiles["sandbox"]; !ok {
+		t.Fatalf("profiles missing sandbox: %#v", profiles)
 	}
 }
 
@@ -62,5 +69,146 @@ func TestParseTeamLLMProfilesPayloadRejectsDuplicateProfiles(t *testing.T) {
 	_, _, err := parseTeamLLMProfilesPayload(payload)
 	if err == nil {
 		t.Fatal("parseTeamLLMProfilesPayload() error = nil, want duplicate error")
+	}
+}
+
+func TestAIResourceLocalNameMatchesScopedUIBehavior(t *testing.T) {
+	if got := aiResourceLocalName("platform/ml/reasoning"); got != "reasoning" {
+		t.Fatalf("aiResourceLocalName() = %q, want reasoning", got)
+	}
+	if got := aiResourceLocalName("platform/ml/"); got != "" {
+		t.Fatalf("aiResourceLocalName() = %q, want empty local name for trailing slash", got)
+	}
+}
+
+func TestCanonicalTeamLLMDefaultProfileValueAcceptsScopedCatalogProfile(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	catalogProfiles := map[string]config.LLMProfile{
+		"platform/ml/chatgpt": {Provider: config.LLMProviderOpenAI, Model: "gpt-4.1-mini", CredentialRef: "credential://system/llm/openai"},
+	}
+
+	canonical, ok := canonicalTeamLLMDefaultProfileValue(record, "platform/ml/chatgpt", nil, catalogProfiles)
+	if !ok {
+		t.Fatal("canonicalTeamLLMDefaultProfileValue() rejected scoped catalog profile")
+	}
+	if canonical != "platform/ml/chatgpt" {
+		t.Fatalf("canonical default = %q, want platform/ml/chatgpt", canonical)
+	}
+}
+
+func TestCanonicalTeamLLMDefaultProfileValueMapsLocalDefaultToScopedCatalogProfile(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	catalogProfiles := map[string]config.LLMProfile{
+		"platform/ml/chatgpt": {Provider: config.LLMProviderOpenAI, Model: "gpt-4.1-mini", CredentialRef: "credential://system/llm/openai"},
+	}
+
+	canonical, ok := canonicalTeamLLMDefaultProfileValue(record, "chatgpt", nil, catalogProfiles)
+	if !ok {
+		t.Fatal("canonicalTeamLLMDefaultProfileValue() rejected local catalog default")
+	}
+	if canonical != "platform/ml/chatgpt" {
+		t.Fatalf("canonical default = %q, want platform/ml/chatgpt", canonical)
+	}
+}
+
+func TestCanonicalTeamLLMDefaultProfileValueCanonicalizesScopedTeamProfileToLocal(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	teamProfiles := map[string]config.LLMProfile{
+		"chatgpt": {Provider: config.LLMProviderOpenAI, Model: "gpt-4.1-mini", CredentialRef: "credential://team/platform/ml/llm/openai"},
+	}
+
+	canonical, ok := canonicalTeamLLMDefaultProfileValue(record, "platform/ml/chatgpt", teamProfiles, nil)
+	if !ok {
+		t.Fatal("canonicalTeamLLMDefaultProfileValue() rejected scoped team profile")
+	}
+	if canonical != "chatgpt" {
+		t.Fatalf("canonical default = %q, want chatgpt", canonical)
+	}
+}
+
+func TestCanonicalTeamLLMDefaultProfileValueRejectsOtherTeam(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	catalogProfiles := map[string]config.LLMProfile{
+		"platform/security/chatgpt": {Provider: config.LLMProviderOpenAI, Model: "gpt-4.1-mini", CredentialRef: "credential://system/llm/openai"},
+	}
+
+	if canonical, ok := canonicalTeamLLMDefaultProfileValue(record, "platform/security/chatgpt", nil, catalogProfiles); ok {
+		t.Fatalf("canonicalTeamLLMDefaultProfileValue() = %q, want rejection", canonical)
+	}
+}
+
+func TestCanonicalTeamAgentDefaultProfileValueAcceptsScopedCatalogProfile(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	catalogProfiles := map[string]models.AgentProfile{
+		"platform/ml/reviewer": {ID: "platform/ml/reviewer", DisplayName: "Reviewer", Instructions: "Review changes.", Enabled: true},
+	}
+
+	canonical, ok := canonicalTeamAgentDefaultProfileValue(record, "platform/ml/reviewer", nil, catalogProfiles)
+	if !ok {
+		t.Fatal("canonicalTeamAgentDefaultProfileValue() rejected scoped catalog profile")
+	}
+	if canonical != "platform/ml/reviewer" {
+		t.Fatalf("canonical default = %q, want platform/ml/reviewer", canonical)
+	}
+}
+
+func TestCanonicalTeamAgentDefaultProfileValueMapsLocalDefaultToScopedCatalogProfile(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	catalogProfiles := map[string]models.AgentProfile{
+		"platform/ml/reviewer": {ID: "platform/ml/reviewer", DisplayName: "Reviewer", Instructions: "Review changes.", Enabled: true},
+	}
+
+	canonical, ok := canonicalTeamAgentDefaultProfileValue(record, "reviewer", nil, catalogProfiles)
+	if !ok {
+		t.Fatal("canonicalTeamAgentDefaultProfileValue() rejected local catalog default")
+	}
+	if canonical != "platform/ml/reviewer" {
+		t.Fatalf("canonical default = %q, want platform/ml/reviewer", canonical)
+	}
+}
+
+func TestCanonicalTeamAgentDefaultProfileValueCanonicalizesScopedTeamProfileToLocal(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	teamProfiles := map[string]models.AgentProfile{
+		"reviewer": {ID: "reviewer", DisplayName: "Reviewer", Instructions: "Review changes.", Enabled: true},
+	}
+
+	canonical, ok := canonicalTeamAgentDefaultProfileValue(record, "platform/ml/reviewer", teamProfiles, nil)
+	if !ok {
+		t.Fatal("canonicalTeamAgentDefaultProfileValue() rejected scoped team profile")
+	}
+	if canonical != "reviewer" {
+		t.Fatalf("canonical default = %q, want reviewer", canonical)
+	}
+}
+
+func TestCanonicalTeamAgentDefaultProfileValueRejectsDisabledScopedCatalogProfile(t *testing.T) {
+	record := teamPathRecord{Path: "platform/ml"}
+	catalogProfiles := map[string]models.AgentProfile{
+		"platform/ml/reviewer": {ID: "platform/ml/reviewer", DisplayName: "Reviewer", Instructions: "Review changes.", Enabled: false},
+	}
+
+	if canonical, ok := canonicalTeamAgentDefaultProfileValue(record, "platform/ml/reviewer", nil, catalogProfiles); ok {
+		t.Fatalf("canonicalTeamAgentDefaultProfileValue() = %q, want rejection", canonical)
+	}
+}
+
+func TestParseGitOpsTeamAIProfileFileAllowsCatalogResolvedLLMDefault(t *testing.T) {
+	plan, err := parseGitOpsTeamAIProfileFile("llm_default_profile: chatgpt\n", "ai-profiles.yaml", "platform/ml")
+	if err != nil {
+		t.Fatalf("parseGitOpsTeamAIProfileFile() error = %v", err)
+	}
+	if plan.llmDefaultProfile == nil || *plan.llmDefaultProfile != "chatgpt" {
+		t.Fatalf("llm default = %#v, want chatgpt", plan.llmDefaultProfile)
+	}
+	if len(plan.llmProfiles) != 0 {
+		t.Fatalf("llm profiles = %#v, want none", plan.llmProfiles)
+	}
+}
+
+func TestParseGitOpsTeamAIProfileFileRejectsLLMDefaultOutsideTeam(t *testing.T) {
+	_, err := parseGitOpsTeamAIProfileFile("llm_default_profile: platform/security/chatgpt\n", "ai-profiles.yaml", "platform/ml")
+	if err == nil {
+		t.Fatal("parseGitOpsTeamAIProfileFile() error = nil, want outside-team default error")
 	}
 }

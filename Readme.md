@@ -497,7 +497,11 @@ Team-scoped profiles use slash-separated IDs such as
 `platform/ml/reviewer`; users with matching team product grants can open the
 LLM, Agent Profile, and MCP topics, see only subjects they can read/use/manage,
 and create their own team-scoped subjects without seeing other teams' subjects.
-System-wide default profile changes remain global-system operations.
+Global default profile changes remain global-system operations. Team defaults
+are changed from the LLM or Agent Profile page after selecting a concrete team;
+the selected-team profile view includes matching slash-scoped catalog profiles
+as well as team-local rows, and the Teams area shows the configured defaults
+with links to that scoped profile view.
 
 Supported profile concepts include:
 

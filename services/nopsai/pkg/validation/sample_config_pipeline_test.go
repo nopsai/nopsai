@@ -149,6 +149,95 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	}
 }
 
+func TestSampleVariableFeatureExerciseValidates(t *testing.T) {
+	repoRoot := filepath.Join("..", "..", "..", "..")
+	parentPath := filepath.Join(repoRoot, "doc", "sample-config-repo", "team-1-repo", "pipelines", "variable-feature-exercise.yaml")
+	childPath := filepath.Join(repoRoot, "doc", "sample-config-repo", "team-1-repo", "pipelines", "variable-feature-child.yaml")
+	reusableStepPath := filepath.Join(repoRoot, "doc", "sample-config-repo", "team-1-repo", "steps", "shared", "variable-defaults.yaml")
+
+	parent := readSamplePipeline(t, parentPath)
+	if err := ValidatePipeline(&parent); err != nil {
+		t.Fatalf("ValidatePipeline(parent) error = %v", err)
+	}
+	if models.PipelineLLMEnabled(&parent) {
+		t.Fatal("variable feature exercise should keep LLM disabled")
+	}
+	requireVariables(t, parent.Variables,
+		"API_VERSION",
+		"DEPLOY_TARGET",
+		"default:GLOBAL_REGION",
+		"team-1/prod:REGISTRY",
+		"team-1/dev:RELEASE_CHANNEL",
+	)
+	parentSteps := stepsByName(parent.Steps)
+	requireDependsOn(t, parentSteps["reusable-step-variable-merge"].GetDependsOn(), "collect-runtime-values.produce")
+	requireDependsOn(t, parentSteps["child-pipeline-variable-overrides"].GetDependsOn(), "collect-runtime-values.produce", "reusable-step-variable-merge")
+	if got := parentSteps["reusable-step-variable-merge"].GetVariables()["RELEASE_MANIFEST"]; got != "$steps.collect-runtime-values.produce.outputs.release_manifest" {
+		t.Fatalf("reusable include RELEASE_MANIFEST = %q, want runtime output ref", got)
+	}
+	if got := parentSteps["child-pipeline-variable-overrides"].GetVariables()["CHILD_ACCESS_TOKEN"]; got != "$steps.collect-runtime-values.produce.outputs.access_token" {
+		t.Fatalf("child include CHILD_ACCESS_TOKEN = %q, want sensitive runtime output ref", got)
+	}
+
+	collectTasks := parentSteps["collect-runtime-values"].GetTasks()
+	if len(collectTasks) != 2 {
+		t.Fatalf("collect-runtime-values tasks = %d, want 2", len(collectTasks))
+	}
+	requireTaskOutputs(t, collectTasks[0].Outputs, "release_manifest", "image_tag", "IMAGE_TAG", "task_target", "access_token")
+	if !taskOutputSensitive(collectTasks[0].Outputs, "access_token") {
+		t.Fatal("access_token output should be marked sensitive")
+	}
+	if got := collectTasks[0].Variables["DEPLOY_TARGET"]; got != "task-overridden-target" {
+		t.Fatalf("producer task DEPLOY_TARGET = %q, want task override", got)
+	}
+	if got := parentSteps["collect-runtime-values"].GetVariables()["DEPLOY_TARGET"]; got != "step-overridden-target" {
+		t.Fatalf("collect step DEPLOY_TARGET = %q, want step override", got)
+	}
+
+	child := readSamplePipeline(t, childPath)
+	if err := ValidatePipeline(&child); err != nil {
+		t.Fatalf("ValidatePipeline(child) error = %v", err)
+	}
+	requireVariables(t, child.Variables, "CHILD_RELEASE_MANIFEST", "CHILD_IMAGE_TAG", "CHILD_ACCESS_TOKEN", "CHILD_LITERAL")
+
+	reusableStep := readSampleStep(t, reusableStepPath)
+	if got := reusableStep.GetVariables()["RETRY_COUNT"]; got != "2" {
+		t.Fatalf("reusable step RETRY_COUNT = %q, want default value", got)
+	}
+	if got := reusableStep.GetVariables()["REUSABLE_MODE"]; got != "default-mode" {
+		t.Fatalf("reusable step REUSABLE_MODE = %q, want default value", got)
+	}
+	if err := ValidateReusableStep(&reusableStep); err != nil {
+		t.Fatalf("ValidateReusableStep(variable defaults) error = %v", err)
+	}
+}
+
+func readSamplePipeline(t *testing.T, path string) models.Pipeline {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", path, err)
+	}
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal(raw, &pipeline); err != nil {
+		t.Fatalf("yaml.Unmarshal(%q) error = %v", path, err)
+	}
+	return pipeline
+}
+
+func readSampleStep(t *testing.T, path string) models.PipelineStep {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", path, err)
+	}
+	var step models.PipelineStep
+	if err := yaml.Unmarshal(raw, &step); err != nil {
+		t.Fatalf("yaml.Unmarshal(%q) error = %v", path, err)
+	}
+	return step
+}
+
 func stepsByName(steps []models.PipelineStep) map[string]models.PipelineStep {
 	byName := make(map[string]models.PipelineStep, len(steps))
 	for _, step := range steps {
@@ -194,6 +283,28 @@ func requireDependsOn(t *testing.T, got []string, want ...string) {
 			t.Fatalf("missing dependency %q", value)
 		}
 	}
+}
+
+func requireTaskOutputs(t *testing.T, got []models.TaskOutput, want ...string) {
+	t.Helper()
+	present := make(map[string]bool, len(got))
+	for _, output := range got {
+		present[output.Name] = true
+	}
+	for _, value := range want {
+		if !present[value] {
+			t.Fatalf("missing task output %q", value)
+		}
+	}
+}
+
+func taskOutputSensitive(outputs []models.TaskOutput, name string) bool {
+	for _, output := range outputs {
+		if output.Name == name {
+			return output.Sensitive
+		}
+	}
+	return false
 }
 
 func requireContains(t *testing.T, haystack, needle string) {

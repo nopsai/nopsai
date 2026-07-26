@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -75,6 +76,39 @@ func nopsaiAgentRequest(ctx context.Context, method, endpoint string, payload an
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+type runtimeOutputReportItem struct {
+	Name      string `json:"name"`
+	Value     string `json:"value,omitempty"`
+	Sensitive bool   `json:"sensitive,omitempty"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+func reportTaskOutputs(pipelineName, runID, stepName, taskName string, outputs map[string]agentapp.RuntimeOutputValue) error {
+	if len(outputs) == 0 {
+		return nil
+	}
+	items := make([]runtimeOutputReportItem, 0, len(outputs))
+	for _, output := range outputs {
+		items = append(items, runtimeOutputReportItem{
+			Name:      output.Name,
+			Value:     output.Value,
+			Sensitive: output.Sensitive,
+			SizeBytes: output.SizeBytes,
+		})
+	}
+	endpoint := fmt.Sprintf(
+		"/v1/internal/runs/%s/steps/%s/tasks/%s/outputs",
+		url.PathEscape(runID),
+		url.PathEscape(stepName),
+		url.PathEscape(taskName),
+	)
+	err := nopsaiAgentRequest(context.Background(), http.MethodPost, endpoint, map[string]any{"outputs": items}, nil)
+	if err != nil {
+		stepLog(runID, pipelineName, stepName, taskName).Warn().Err(err).Msg("Failed to report runtime outputs to NopsAI API")
+	}
+	return err
+}
+
 func requestApprovalPause(ctx context.Context, runID string, req approval.PausePayload) (approval.PauseResponse, error) {
 	var resp approval.PauseResponse
 	err := nopsaiAgentRequest(ctx, http.MethodPost, fmt.Sprintf("/v1/internal/runs/%s/approvals/pause", runID), req, &resp)
@@ -87,7 +121,7 @@ func fetchApprovalCheckpoint(ctx context.Context, runID, checkpointID string) (a
 	return resp, err
 }
 
-func triggerPipeline(ctx context.Context, parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string) (string, error) {
+func triggerPipeline(ctx context.Context, parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string, variables map[string]string, sensitiveVariables []string) (string, error) {
 	if dispatcherClient == nil {
 		return "", fmt.Errorf("dispatcher client not initialized")
 	}
@@ -117,6 +151,8 @@ func triggerPipeline(ctx context.Context, parentRunID, parentPipelineName, paren
 		History:            history,
 		Scope:              scope,
 		GitContext:         gitContext,
+		Variables:          variables,
+		SensitiveVariables: sensitiveVariables,
 	})
 }
 

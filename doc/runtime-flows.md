@@ -178,27 +178,40 @@ The agent runs tasks in dependency order, not strictly line order.
 14. Kubernetes runtime resolves `step.runtime_pool` or the pipeline default `runtime_pool` and applies the matching runtime pool to the step pod. Docker runtime ignores this directive.
 15. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
 16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus any declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to PVCs in the runner namespace.
-17. It decides the action:
+17. If the task declares `outputs`, Docker mounts an isolated writable `tmpfs`
+    at `/nopsai/outputs`; Kubernetes mounts an isolated writable `emptyDir`.
+    The agent clears the directory and verifies it is writable before running
+    the task. User volumes cannot mount this reserved path.
+18. It decides the action:
    - `script` task: execute the script directly, unless effective guardrail or
      policy context exists; in that case the LLM validates the exact script
      before execution and the task fails closed if validation is unavailable or
      returns a conflict
    - `goal` task: ask the LLM to return a structured action
-18. For goal tasks, the LLM prompt includes the resolved Agent Profile role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
-19. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
-20. It executes the chosen action inside the step container or pod.
-21. It masks known secret values and NopsAI-provided runtime variable values
+19. For goal tasks, the LLM prompt includes the resolved Agent Profile role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
+20. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
+21. It executes the chosen action inside the step container or pod.
+22. After a successful output-producing task, the agent collects declared files
+    from `/nopsai/outputs`, enforces the configured size limit, stores produced
+    values in run state, reports metadata and encrypted sensitive values to
+    `nopsai`, and ignores undeclared files. A referenced declared output that
+    was not produced fails the task.
+23. Dependent task variables whose entire value is
+    `$steps.<step>.<task>.outputs.<name>` are resolved from stored run output
+    state after dependency validation. Runtime outputs are not expanded inside
+    dependency declarations or other pre-scheduling fields.
+24. It masks known secret values and NopsAI-provided runtime variable values
     from action summaries and output before logging or saving history.
-22. It updates task status through the dispatcher.
-23. It appends a normalized history entry that later tasks and child pipelines can use.
-24. Effective failure tolerance is true when either the runnable task or its
+25. It updates task status through the dispatcher.
+26. It appends a normalized history entry that later tasks and child pipelines can use.
+27. Effective failure tolerance is true when either the runnable task or its
     parent step sets `ignore_failure: true`.
-25. If a task fails and effective failure tolerance is false, the pipeline stops
+28. If a task fails and effective failure tolerance is false, the pipeline stops
     with failure.
-26. If a task fails and effective failure tolerance is true, the task becomes
+29. If a task fails and effective failure tolerance is true, the task becomes
     `failure (ignored)` and the pipeline continues. Approval and blocking
     policy/guardrail failures still fail closed.
-27. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
+30. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
 
 ## 7. How Goal-Based Tasks Work
 
@@ -233,17 +246,26 @@ For a `pipeline:<identifier>` include:
    - parent pipeline name
    - pipeline definition
    - current history snapshot
+   - resolved include variables
+   - names of include variables that are sensitive
    - scope
    - git context
    - preferred runner ID
-4. The dispatcher turns that into an internal `POST /v1/run` call to `nopsai`.
-5. `nopsai` creates a child `pipeline_runs` record with parent metadata and the original authorization context; child pipelines never gain permissions from the parent pipeline owner, child pipeline owner, or dispatcher identity.
-6. The child run is dispatched like any other run.
-7. If the include is `sync: true`, the include step waits for the child result.
+4. The dispatcher turns that into an internal JSON `POST /v1/run` call to `nopsai`.
+5. `nopsai` applies include variables as child run variable overrides. These
+   overrides win over child scope variables; child step and task variables still
+   win later inside the child agent execution context.
+6. Non-sensitive include variables are stored in the child run's
+   `runtime_variable_overrides` metadata. Sensitive include variables are
+   excluded from visible run metadata and stored only as encrypted recovery
+   launch inputs.
+7. `nopsai` creates a child `pipeline_runs` record with parent metadata and the original authorization context; child pipelines never gain permissions from the parent pipeline owner, child pipeline owner, or dispatcher identity.
+8. The child run is dispatched like any other run.
+9. If the include is `sync: true`, the include step waits for the child result.
    A child failure marks the include step and parent pipeline failed before
    downstream parent tasks are allowed to run.
-8. If the include is `sync: false`, the parent treats it as unblocking and continues.
-9. Run detail and run list responses expose an aggregate lineage status for display:
+10. If the include is `sync: false`, the parent treats it as unblocking and continues.
+11. Run detail and run list responses expose an aggregate lineage status for display:
    a parent is shown as running while a direct child run is still active, and a
    successful parent is shown as failed if a direct child later fails. The stored
    parent run result remains separate so dispatcher polling and rerun lifecycle
@@ -257,8 +279,12 @@ For a `step:<identifier>` include:
 2. It loads the reusable step YAML from the `steps` table.
 3. It checks `step.use` with the original run caller before replacing the placeholder.
 4. It replaces the placeholder with the stored step definition.
-5. It preserves the calling step's name and selected metadata like dependencies, volumes, secrets, variables, and failure flags.
-6. The agent only sees the fully expanded pipeline.
+5. It preserves the calling step's name and selected metadata like dependencies,
+   volumes, secrets, and failure flags.
+6. It merges the reusable step's default variables with the calling include
+   step's variables. Calling include variables win key-by-key instead of
+   replacing the whole defaults map.
+7. The agent only sees the fully expanded pipeline.
 
 ## 10. Logs, Status, And GitHub Feedback
 
@@ -353,6 +379,9 @@ Runtime settings sync persists supported operational defaults to the
 `runtime_settings` database row. `config.yml`, `.env`, Docker Compose, and
 deployment secrets are bootstrap inputs only. Credential GitOps stores encrypted
 envelopes in the credential registry and never exports plaintext.
+`runtime_output_max_bytes` is included in the persisted runner settings and is
+sent to newly launched agents as `NOPSAI_RUNTIME_OUTPUT_MAX_BYTES`; it limits
+the byte size of each declared runtime output file.
 `dispatcher_routing` is exposed through a service-token protected internal
 NopsAI endpoint; the dispatcher polls that endpoint and swaps its in-memory
 routing table while it is running, so new scheduling decisions use the updated

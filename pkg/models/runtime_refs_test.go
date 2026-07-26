@@ -50,3 +50,16 @@ func TestParseScopedRuntimeRefRejectsInvalidScopedRefs(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidRuntimeReferenceName(t *testing.T) {
+	for _, name := range []string{"API_VERSION", "release.channel", "team-1", "1_VALUE"} {
+		if !IsValidRuntimeReferenceName(name) {
+			t.Fatalf("IsValidRuntimeReferenceName(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{"", "BAD/NAME", "SCOPE:NAME", "NAME WITH SPACE"} {
+		if IsValidRuntimeReferenceName(name) {
+			t.Fatalf("IsValidRuntimeReferenceName(%q) = true, want false", name)
+		}
+	}
+}

@@ -310,6 +310,40 @@ func TestBuildRunDetailETagChangesWhenTaskStatusChanges(t *testing.T) {
 	}
 }
 
+func TestBuildRunDetailETagChangesWhenTaskRuntimeOutputsChange(t *testing.T) {
+	run := models.RunListItem{RunID: "run-1", Status: "running"}
+	baseTasks := map[string][]models.TaskDetail{
+		"prepare": {{
+			TaskID:    "task-1",
+			StepName:  "prepare",
+			TaskName:  "generate",
+			Status:    "success",
+			TaskIndex: 1,
+		}},
+	}
+	updatedTasks := map[string][]models.TaskDetail{
+		"prepare": {{
+			TaskID:    "task-1",
+			StepName:  "prepare",
+			TaskName:  "generate",
+			Status:    "success",
+			TaskIndex: 1,
+			Outputs: []models.TaskRuntimeOutput{{
+				StepName:  "prepare",
+				TaskName:  "generate",
+				Name:      "image_tag",
+				SizeBytes: 6,
+			}},
+		}},
+	}
+
+	baseETag := BuildRunDetailETag(run, nil, baseTasks, nil, nil, nil)
+	updatedETag := BuildRunDetailETag(run, nil, updatedTasks, nil, nil, nil)
+	if updatedETag == baseETag {
+		t.Fatalf("expected runtime output metadata to alter ETag, but both were %q", updatedETag)
+	}
+}
+
 func TestBuildRunDetailETagChangesWhenAIUsageChanges(t *testing.T) {
 	run := models.RunListItem{RunID: "run-1", Status: "success", IsComplete: true}
 	tasks := map[string][]models.TaskDetail{

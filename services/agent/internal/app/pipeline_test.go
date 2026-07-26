@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -166,6 +167,128 @@ func TestRunPipelineHonorsStepIgnoreFailureForSyncIncludeFailure(t *testing.T) {
 		{stepName: "deploy", taskName: "deploy", status: "success"},
 	}) {
 		t.Fatalf("task statuses = %#v, want ignored child failure then deploy success", got)
+	}
+}
+
+func TestRunPipelineResolvesRuntimeOutputVariablesForDependentTask(t *testing.T) {
+	runtime := &fakeStepRuntime{
+		outputs: map[string]RuntimeOutputValue{
+			"image_tag": {Name: "image_tag", Value: "v1.2.3"},
+		},
+	}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+
+	result := RunPipeline(testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "prepare"},
+				Tasks: []models.Task{{
+					Name:    "generate",
+					Script:  "printf %s v1.2.3 > /nopsai/outputs/image_tag",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}},
+				}},
+			}},
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "build"},
+				Tasks: []models.Task{{
+					Name:      "image",
+					DependsOn: []string{"prepare.generate"},
+					Variables: map[string]string{
+						"IMAGE_TAG": "$steps.prepare.generate.outputs.image_tag",
+					},
+					Script: "echo $IMAGE_TAG",
+				}},
+			}},
+		},
+	}, runtime, statuses, finalStatuses))
+
+	if result.ExitCode != 0 || result.FinalStatus != "success" {
+		t.Fatalf("result = %#v, want successful runtime output pipeline", result)
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.createRequests) != 2 {
+		t.Fatalf("create requests = %d, want 2", len(runtime.createRequests))
+	}
+	if !runtime.createRequests[0].OutputsEnabled {
+		t.Fatalf("producer OutputsEnabled = false, want true")
+	}
+	if runtime.createRequests[1].OutputsEnabled {
+		t.Fatalf("consumer OutputsEnabled = true, want false")
+	}
+	if len(runtime.runtimeVars) != 2 {
+		t.Fatalf("runtime vars calls = %d, want 2", len(runtime.runtimeVars))
+	}
+	if runtimeVarsContain(runtime.runtimeVars[0], "IMAGE_TAG=v1.2.3") {
+		t.Fatalf("producer runtime vars unexpectedly contain resolved output: %s", strings.Join(runtime.runtimeVars[0], "\n"))
+	}
+	if !runtimeVarsContain(runtime.runtimeVars[1], "IMAGE_TAG=v1.2.3") {
+		t.Fatalf("consumer runtime vars missing resolved output: %s", strings.Join(runtime.runtimeVars[1], "\n"))
+	}
+}
+
+func TestRunPipelinePassesResolvedIncludeVariablesToChildPipeline(t *testing.T) {
+	runtime := &fakeStepRuntime{
+		outputs: map[string]RuntimeOutputValue{
+			"image_tag": {Name: "image_tag", Value: "v1.2.3"},
+			"token":     {Name: "token", Value: "secret-token", Sensitive: true},
+		},
+	}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+	includeRunner := &fakeIncludeRunner{
+		status: "success",
+		result: includeflow.Result{Handled: true, Success: true, Status: "success"},
+	}
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "prepare"},
+				Tasks: []models.Task{{
+					Name: "generate",
+					Outputs: []models.TaskOutput{
+						{Name: "image_tag"},
+						{Name: "token", Sensitive: true},
+					},
+					Script: "generate outputs",
+				}},
+			}},
+			{Step: &models.IncludeStep{
+				BaseStep: models.BaseStep{
+					Name:      "child",
+					DependsOn: []string{"prepare"},
+					Variables: map[string]string{
+						"CHANNEL":   "stable",
+						"IMAGE_TAG": "$steps.prepare.generate.outputs.image_tag",
+						"TOKEN":     "$steps.prepare.generate.outputs.token",
+					},
+				},
+				Include: "pipeline:child",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.IncludeRunner = includeRunner
+
+	result := RunPipeline(req)
+
+	if result.ExitCode != 0 || result.FinalStatus != "success" {
+		t.Fatalf("result = %#v, want successful include pipeline", result)
+	}
+	if len(includeRunner.requests) != 1 {
+		t.Fatalf("include requests = %d, want 1", len(includeRunner.requests))
+	}
+	includeReq := includeRunner.requests[0]
+	if includeReq.Variables["CHANNEL"] != "stable" || includeReq.Variables["IMAGE_TAG"] != "v1.2.3" || includeReq.Variables["TOKEN"] != "secret-token" {
+		t.Fatalf("include variables = %#v, want resolved values", includeReq.Variables)
+	}
+	if len(includeReq.SensitiveVariables) != 1 || includeReq.SensitiveVariables[0] != "TOKEN" {
+		t.Fatalf("include sensitive variables = %#v, want TOKEN", includeReq.SensitiveVariables)
 	}
 }
 
@@ -332,11 +455,14 @@ type fakeStepRuntime struct {
 	mu              sync.Mutex
 	createRequests  []StepRuntimeSessionRequest
 	actions         []*proto.Action
+	runtimeVars     [][]string
 	cleanupSessions []string
 	stdout          string
 	stderr          string
 	exitCode        int
 	createErrors    map[string]error
+	outputs         map[string]RuntimeOutputValue
+	outputErr       error
 }
 
 func (r *fakeStepRuntime) Name() string {
@@ -355,10 +481,11 @@ func (r *fakeStepRuntime) CreateSession(_ context.Context, _ *zerolog.Logger, re
 	return "session-" + req.StepName, nil
 }
 
-func (r *fakeStepRuntime) ExecuteAction(_ context.Context, _ string, action *proto.Action, _ []string, _ string, onLine executor.OutputLineHandler) (string, string, int) {
+func (r *fakeStepRuntime) ExecuteAction(_ context.Context, _ string, action *proto.Action, runtimeVars []string, _ string, onLine executor.OutputLineHandler) (string, string, int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.actions = append(r.actions, action)
+	r.runtimeVars = append(r.runtimeVars, append([]string(nil), runtimeVars...))
 	if onLine != nil && r.stdout != "" {
 		onLine(executor.OutputStreamStdout, r.stdout)
 	}
@@ -366,6 +493,33 @@ func (r *fakeStepRuntime) ExecuteAction(_ context.Context, _ string, action *pro
 		onLine(executor.OutputStreamStderr, r.stderr)
 	}
 	return r.stdout, r.stderr, r.exitCode
+}
+
+func runtimeVarsContain(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *fakeStepRuntime) PrepareOutputDirectory(context.Context, string) error {
+	return nil
+}
+
+func (r *fakeStepRuntime) CollectOutputs(context.Context, string, []models.TaskOutput, map[string]bool, int64) (map[string]RuntimeOutputValue, error) {
+	if r.outputErr != nil {
+		return nil, r.outputErr
+	}
+	if len(r.outputs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]RuntimeOutputValue, len(r.outputs))
+	for key, value := range r.outputs {
+		out[key] = value
+	}
+	return out, nil
 }
 
 func (r *fakeStepRuntime) CleanupSession(_ context.Context, _ *zerolog.Logger, sessionID string) {
@@ -379,9 +533,11 @@ type fakeIncludeRunner struct {
 	exitCode           int
 	markPipelineFailed bool
 	result             includeflow.Result
+	requests           []includeflow.Request
 }
 
 func (r *fakeIncludeRunner) Run(_ context.Context, req includeflow.Request) includeflow.Result {
+	r.requests = append(r.requests, req)
 	if req.FinalizeTask != nil && r.status != "" {
 		req.FinalizeTask(req.StepName, req.StepName, r.status, r.exitCode, req.LLMDurationMs)
 	}

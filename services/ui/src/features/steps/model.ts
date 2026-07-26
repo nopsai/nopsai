@@ -1,5 +1,12 @@
 import * as yaml from 'js-yaml';
-import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../../lib/yamlValidation.js';
+import {
+  findLineNumberForKey,
+  findLineNumberForTaskName,
+  parseScopedRuntimeRef,
+  parseTaskOutputDeclarations,
+  parseYamlWithLocation,
+  validateRuntimeVariableMap,
+} from '../../lib/yamlValidation.js';
 
 export const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 
@@ -18,6 +25,7 @@ export const STEP_DIRECTIVES = [
   'goal',
   'script',
   'depends_on',
+  'outputs',
   'ignore_failure',
   'agent_profile',
   'runtime_pool',
@@ -31,6 +39,7 @@ export const TASK_DIRECTIVES = [
   'goal',
   'script',
   'depends_on',
+  'outputs',
   'ignore_failure',
   'llm_output_sharing',
   'variables',
@@ -185,10 +194,50 @@ export function validateStepYaml(rawYaml: string, opts?: { expectedName?: string
     };
   }
 
+  const variablesError = validateRuntimeVariableMap(record.variables, `Step '${name}' variables`);
+  if (variablesError) {
+    return {
+      errors: [
+        {
+          message: variablesError,
+          line: findLineNumberForKey(rawYaml, 'variables') ?? 1,
+        },
+      ],
+    };
+  }
+
+  if (record.secrets != null) {
+    if (!Array.isArray(record.secrets)) {
+      return { errors: [{ message: `Step '${name}' secrets must be a list.`, line: findLineNumberForKey(rawYaml, 'secrets') ?? 1 }] };
+    }
+    for (let idx = 0; idx < record.secrets.length; idx += 1) {
+      const rawSecret = record.secrets[idx];
+      if (typeof rawSecret !== 'string' || !rawSecret.trim()) {
+        return { errors: [{ message: `Step '${name}' secret #${idx + 1} must be a non-empty string.`, line: findLineNumberForKey(rawYaml, 'secrets') ?? 1 }] };
+      }
+      const parsedSecret = parseScopedRuntimeRef(rawSecret);
+      if (parsedSecret.error) {
+        return { errors: [{ message: `Step '${name}' secret '${rawSecret}' is invalid: ${parsedSecret.error}.`, line: findLineNumberForKey(rawYaml, 'secrets') ?? 1 }] };
+      }
+    }
+  }
+
   const hasInclude = record.include != null;
   const hasTasks = record.tasks != null;
   const hasGoal = record.goal != null;
   const hasScript = record.script != null;
+
+  const stepOutputs = parseTaskOutputDeclarations(record.outputs, `Step '${name}' outputs`);
+  if (stepOutputs.error) {
+    return {
+      errors: [
+        {
+          message: stepOutputs.error,
+          line: findLineNumberForKey(rawYaml, 'outputs') ?? 1,
+        },
+      ],
+    };
+  }
 
   const modeCount = [hasInclude, hasTasks, hasGoal, hasScript].filter(Boolean).length;
   const lineForMode =
@@ -231,6 +280,16 @@ export function validateStepYaml(rawYaml: string, opts?: { expectedName?: string
         ],
       };
     }
+    if (stepOutputs.outputs.length > 0) {
+      return {
+        errors: [
+          {
+            message: `Include step '${name}' cannot declare task outputs.`,
+            line: findLineNumberForKey(rawYaml, 'outputs') ?? 1,
+          },
+        ],
+      };
+    }
     return { errors: [] };
   }
 
@@ -239,6 +298,16 @@ export function validateStepYaml(rawYaml: string, opts?: { expectedName?: string
     const tasksLine = findLineNumberForKey(rawYaml, 'tasks') ?? 1;
     if (!tasks || tasks.length === 0) {
       return { errors: [{ message: "Step 'tasks' must be a non-empty list.", line: tasksLine }] };
+    }
+    if (stepOutputs.outputs.length > 0) {
+      return {
+        errors: [
+          {
+            message: `Step '${name}' has tasks, so outputs must be declared on individual tasks.`,
+            line: findLineNumberForKey(rawYaml, 'outputs') ?? tasksLine,
+          },
+        ],
+      };
     }
 
     const taskNames = new Map<string, string>();
@@ -273,6 +342,30 @@ export function validateStepYaml(rawYaml: string, opts?: { expectedName?: string
             {
               message: `Task '${taskName}' contains unknown directive '${invalidTaskKey}'.`,
               line: findLineNumberForKey(rawYaml, invalidTaskKey) ?? findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine,
+            },
+          ],
+        };
+      }
+
+      const taskVariablesError = validateRuntimeVariableMap(taskObj.variables, `Task '${taskName}' variables`);
+      if (taskVariablesError) {
+        return {
+          errors: [
+            {
+              message: taskVariablesError,
+              line: findLineNumberForKey(rawYaml, 'variables') ?? findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine,
+            },
+          ],
+        };
+      }
+
+      const taskOutputs = parseTaskOutputDeclarations(taskObj.outputs, `Task '${taskName}' outputs`);
+      if (taskOutputs.error) {
+        return {
+          errors: [
+            {
+              message: taskOutputs.error,
+              line: findLineNumberForKey(rawYaml, 'outputs') ?? findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine,
             },
           ],
         };

@@ -1,6 +1,12 @@
 import * as yaml from 'js-yaml';
 import { validatePipelineYamlStrict } from '../../lib/lab.js';
-import { findLineNumberForKey, normalizeLineNumber, parseYamlWithLocation } from '../../lib/yamlValidation.js';
+import {
+  findLineNumberForKey,
+  normalizeLineNumber,
+  parseTaskOutputDeclarations,
+  parseYamlWithLocation,
+  type TaskOutputDeclaration,
+} from '../../lib/yamlValidation.js';
 
 export const PIPELINE_DIRECTIVES = [
   'name',
@@ -40,6 +46,7 @@ export const STEP_DIRECTIVES = [
   'goal',
   'script',
   'depends_on',
+  'outputs',
   'ignore_failure',
   'agent_profile',
   'llm_profile',
@@ -54,6 +61,7 @@ export const TASK_DIRECTIVES = [
   'goal',
   'script',
   'depends_on',
+  'outputs',
   'ignore_failure',
   'llm_profile',
   'mcp_profiles',
@@ -86,6 +94,7 @@ export type PipelineGraphTaskDefinition = {
   depends_on?: string[];
   ignore_failure?: boolean;
   variables?: Record<string, string>;
+  outputs?: TaskOutputDeclaration[];
 };
 
 export type PipelineGraphApprovalDefinition = {
@@ -103,6 +112,7 @@ export type PipelineGraphStepConfiguration = {
   secrets?: string[];
   volumes?: string[];
   variables?: Record<string, string>;
+  outputs?: TaskOutputDeclaration[];
   ignore_failure?: boolean;
   llm_output_sharing?: boolean;
   agent_profile?: string;
@@ -284,6 +294,11 @@ function normalizeVariables(value: unknown) {
   return Object.keys(entries).length ? entries : undefined;
 }
 
+function normalizeOutputs(value: unknown): TaskOutputDeclaration[] | undefined {
+  const parsed = parseTaskOutputDeclarations(value, 'outputs');
+  return parsed.outputs.length ? parsed.outputs : undefined;
+}
+
 function normalizeApproval(value: unknown): PipelineGraphApprovalDefinition | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
@@ -354,6 +369,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
     secrets?: string[];
     volumes?: string[];
     variables?: Record<string, string>;
+    outputs?: TaskOutputDeclaration[];
     ignore_failure?: boolean;
     llm_output_sharing?: boolean;
     goal?: string;
@@ -386,6 +402,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
                   depends_on: normalizeStringArray(task.depends_on),
                   ignore_failure: typeof task.ignore_failure === 'boolean' ? task.ignore_failure : undefined,
                   variables: normalizeVariables(task.variables),
+                  outputs: normalizeOutputs(task.outputs),
                 } as PipelineGraphTaskDefinition;
               })
               .filter((task): task is PipelineGraphTaskDefinition => Boolean(task))
@@ -403,6 +420,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
           secrets: normalizeStringArray(step.secrets),
           volumes: normalizeStringArray(step.volumes),
           variables: normalizeVariables(step.variables),
+          outputs: normalizeOutputs(step.outputs),
           ignore_failure: typeof step.ignore_failure === 'boolean' ? step.ignore_failure : undefined,
           llm_output_sharing: typeof step.llm_output_sharing === 'boolean' ? step.llm_output_sharing : undefined,
           goal: typeof step.goal === 'string' ? step.goal : undefined,
@@ -456,6 +474,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
           secrets: step.secrets,
           volumes: step.volumes,
           variables: step.variables,
+          outputs: step.outputs,
           ignore_failure: step.ignore_failure,
           llm_output_sharing: step.llm_output_sharing,
           goal: step.goal,

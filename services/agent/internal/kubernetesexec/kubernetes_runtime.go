@@ -76,6 +76,7 @@ type StepPodRequest struct {
 	WorkingDirectory string
 	Env              []string
 	Volumes          []string
+	OutputsEnabled   bool
 	RuntimePool      string
 }
 
@@ -177,6 +178,18 @@ func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: r.workspacePVC},
 		},
 	}}
+	if req.OutputsEnabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "runtime-outputs",
+			MountPath: models.RuntimeOutputsMountPath,
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: "runtime-outputs",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+	}
 
 	extraMounts, extraVolumes, err := r.kubernetesStepVolumes(ctx, req.Volumes)
 	if err != nil {

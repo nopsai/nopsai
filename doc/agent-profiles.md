@@ -37,11 +37,19 @@ Current runtime resolution order:
 
 1. Step `agent_profile`
 2. Pipeline `agent_profile`
-3. System `default_profile`
+3. Owning team `agent_default_profile`
+4. System `default_profile` for system-owned runs
 
 Tasks must not define `agent_profile`. Use step-level profiles when different
 tasks inside a step should share the same persona, or split tasks into separate
 steps when they need different personas.
+
+For team-owned pipeline runs, no explicit `agent_profile` plus no owning-team
+default is a validation error. The runtime no longer silently borrows a default
+from the current viewer, another team, or the system catalog for that case.
+Team overview shows the configured default and links to the team-scoped Agent
+Profiles page, where users with `team.update` on that team can change the
+owning team's default from the top selector.
 
 ## GitOps Configuration
 
@@ -89,8 +97,15 @@ agent_profiles:
 
 ## UI And API
 
-The UI manages system profiles under **System -> Agent Profiles** and team
-profiles under **Teams -> Team Settings -> AI profiles**.
+The UI manages system profiles under **Agent Profiles** when **Global** or
+**All teams** is selected. When a concrete team is selected in the profile tree
+or `?team=` query, the same page loads team-owned profiles from the team API and
+system-catalog profiles whose slash-scoped IDs belong to that team. The top
+default selector updates that team's `agent_default_profile` and can point at
+either a team-local profile or a scoped catalog profile such as
+`platform/ml/reviewer`. The Teams area shows profile/default summaries and
+links to the scoped Agent Profiles page; it does not edit profile defaults
+directly.
 
 System routes:
 

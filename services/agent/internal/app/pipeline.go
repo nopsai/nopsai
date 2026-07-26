@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
@@ -28,6 +29,7 @@ type KnowledgePromptBuilder func(*models.Pipeline, *models.PipelineStep, *models
 type BlockingKnowledgeKindResolver func(*models.Pipeline, *models.PipelineStep, *models.Task, []models.KnowledgeContextSnapshot) []string
 type KnowledgeViolationDetector func(*proto.Action, *models.Pipeline, *models.PipelineStep, *models.Task, []models.KnowledgeContextSnapshot) (string, []string, bool)
 type PolicyRevisionChecker func(context.Context, string) (models.PolicyRevisionResponse, error)
+type TaskOutputReporter func(pipelineName, runID, stepName, taskName string, outputs map[string]RuntimeOutputValue) error
 
 type ApprovalPauser interface {
 	Pause(context.Context, approval.Request) (approval.PauseResponse, error)
@@ -42,6 +44,8 @@ type StepRuntime interface {
 	PrePullImages(context.Context, zerolog.Logger, *models.Pipeline, int)
 	CreateSession(context.Context, *zerolog.Logger, StepRuntimeSessionRequest) (string, error)
 	ExecuteAction(context.Context, string, *proto.Action, []string, string, executor.OutputLineHandler) (string, string, int)
+	PrepareOutputDirectory(context.Context, string) error
+	CollectOutputs(context.Context, string, []models.TaskOutput, map[string]bool, int64) (map[string]RuntimeOutputValue, error)
 	CleanupSession(context.Context, *zerolog.Logger, string)
 }
 
@@ -54,6 +58,7 @@ type StepRuntimeSessionRequest struct {
 	WorkingDirectory string
 	Env              []string
 	Volumes          []string
+	OutputsEnabled   bool
 	RuntimePool      string
 }
 
@@ -121,6 +126,7 @@ func (r ContainerStepRuntime) CreateSession(ctx context.Context, logger *zerolog
 			WorkingDirectory: req.WorkingDirectory,
 			Env:              req.Env,
 			Volumes:          req.Volumes,
+			OutputsEnabled:   req.OutputsEnabled,
 			RuntimePool:      req.RuntimePool,
 		})
 	}
@@ -136,6 +142,7 @@ func (r ContainerStepRuntime) CreateSession(ctx context.Context, logger *zerolog
 		WorkingDirectory:  req.WorkingDirectory,
 		Env:               req.Env,
 		Volumes:           req.Volumes,
+		OutputsEnabled:    req.OutputsEnabled,
 		SharedVolumeName:  r.sharedVolumeName,
 		DockerNetworkName: r.dockerNetworkName,
 		ContainerName:     stepContainerName,
@@ -154,6 +161,31 @@ func (r ContainerStepRuntime) ExecuteAction(ctx context.Context, sessionID strin
 		return "", "execution runtime is not configured", 1
 	}
 	return executor.ExecuteDockerAction(ctx, r.runtime.Docker, sessionID, action, runtimeVars, workingDirectory, onLine)
+}
+
+func (r ContainerStepRuntime) PrepareOutputDirectory(ctx context.Context, sessionID string) error {
+	action := &proto.Action{
+		Type: "EXECUTE_COMMAND",
+		Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{
+			Command: fmt.Sprintf(
+				"mkdir -p %s && (rm -rf %s/* %s/.[!.]* %s/..?* 2>/dev/null || true) && test -w %s",
+				executor.ShellQuote(models.RuntimeOutputsMountPath),
+				executor.ShellQuote(models.RuntimeOutputsMountPath),
+				executor.ShellQuote(models.RuntimeOutputsMountPath),
+				executor.ShellQuote(models.RuntimeOutputsMountPath),
+				executor.ShellQuote(models.RuntimeOutputsMountPath),
+			),
+		}},
+	}
+	_, stderr, exitCode := r.ExecuteAction(ctx, sessionID, action, nil, models.DefaultPipelineWorkingDirectory, nil)
+	if exitCode != 0 {
+		return fmt.Errorf("runtime output directory %s is not writable: %s", models.RuntimeOutputsMountPath, strings.TrimSpace(stderr))
+	}
+	return nil
+}
+
+func (r ContainerStepRuntime) CollectOutputs(ctx context.Context, sessionID string, outputs []models.TaskOutput, required map[string]bool, maxBytes int64) (map[string]RuntimeOutputValue, error) {
+	return collectRuntimeOutputFiles(ctx, r, sessionID, outputs, required, maxBytes)
 }
 
 func (r ContainerStepRuntime) CleanupSession(ctx context.Context, logger *zerolog.Logger, sessionID string) {

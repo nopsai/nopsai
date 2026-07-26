@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import LLMProfilesPanel from './LLMProfilesPanel';
 
 const apiMocks = vi.hoisted(() => ({
@@ -31,9 +31,61 @@ const apiMocks = vi.hoisted(() => ({
 const teamMocks = vi.hoisted(() => ({
   fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
 }));
+const teamProfileMocks = vi.hoisted(() => {
+  const teamProfiles = (teamPath = 'platform/ml', defaultProfile = 'reasoning') => ({
+    team_id: 7,
+    team_path: teamPath,
+    default_profile: defaultProfile,
+    profiles: [
+      {
+        name: 'reasoning',
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+        base_url: 'https://api.openai.com/v1',
+        credential_ref: 'credential://team/platform/ml/llm/openai',
+        allowed_scopes: ['prod'],
+        reasoning: '',
+        timeout_seconds: 30,
+        max_tokens: 2048,
+        extra: {},
+        status: 'valid',
+      },
+      {
+        name: 'fast',
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+        base_url: 'https://api.openai.com/v1',
+        credential_ref: 'credential://team/platform/ml/llm/openai',
+        allowed_scopes: [],
+        reasoning: '',
+        timeout_seconds: 30,
+        max_tokens: 2048,
+        extra: {},
+        status: 'valid',
+      },
+    ],
+  });
+  return {
+    deleteTeamLLMProfile: vi.fn(),
+    fetchTeamLLMProfiles: vi.fn(async (teamPath: string) => teamProfiles(teamPath)),
+    requestTeamsJson: vi.fn(async () => ({ allowed: true })),
+    setTeamDefaultLLMProfile: vi.fn(async (teamPath: string, defaultProfile: string) => teamProfiles(teamPath, defaultProfile)),
+    upsertTeamLLMProfile: vi.fn(async (teamPath: string, profileName: string, payload: Record<string, unknown>) => ({
+      team_id: 7,
+      team_path: teamPath,
+      default_profile: profileName,
+      profiles: [{ ...payload, name: profileName, status: 'valid' }],
+    })),
+  };
+});
 
 vi.mock('./llm-profiles/api', () => apiMocks);
+vi.mock('./teamProfileApi', () => teamProfileMocks);
 vi.mock('../../lib/resourceTeams', () => teamMocks);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 test('renders provider labels and applies provider-aware profile defaults', async () => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -126,20 +178,21 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   expect(form.getByLabelText('Provider state')).toHaveValue('auto');
   await user.selectOptions(form.getByLabelText('Prompt cache'), 'required');
   await user.selectOptions(form.getByLabelText('Provider state'), 'disabled');
-  apiMocks.saveLLMProfile.mockResolvedValueOnce({
-    name: 'platform/ml/reasoning',
-    payload: { default_profile: 'hosted', profiles: [] },
-  });
   await user.click(form.getByRole('button', { name: 'Save profile' }));
-  await waitFor(() => expect(apiMocks.saveLLMProfile).toHaveBeenCalledWith(expect.objectContaining({
-    prompt_cache: '{\n  "mode": "required"\n}',
-    provider_state: '{\n  "mode": "disabled"\n}',
-  })));
+  await waitFor(() => expect(teamProfileMocks.upsertTeamLLMProfile).toHaveBeenCalledWith(
+    'platform/ml',
+    'reasoning',
+    expect.objectContaining({
+      name: 'reasoning',
+      prompt_cache: { mode: 'required' },
+      provider_state: { mode: 'disabled' },
+    })
+  ));
 });
 
-test('applies the team filter from the route query', async () => {
+test('shows scoped catalog LLM profiles for the selected team and saves them as team defaults', async () => {
   apiMocks.fetchLLMProfiles.mockResolvedValueOnce({
-    default_profile: 'platform/ml/reasoning',
+    default_profile: 'hosted',
     profiles: [
       {
         name: 'hosted',
@@ -147,7 +200,7 @@ test('applies the team filter from the route query', async () => {
         model: 'gpt-4.1-mini',
         base_url: 'https://api.openai.com/v1',
         credential_ref: 'credential://system/llm/openai',
-        allowed_scopes: ['prod'],
+        allowed_scopes: [],
         reasoning: '',
         timeout_seconds: 30,
         max_tokens: 2048,
@@ -155,12 +208,12 @@ test('applies the team filter from the route query', async () => {
         status: 'valid',
       },
       {
-        name: 'platform/ml/reasoning',
+        name: 'platform/ml/catalog-chat',
         provider: 'openai',
         model: 'gpt-4.1-mini',
         base_url: 'https://api.openai.com/v1',
         credential_ref: 'credential://system/llm/openai',
-        allowed_scopes: ['prod'],
+        allowed_scopes: [],
         reasoning: '',
         timeout_seconds: 30,
         max_tokens: 2048,
@@ -169,7 +222,49 @@ test('applies the team filter from the route query', async () => {
       },
     ],
   });
+  teamProfileMocks.fetchTeamLLMProfiles.mockResolvedValueOnce({
+    team_id: 7,
+    team_path: 'platform/ml',
+    default_profile: '',
+    profiles: [],
+  });
 
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+      <LLMProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const profileList = await screen.findByLabelText('LLM profiles');
+  expect(within(profileList).getByText('platform/ml/catalog-chat')).toBeVisible();
+  expect(within(profileList).queryByText('hosted')).not.toBeInTheDocument();
+
+  const defaultSelect = screen.getByLabelText('Default LLM profile');
+  await waitFor(() => expect(defaultSelect).toHaveValue(''));
+  await user.selectOptions(defaultSelect, 'platform/ml/catalog-chat');
+
+  await waitFor(() => expect(teamProfileMocks.setTeamDefaultLLMProfile).toHaveBeenCalledWith('platform/ml', 'platform/ml/catalog-chat'));
+  expect(apiMocks.saveDefaultLLMProfile).not.toHaveBeenCalled();
+});
+
+test('updates the selected team LLM default through the team API', async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+      <LLMProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const defaultSelect = await screen.findByLabelText('Default LLM profile');
+  await waitFor(() => expect(defaultSelect).toHaveValue('platform/ml/reasoning'));
+  await user.selectOptions(defaultSelect, 'platform/ml/fast');
+
+  await waitFor(() => expect(teamProfileMocks.setTeamDefaultLLMProfile).toHaveBeenCalledWith('platform/ml', 'fast'));
+  expect(apiMocks.saveDefaultLLMProfile).not.toHaveBeenCalled();
+});
+
+test('applies the team filter from the route query', async () => {
   render(
     <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
       <LLMProfilesPanel canManage />
@@ -177,6 +272,7 @@ test('applies the team filter from the route query', async () => {
   );
 
   expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
+  await waitFor(() => expect(teamProfileMocks.fetchTeamLLMProfiles).toHaveBeenCalledWith('platform/ml'));
   const profileList = screen.getByLabelText('LLM profiles');
   expect(within(profileList).getByText('platform/ml/reasoning')).toBeVisible();
   expect(within(profileList).queryByText('hosted')).not.toBeInTheDocument();

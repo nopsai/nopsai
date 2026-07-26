@@ -71,6 +71,56 @@ func TestSecretCodecUsesInjectedCodec(t *testing.T) {
 	}
 }
 
+func TestRunVariableOverrideMetadataFiltersSensitiveValues(t *testing.T) {
+	overrides, invalid := normalizeRunVariableOverrides(map[string]string{
+		" CHANNEL ": "stable",
+		"TOKEN":     "secret",
+		"bad key":   "ignored",
+	})
+	if len(invalid) != 1 || invalid[0] != "bad key" {
+		t.Fatalf("invalid override keys = %#v, want bad key", invalid)
+	}
+	sensitiveNames, invalidSensitive := normalizeSensitiveRunVariableOverrides([]string{" TOKEN ", "bad key"})
+	if len(invalidSensitive) != 1 || invalidSensitive[0] != "bad key" {
+		t.Fatalf("invalid sensitive keys = %#v, want bad key", invalidSensitive)
+	}
+
+	public := publicRunVariableOverrides(overrides, sensitiveNames)
+	sensitive := sensitiveRunVariableOverrides(overrides, sensitiveNames)
+	if public["CHANNEL"] != "stable" {
+		t.Fatalf("public overrides = %#v, want CHANNEL", public)
+	}
+	if _, ok := public["TOKEN"]; ok {
+		t.Fatalf("public overrides leaked TOKEN: %#v", public)
+	}
+	if sensitive["TOKEN"] != "secret" || len(sensitive) != 1 {
+		t.Fatalf("sensitive overrides = %#v, want TOKEN only", sensitive)
+	}
+}
+
+func TestRunSensitiveVariableOverrideEncryptionRoundTrip(t *testing.T) {
+	app := &App{encKey: []byte("12345678901234567890123456789012")}
+	encrypted, err := app.encryptRunVariableOverrides(map[string]string{"TOKEN": "secret"})
+	if err != nil {
+		t.Fatalf("encryptRunVariableOverrides() error = %v", err)
+	}
+	if encrypted["TOKEN"] == "" || encrypted["TOKEN"] == "secret" {
+		t.Fatalf("encrypted TOKEN = %q, want encrypted value", encrypted["TOKEN"])
+	}
+
+	payload, err := json.Marshal(encrypted)
+	if err != nil {
+		t.Fatalf("marshal encrypted payload: %v", err)
+	}
+	decrypted, err := app.decryptRunVariableOverridesJSON(payload)
+	if err != nil {
+		t.Fatalf("decryptRunVariableOverridesJSON() error = %v", err)
+	}
+	if decrypted["TOKEN"] != "secret" {
+		t.Fatalf("decrypted TOKEN = %q, want secret", decrypted["TOKEN"])
+	}
+}
+
 type recordingSecretCodec struct {
 	encryptCalls int
 	decryptCalls int

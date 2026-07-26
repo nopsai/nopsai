@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,7 @@ type RuntimeConfig struct {
 	PipelineTimeout          string
 	DockerNetworkName        string
 	LLMTimeout               time.Duration
+	RuntimeOutputMaxBytes    int64
 	Secrets                  map[string]string
 	Variables                map[string]string
 	ResumeCheckpointID       string
@@ -102,6 +104,7 @@ func LoadRuntimeConfig(lookup EnvLookup) (RuntimeConfig, []Warning, error) {
 		ResumeCheckpointID:       lookup(ResumeCheckpointIDEnv),
 		RunScope:                 lookup("SCOPE"),
 		RuntimeMode:              appconfig.NormalizeRuntime(lookup("NOPSAI_RUNTIME")),
+		RuntimeOutputMaxBytes:    parseRuntimeOutputMaxBytes(lookup("NOPSAI_RUNTIME_OUTPUT_MAX_BYTES")),
 	}
 
 	var warnings []Warning
@@ -151,6 +154,18 @@ func LoadRuntimeConfig(lookup EnvLookup) (RuntimeConfig, []Warning, error) {
 	}
 
 	return config, warnings, nil
+}
+
+func parseRuntimeOutputMaxBytes(raw string) int64 {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return defaultRuntimeOutputMaxBytes
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		return defaultRuntimeOutputMaxBytes
+	}
+	return parsed
 }
 
 func LoadFailureLogMessage(err error) string {

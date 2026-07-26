@@ -3,6 +3,9 @@ import { asRecord, normalizeNumber, normalizeStringArray, normalizeStringMap, re
 
 export type LLMProfileRecord = {
   name: string;
+  scope?: 'global' | 'team';
+  team_path?: string;
+  team_local_name?: string;
   provider: string;
   model: string;
   base_url: string;
