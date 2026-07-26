@@ -78,7 +78,7 @@ func (a *App) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAAADecision(w, r, "pipeline_schedule.create", aaamodel.ResourceRef{Type: grantResourceTeam, ID: teamID}) {
 		return
 	}
-	pipeline, _, err := a.validateScheduleRuntimeAccess(r.Context(), r, input)
+	pipeline, err := a.validateScheduleRuntimeAccess(r.Context(), r, input)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -112,7 +112,7 @@ func (a *App) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	pipeline, _, err := a.validateScheduleRuntimeAccess(r.Context(), r, input)
+	pipeline, err := a.validateScheduleRuntimeAccess(r.Context(), r, input)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -218,23 +218,23 @@ func (a *App) requireScheduleDecision(w http.ResponseWriter, r *http.Request, ac
 	return record, true
 }
 
-func (a *App) validateScheduleRuntimeAccess(ctx context.Context, r *http.Request, input scheduleInput) (models.Pipeline, []byte, error) {
+func (a *App) validateScheduleRuntimeAccess(ctx context.Context, r *http.Request, input scheduleInput) (models.Pipeline, error) {
 	if !a.requireAAADecision(noopResponseWriter{}, r, "pipeline.execute", routeauthz.PipelineResource(input.PipelinePath, input.PipelineName)) {
-		return models.Pipeline{}, nil, fmt.Errorf("forbidden")
+		return models.Pipeline{}, fmt.Errorf("forbidden")
 	}
-	pipeline, definition, err := a.loadSchedulePipeline(ctx, input.PipelinePath, input.PipelineName)
+	pipeline, _, err := a.loadSchedulePipeline(ctx, input.PipelinePath, input.PipelineName)
 	if err != nil {
-		return models.Pipeline{}, nil, err
+		return models.Pipeline{}, err
 	}
 	subject, ok := a.currentAAASubject(r)
 	if !ok {
-		return models.Pipeline{}, nil, fmt.Errorf("unauthorized")
+		return models.Pipeline{}, fmt.Errorf("unauthorized")
 	}
 	callerID := firstNonEmptyString(subject.ID, subject.Sub, subject.Email)
 	if _, err := a.authorizeRunResourceUses(ctx, subject.Type, callerID, scheduleTriggerSource, map[string]string{}, input.PipelinePath, scheduleTriggerSource, pipeline, input.Scope); err != nil {
-		return models.Pipeline{}, nil, err
+		return models.Pipeline{}, err
 	}
-	return pipeline, definition, nil
+	return pipeline, nil
 }
 
 type noopResponseWriter struct{}

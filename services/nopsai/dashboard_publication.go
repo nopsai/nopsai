@@ -106,7 +106,7 @@ func (a *App) publishDashboardFinalOutput(ctx context.Context, runID string, out
 	if err := a.markDashboardRefreshOutputPublished(ctx, target.RefreshID, runID, output, target); err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Str("refresh_id", target.RefreshID).Msg("Failed to mark dashboard refresh output published")
 	}
-	a.auditDashboardAction(ctx, nil, "dashboard.published", dashboard, "success", map[string]any{
+	a.auditDashboardAction(ctx, nil, "dashboard.published", dashboard, map[string]any{
 		"run_id":      runID,
 		"output_id":   output.ID,
 		"output_name": output.Name,
@@ -436,7 +436,7 @@ func insertAppendDashboardPublication(
 	if err == nil {
 		return nil
 	}
-	if err != nil && !dashboardNotFound(err) {
+	if !dashboardNotFound(err) {
 		return err
 	}
 	var revision int
@@ -519,7 +519,7 @@ func replaceDashboardPublication(
 		}
 		return insertDashboardPublicationEvent(ctx, tx, dashboardID, target, existingID, revision, "published", content, runID)
 	}
-	if err != nil && !dashboardNotFound(err) {
+	if !dashboardNotFound(err) {
 		return err
 	}
 
@@ -561,7 +561,7 @@ func snapshotDashboardPublication(
 	if err == nil {
 		return nil
 	}
-	if err != nil && !dashboardNotFound(err) {
+	if !dashboardNotFound(err) {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -624,7 +624,7 @@ func seriesDashboardPublication(
 	if err == nil {
 		return nil
 	}
-	if err != nil && !dashboardNotFound(err) {
+	if !dashboardNotFound(err) {
 		return err
 	}
 
@@ -673,7 +673,7 @@ func seriesDashboardPublication(
 		}
 		return insertDashboardPublicationEvent(ctx, tx, dashboardID, target, existingID, revision, "published", content, runID)
 	}
-	if err != nil && !dashboardNotFound(err) {
+	if !dashboardNotFound(err) {
 		return err
 	}
 

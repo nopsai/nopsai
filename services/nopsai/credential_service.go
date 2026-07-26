@@ -76,7 +76,7 @@ func (s *credentialService) Create(ctx context.Context, input createCredentialIn
 		return credentials.Credential{}, err
 	}
 	if len(input.Value) == 0 {
-		s.auditManagement(ctx, actor, "credential.create", credential, "success", nil)
+		s.auditManagement(ctx, actor, "credential.create", credential, nil)
 		return credential, nil
 	}
 	if _, err := s.PutValue(ctx, credential.ID, input.Value, actor); err != nil {
@@ -85,7 +85,7 @@ func (s *credentialService) Create(ctx context.Context, input createCredentialIn
 	}
 	credential, err = s.store.GetCredentialByID(ctx, credential.ID)
 	if err == nil {
-		s.auditManagement(ctx, actor, "credential.create", credential, "success", nil)
+		s.auditManagement(ctx, actor, "credential.create", credential, nil)
 	}
 	return credential, err
 }
@@ -191,7 +191,7 @@ func (s *credentialService) PutValue(
 	credential.ActiveVersion = version
 	credential.Status = credentials.StatusActive
 	credential.Metadata = metadata
-	s.auditManagement(ctx, actor, "credential.rotate", credential, "success", map[string]any{"version": version})
+	s.auditManagement(ctx, actor, "credential.rotate", credential, map[string]any{"version": version})
 	return created, nil
 }
 
@@ -203,7 +203,7 @@ func (s *credentialService) Activate(ctx context.Context, credentialID uuid.UUID
 		return err
 	}
 	credential, _ := s.store.GetCredentialByID(ctx, credentialID)
-	s.auditManagement(ctx, actor, "credential.activate", credential, "success", map[string]any{"version": version})
+	s.auditManagement(ctx, actor, "credential.activate", credential, map[string]any{"version": version})
 	return nil
 }
 
@@ -212,7 +212,7 @@ func (s *credentialService) Disable(ctx context.Context, credentialID uuid.UUID,
 		return err
 	}
 	credential, _ := s.store.GetCredentialByID(ctx, credentialID)
-	s.auditManagement(ctx, actor, "credential.disable", credential, "success", nil)
+	s.auditManagement(ctx, actor, "credential.disable", credential, nil)
 	return nil
 }
 
@@ -221,7 +221,7 @@ func (s *credentialService) Enable(ctx context.Context, credentialID uuid.UUID, 
 		return err
 	}
 	credential, _ := s.store.GetCredentialByID(ctx, credentialID)
-	s.auditManagement(ctx, actor, "credential.enable", credential, "success", nil)
+	s.auditManagement(ctx, actor, "credential.enable", credential, nil)
 	return nil
 }
 
@@ -241,7 +241,7 @@ func (s *credentialService) DeleteVersion(
 	if err := s.store.DeleteCredentialVersion(ctx, credentialID, version); err != nil {
 		return err
 	}
-	s.auditManagement(ctx, actor, "credential.delete_version", credential, "success", map[string]any{
+	s.auditManagement(ctx, actor, "credential.delete_version", credential, map[string]any{
 		"version": version,
 	})
 	return nil
@@ -255,7 +255,7 @@ func (s *credentialService) Delete(ctx context.Context, credentialID uuid.UUID, 
 	if err := s.store.DeleteCredential(ctx, credentialID); err != nil {
 		return err
 	}
-	s.auditManagement(ctx, actor, "credential.delete", credential, "success", nil)
+	s.auditManagement(ctx, actor, "credential.delete", credential, nil)
 	return nil
 }
 
@@ -347,7 +347,6 @@ func (s *credentialService) auditManagement(
 	ctx context.Context,
 	actor, action string,
 	credential credentials.Credential,
-	result string,
 	metadata map[string]any,
 ) {
 	if s.audit == nil {
@@ -362,7 +361,7 @@ func (s *credentialService) auditManagement(
 		ActorSub: actor,
 		Action:   action,
 		Resource: credential.Reference.ResourceID(),
-		Result:   result,
+		Result:   "success",
 		Metadata: metadata,
 	})
 }

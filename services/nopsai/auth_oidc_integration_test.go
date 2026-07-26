@@ -139,7 +139,7 @@ func (p *localOIDCTestProvider) handleJWKS(w http.ResponseWriter, _ *http.Reques
 			Kid: p.kid,
 			Use: "sig",
 			Alg: "RS256",
-			N:   base64.RawURLEncoding.EncodeToString(p.key.PublicKey.N.Bytes()),
+			N:   base64.RawURLEncoding.EncodeToString(p.key.N.Bytes()),
 			E:   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(p.key.PublicKey.E)).Bytes()),
 		}},
 	})

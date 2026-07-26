@@ -25,9 +25,9 @@ func TestPipelineNotificationFiltersMatch(t *testing.T) {
 }
 
 func TestNotificationDeliveryDedupeKey(t *testing.T) {
-	first := notificationDeliveryDedupeKey("run-1", "failure", "mail", "Release@Example.com")
-	second := notificationDeliveryDedupeKey("run-1", "failure", "mail", "release@example.com")
-	other := notificationDeliveryDedupeKey("run-1", "success", "mail", "release@example.com")
+	first := notificationDeliveryDedupeKey("run-1", "failure", "Release@Example.com")
+	second := notificationDeliveryDedupeKey("run-1", "failure", "release@example.com")
+	other := notificationDeliveryDedupeKey("run-1", "success", "release@example.com")
 	if first != second {
 		t.Fatal("dedupe key should normalize recipient case")
 	}

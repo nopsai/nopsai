@@ -195,7 +195,7 @@ func (a *App) handleVerifyGitHubAppInstallation(w http.ResponseWriter, r *http.R
 		return
 	}
 	verifiedAt := time.Now().UTC().Format(time.RFC3339)
-	updated, _, err := a.updateGitHubInstallationRuntimeMetadata(r.Context(), installation.InstallationID, func(current *config.GitHubInstallationConfig) {
+	updated, err := a.updateGitHubInstallationRuntimeMetadata(r.Context(), installation.InstallationID, func(current *config.GitHubInstallationConfig) {
 		current.LastVerifiedAt = verifiedAt
 	})
 	if err != nil {
@@ -218,7 +218,7 @@ func (a *App) handleRefreshGitHubAppInstallation(w http.ResponseWriter, r *http.
 	repositories, err := a.gitClient().ListInstallationRepositories(installation.InstallationID)
 	if err != nil {
 		lastError := err.Error()
-		if updated, _, persistErr := a.updateGitHubInstallationRuntimeMetadata(r.Context(), installation.InstallationID, func(current *config.GitHubInstallationConfig) {
+		if updated, persistErr := a.updateGitHubInstallationRuntimeMetadata(r.Context(), installation.InstallationID, func(current *config.GitHubInstallationConfig) {
 			current.LastError = lastError
 		}); persistErr == nil && strings.TrimSpace(updated.InstallationID) != "" {
 			installation = updated
@@ -230,7 +230,7 @@ func (a *App) handleRefreshGitHubAppInstallation(w http.ResponseWriter, r *http.
 	}
 	decorated := a.decorateGitHubInstallationRepositories(repositories)
 	refreshedAt := time.Now().UTC().Format(time.RFC3339)
-	updated, _, persistErr := a.updateGitHubInstallationRuntimeMetadata(r.Context(), installation.InstallationID, func(current *config.GitHubInstallationConfig) {
+	updated, persistErr := a.updateGitHubInstallationRuntimeMetadata(r.Context(), installation.InstallationID, func(current *config.GitHubInstallationConfig) {
 		current.AccessibleRepositories = len(decorated)
 		current.LastRepositoryRefreshAt = refreshedAt
 		current.LastError = ""
@@ -373,10 +373,10 @@ func (a *App) updateGitHubInstallationRuntimeMetadata(
 	ctx context.Context,
 	installationID string,
 	mutate func(*config.GitHubInstallationConfig),
-) (githubAppInstallation, bool, error) {
+) (githubAppInstallation, error) {
 	installationID = strings.TrimSpace(installationID)
 	if installationID == "" {
-		return githubAppInstallation{}, false, nil
+		return githubAppInstallation{}, nil
 	}
 	cfg := a.getConfigSnapshot()
 	installations := config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID)
@@ -392,16 +392,16 @@ func (a *App) updateGitHubInstallationRuntimeMetadata(
 		break
 	}
 	if !found {
-		return githubAppInstallation{}, false, nil
+		return githubAppInstallation{}, nil
 	}
 	nextCfg, err := a.applySystemConfig(systemConfigPayload{GitHubInstallations: &installations})
 	if err != nil {
-		return githubAppInstallation{}, true, err
+		return githubAppInstallation{}, err
 	}
 	if err := a.persistRuntimeSettingsSnapshot(ctx, nextCfg, "database", nil, "", "", false); err != nil {
-		return githubAppInstallation{}, true, err
+		return githubAppInstallation{}, err
 	}
-	return githubAppInstallationFromConfig(updated), true, nil
+	return githubAppInstallationFromConfig(updated), nil
 }
 
 func (a *App) githubConnectedTriggerCounts() map[string]int {

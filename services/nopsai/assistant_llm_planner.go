@@ -251,8 +251,8 @@ func assistantLLMPlannerActivity(profileName string, profile config.LLMProfile, 
 	}
 }
 
-func assistantBaseTurnPlan(content string, memory assistantConversationMemory) assistantTurnPlan {
-	return assistantBaseTurnPlanWithPageContext(content, memory, assistantPageContext{})
+func assistantBaseTurnPlan(content string) assistantTurnPlan {
+	return assistantBaseTurnPlanWithPageContext(content, assistantConversationMemory{}, assistantPageContext{})
 }
 
 func assistantBaseTurnPlanWithPageContext(content string, memory assistantConversationMemory, pageContext assistantPageContext) assistantTurnPlan {
@@ -901,7 +901,7 @@ func assistantPlannerAllowsLexicalToolMatch(lower, toolName string) bool {
 func assistantPlannerSignificantTokens(text string) map[string]bool {
 	text = strings.NewReplacer("_", " ", "-", " ", "/", " ", ".", " ").Replace(strings.ToLower(text))
 	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 	})
 	stop := map[string]bool{
 		"a": true, "an": true, "and": true, "are": true, "about": true, "can": true,

@@ -387,9 +387,10 @@ func (a *App) handleGitWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 		Errors:             result.Errors,
 	}
 	statusCode := http.StatusAccepted
-	if result.Status == gitWebhookDeliveryNoMatch {
+	switch result.Status {
+	case gitWebhookDeliveryNoMatch:
 		statusCode = http.StatusOK
-	} else if result.Status == gitWebhookDeliveryFailed {
+	case gitWebhookDeliveryFailed:
 		statusCode = result.HTTPStatus
 		if statusCode < 400 {
 			statusCode = http.StatusUnprocessableEntity

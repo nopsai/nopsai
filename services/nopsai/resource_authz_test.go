@@ -348,7 +348,7 @@ func TestResourceUseFailureSummaryIncludesDecisionDetails(t *testing.T) {
 		Repo:         "nopsai/test-app",
 	}
 
-	got := resourceUseFailureSummary(model.SubjectTypeRepository, "nopsai/test-app", result, nil)
+	got := resourceUseFailureSummary("nopsai/test-app", result, nil)
 
 	assertContains(t, got, "repository:nopsai/test-app is not allowed to use pipeline platform/shared/deploy")
 	assertContains(t, got, "Caller: repository:nopsai/test-app")
@@ -372,7 +372,7 @@ func TestResourceUseFailureSummaryIncludesAuthorizationError(t *testing.T) {
 		ResourceID:   "platform/prod",
 	}
 
-	got := resourceUseFailureSummary(model.SubjectTypeRepository, "nopsai/test-app", result, errors.New("aaa offline"))
+	got := resourceUseFailureSummary("nopsai/test-app", result, errors.New("aaa offline"))
 
 	assertContains(t, got, "Authorization unavailable for scope:platform/prod: aaa offline")
 	assertContains(t, got, "Caller: repository:nopsai/test-app")

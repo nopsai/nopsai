@@ -347,9 +347,7 @@ func stringSliceClaim(value any) []string {
 			}
 		}
 	case string:
-		for _, item := range strings.Split(typed, ",") {
-			raw = append(raw, item)
-		}
+		raw = append(raw, strings.Split(typed, ",")...)
 	}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(raw))

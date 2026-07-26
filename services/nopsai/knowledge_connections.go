@@ -466,7 +466,7 @@ func (a *App) handleSearchKnowledgeConnectionPagesByIdentifier(w http.ResponseWr
 		return
 	}
 	a.updateKnowledgeConnectionHealth(r.Context(), record, knowledgeConnectionStatusConnected, "", nil)
-	writeJSON(w, http.StatusOK, knowledgeConnectionPageSearchResponse{Pages: result.Pages, NextCursor: result.NextCursor})
+	writeJSON(w, http.StatusOK, knowledgeConnectionPageSearchResponse(result))
 }
 
 func (a *App) handleResolveKnowledgeConnectionPage(w http.ResponseWriter, r *http.Request) {

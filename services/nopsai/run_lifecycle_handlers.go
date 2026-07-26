@@ -18,6 +18,10 @@ import (
 var errRunAlreadyCompleted = errors.New("run has already completed")
 
 func (a *App) cancelRunHierarchy(ctx context.Context, runUUID uuid.UUID, reason, childReason string) error {
+	nextReason := strings.TrimSpace(childReason)
+	if nextReason == "" {
+		nextReason = reason
+	}
 	_, err := a.markRunCancelled(ctx, runUUID, reason)
 	if err != nil && !errors.Is(err, errRunAlreadyCompleted) {
 		return err
@@ -45,7 +49,7 @@ func (a *App) cancelRunHierarchy(ctx context.Context, runUUID uuid.UUID, reason,
 	}
 
 	for _, childRunID := range childRunIDs {
-		if childErr := a.cancelRunHierarchy(ctx, childRunID, childReason, childReason); childErr != nil && !errors.Is(childErr, errRunAlreadyCompleted) {
+		if childErr := a.cancelRunHierarchy(ctx, childRunID, nextReason, nextReason); childErr != nil && !errors.Is(childErr, errRunAlreadyCompleted) {
 			return childErr
 		}
 	}

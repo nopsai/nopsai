@@ -266,7 +266,7 @@ func (a *App) createDashboardRefreshRecord(ctx context.Context, dashboard dashbo
 		return "", false, err
 	}
 	if queued == 0 {
-		if _, err := a.updateDashboardRefreshRollup(ctx, refreshID); err != nil {
+		if err := a.updateDashboardRefreshRollup(ctx, refreshID); err != nil {
 			return "", false, err
 		}
 	}
@@ -523,7 +523,7 @@ func (a *App) reconcileDashboardRefresh(ctx context.Context, dashboard dashboard
 	if err := a.reconcileDashboardRefreshRunRows(ctx, refreshID); err != nil {
 		return dashboardRefreshResponse{}, err
 	}
-	if _, err := a.updateDashboardRefreshRollup(ctx, refreshID); err != nil {
+	if err := a.updateDashboardRefreshRollup(ctx, refreshID); err != nil {
 		return dashboardRefreshResponse{}, err
 	}
 	return a.getDashboardRefreshResponse(ctx, dashboard, refreshID)
@@ -662,7 +662,7 @@ func dashboardRefreshRunTerminal(status string) bool {
 	}
 }
 
-func (a *App) updateDashboardRefreshRollup(ctx context.Context, refreshID string) (dashboardRefreshRecord, error) {
+func (a *App) updateDashboardRefreshRollup(ctx context.Context, refreshID string) error {
 	var total, required, queued, running, successful, failed, skipped int
 	err := a.db.QueryRow(ctx, `
 		SELECT COUNT(*)::int,
@@ -676,7 +676,7 @@ func (a *App) updateDashboardRefreshRollup(ctx context.Context, refreshID string
 		WHERE refresh_id::text = $1
 	`, refreshID).Scan(&total, &required, &queued, &running, &successful, &failed, &skipped)
 	if err != nil {
-		return dashboardRefreshRecord{}, err
+		return err
 	}
 	var requiredFailed, requiredSkipped, requiredSuccessful int
 	if err := a.db.QueryRow(ctx, `
@@ -686,7 +686,7 @@ func (a *App) updateDashboardRefreshRollup(ctx context.Context, refreshID string
 		FROM dashboard_refresh_pipeline_runs
 		WHERE refresh_id::text = $1
 	`, refreshID).Scan(&requiredFailed, &requiredSkipped, &requiredSuccessful); err != nil {
-		return dashboardRefreshRecord{}, err
+		return err
 	}
 	status := dashboardRefreshStatusRunning
 	finishedExpr := "finished_at"
@@ -717,9 +717,9 @@ func (a *App) updateDashboardRefreshRollup(ctx context.Context, refreshID string
 			updated_at = NOW()
 		WHERE id::text = $1
 	`, finishedExpr), refreshID, status, total, required, queued, running, successful, failed, skipped); err != nil {
-		return dashboardRefreshRecord{}, err
+		return err
 	}
-	return a.getDashboardRefreshRecordByID(ctx, refreshID)
+	return nil
 }
 
 func (a *App) cancelDashboardRefresh(ctx context.Context, dashboard dashboardRecord, refreshID string) (dashboardRefreshResponse, error) {
@@ -954,8 +954,7 @@ func (a *App) markDashboardRefreshOutputStatus(ctx context.Context, refreshID, r
 	if tag.RowsAffected() == 0 {
 		return nil
 	}
-	_, err = a.updateDashboardRefreshRollup(ctx, refreshID)
-	return err
+	return a.updateDashboardRefreshRollup(ctx, refreshID)
 }
 
 func (a *App) getDashboardRefreshRecord(ctx context.Context, dashboard dashboardRecord, refreshID string) (dashboardRefreshRecord, error) {

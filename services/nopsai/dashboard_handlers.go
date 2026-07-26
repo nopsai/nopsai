@@ -67,7 +67,7 @@ func (a *App) handleCreateDashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create dashboard", http.StatusInternalServerError)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.created", record, "success", nil)
+	a.auditDashboardAction(r.Context(), r, "dashboard.created", record, nil)
 	writeJSON(w, http.StatusCreated, dashboardResponseFromRecord(record))
 }
 
@@ -125,7 +125,7 @@ func (a *App) handleUpdateDashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to update dashboard", http.StatusInternalServerError)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.updated", record, "success", nil)
+	a.auditDashboardAction(r.Context(), r, "dashboard.updated", record, nil)
 	writeJSON(w, http.StatusOK, dashboardResponseFromRecord(record))
 }
 
@@ -139,7 +139,7 @@ func (a *App) handleDeleteDashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to delete dashboard", http.StatusInternalServerError)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.deleted", record, "success", nil)
+	a.auditDashboardAction(r.Context(), r, "dashboard.deleted", record, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -219,7 +219,7 @@ func (a *App) handleDeleteDashboardPublication(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Failed to delete dashboard publication", http.StatusInternalServerError)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.entry_removed", record, "success", map[string]any{
+	a.auditDashboardAction(r.Context(), r, "dashboard.entry_removed", record, map[string]any{
 		"publication_id": publication.ID,
 		"section_key":    publication.SectionKey,
 		"entry_key":      publication.EntryKey,
@@ -271,7 +271,7 @@ func (a *App) handleCreateDashboardSection(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to create dashboard section", http.StatusInternalServerError)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.section_created", record, "success", map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
+	a.auditDashboardAction(r.Context(), r, "dashboard.section_created", record, map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
 	writeJSON(w, http.StatusCreated, dashboardSectionResponseFromRecord(section))
 }
 
@@ -317,7 +317,7 @@ func (a *App) handleUpdateDashboardSection(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to update dashboard section", http.StatusInternalServerError)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.section_updated", record, "success", map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
+	a.auditDashboardAction(r.Context(), r, "dashboard.section_updated", record, map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
 	writeJSON(w, http.StatusOK, dashboardSectionResponseFromRecord(section))
 }
 
@@ -346,7 +346,7 @@ func (a *App) handleDeleteDashboardSection(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to delete dashboard section", http.StatusInternalServerError)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.section_deleted", record, "success", map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
+	a.auditDashboardAction(r.Context(), r, "dashboard.section_deleted", record, map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -382,7 +382,7 @@ func (a *App) handleStartDashboardRefresh(w http.ResponseWriter, r *http.Request
 		writeDashboardRefreshError(w, err)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.refreshed", record, "success", map[string]any{
+	a.auditDashboardAction(r.Context(), r, "dashboard.refreshed", record, map[string]any{
 		"refresh_id":   response.ID,
 		"trigger_type": response.TriggerType,
 		"scope_type":   response.ScopeType,
@@ -435,7 +435,7 @@ func (a *App) handleCancelDashboardRefresh(w http.ResponseWriter, r *http.Reques
 		writeDashboardRefreshError(w, err)
 		return
 	}
-	a.auditDashboardAction(r.Context(), r, "dashboard.refresh_cancelled", record, "success", map[string]any{"refresh_id": response.ID})
+	a.auditDashboardAction(r.Context(), r, "dashboard.refresh_cancelled", record, map[string]any{"refresh_id": response.ID})
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -668,9 +668,9 @@ func (a *App) handleSaveDashboardSource(w http.ResponseWriter, r *http.Request, 
 		status = http.StatusCreated
 	}
 	if source.Enabled {
-		a.auditDashboardAction(r.Context(), r, "dashboard.source_enabled", record, "success", map[string]any{"source_id": source.ID})
+		a.auditDashboardAction(r.Context(), r, "dashboard.source_enabled", record, map[string]any{"source_id": source.ID})
 	} else {
-		a.auditDashboardAction(r.Context(), r, "dashboard.source_disabled", record, "success", map[string]any{"source_id": source.ID})
+		a.auditDashboardAction(r.Context(), r, "dashboard.source_disabled", record, map[string]any{"source_id": source.ID})
 	}
 	writeJSON(w, status, dashboardSourceResponseFromRecord(source))
 }

@@ -17,7 +17,7 @@ test('summarizes the product wiki and keeps a stable first article', () => {
   const summary = summarizeWiki();
 
   assert.equal(summary.sections, 9);
-  assert.equal(summary.articles, 45);
+  assert.equal(summary.articles, 46);
   assert.ok(summary.configKeys > 20);
   assert.ok(summary.runbooks > 20);
   assert.equal(summary.tutorials, 8);
@@ -97,6 +97,21 @@ test('documents read-only analysis reviewers in the product wiki', () => {
   assert.ok(article.sourceLinks.some(source => source.repositoryPath === 'services/ui/src/features/analysis/model.ts'));
   assert.ok(article.sourceLinks.some(source => source.repositoryPath === 'services/ui/src/features/analysis/api.ts'));
   assert.ok(filterWikiSections(wikiSections, 'first failed execution point').some(section => section.id === 'operations'));
+});
+
+test('documents extension-owned browser console warnings', () => {
+  const article = findWikiArticle(wikiSections, 'browser-console-troubleshooting');
+
+  assert.ok(article);
+  assert.equal(article.docType, 'troubleshooting');
+  assert.ok(article.audiences.includes('operator'));
+  assert.ok(article.audiences.includes('developer'));
+  assert.ok(article.keyFacts.some(fact => fact.includes('ObjectMultiplex')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('AAA, GitOps, MCP')));
+  assert.ok(article.steps.some(step => step.title === 'Reproduce without extensions'));
+  assert.ok(article.sourceLinks.some(source => source.repositoryPath === 'doc/browser-console-troubleshooting.md'));
+  assert.ok(article.runbookEntries.some(runbook => runbook.diagnosticCommands.some(command => command.includes('app-init-liveness'))));
+  assert.ok(filterWikiSections(wikiSections, 'background-liveness').some(section => section.id === 'security-reference'));
 });
 
 test('documents step-level LLM profile directives', () => {

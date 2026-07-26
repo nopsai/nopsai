@@ -31,7 +31,7 @@ func newSystemLogBroker(cfg *config.Config, provider systemlogs.Provider) (*syst
 				if !strings.HasPrefix(host, "tcp://") && !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
 					return nil, fmt.Errorf("system log Docker host must use tcp, http, or https")
 				}
-				dockerClient, err := client.NewClientWithOpts(client.WithHost(host), client.WithAPIVersionNegotiation())
+				dockerClient, err := client.New(client.WithHost(host))
 				if err != nil {
 					return nil, err
 				}

@@ -100,7 +100,7 @@ func TestSetupStarterTemplatesUseSelectedRepositoryTeams(t *testing.T) {
 }
 
 func TestSetupPipelineRunStructureUsesSelectedRepositoryTeamsAsRoots(t *testing.T) {
-	structure := setupPipelineRunStructure(setupProfileTeam, []setupRepositoryTeamInput{
+	structure := setupPipelineRunStructure([]setupRepositoryTeamInput{
 		{Name: "platform", Repositories: []string{"acme/service-api"}},
 		{Name: "applications", Repositories: nil},
 	}, nil)
@@ -128,7 +128,7 @@ func TestSetupPipelineRunStructureUsesSelectedRepositoryTeamsAsRoots(t *testing.
 }
 
 func TestSetupDoesNotCreateTeamStructureWithoutSelectedTeams(t *testing.T) {
-	structure := setupPipelineRunStructure(setupProfileTeam, nil, nil)
+	structure := setupPipelineRunStructure(nil, nil)
 	if len(structure) != 0 {
 		t.Fatalf("setup structure = %#v, want no synthetic teams", structure)
 	}
@@ -169,7 +169,7 @@ func TestSetupStarterTemplatesIncludeSelectedUsersInAccess(t *testing.T) {
 }
 
 func TestSetupAccessFallsBackToSelectedTeamForUnknownUserTeam(t *testing.T) {
-	access := setupAccessYAML(setupProfileTeam, []setupRepositoryTeamInput{
+	access := setupAccessYAML([]setupRepositoryTeamInput{
 		{Name: "platform", Repositories: nil},
 	}, []setupUserInput{
 		{Sub: "alice@example.com", Email: "alice@example.com", Role: "developer", Team: "workspace/platform"},

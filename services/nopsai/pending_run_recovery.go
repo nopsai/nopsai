@@ -182,7 +182,7 @@ func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, 
 }
 
 func (a *App) recoverPendingPipelineRun(ctx context.Context, record pendingRunRecoveryRecord) error {
-	req, err := pendingRunRecoveryLaunchRequest(record, time.Now())
+	req, err := pendingRunRecoveryLaunchRequest(record)
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func (a *App) recoverPendingPipelineRun(ctx context.Context, record pendingRunRe
 	return nil
 }
 
-func pendingRunRecoveryLaunchRequest(record pendingRunRecoveryRecord, now time.Time) (AgentRunLaunchRequest, error) {
+func pendingRunRecoveryLaunchRequest(record pendingRunRecoveryRecord) (AgentRunLaunchRequest, error) {
 	runID := strings.TrimSpace(record.RunID)
 	if runID == "" {
 		return AgentRunLaunchRequest{}, fmt.Errorf("run id is required")

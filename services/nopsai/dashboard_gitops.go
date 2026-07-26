@@ -95,13 +95,7 @@ func parseGitOpsDashboards(files map[string]string, dashboardDir string, binding
 		}
 		sections := make([]dashboardSectionInput, 0, len(doc.Sections))
 		for _, section := range doc.Sections {
-			input, err := normalizeDashboardSectionInput(dashboardSectionRequest{
-				SectionKey:   section.SectionKey,
-				Title:        section.Title,
-				Description:  section.Description,
-				Layout:       section.Layout,
-				DisplayOrder: section.DisplayOrder,
-			})
+			input, err := normalizeDashboardSectionInput(dashboardSectionRequest(section))
 			if err != nil {
 				return nil, fmt.Errorf("invalid dashboard section '%s': %w", normalized, err)
 			}
@@ -112,16 +106,7 @@ func parseGitOpsDashboards(files map[string]string, dashboardDir string, binding
 		}
 		sources := make([]dashboardSourceInput, 0, len(doc.Sources))
 		for _, source := range doc.Sources {
-			input, err := normalizeDashboardSourceInput(dashboardSourceRequest{
-				SectionKey:         source.SectionKey,
-				PipelineID:         source.PipelineID,
-				OutputName:         source.OutputName,
-				EntryKey:           source.EntryKey,
-				RunScope:           source.RunScope,
-				Enabled:            source.Enabled,
-				RequiredForRefresh: source.RequiredForRefresh,
-				RefreshOrder:       source.RefreshOrder,
-			})
+			input, err := normalizeDashboardSourceInput(dashboardSourceRequest(source))
 			if err != nil {
 				return nil, fmt.Errorf("invalid dashboard source '%s': %w", normalized, err)
 			}
@@ -347,7 +332,7 @@ func (a *App) exportConfigRepositoryDashboards(
 		if !configRepositoryIncludesResource(repo, record.ref(), record.Source, record.ConfigRepoID, record.ManagedByConfigRepo, delegatedScopes) {
 			continue
 		}
-		filePath, ok := configRepositoryExportPath(repo, record.ref(), record.ConfigSourcePath, "dashboards", ".yaml", record.ManagedByConfigRepo, record.ConfigRepoID)
+		filePath, ok := configRepositoryExportPath(repo, record.ref(), record.ConfigSourcePath, "dashboards", record.ManagedByConfigRepo, record.ConfigRepoID)
 		if !ok {
 			continue
 		}

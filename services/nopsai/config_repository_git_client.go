@@ -722,7 +722,7 @@ func (c tokenConfigRepositoryClient) giteaFile(ctx context.Context, ref, filePat
 		return "", err
 	}
 	if entry.Type != "" && entry.Type != "file" {
-		return "", fmt.Errorf("Gitea path %q is not a file", filePath)
+		return "", fmt.Errorf("gitea path %q is not a file", filePath)
 	}
 	return decodeProviderContent(entry.Content, "base64")
 }

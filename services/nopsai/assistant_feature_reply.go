@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func composeFeatureToolReply(toolCalls []assistantToolActivity) string {
@@ -355,7 +358,7 @@ func assistantFeatureSensitiveKey(key string) bool {
 }
 
 func assistantFeatureSummaryTitle(key string) string {
-	return strings.Title(strings.ReplaceAll(key, "_", " "))
+	return cases.Title(language.Und).String(strings.ReplaceAll(key, "_", " "))
 }
 
 func assistantTruncateForReply(value string, maxLen int) string {

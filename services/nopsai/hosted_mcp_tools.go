@@ -1733,7 +1733,7 @@ func hostedMCPStaticDocScore(query string, doc hostedMCPStaticDoc) int {
 
 func hostedMCPDocSearchTokens(query string) []string {
 	fields := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
-		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 	})
 	stop := map[string]bool{
 		"and": true, "any": true, "can": true, "data": true, "for": true, "from": true,
@@ -2091,7 +2091,7 @@ func hostedMCPSearchTerms(query string) []string {
 	terms := []string{}
 	seen := map[string]struct{}{}
 	for _, part := range strings.FieldsFunc(query, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' && r != '/'
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-' && r != '/'
 	}) {
 		part = strings.TrimSpace(part)
 		if part == "" {

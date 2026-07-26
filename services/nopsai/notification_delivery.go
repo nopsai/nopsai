@@ -306,7 +306,7 @@ func (a *App) deliverPipelineNotificationEmail(ctx context.Context, notification
 	if notificationDeliveryMaxReached(ctx, a, notificationCtx.RunID, "mail", recipient, route.Delivery.Throttle.MaxPerRun) {
 		return nil
 	}
-	dedupeKey := notificationDeliveryDedupeKey(notificationCtx.RunID, eventType, "mail", recipient)
+	dedupeKey := notificationDeliveryDedupeKey(notificationCtx.RunID, eventType, recipient)
 	var deliveryID uuid.UUID
 	err := a.db.QueryRow(ctx, `
 		INSERT INTO notification_deliveries (run_id, event_type, channel, recipient, status, dedupe_key)
@@ -350,8 +350,8 @@ func notificationDeliveryMaxReached(ctx context.Context, a *App, runID, channel,
 	return err == nil && count >= maxPerRun
 }
 
-func notificationDeliveryDedupeKey(runID, eventType, channel, recipient string) string {
-	hash := sha256.Sum256([]byte(strings.Join([]string{runID, eventType, channel, strings.ToLower(recipient)}, "|")))
+func notificationDeliveryDedupeKey(runID, eventType, recipient string) string {
+	hash := sha256.Sum256([]byte(strings.Join([]string{runID, eventType, "mail", strings.ToLower(recipient)}, "|")))
 	return hex.EncodeToString(hash[:])
 }
 
@@ -443,7 +443,7 @@ func notificationBranchLabel(ref string) string {
 }
 
 func pipelineNotificationSubject(notificationCtx pipelineNotificationContext, eventType string) string {
-	statusLabel, _, _, _ := pipelineNotificationPresentation(notificationCtx.Status, eventType)
+	statusLabel, _, _ := pipelineNotificationPresentation(notificationCtx.Status, eventType)
 	subject := fmt.Sprintf("[%s] %s", statusLabel, pipelineNotificationDisplayName(notificationCtx))
 	if location := pipelineNotificationFailureLocationLabel(notificationCtx.FailureStep, notificationCtx.FailureTask); location != "" {
 		subject += " - " + location

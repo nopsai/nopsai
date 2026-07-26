@@ -58,7 +58,7 @@ func (a *App) prepareSecretsForPipeline(runID string, pipeline models.Pipeline, 
 			return nil, fmt.Errorf("pipeline aborted: required secret '%s' not found in the default scope", secretKey)
 		}
 		if strings.TrimSpace(runID) != "" {
-			if _, err := a.authorizeRunRuntimeResourceUse(context.Background(), runID, gitContext, "secret.use", grantResourceSecret, resourceID); err != nil {
+			if err := a.authorizeRunRuntimeResourceUse(context.Background(), runID, gitContext, "secret.use", grantResourceSecret, resourceID); err != nil {
 				return nil, fmt.Errorf("pipeline aborted: %w", err)
 			}
 		}

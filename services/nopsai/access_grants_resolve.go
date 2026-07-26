@@ -656,14 +656,13 @@ func resolvePipelineOrStepGrantResource(ctx context.Context, runner queryRunner,
 
 func namedResourceWhereClause(resourceID string) string {
 	repoName, scope, _ := model.ParseNamedResourceID(resourceID)
-	storageScope := runtimeScopeForStorage(scope)
 	switch {
 	case repoName != "":
-		return "name = $1 AND repository_name = $2 AND " + runtimeScopeEqualsSQL("scope", 3, storageScope)
+		return "name = $1 AND repository_name = $2 AND " + runtimeScopeEqualsSQL("scope", 3)
 	case scope != "":
-		return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, storageScope)
+		return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2)
 	default:
-		return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, storageScope)
+		return "name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2)
 	}
 }
 
