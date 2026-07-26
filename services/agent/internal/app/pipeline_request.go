@@ -29,6 +29,7 @@ type PipelineRunRequest struct {
 	KnowledgeSnapshots     []models.KnowledgeContextSnapshot
 	PipelineLLMEnabled     bool
 	LLMTimeout             time.Duration
+	RuntimeOutputMaxBytes  int64
 
 	StepRuntime             StepRuntime
 	ConditionClientResolver resolver.ConditionClientResolver
@@ -41,6 +42,7 @@ type PipelineRunRequest struct {
 	Logger                 AgentLogger
 	StepLogger             StepLogger
 	UpdateTaskStatus       TaskStatusReporter
+	ReportTaskOutputs      TaskOutputReporter
 	NotifyFinalStatus      FinalStatusNotifier
 	WatchRunCancellation   RunCancellationWatcher
 	Env                    EnvLookup

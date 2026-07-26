@@ -141,6 +141,7 @@ agent_image: nopsai-agent:dev
 docker_network_name: nopsai-net
 auto_removal_agent_container: false
 default_pipeline_timeout: 45m
+runtime_output_max_bytes: 131072
 llm_agent_timeout: 3m
 dispatcher_routing:
   prod: [runner-prod]
@@ -173,6 +174,9 @@ runner_registry_credentials:
 	if plan.payload.DefaultPipelineTimeout == nil || *plan.payload.DefaultPipelineTimeout != "45m" {
 		t.Fatalf("default timeout = %#v", plan.payload.DefaultPipelineTimeout)
 	}
+	if plan.payload.RuntimeOutputMaxBytes == nil || *plan.payload.RuntimeOutputMaxBytes != 131072 {
+		t.Fatalf("runtime output max bytes = %#v", plan.payload.RuntimeOutputMaxBytes)
+	}
 	if plan.payload.LLMAgentTimeout == nil || *plan.payload.LLMAgentTimeout != "3m" {
 		t.Fatalf("llm timeout = %#v", plan.payload.LLMAgentTimeout)
 	}
@@ -195,6 +199,10 @@ runner_registry_credentials:
 	_, err = parseGitOpsRuntimeSettingsFile("runner_capacity: 0", "setting/system/runner.yaml")
 	if err == nil || !strings.Contains(err.Error(), "invalid runner_capacity") {
 		t.Fatalf("expected invalid capacity error, got %v", err)
+	}
+	_, err = parseGitOpsRuntimeSettingsFile("runtime_output_max_bytes: 0", "setting/system/runner.yaml")
+	if err == nil || !strings.Contains(err.Error(), "invalid runtime_output_max_bytes") {
+		t.Fatalf("expected invalid runtime output max bytes error, got %v", err)
 	}
 }
 
@@ -437,6 +445,7 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 			NopsaiGitBotAPIURL:     "http://existing-git-bot:8081",
 			DockerNetworkName:      "old-net",
 			DefaultPipelineTimeout: "20m",
+			RuntimeOutputMaxBytes:  4096,
 		},
 	}
 	plan := &gitOpsRuntimeSettingsPlan{
@@ -446,6 +455,7 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 			DispatcherAddress:         stringPtr(" dispatcher:9090 "),
 			AutoRemovalAgentContainer: boolPtr(false),
 			DefaultPipelineTimeout:    stringPtr(" 45m "),
+			RuntimeOutputMaxBytes:     intPtr(131072),
 			DispatcherRouting: map[string][]string{
 				" prod ": {" runner-prod ", ""},
 				"":       {" runner-default "},
@@ -480,6 +490,9 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 	}
 	if cfg.DispatcherAddress != "dispatcher:9090" {
 		t.Fatalf("DispatcherAddress = %q", cfg.DispatcherAddress)
+	}
+	if cfg.RuntimeOutputMaxBytes != 131072 {
+		t.Fatalf("RuntimeOutputMaxBytes = %d", cfg.RuntimeOutputMaxBytes)
 	}
 	if cfg.RunnerID != "runner-prod" || cfg.RunnerScopes != "prod,dev" || cfg.RunnerCapacity != 3 {
 		t.Fatalf("runner config = (%q, %q, %d)", cfg.RunnerID, cfg.RunnerScopes, cfg.RunnerCapacity)

@@ -195,6 +195,12 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to retrieve run final outputs", http.StatusInternalServerError)
 		return
 	}
+	taskOutputMetadata, err := loadRuntimeOutputMetadata(r.Context(), a.db, runID)
+	if err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Msg("Failed to query runtime output metadata for run")
+		taskOutputMetadata = nil
+	}
+	attachRuntimeOutputMetadataToTasks(tasksByStep, taskOutputMetadata)
 
 	response := runquery.BuildDetail(runquery.DetailBuildInput{
 		Run:                    run,
@@ -307,10 +313,11 @@ func (a *App) handleCancelRunFinalOutput(w http.ResponseWriter, r *http.Request)
 }
 
 type runRequestPayload struct {
-	Pipeline   string            `json:"pipeline"`
-	Scope      string            `json:"scope"`
-	Variables  map[string]string `json:"variables"`
-	Definition string            `json:"definition"`
+	Pipeline           string            `json:"pipeline"`
+	Scope              string            `json:"scope"`
+	Variables          map[string]string `json:"variables"`
+	SensitiveVariables []string          `json:"sensitive_variables"`
+	Definition         string            `json:"definition"`
 }
 
 func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
@@ -348,25 +355,18 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		pipelineNameFromPath = strings.TrimSpace(payload.Pipeline)
 	}
 
-	overrideVars := make(map[string]string)
-	if len(payload.Variables) > 0 {
-		var invalidKeys []string
-		for key, value := range payload.Variables {
-			trimmedKey := strings.TrimSpace(key)
-			if trimmedKey == "" {
-				continue
-			}
-			if !envKeyPattern.MatchString(trimmedKey) {
-				invalidKeys = append(invalidKeys, trimmedKey)
-				continue
-			}
-			overrideVars[trimmedKey] = value
-		}
-		if len(invalidKeys) > 0 {
-			http.Error(w, fmt.Sprintf("Invalid variable override name(s): %s. Allowed characters: letters, numbers, underscores, dots, and hyphens.", strings.Join(invalidKeys, ", ")), http.StatusBadRequest)
-			return
-		}
+	overrideVars, invalidKeys := normalizeRunVariableOverrides(payload.Variables)
+	if len(invalidKeys) > 0 {
+		http.Error(w, fmt.Sprintf("Invalid variable override name(s): %s. Allowed characters: letters, numbers, underscores, dots, and hyphens.", strings.Join(invalidKeys, ", ")), http.StatusBadRequest)
+		return
 	}
+	sensitiveOverrideNames, invalidSensitiveKeys := normalizeSensitiveRunVariableOverrides(payload.SensitiveVariables)
+	if len(invalidSensitiveKeys) > 0 {
+		http.Error(w, fmt.Sprintf("Invalid sensitive variable override name(s): %s. Allowed characters: letters, numbers, underscores, dots, and hyphens.", strings.Join(invalidSensitiveKeys, ", ")), http.StatusBadRequest)
+		return
+	}
+	publicOverrideVars := publicRunVariableOverrides(overrideVars, sensitiveOverrideNames)
+	sensitiveOverrideVars := sensitiveRunVariableOverrides(overrideVars, sensitiveOverrideNames)
 
 	rawDefinition := strings.TrimSpace(payload.Definition)
 	usePayloadDefinition := rawDefinition != ""
@@ -503,7 +503,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		GitContext:         gitContext,
 		TeamPath:           teamPathForRun,
 		AuthSnapshot:       authSnapshot,
-		VariableOverrides:  overrideVars,
+		VariableOverrides:  publicOverrideVars,
+		SensitiveOverrides: sensitiveOverrideVars,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert initial run record")

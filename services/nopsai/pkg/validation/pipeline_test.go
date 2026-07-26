@@ -106,6 +106,235 @@ steps:
 	}
 }
 
+func TestValidatePipelineRejectsInvalidVariableDeclarations(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "invalid-variable-ref",
+		ContainerImage: "alpine:latest",
+		Variables:      []string{"team-1/dev:API_VERSION", "bad/name"},
+		Steps: []models.PipelineStep{{
+			Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{Name: "run"},
+				Script:   "echo ok",
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "variables[1]") {
+		t.Fatalf("ValidatePipeline() error = %v, want invalid pipeline variable declaration", err)
+	}
+}
+
+func TestValidatePipelineRejectsDuplicateRuntimeVariableDeclarations(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "duplicate-variable-ref",
+		ContainerImage: "alpine:latest",
+		Variables:      []string{"default:API_VERSION", "team-1/prod:API_VERSION"},
+		Steps: []models.PipelineStep{{
+			Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{Name: "run"},
+				Script:   "echo ok",
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "declares runtime variable") {
+		t.Fatalf("ValidatePipeline() error = %v, want duplicate runtime variable declaration", err)
+	}
+}
+
+func TestValidatePipelineRuntimeOutputsAndQualifiedDependencies(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "runtime-output-pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "prepare"},
+				Tasks: []models.Task{{
+					Name:    "generate-tag",
+					Script:  "printf %s v1 > /nopsai/outputs/image_tag",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}, {Name: "IMAGE_TAG"}},
+				}},
+			}},
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "build"},
+				Tasks: []models.Task{{
+					Name:      "image",
+					DependsOn: []string{"prepare.generate-tag"},
+					Variables: map[string]string{
+						"image_tag": "$steps.prepare.generate-tag.outputs.image_tag",
+					},
+					Script: "echo build",
+				}},
+			}},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("ValidatePipeline() error = %v", err)
+	}
+}
+
+func TestValidatePipelineAllowsLegacyStepRuntimeOutputs(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "legacy-output-pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:    "prepare",
+					Outputs: []models.TaskOutput{{Name: "release_manifest"}},
+				},
+				Script: "printf manifest > /nopsai/outputs/release_manifest",
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "consume",
+					DependsOn: []string{"prepare"},
+					Variables: map[string]string{
+						"RELEASE_MANIFEST": "$steps.prepare.prepare.outputs.release_manifest",
+					},
+				},
+				Script: "echo consume",
+			}},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("ValidatePipeline() error = %v", err)
+	}
+}
+
+func TestValidatePipelineRejectsInvalidStepVariableAndSecretNames(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "invalid-step-vars",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{{
+			Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "run",
+					Secrets:   []string{"team-1/prod:DEPLOY_TOKEN", "bad/name"},
+					Variables: map[string]string{"BAD/NAME": "value"},
+				},
+				Script: "echo ok",
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "BAD/NAME") {
+		t.Fatalf("ValidatePipeline() error = %v, want invalid step variable name", err)
+	}
+
+	p.Steps[0].SetVariables(map[string]string{"GOOD_NAME": "value"})
+	err = ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "bad/name") {
+		t.Fatalf("ValidatePipeline() error = %v, want invalid scoped secret name", err)
+	}
+}
+
+func TestValidateReusableStepUsesPipelineYAMLRules(t *testing.T) {
+	valid := models.PipelineStep{Step: &models.ScriptStep{
+		BaseStep: models.BaseStep{
+			Name:      "checkout",
+			Variables: map[string]string{"BRANCH": "main"},
+			Outputs:   []models.TaskOutput{{Name: "commit_sha"}},
+		},
+		Script: "git rev-parse HEAD > /nopsai/outputs/commit_sha",
+	}}
+	if err := ValidateReusableStep(&valid); err != nil {
+		t.Fatalf("ValidateReusableStep() error = %v", err)
+	}
+
+	invalid := models.PipelineStep{Step: &models.ScriptStep{
+		BaseStep: models.BaseStep{
+			Name:      "checkout",
+			Variables: map[string]string{"BAD/NAME": "main"},
+		},
+		Script: "echo ok",
+	}}
+	err := ValidateReusableStep(&invalid)
+	if err == nil || !strings.Contains(err.Error(), "BAD/NAME") {
+		t.Fatalf("ValidateReusableStep() error = %v, want invalid variable name", err)
+	}
+}
+
+func TestValidatePipelineRejectsReservedRuntimeOutputVolume(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "reserved-output-volume",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{{
+			Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:    "build",
+					Volumes: []string{"tmp:/nopsai/outputs"},
+				},
+				Script: "echo ok",
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "reserved runtime output path") {
+		t.Fatalf("ValidatePipeline() error = %v, want reserved mount error", err)
+	}
+}
+
+func TestValidatePipelineRejectsDuplicateTaskOutputNamesExactly(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "duplicate-output",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "prepare"},
+				Tasks: []models.Task{{
+					Name:    "generate",
+					Script:  "echo ok",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}, {Name: "IMAGE_TAG"}, {Name: "image_tag"}},
+				}},
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), `output "image_tag"`) {
+		t.Fatalf("ValidatePipeline() error = %v, want duplicate output error", err)
+	}
+}
+
+func TestValidatePipelineRejectsRuntimeOutputWithoutDependency(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "missing-output-dependency",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "prepare"},
+				Tasks: []models.Task{{
+					Name:    "generate",
+					Script:  "echo ok",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}},
+				}},
+			}},
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "build"},
+				Tasks: []models.Task{{
+					Name: "image",
+					Variables: map[string]string{
+						"image_tag": "$steps.prepare.generate.outputs.image_tag",
+					},
+					Script: "echo build",
+				}},
+			}},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "without a valid dependency") {
+		t.Fatalf("ValidatePipeline() error = %v, want missing dependency error", err)
+	}
+}
+
 func TestValidatePipelineLLMEnabledHelperUsesPipelineFlag(t *testing.T) {
 	disabled := false
 	p := &models.Pipeline{
@@ -672,6 +901,39 @@ func TestValidatePipelineLLMProfilesSkippedWhenLLMDisabled(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineLLMProfilesRequiresTeamDefaultOnlyWhenNeeded(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "team-default",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{{
+			Step: &models.GoalStep{
+				BaseStep: models.BaseStep{Name: "review"},
+				Goal:     "Review",
+			},
+		}},
+	}
+
+	err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{
+		RequireDefaultProfile: true,
+		Profiles: map[string]LLMProfileDefinition{
+			"team-reasoning": {},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "no default LLM profile is configured") {
+		t.Fatalf("ValidatePipelineLLMProfiles() error = %v, want missing team default error", err)
+	}
+
+	p.LLMProfile = "team-reasoning"
+	if err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{
+		RequireDefaultProfile: true,
+		Profiles: map[string]LLMProfileDefinition{
+			"team-reasoning": {},
+		},
+	}); err != nil {
+		t.Fatalf("ValidatePipelineLLMProfiles() with explicit profile error = %v", err)
+	}
+}
+
 func TestValidatePipelineAgentProfilesInheritance(t *testing.T) {
 	p := &models.Pipeline{
 		Name:           "valid-name",
@@ -774,6 +1036,39 @@ func TestValidatePipelineAgentProfilesRequiresEnabledDefault(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `default agent profile "devops-engineer" is disabled`) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePipelineAgentProfilesRequiresTeamDefaultOnlyWhenNeeded(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "team-agent-default",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{{
+			Step: &models.GoalStep{
+				BaseStep: models.BaseStep{Name: "review"},
+				Goal:     "Review",
+			},
+		}},
+	}
+
+	err := ValidatePipelineAgentProfiles(p, AgentProfileValidationOptions{
+		RequireDefaultProfile: true,
+		Profiles: map[string]AgentProfileDefinition{
+			"team-agent": {Enabled: true},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "no default agent profile is configured") {
+		t.Fatalf("ValidatePipelineAgentProfiles() error = %v, want missing team default error", err)
+	}
+
+	p.AgentProfile = "team-agent"
+	if err := ValidatePipelineAgentProfiles(p, AgentProfileValidationOptions{
+		RequireDefaultProfile: true,
+		Profiles: map[string]AgentProfileDefinition{
+			"team-agent": {Enabled: true},
+		},
+	}); err != nil {
+		t.Fatalf("ValidatePipelineAgentProfiles() with explicit profile error = %v", err)
 	}
 }
 

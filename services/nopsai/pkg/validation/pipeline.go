@@ -15,8 +15,9 @@ type AgentProfileDefinition struct {
 }
 
 type AgentProfileValidationOptions struct {
-	DefaultProfile string
-	Profiles       map[string]AgentProfileDefinition
+	DefaultProfile        string
+	RequireDefaultProfile bool
+	Profiles              map[string]AgentProfileDefinition
 }
 
 type LLMProfileDefinition struct {
@@ -24,9 +25,10 @@ type LLMProfileDefinition struct {
 }
 
 type LLMProfileValidationOptions struct {
-	DefaultProfile string
-	Profiles       map[string]LLMProfileDefinition
-	Scope          string
+	DefaultProfile        string
+	RequireDefaultProfile bool
+	Profiles              map[string]LLMProfileDefinition
+	Scope                 string
 }
 
 type MCPProfileDefinition struct {
@@ -95,6 +97,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	if err := validatePipelineOutput(pipeline.Output); err != nil {
 		return err
 	}
+	if err := validatePipelineVariableDeclarations(pipeline.Variables); err != nil {
+		return err
+	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Name) {
 		return fmt.Errorf("pipeline name can only contain alphanumeric characters, underscores, dots, and hyphens")
 	}
@@ -128,6 +133,7 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 
 	allStepNames := make(map[string]bool)
 	stepToTaskNames := make(map[string]map[string]bool)
+	taskOutputDeclarations := make(map[string]map[string]models.TaskOutput)
 
 	// First pass: Collect all step and task names
 	for _, step := range pipeline.Steps {
@@ -144,6 +150,15 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		if err := validatePolicyMergeMode(step.GetPolicyMergeMode(), fmt.Sprintf("step '%s'", stepName)); err != nil {
 			return err
 		}
+		if err := validateReservedRuntimeOutputMounts(step.GetVolumes(), fmt.Sprintf("step '%s'", stepName)); err != nil {
+			return err
+		}
+		if err := validateRuntimeVariableMap(step.GetVariables(), fmt.Sprintf("step '%s'", stepName)); err != nil {
+			return err
+		}
+		if err := validateScopedRuntimeRefs(step.GetSecrets(), fmt.Sprintf("secrets in step '%s'", stepName)); err != nil {
+			return err
+		}
 		allStepNames[stepName] = true
 		stepToTaskNames[stepName] = make(map[string]bool)
 
@@ -157,9 +172,15 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 			if isTaskStep || isLegacyStep || isApprovalStep {
 				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', 'script', or 'approval'", stepName)
 			}
+			if len(step.GetOutputs()) > 0 {
+				return fmt.Errorf("include step '%s' cannot declare task outputs", stepName)
+			}
 		} else if isApprovalStep {
 			if isTaskStep || isLegacyStep {
 				return fmt.Errorf("step '%s' is an 'approval' step and cannot also contain 'tasks', 'goal', or 'script'", stepName)
+			}
+			if len(step.GetOutputs()) > 0 {
+				return fmt.Errorf("approval step '%s' cannot declare task outputs", stepName)
 			}
 			if err := validateApprovalDefinition(approvalStep.Approval, stepName); err != nil {
 				return err
@@ -167,6 +188,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		} else if isTaskStep {
 			if isLegacyStep {
 				return fmt.Errorf("step '%s' has tasks and should not also contain 'goal' or 'script'", stepName)
+			}
+			if len(step.GetOutputs()) > 0 {
+				return fmt.Errorf("step '%s' has tasks, so outputs must be declared on individual tasks", stepName)
 			}
 			for _, task := range tasks {
 				if task.Name == "" {
@@ -176,6 +200,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 					return fmt.Errorf("duplicate task name '%s' found within step '%s'. Task names must be unique within a step", task.Name, stepName)
 				}
 				stepToTaskNames[stepName][task.Name] = true
+				if err := validateRuntimeVariableMap(task.Variables, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
+					return err
+				}
 
 				hasGoal := strings.TrimSpace(task.Goal) != ""
 				hasScript := strings.TrimSpace(task.Script) != ""
@@ -191,36 +218,308 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 				if err := validatePolicyMergeMode(task.PolicyMergeMode, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
 					return err
 				}
+				if err := validateTaskOutputs(task.Outputs, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
+					return err
+				}
+				recordTaskOutputDeclarations(taskOutputDeclarations, stepName, task.Name, task.Outputs)
 			}
 		} else if !isLegacyStep {
 			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', 'script', or 'approval'", stepName)
+		} else if err := validateTaskOutputs(step.GetOutputs(), fmt.Sprintf("step '%s'", stepName)); err != nil {
+			return err
+		} else {
+			stepToTaskNames[stepName][stepName] = true
+			recordTaskOutputDeclarations(taskOutputDeclarations, stepName, stepName, step.GetOutputs())
 		}
 	}
 
 	// Second pass: Validate dependencies based on the corrected rules
 	for _, step := range pipeline.Steps {
 		stepName := step.GetName()
-		// Rule: A step can only depend on other steps.
+		// A step can depend on a whole step or on a qualified producer task.
 		for _, depName := range step.GetDependsOn() {
+			if strings.Contains(depName, models.RuntimeOutputReferencePrefix) {
+				return fmt.Errorf("step '%s' dependency %q cannot use a runtime output reference", stepName, depName)
+			}
+			if _, _, ok := resolvePipelineTaskDependency(depName, stepName, allStepNames, stepToTaskNames); ok {
+				continue
+			}
 			if !allStepNames[depName] {
 				return fmt.Errorf("step '%s' has an undefined dependency: '%s'", stepName, depName)
 			}
 		}
 
-		// Rule: If a step has tasks, those tasks can only depend on other tasks within the SAME step.
+		if err := validateRuntimeOutputRefsInVariables(step.GetVariables(), outputRefConsumer{
+			stepName:      stepName,
+			taskName:      stepName,
+			stepDependsOn: step.GetDependsOn(),
+		}, stepToTaskNames, taskOutputDeclarations); err != nil {
+			return err
+		}
+
+		// Rule: If a step has tasks, those tasks can depend on tasks in the same step
+		// or on a fully-qualified task dependency in an earlier step.
 		tasks := step.GetTasks()
 		if len(tasks) > 0 {
 			for _, task := range tasks {
 				for _, depName := range task.DependsOn {
-					if !stepToTaskNames[stepName][depName] {
-						return fmt.Errorf("task '%s' in step '%s' has an invalid dependency: '%s'. Tasks can only depend on other tasks within the same step", task.Name, stepName, depName)
+					if strings.Contains(depName, models.RuntimeOutputReferencePrefix) {
+						return fmt.Errorf("task '%s' in step '%s' dependency %q cannot use a runtime output reference", task.Name, stepName, depName)
 					}
+					_, depTask, ok := resolvePipelineTaskDependency(depName, stepName, allStepNames, stepToTaskNames)
+					if !ok || depTask == "" {
+						return fmt.Errorf("task '%s' in step '%s' has an invalid dependency: '%s'. Tasks can depend on another task in the same step or use a qualified step.task dependency", task.Name, stepName, depName)
+					}
+				}
+				if err := validateRuntimeOutputRefsInVariables(task.Variables, outputRefConsumer{
+					stepName:      stepName,
+					taskName:      task.Name,
+					taskDependsOn: task.DependsOn,
+					stepDependsOn: step.GetDependsOn(),
+				}, stepToTaskNames, taskOutputDeclarations); err != nil {
+					return err
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+type outputRefConsumer struct {
+	stepName      string
+	taskName      string
+	stepDependsOn []string
+	taskDependsOn []string
+}
+
+func ValidateReusableStep(step *models.PipelineStep) error {
+	if step == nil || step.Step == nil {
+		return fmt.Errorf("reusable step is required")
+	}
+	if strings.TrimSpace(step.GetName()) == "" {
+		return fmt.Errorf("reusable step is missing the required 'name' field")
+	}
+	pipeline := &models.Pipeline{
+		Name:           "reusable-step-validation",
+		ContainerImage: "nopsai/reusable-step-validation",
+		Steps:          []models.PipelineStep{*step},
+	}
+	if err := ValidatePipeline(pipeline); err != nil {
+		return fmt.Errorf("invalid reusable step %q: %w", strings.TrimSpace(step.GetName()), err)
+	}
+	return nil
+}
+
+func validatePipelineVariableDeclarations(variables []string) error {
+	seenRuntimeNames := map[string]string{}
+	for idx, raw := range variables {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return fmt.Errorf("variables[%d] is empty", idx)
+		}
+		ref, err := models.ParseScopedRuntimeRef(trimmed, "")
+		if err != nil {
+			return fmt.Errorf("variables[%d] %q is invalid: %w", idx, raw, err)
+		}
+		if err := validateScopedRuntimeRefParts(ref, fmt.Sprintf("variables[%d]", idx)); err != nil {
+			return err
+		}
+		nameKey := strings.TrimSpace(ref.Name)
+		if previous, ok := seenRuntimeNames[nameKey]; ok {
+			return fmt.Errorf("variables[%d] %q declares runtime variable %q more than once; previous declaration was %q", idx, raw, nameKey, previous)
+		}
+		seenRuntimeNames[nameKey] = trimmed
+	}
+	return nil
+}
+
+func validateRuntimeVariableMap(variables map[string]string, location string) error {
+	for rawName := range variables {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return fmt.Errorf("variables in %s contain an empty key", location)
+		}
+		if !models.IsValidRuntimeReferenceName(name) {
+			return fmt.Errorf("variable %q in %s is invalid; variable names must match ^[A-Za-z0-9_.-]+$", rawName, location)
+		}
+	}
+	return nil
+}
+
+func validateScopedRuntimeRefs(values []string, location string) error {
+	seenRuntimeNames := map[string]string{}
+	for idx, raw := range values {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return fmt.Errorf("%s[%d] is empty", location, idx)
+		}
+		ref, err := models.ParseScopedRuntimeRef(trimmed, "")
+		if err != nil {
+			return fmt.Errorf("%s[%d] %q is invalid: %w", location, idx, raw, err)
+		}
+		if err := validateScopedRuntimeRefParts(ref, fmt.Sprintf("%s[%d]", location, idx)); err != nil {
+			return err
+		}
+		nameKey := strings.TrimSpace(ref.Name)
+		if previous, ok := seenRuntimeNames[nameKey]; ok && previous != ref.LookupKey() {
+			return fmt.Errorf("%s[%d] %q resolves runtime name %q from multiple scopes", location, idx, raw, nameKey)
+		}
+		seenRuntimeNames[nameKey] = ref.LookupKey()
+	}
+	return nil
+}
+
+func validateScopedRuntimeRefParts(ref models.ScopedRuntimeRef, location string) error {
+	if !models.IsValidRuntimeReferenceName(ref.Name) {
+		return fmt.Errorf("%s name %q is invalid; names must match ^[A-Za-z0-9_.-]+$", location, ref.Name)
+	}
+	if ref.ExplicitScope {
+		scope := strings.Trim(strings.TrimSpace(ref.Scope), "/")
+		if scope != "" {
+			if err := validateRelativeKnowledgePath(scope); err != nil {
+				return fmt.Errorf("%s scope %q is invalid: %w", location, ref.Scope, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateTaskOutputs(outputs []models.TaskOutput, location string) error {
+	if len(outputs) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	for idx, output := range outputs {
+		name := strings.TrimSpace(output.Name)
+		if name == "" {
+			return fmt.Errorf("outputs[%d] in %s is missing its required name", idx, location)
+		}
+		if !models.IsValidTaskOutputName(name) {
+			return fmt.Errorf("output %q in %s is invalid; output names must match ^[A-Za-z_][A-Za-z0-9_]*$", output.Name, location)
+		}
+		if seen[name] {
+			return fmt.Errorf("output %q in %s is declared more than once", name, location)
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
+func validateReservedRuntimeOutputMounts(volumes []string, location string) error {
+	for _, raw := range volumes {
+		parts := strings.Split(raw, ":")
+		if len(parts) != 2 {
+			continue
+		}
+		mountPath := strings.TrimRight(strings.TrimSpace(parts[1]), "/")
+		if mountPath == models.RuntimeOutputsMountPath {
+			return fmt.Errorf("%s volume %q cannot mount reserved runtime output path %s", location, raw, models.RuntimeOutputsMountPath)
+		}
+	}
+	return nil
+}
+
+func recordTaskOutputDeclarations(declarations map[string]map[string]models.TaskOutput, stepName, taskName string, outputs []models.TaskOutput) {
+	if len(outputs) == 0 {
+		return
+	}
+	taskKey := models.RuntimeOutputRefKey(stepName, taskName, "")
+	taskKey = strings.TrimSuffix(taskKey, "/")
+	if declarations[taskKey] == nil {
+		declarations[taskKey] = map[string]models.TaskOutput{}
+	}
+	for _, output := range outputs {
+		name := strings.TrimSpace(output.Name)
+		if name != "" {
+			declarations[taskKey][name] = output
+		}
+	}
+}
+
+func validateRuntimeOutputRefsInVariables(variables map[string]string, consumer outputRefConsumer, stepToTaskNames map[string]map[string]bool, declarations map[string]map[string]models.TaskOutput) error {
+	if len(variables) == 0 {
+		return nil
+	}
+	for name, value := range variables {
+		ref, found, err := models.ParseRuntimeOutputRef(value)
+		if err != nil {
+			return fmt.Errorf("variable %q in step '%s' references an invalid runtime output: %w", name, consumer.stepName, err)
+		}
+		if !found {
+			if strings.Contains(value, models.RuntimeOutputReferencePrefix) {
+				return fmt.Errorf("variable %q in step '%s' uses a runtime output in an unsupported expression; use the full value $steps.<step>.<task>.outputs.<name>", name, consumer.stepName)
+			}
+			continue
+		}
+		if !stepToTaskNames[ref.StepName][ref.TaskName] {
+			return fmt.Errorf("variable %q references missing output producer task %s.%s", name, ref.StepName, ref.TaskName)
+		}
+		producerKey := strings.TrimSuffix(models.RuntimeOutputRefKey(ref.StepName, ref.TaskName, ""), "/")
+		if _, ok := declarations[producerKey][ref.OutputName]; !ok {
+			return fmt.Errorf("variable %q references undeclared output %s.%s.outputs.%s", name, ref.StepName, ref.TaskName, ref.OutputName)
+		}
+		if !consumerDependsOnOutputProducer(consumer, ref) {
+			return fmt.Errorf("variable %q consumes output %s.%s.outputs.%s without a valid dependency", name, ref.StepName, ref.TaskName, ref.OutputName)
+		}
+	}
+	return nil
+}
+
+func consumerDependsOnOutputProducer(consumer outputRefConsumer, ref models.RuntimeOutputRef) bool {
+	if consumer.stepName == ref.StepName && consumer.taskName == ref.TaskName {
+		return false
+	}
+	for _, dep := range consumer.stepDependsOn {
+		dep = strings.TrimSpace(dep)
+		if dep == ref.StepName || dep == ref.StepName+"."+ref.TaskName {
+			return true
+		}
+	}
+	for _, dep := range consumer.taskDependsOn {
+		dep = strings.TrimSpace(dep)
+		if consumer.stepName == ref.StepName && dep == ref.TaskName {
+			return true
+		}
+		if dep == ref.StepName+"."+ref.TaskName {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvePipelineTaskDependency(depName, currentStep string, allStepNames map[string]bool, stepToTaskNames map[string]map[string]bool) (string, string, bool) {
+	depName = strings.TrimSpace(depName)
+	currentStep = strings.TrimSpace(currentStep)
+	if depName == "" {
+		return "", "", false
+	}
+	if stepToTaskNames[currentStep][depName] {
+		return currentStep, depName, true
+	}
+	bestStep := ""
+	bestTask := ""
+	for stepName, taskNames := range stepToTaskNames {
+		prefix := stepName + "."
+		if !strings.HasPrefix(depName, prefix) {
+			continue
+		}
+		taskName := strings.TrimSpace(strings.TrimPrefix(depName, prefix))
+		if taskName == "" || !taskNames[taskName] {
+			continue
+		}
+		if len(stepName) > len(bestStep) {
+			bestStep = stepName
+			bestTask = taskName
+		}
+	}
+	if bestStep != "" {
+		return bestStep, bestTask, true
+	}
+	if allStepNames[depName] {
+		return depName, "", true
+	}
+	return "", "", false
 }
 
 func validatePolicyMergeMode(value string, location string) error {
@@ -533,16 +832,25 @@ func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValid
 	}
 
 	defaultProfile := strings.TrimSpace(opts.DefaultProfile)
-	if defaultProfile == "" {
+	if defaultProfile == "" && !opts.RequireDefaultProfile {
 		defaultProfile = appconfig.DefaultLLMProfileName
 	}
-	if _, ok := profiles[defaultProfile]; !ok {
+	if defaultProfile != "" {
+		if _, ok := profiles[defaultProfile]; !ok {
+			return fmt.Errorf("default LLM profile %q is not configured", defaultProfile)
+		}
+	} else if opts.RequireDefaultProfile {
+		defaultProfile = ""
+	} else {
 		return fmt.Errorf("default LLM profile %q is not configured", defaultProfile)
 	}
 
 	validateProfile := func(profileName string, location string) error {
 		profileName = strings.TrimSpace(profileName)
 		if profileName == "" {
+			if defaultProfile == "" {
+				return fmt.Errorf("no default LLM profile is configured for %s", location)
+			}
 			profileName = defaultProfile
 		}
 		profile, ok := profiles[profileName]
@@ -617,20 +925,25 @@ func ValidatePipelineAgentProfiles(pipeline *models.Pipeline, opts AgentProfileV
 	}
 
 	defaultProfile := strings.TrimSpace(opts.DefaultProfile)
-	if defaultProfile == "" {
+	if defaultProfile == "" && !opts.RequireDefaultProfile {
 		defaultProfile = models.DefaultAgentProfileID
 	}
-	defaultDefinition, ok := profiles[defaultProfile]
-	if !ok {
-		return fmt.Errorf("default agent profile %q is not configured", defaultProfile)
-	}
-	if !defaultDefinition.Enabled {
-		return fmt.Errorf("default agent profile %q is disabled", defaultProfile)
+	if defaultProfile != "" {
+		defaultDefinition, ok := profiles[defaultProfile]
+		if !ok {
+			return fmt.Errorf("default agent profile %q is not configured", defaultProfile)
+		}
+		if !defaultDefinition.Enabled {
+			return fmt.Errorf("default agent profile %q is disabled", defaultProfile)
+		}
 	}
 
 	validateProfile := func(profileName string, location string) error {
 		profileName = strings.TrimSpace(profileName)
 		if profileName == "" {
+			if defaultProfile == "" {
+				return fmt.Errorf("no default agent profile is configured for %s", location)
+			}
 			profileName = defaultProfile
 		}
 		profile, ok := profiles[profileName]

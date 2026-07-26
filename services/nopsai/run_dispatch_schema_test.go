@@ -11,6 +11,7 @@ func TestRunDispatchSchemaTracksRecoverableLaunchContext(t *testing.T) {
 		"ADD COLUMN IF NOT EXISTS parent_runner_id",
 		"ADD COLUMN IF NOT EXISTS parent_history",
 		"ADD COLUMN IF NOT EXISTS runtime_variable_overrides JSONB",
+		"ADD COLUMN IF NOT EXISTS runtime_sensitive_variable_overrides JSONB",
 		"ADD COLUMN IF NOT EXISTS source TEXT",
 		"ADD COLUMN IF NOT EXISTS request_id TEXT",
 		"ADD COLUMN IF NOT EXISTS traceparent TEXT",

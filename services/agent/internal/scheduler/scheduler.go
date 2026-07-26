@@ -49,6 +49,17 @@ func NextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool
 
 		stepDependenciesMet := true
 		for _, depStepName := range step.GetDependsOn() {
+			depStepName = strings.TrimSpace(depStepName)
+			if depStepName == "" {
+				continue
+			}
+			if stepDepName, taskDepName, ok := splitQualifiedTaskDependency(depStepName); ok {
+				if !completedTasks[fmt.Sprintf("%s/%s", stepDepName, taskDepName)] {
+					stepDependenciesMet = false
+					break
+				}
+				continue
+			}
 			if !completedSteps[depStepName] {
 				stepDependenciesMet = false
 				break
@@ -70,6 +81,7 @@ func NextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool
 				Script:        step.GetScript(),
 				DependsOn:     []string{},
 				IgnoreFailure: step.GetIgnoreFailure(),
+				Outputs:       step.GetOutputs(),
 			})
 		}
 
@@ -81,7 +93,7 @@ func NextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool
 
 			taskDependenciesMet := true
 			for _, depTaskName := range task.DependsOn {
-				depGlobalKey := fmt.Sprintf("%s/%s", stepName, depTaskName)
+				depGlobalKey := resolveTaskDependencyKey(stepName, depTaskName)
 				if !completedTasks[depGlobalKey] {
 					taskDependenciesMet = false
 					break
@@ -99,6 +111,31 @@ func NextRunnableTasks(pipeline *models.Pipeline, completedTasks map[string]bool
 	}
 
 	return runnableTasks
+}
+
+func resolveTaskDependencyKey(currentStepName, dependency string) string {
+	dependency = strings.TrimSpace(dependency)
+	if dependency == "" {
+		return fmt.Sprintf("%s/%s", currentStepName, dependency)
+	}
+	if stepName, taskName, ok := splitQualifiedTaskDependency(dependency); ok {
+		return fmt.Sprintf("%s/%s", stepName, taskName)
+	}
+	return fmt.Sprintf("%s/%s", currentStepName, dependency)
+}
+
+func splitQualifiedTaskDependency(dependency string) (string, string, bool) {
+	dependency = strings.TrimSpace(dependency)
+	idx := strings.LastIndex(dependency, ".")
+	if idx <= 0 || idx == len(dependency)-1 {
+		return "", "", false
+	}
+	stepName := strings.TrimSpace(dependency[:idx])
+	taskName := strings.TrimSpace(dependency[idx+1:])
+	if stepName == "" || taskName == "" {
+		return "", "", false
+	}
+	return stepName, taskName, true
 }
 
 func CountPipelineTasks(pipeline *models.Pipeline) int {

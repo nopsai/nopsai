@@ -272,11 +272,13 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 			fields: []string{
 				"nopsai_api_url",
 				"default_pipeline_timeout",
+				"runtime_output_max_bytes",
 				"llm_agent_timeout",
 			},
 			values: map[string]any{
 				"nopsai_api_url":           strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()),
 				"default_pipeline_timeout": strings.TrimSpace(cfg.DefaultPipelineTimeout),
+				"runtime_output_max_bytes": cfg.RuntimeOutputMaxBytes,
 				"llm_agent_timeout":        strings.TrimSpace(cfg.LLMAgentTimeout),
 			},
 		}

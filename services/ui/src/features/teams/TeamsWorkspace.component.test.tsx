@@ -373,6 +373,10 @@ describe('TeamsWorkspace', () => {
     expect(within(overviewCard as HTMLElement).queryByText('Recent run signals')).not.toBeInTheDocument();
     expect(within(overviewCard as HTMLElement).getByText('Owners')).toBeVisible();
     expect(within(overviewCard as HTMLElement).getByText('Alice Admin')).toBeVisible();
+    expect(within(overviewCard as HTMLElement).getByText('Default LLM profile')).toBeVisible();
+    expect(within(overviewCard as HTMLElement).getByRole('link', { name: 'fast' })).toHaveAttribute('href', '/llm-profiles?team=platform');
+    expect(within(overviewCard as HTMLElement).getByText('Default agent profile')).toBeVisible();
+    expect(within(overviewCard as HTMLElement).getByRole('link', { name: 'reviewer' })).toHaveAttribute('href', '/agent-profiles?team=platform');
     expect(within(overviewCard as HTMLElement).getByText('Latest run app')).toBeVisible();
     expect(within(overviewCard as HTMLElement).getByText(/checkout-api/)).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Team Activity' })).not.toBeInTheDocument();

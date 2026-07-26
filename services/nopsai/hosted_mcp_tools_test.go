@@ -722,6 +722,19 @@ func TestHostedMCPProposeReusableStepRejectsNameMismatch(t *testing.T) {
 	}
 }
 
+func TestHostedMCPProposeReusableStepRejectsInvalidVariables(t *testing.T) {
+	result, err := hostedMCPProposeReusableStep(map[string]any{
+		"step": "shared/checkout",
+		"yaml": "name: checkout\nvariables:\n  BAD/NAME: value\nscript: echo ok\n",
+	}, "update")
+	if err != nil {
+		t.Fatalf("hostedMCPProposeReusableStep() error = %v", err)
+	}
+	if result["valid"] != false || !strings.Contains(result["error"].(string), "BAD/NAME") {
+		t.Fatalf("invalid variable result = %#v", result)
+	}
+}
+
 func TestHostedMCPProposeScopedSecretGitOpsWriteUsesEncryptedValue(t *testing.T) {
 	result, err := hostedMCPProposeScopedValueGitOps(map[string]any{
 		"scope":           "team-1/dev",

@@ -1,0 +1,15 @@
+name: variable-defaults
+image: alpine:3.20
+variables:
+  REUSABLE_MODE: default-mode
+  RETRY_COUNT: "2"
+  STEP_DEFAULT_ONLY: from-reusable-step-default
+  RELEASE_MANIFEST: default-release-manifest
+script: |
+  #!/bin/sh
+  set -eu
+  test "$REUSABLE_MODE" = "include-overrode-mode"
+  test "$RETRY_COUNT" = "2"
+  test "$STEP_DEFAULT_ONLY" = "from-reusable-step-default"
+  test -n "$RELEASE_MANIFEST"
+  printf 'reusable step mode=%s retries=%s\n' "$REUSABLE_MODE" "$RETRY_COUNT"

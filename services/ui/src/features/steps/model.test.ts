@@ -32,6 +32,38 @@ tasks:
   assert.match(missingDependency.errors[0]?.message ?? '', /depends on undefined task 'missing'/);
 });
 
+test('validates reusable step variables and runtime outputs', () => {
+  const valid = validateStepYaml(`
+name: variable-defaults
+variables:
+  RELEASE_MANIFEST: default-release-manifest
+script: |
+  printf manifest > /nopsai/outputs/release_manifest
+outputs:
+  - release_manifest
+  - name: access_token
+    sensitive: true
+`);
+  assert.deepEqual(valid.errors, []);
+
+  const badVariable = validateStepYaml(`
+name: variable-defaults
+variables:
+  BAD/NAME: value
+script: echo ok
+`);
+  assert.match(badVariable.errors[0]?.message ?? '', /BAD\/NAME/);
+
+  const duplicateOutput = validateStepYaml(`
+name: variable-defaults
+script: echo ok
+outputs:
+  - image_tag
+  - image_tag
+`);
+  assert.match(duplicateOutput.errors[0]?.message ?? '', /declared more than once/);
+});
+
 test('normalizes step identifiers and source labels', () => {
   assert.deepEqual(splitIdentifier('platform/payments/deploy%20api'), {
     name: 'deploy api',

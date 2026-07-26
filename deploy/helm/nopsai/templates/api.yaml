@@ -109,6 +109,7 @@ spec:
             {{- if .Values.gotenberg.enabled }}
             - {name: FINAL_OUTPUT_PDF_RENDERER_URL, value: {{ include "nopsai.topology.gotenbergURL" . | quote }}}
             {{- end }}
+            - {name: RUNTIME_OUTPUT_MAX_BYTES, value: {{ .Values.api.runtimeOutputMaxBytes | quote }}}
             - name: DATABASE_URL
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.databaseURL }}}}
             - name: NOPSAI_MASTER_KEY

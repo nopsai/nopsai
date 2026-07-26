@@ -78,6 +78,33 @@ triggers:
 	}
 }
 
+func TestParseConfigSyncPlanRejectsInvalidReusableStepYAML(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+		RepoURL:   "https://github.com/acme/platform-config",
+		BasePath:  "config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	_, err = (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
+		steps: map[string]string{
+			"config/steps/bad-step.yaml": `
+name: bad-step
+variables:
+  BAD/NAME: value
+script: echo bad
+`,
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "BAD/NAME") {
+		t.Fatalf("parseConfigSyncPlan() error = %v, want reusable step variable validation error", err)
+	}
+}
+
 func TestParseConfigSyncPlanTriggerExplicitTeamOverridesRepositoryOwner(t *testing.T) {
 	binding := models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,

@@ -159,6 +159,9 @@ func addScopeVariableConfigEntry(
 	parts := strings.Split(trimmedKey, "/")
 	switch len(parts) {
 	case 1:
+		if err := validateScopeRuntimeName("variable", trimmedKey, trimmedKey, sourcePath); err != nil {
+			return err
+		}
 		gKey := generalScopeVarKey{scopePath: scopePath, name: trimmedKey}
 		if _, exists := generalScopeVars[gKey]; exists {
 			return fmt.Errorf("duplicate scope variable '%s' for '%s' detected", trimmedKey, scopePath)
@@ -169,6 +172,9 @@ func addScopeVariableConfigEntry(
 		varName := strings.TrimSpace(parts[2])
 		if repoName == "" || varName == "" {
 			return fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, sourcePath)
+		}
+		if err := validateScopeRuntimeName("variable", varName, trimmedKey, sourcePath); err != nil {
+			return err
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 			normalizedRepoName, err := configsync.NormalizePathForTeam(boundTeam, repoName)
@@ -210,6 +216,9 @@ func (a *App) addScopeSecretConfigEntry(
 	parts := strings.Split(trimmedKey, "/")
 	switch len(parts) {
 	case 1:
+		if err := validateScopeRuntimeName("secret", trimmedKey, trimmedKey, sourcePath); err != nil {
+			return err
+		}
 		gKey := generalScopeSecretKey{scopePath: scopePath, name: trimmedKey}
 		if _, exists := generalScopeSecrets[gKey]; exists {
 			return fmt.Errorf("duplicate scope secret '%s' for '%s' detected", trimmedKey, scopePath)
@@ -220,6 +229,9 @@ func (a *App) addScopeSecretConfigEntry(
 		secretName := strings.TrimSpace(parts[2])
 		if repoName == "" || secretName == "" {
 			return fmt.Errorf("invalid repository-scoped secret key '%s' in '%s'", trimmedKey, sourcePath)
+		}
+		if err := validateScopeRuntimeName("secret", secretName, trimmedKey, sourcePath); err != nil {
+			return err
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 			normalizedRepoName, err := configsync.NormalizePathForTeam(boundTeam, repoName)
@@ -235,6 +247,13 @@ func (a *App) addScopeSecretConfigEntry(
 		repoScopeSecrets[rKey] = storedScopeSecret{encryptedValue: encryptedValue, sourcePath: sourcePath}
 	default:
 		return fmt.Errorf("scope secret key '%s' in '%s' has an unsupported format", trimmedKey, sourcePath)
+	}
+	return nil
+}
+
+func validateScopeRuntimeName(kind, name, rawKey, sourcePath string) error {
+	if !models.IsValidRuntimeReferenceName(name) {
+		return fmt.Errorf("scope %s key '%s' in '%s' has invalid runtime name '%s'; names must match ^[A-Za-z0-9_.-]+$", kind, rawKey, sourcePath, name)
 	}
 	return nil
 }

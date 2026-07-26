@@ -2,17 +2,24 @@ package models
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
 // ScopedRuntimeRef describes a variable or secret reference in pipeline YAML.
 // Bare names resolve in the current run scope. Prefixing with "scope:" resolves
 // from that explicit scope while still injecting the bare name at runtime.
+var runtimeReferenceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
 type ScopedRuntimeRef struct {
 	Raw           string
 	Scope         string
 	Name          string
 	ExplicitScope bool
+}
+
+func IsValidRuntimeReferenceName(name string) bool {
+	return runtimeReferenceNamePattern.MatchString(strings.TrimSpace(name))
 }
 
 func ParseScopedRuntimeRef(raw, currentScope string) (ScopedRuntimeRef, error) {

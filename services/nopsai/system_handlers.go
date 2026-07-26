@@ -47,6 +47,7 @@ type systemConfigPayload struct {
 	DockerNetworkName             *string                            `json:"docker_network_name"`
 	AutoRemovalAgentContainer     *bool                              `json:"auto_removal_agent_container"`
 	DefaultPipelineTimeout        *string                            `json:"default_pipeline_timeout"`
+	RuntimeOutputMaxBytes         *int                               `json:"runtime_output_max_bytes"`
 	LLMAgentTimeout               *string                            `json:"llm_agent_timeout"`
 	DispatcherRouting             map[string][]string                `json:"dispatcher_routing"`
 	EjectedRunnerIDs              []string                           `json:"ejected_runner_ids"`

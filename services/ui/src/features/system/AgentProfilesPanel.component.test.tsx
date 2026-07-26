@@ -1,38 +1,78 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import AgentProfilesPanel from './AgentProfilesPanel';
 
-const apiMocks = vi.hoisted(() => ({
-  createAgentProfile: vi.fn(),
-  deleteAgentProfile: vi.fn(async () => ({ status: 'deleted' as const })),
-  fetchAgentProfiles: vi.fn(async () => ({
-    default_profile: 'devops-engineer',
+const apiMocks = vi.hoisted(() => {
+  const profiles = [
+    {
+      id: 'devops-engineer',
+      display_name: 'DevOps Engineer',
+      role: 'Senior DevOps Engineer',
+      description: 'Operates deployments and CI/CD.',
+      instructions: 'Keep releases boring and reversible.',
+      enabled: true,
+      built_in: true,
+      source: 'built-in',
+      usage_count: 2,
+      references: ['pipelines/deploy.yaml'],
+    },
+    {
+      id: 'platform/ml/security-reviewer',
+      display_name: 'Security Reviewer',
+      role: 'Senior Security Reviewer',
+      description: 'Reviews security posture.',
+      instructions: 'Focus on practical risk reduction.',
+      enabled: true,
+      source: 'ui',
+      usage_count: 0,
+      references: [],
+      last_updated: '2026-07-11T12:00:00Z',
+    },
+    {
+      id: 'release-manager',
+      display_name: 'Release Manager',
+      role: 'Senior Release Manager',
+      description: 'Coordinates releases.',
+      instructions: 'Check rollout evidence.',
+      enabled: true,
+      source: 'ui',
+      usage_count: 0,
+      references: [],
+    },
+  ];
+  return {
+    createAgentProfile: vi.fn(),
+    deleteAgentProfile: vi.fn(async () => ({ status: 'deleted' as const })),
+    fetchAgentProfiles: vi.fn(async () => ({
+      default_profile: 'devops-engineer',
+      profiles,
+    })),
+    saveAgentProfile: vi.fn(),
+    setDefaultAgentProfile: vi.fn(async () => ({
+      default_profile: 'release-manager',
+      profiles,
+    })),
+  };
+});
+const teamMocks = vi.hoisted(() => ({
+  fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
+}));
+const teamProfileMocks = vi.hoisted(() => {
+  const teamProfiles = (teamPath = 'platform/ml', defaultProfile = 'security-reviewer') => ({
+    team_id: 7,
+    team_path: teamPath,
+    default_profile: defaultProfile,
     profiles: [
       {
-        id: 'devops-engineer',
-        display_name: 'DevOps Engineer',
-        role: 'Senior DevOps Engineer',
-        description: 'Operates deployments and CI/CD.',
-        instructions: 'Keep releases boring and reversible.',
-        enabled: true,
-        built_in: true,
-        source: 'built-in',
-        usage_count: 2,
-        references: ['pipelines/deploy.yaml'],
-      },
-      {
-        id: 'platform/ml/security-reviewer',
+        id: 'security-reviewer',
         display_name: 'Security Reviewer',
         role: 'Senior Security Reviewer',
         description: 'Reviews security posture.',
         instructions: 'Focus on practical risk reduction.',
         enabled: true,
-        source: 'ui',
-        usage_count: 0,
-        references: [],
-        last_updated: '2026-07-11T12:00:00Z',
+        source: 'team',
       },
       {
         id: 'release-manager',
@@ -41,24 +81,31 @@ const apiMocks = vi.hoisted(() => ({
         description: 'Coordinates releases.',
         instructions: 'Check rollout evidence.',
         enabled: true,
-        source: 'ui',
-        usage_count: 0,
-        references: [],
+        source: 'team',
       },
     ],
-  })),
-  saveAgentProfile: vi.fn(),
-  setDefaultAgentProfile: vi.fn(async () => ({
-    default_profile: 'release-manager',
-    profiles: [],
-  })),
-}));
-const teamMocks = vi.hoisted(() => ({
-  fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
-}));
+  });
+  return {
+    deleteTeamAgentProfile: vi.fn(),
+    fetchTeamAgentProfiles: vi.fn(async (teamPath: string) => teamProfiles(teamPath)),
+    requestTeamsJson: vi.fn(async () => ({ allowed: true })),
+    setTeamDefaultAgentProfile: vi.fn(async (teamPath: string, defaultProfile: string) => teamProfiles(teamPath, defaultProfile)),
+    upsertTeamAgentProfile: vi.fn(async (teamPath: string, profileID: string, payload: Record<string, unknown>) => ({
+      team_id: 7,
+      team_path: teamPath,
+      default_profile: profileID,
+      profiles: [{ ...payload, id: profileID, source: 'team' }],
+    })),
+  };
+});
 
 vi.mock('./agent-profiles/api', () => apiMocks);
+vi.mock('./teamProfileApi', () => teamProfileMocks);
 vi.mock('../../lib/resourceTeams', () => teamMocks);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 test('renders agent profiles as a split detail workspace and keeps actions wired', async () => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -84,6 +131,10 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   expect(screen.queryByText('Operates deployments and CI/CD.')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
 
+  const globalDefaultSelect = screen.getByLabelText('Default agent profile');
+  await user.selectOptions(globalDefaultSelect, 'release-manager');
+  await waitFor(() => expect(apiMocks.setDefaultAgentProfile).toHaveBeenCalledWith('release-manager'));
+
   await user.click(within(screen.getByLabelText('Agent profiles')).getByRole('button', { name: /security reviewer/i }));
   expect(screen.getByLabelText('Agent profile detail')).toHaveClass('ai-resource-detail-fullscreen-main');
   expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
@@ -96,11 +147,77 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   expect(screen.getByLabelText('ID')).toHaveValue('security-reviewer-custom');
   expect(screen.getByText('platform/ml/security-reviewer-custom')).toBeVisible();
   expect(screen.getByLabelText('Name')).toHaveValue('Security Reviewer Custom');
+});
+
+test('shows scoped catalog agent profiles for the selected team and saves them as team defaults', async () => {
+  apiMocks.fetchAgentProfiles.mockResolvedValueOnce({
+    default_profile: 'devops-engineer',
+    profiles: [
+      {
+        id: 'devops-engineer',
+        display_name: 'DevOps Engineer',
+        role: 'Senior DevOps Engineer',
+        description: 'Operates deployments and CI/CD.',
+        instructions: 'Keep releases boring and reversible.',
+        enabled: true,
+        built_in: true,
+        source: 'built-in',
+        usage_count: 2,
+        references: ['pipelines/deploy.yaml'],
+      },
+      {
+        id: 'platform/ml/catalog-reviewer',
+        display_name: 'Catalog Reviewer',
+        role: 'Senior Security Reviewer',
+        description: 'Reviews catalog-scoped changes.',
+        instructions: 'Focus on scoped team risk.',
+        enabled: true,
+        source: 'ui',
+        usage_count: 0,
+        references: [],
+      },
+    ],
+  });
+  teamProfileMocks.fetchTeamAgentProfiles.mockResolvedValueOnce({
+    team_id: 7,
+    team_path: 'platform/ml',
+    default_profile: '',
+    profiles: [],
+  });
+
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+      <AgentProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const profileTable = await screen.findByLabelText('Agent profiles');
+  expect(within(profileTable).getByRole('button', { name: /catalog reviewer/i })).toBeVisible();
+  expect(within(profileTable).queryByRole('button', { name: /devops engineer/i })).not.toBeInTheDocument();
 
   const defaultSelect = screen.getByLabelText('Default agent profile');
-  expect(defaultSelect).not.toHaveTextContent('Security Reviewer');
-  await user.selectOptions(defaultSelect, 'release-manager');
-  await waitFor(() => expect(apiMocks.setDefaultAgentProfile).toHaveBeenCalledWith('release-manager'));
+  await waitFor(() => expect(defaultSelect).toHaveValue(''));
+  await user.selectOptions(defaultSelect, 'platform/ml/catalog-reviewer');
+
+  await waitFor(() => expect(teamProfileMocks.setTeamDefaultAgentProfile).toHaveBeenCalledWith('platform/ml', 'platform/ml/catalog-reviewer'));
+  expect(apiMocks.setDefaultAgentProfile).not.toHaveBeenCalledWith('platform/ml/catalog-reviewer');
+});
+
+test('updates the selected team agent default through the team API', async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+      <AgentProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const defaultSelect = await screen.findByLabelText('Default agent profile');
+  await waitFor(() => expect(defaultSelect).toHaveValue('platform/ml/security-reviewer'));
+  await user.selectOptions(defaultSelect, 'platform/ml/release-manager');
+
+  await waitFor(() => expect(teamProfileMocks.setTeamDefaultAgentProfile).toHaveBeenCalledWith('platform/ml', 'release-manager'));
+  expect(apiMocks.setDefaultAgentProfile).not.toHaveBeenCalledWith('platform/ml/release-manager');
 });
 
 test('applies the team filter from the route query', async () => {
@@ -111,6 +228,7 @@ test('applies the team filter from the route query', async () => {
   );
 
   expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
+  await waitFor(() => expect(teamProfileMocks.fetchTeamAgentProfiles).toHaveBeenCalledWith('platform/ml'));
   const profileTable = await screen.findByLabelText('Agent profiles');
   expect(within(profileTable).getByRole('button', { name: /security reviewer/i })).toBeVisible();
   expect(within(profileTable).queryByRole('button', { name: /devops engineer/i })).not.toBeInTheDocument();

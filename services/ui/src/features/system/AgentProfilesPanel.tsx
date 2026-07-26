@@ -7,6 +7,11 @@ import {
 } from './agent-profiles/model';
 import { useAgentProfiles } from './agent-profiles/useAgentProfiles';
 import {
+  teamAgentProfileRecords,
+  teamScopedDefaultID,
+} from './teamProfileAdapters';
+import { useTeamProfileWriteAccess } from './useTeamProfileWriteAccess';
+import {
   AIResourceEmptyState,
   AIResourceIconAction,
   AIResourceTeamBadge,
@@ -25,6 +30,7 @@ import {
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
+  normalizeAIResourceTeamPath,
   selectableAIResourceTeamPath,
 } from './aiResourceTeams';
 import {
@@ -46,10 +52,19 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   const [createTeamPath, setCreateTeamPath] = useState('');
   const [selectedProfileID, setSelectedProfileID] = useState<string | null>(null);
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
+  const selectedTeamPath = useMemo(() => {
+    if (teamFilter === AI_RESOURCE_TEAM_FILTER_ALL || teamFilter === AI_RESOURCE_TEAM_FILTER_GLOBAL) return '';
+    return normalizeAIResourceTeamPath(teamFilter);
+  }, [teamFilter]);
+  const teamWriteAccess = useTeamProfileWriteAccess(selectedTeamPath);
+  const canManageTeamProfiles = canManage || teamWriteAccess.allowed;
   const {
     payload,
+    teamProfilesPayload,
     loading,
+    teamProfilesLoading,
     error,
+    teamProfilesError,
     saving,
     editingID,
     selectedProfile,
@@ -60,6 +75,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     panelMode,
     setPanelMode,
     loadProfiles,
+    loadTeamProfiles,
     openUsage,
     openSource,
     startCreate,
@@ -69,11 +85,15 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     deleteProfile,
     toggleProfileEnabled,
     setDefaultProfile,
-  } = useAgentProfiles({ canManage });
+  } = useAgentProfiles({ canManage, canManageTeamProfiles });
 
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);
   }, [requestedTeamFilter]);
+
+  useEffect(() => {
+    void loadTeamProfiles(selectedTeamPath);
+  }, [loadTeamProfiles, selectedTeamPath]);
 
   useEffect(() => {
     if (!panelMode) return;
@@ -88,8 +108,53 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     });
   }, [editingID, panelMode]);
 
+  const teamFilterOptions = useMemo(
+    () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.id), teamPaths),
+    [payload.profiles, teamPaths]
+  );
+  const selectedTeamPayload = selectedTeamPath && normalizeAIResourceTeamPath(teamProfilesPayload?.team_path || '') === selectedTeamPath
+    ? teamProfilesPayload
+    : null;
+  const teamScopedProfiles = useMemo(
+    () => teamAgentProfileRecords(selectedTeamPayload),
+    [selectedTeamPayload]
+  );
+  const catalogScopedProfiles = useMemo(
+    () => selectedTeamPath ? payload.profiles.filter(profile => aiResourceTeamScope(profile.id).teamPath === selectedTeamPath) : [],
+    [payload.profiles, selectedTeamPath]
+  );
+  const sourceProfiles = useMemo(() => {
+    if (!selectedTeamPath) return payload.profiles;
+    const byID = new Map<string, AgentProfileRecord>();
+    catalogScopedProfiles.forEach(profile => byID.set(profile.id, profile));
+    teamScopedProfiles.forEach(profile => byID.set(profile.id, profile));
+    return Array.from(byID.values()).sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
+  }, [catalogScopedProfiles, payload.profiles, selectedTeamPath, teamScopedProfiles]);
+  const workspaceProfiles = useMemo(() => {
+    const byID = new Map<string, AgentProfileRecord>();
+    payload.profiles.forEach(profile => byID.set(profile.id, profile));
+    teamScopedProfiles.forEach(profile => byID.set(profile.id, profile));
+    return Array.from(byID.values()).sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
+  }, [payload.profiles, teamScopedProfiles]);
+  const activeDefaultProfile = selectedTeamPath
+    ? teamScopedDefaultID(selectedTeamPath, selectedTeamPayload?.default_profile || '')
+    : payload.default_profile;
+  const defaultProfileRecord = sourceProfiles.find(profile => profile.id === activeDefaultProfile) || null;
+  const defaultProfileOptions = useMemo(() => {
+    if (selectedTeamPath) return sourceProfiles.filter(profile => profile.enabled);
+    const options = payload.profiles.filter(profile => profile.enabled && aiResourceTeamScope(profile.id).teamPath === '');
+    const globalDefaultRecord = payload.profiles.find(profile => profile.id === payload.default_profile) || null;
+    if (globalDefaultRecord && aiResourceTeamScope(globalDefaultRecord.id).teamPath === '' && !options.some(profile => profile.id === globalDefaultRecord.id)) {
+      options.push(globalDefaultRecord);
+    }
+    return options;
+  }, [payload.default_profile, payload.profiles, selectedTeamPath, sourceProfiles]);
+  const canManageCurrentScope = selectedTeamPath ? canManageTeamProfiles : canManage;
+  const canManageDefault = canManageCurrentScope && defaultProfileOptions.length > 0;
+  const defaultControlLoading = loading || saving || (selectedTeamPath ? teamProfilesLoading || teamWriteAccess.loading : false);
+  const listLoading = loading || (selectedTeamPath ? teamProfilesLoading : false);
   const visibleProfiles = useMemo(
-    () => payload.profiles.filter(profile => matchesAIResourceSearch(
+    () => sourceProfiles.filter(profile => matchesAIResourceSearch(
       searchTerm,
       profile.display_name,
       profile.id,
@@ -104,26 +169,12 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
       profile.last_updated,
       profile.source_path
     ) && aiResourceMatchesTeamFilter(profile.id, teamFilter)),
-    [payload.profiles, searchTerm, teamFilter]
+    [sourceProfiles, searchTerm, teamFilter]
   );
 
   const selectedListProfile = useMemo(
     () => selectedProfileID ? visibleProfiles.find(profile => profile.id === selectedProfileID) ?? null : null,
     [selectedProfileID, visibleProfiles]
-  );
-
-  const defaultProfileRecord = payload.profiles.find(profile => profile.id === payload.default_profile) || null;
-  const defaultProfileOptions = useMemo(() => {
-    const options = payload.profiles.filter(profile => profile.enabled && aiResourceTeamScope(profile.id).teamPath === '');
-    if (defaultProfileRecord && aiResourceTeamScope(defaultProfileRecord.id).teamPath === '' && !options.some(profile => profile.id === defaultProfileRecord.id)) {
-      options.push(defaultProfileRecord);
-    }
-    return options;
-  }, [defaultProfileRecord, payload.profiles]);
-  const canManageGlobalDefault = canManage && defaultProfileOptions.length > 0;
-  const teamFilterOptions = useMemo(
-    () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.id), teamPaths),
-    [payload.profiles, teamPaths]
   );
   const showForm = panelMode === 'create' || panelMode === 'edit';
   const detailProfile = (panelMode ? selectedProfile : null) ?? selectedListProfile;
@@ -132,12 +183,12 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   const visibleUsageCount = visibleProfiles.reduce((total, profile) => total + profile.usage_count, 0);
   const visibleGitOpsCount = visibleProfiles.filter(profile => profile.source === 'gitops' || Boolean(profile.source_path)).length;
   const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
-    () => payload.profiles.map(profile => ({
+    () => workspaceProfiles.map(profile => ({
       id: profile.id,
       label: profile.display_name || aiResourceLocalName(profile.id) || profile.id,
       description: profile.role || profile.description || profile.id,
     })),
-    [payload.profiles]
+    [workspaceProfiles]
   );
   const selectedWorkspaceProfileID = panelMode === 'create' ? null : detailProfile?.id ?? selectedProfileID;
   const detailOpen = showForm || panelMode === 'usage' || panelMode === 'source' || panelMode === 'delete' || Boolean(selectedWorkspaceProfileID);
@@ -159,9 +210,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     setPanelMode(null);
   };
   const openCreate = () => {
-    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL
-      ? selectableAIResourceTeamPath(teamFilter, teamPaths)
-      : '';
+    const initialTeamPath = selectedTeamPath;
     setCreateTeamPath(initialTeamPath);
     startCreate();
     setForm(prev => ({ ...prev, id: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.id)) }));
@@ -177,6 +226,10 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   const setCreateScopedID = (localID: string) => {
     setForm(prev => ({ ...prev, id: buildAIResourceScopedID(createTeamPath, localID) }));
   };
+  const reloadProfiles = () => {
+    void loadProfiles();
+    if (selectedTeamPath) void loadTeamProfiles(selectedTeamPath);
+  };
 
   return (
     <div id="system-agent-profiles-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
@@ -184,14 +237,15 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
         <h2 className="sr-only">Agent Profiles</h2>
         <div className="ai-resource-default-control">
           <span>Default profile</span>
-          {canManageGlobalDefault ? (
+          {canManageDefault ? (
             <select
               className="ai-resource-default-select"
-              value={payload.default_profile}
-              onChange={event => void setDefaultProfile(event.target.value)}
-              disabled={loading || saving}
+              value={activeDefaultProfile}
+              onChange={event => void setDefaultProfile(event.target.value, selectedTeamPath ? { teamPath: selectedTeamPath } : undefined)}
+              disabled={defaultControlLoading}
               aria-label="Default agent profile"
             >
+              {selectedTeamPath && <option value="">No default</option>}
               {defaultProfileOptions.map(profile => (
                 <option key={profile.id} value={profile.id}>
                   {profile.display_name}
@@ -199,7 +253,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
               ))}
             </select>
           ) : (
-            <strong>{defaultProfileRecord?.display_name || payload.default_profile || '-'}</strong>
+            <strong>{defaultProfileRecord?.display_name || activeDefaultProfile || (selectedTeamPath ? 'No default' : '-')}</strong>
           )}
         </div>
         {!detailOpen && (
@@ -213,11 +267,11 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
           />
         )}
         <div className="ai-resource-page-actions">
-          {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
-          <button type="button" className="ai-resource-icon-button" onClick={() => void loadProfiles()} disabled={loading || saving} aria-label="Reload">
+          {!canManageCurrentScope && <span className="runner-pill runner-pill--muted">Read-only</span>}
+          <button type="button" className="ai-resource-icon-button" onClick={reloadProfiles} disabled={defaultControlLoading} aria-label="Reload">
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
           </button>
-          {canManage && (
+          {canManageCurrentScope && (
             <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               New profile
@@ -227,6 +281,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
       </div>
 
       {error && <div className="ai-resource-alert ai-resource-alert--error">{error}</div>}
+      {teamProfilesError && <div className="ai-resource-alert ai-resource-alert--error">{teamProfilesError}</div>}
 
       <AIResourceWorkspace
         storageKey="agent-profiles"
@@ -247,8 +302,8 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
         listHeader={(
           <AIResourceTableHeader
             title="Profiles"
-            count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, filteredCountToken)}
-            loading={loading}
+            count={formatFilteredCount(visibleProfiles.length, sourceProfiles.length, filteredCountToken)}
+            loading={listLoading}
             searchLabel="Search agent profiles"
             searchPlaceholder="Search agent profiles..."
             searchValue={searchTerm}
@@ -266,10 +321,10 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
         list={(
           <AgentProfileTable
             profiles={visibleProfiles}
-            defaultProfile={payload.default_profile}
+            defaultProfile={activeDefaultProfile}
             selectedProfileID={selectedWorkspaceProfileID}
-            loading={loading}
-            emptyMessage={payload.profiles.length === 0 ? 'No agent profiles configured.' : 'No agent profiles match your filters.'}
+            loading={listLoading}
+            emptyMessage={sourceProfiles.length === 0 ? 'No agent profiles configured.' : 'No agent profiles match your filters.'}
             onSelectProfile={selectProfile}
           />
         )}
@@ -277,7 +332,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
           <>
             {showForm ? (
               <AgentProfileForm
-                canManage={canManage}
+                canManage={canManageCurrentScope}
                 saving={saving}
                 editingID={editingID}
                 form={form}
@@ -304,13 +359,13 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
             ) : detailProfile ? (
               <AgentProfileDetail
                 profile={detailProfile}
-                defaultProfile={payload.default_profile}
-                canManage={canManage}
+                defaultProfile={activeDefaultProfile}
+                canManage={canManageCurrentScope}
                 saving={saving}
                 onDuplicate={openDuplicate}
                 onEdit={startEdit}
                 onToggleEnabled={toggleProfileEnabled}
-                onDelete={deleteProfile}
+                onDelete={(id: string) => deleteProfile(id, { teamPath: detailProfile.team_path })}
                 onUsage={openUsage}
                 onSource={openSource}
               />

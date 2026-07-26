@@ -25,6 +25,7 @@
 # Gotenberg service.
 final_output_pdf_renderer_url: ""
 final_output_pdf_timeout_seconds: 45
+runtime_output_max_bytes: 65536
 
 # Local bootstrap default. A GitOps runtime settings file with an explicit
 # assistant block still overrides this value.

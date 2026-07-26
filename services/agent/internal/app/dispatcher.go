@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nopsai/pkg/proto"
+	"nopsai/pkg/runmetadata"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicelog"
 	"nopsai/pkg/servicetls"
@@ -45,6 +46,8 @@ type TriggerPipelineRequest struct {
 	History            string
 	Scope              string
 	GitContext         map[string]string
+	Variables          map[string]string
+	SensitiveVariables []string
 }
 
 type FetchPipelineRequest struct {
@@ -157,6 +160,14 @@ func TriggerPipeline(ctx context.Context, client proto.DispatcherServiceClient, 
 	}
 	reqCtx, cancel := context.WithTimeout(defaultContext(ctx), 20*time.Second)
 	defer cancel()
+	var err error
+	reqCtx, err = runmetadata.AppendOutgoingVariableOverrides(reqCtx, runmetadata.VariableOverrides{
+		Variables:          req.Variables,
+		SensitiveVariables: req.SensitiveVariables,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode dispatcher trigger variables: %w", err)
+	}
 	resp, err := client.TriggerPipeline(reqCtx, &proto.TriggerPipelineRequest{
 		ParentRunId:        req.ParentRunID,
 		ParentRunnerId:     req.ParentRunnerID,

@@ -84,6 +84,13 @@ func (req PipelineRunRequest) notifyFinalStatus(status string) {
 	req.NotifyFinalStatus(req.Pipeline.Name, req.RunID, status)
 }
 
+func (req PipelineRunRequest) reportTaskOutputs(stepName, taskName string, outputs map[string]RuntimeOutputValue) error {
+	if req.ReportTaskOutputs == nil || len(outputs) == 0 {
+		return nil
+	}
+	return req.ReportTaskOutputs(req.Pipeline.Name, req.RunID, stepName, taskName, outputs)
+}
+
 func (req PipelineRunRequest) knowledgePrompt(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task) string {
 	if req.KnowledgePrompt == nil {
 		return ""

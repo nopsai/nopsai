@@ -45,6 +45,82 @@ steps:
   assert.deepEqual(result.errors, []);
 });
 
+test('validates runtime variable declarations, task outputs, and qualified dependencies', () => {
+  const result = validatePipelineYaml(`
+name: variable-feature-exercise
+container_image: alpine:3.20
+llm_enabled: false
+variables:
+  - API_VERSION
+  - default:GLOBAL_REGION
+  - team-1/prod:REGISTRY
+steps:
+  - name: collect-runtime-values
+    tasks:
+      - name: produce
+        outputs:
+          - release_manifest
+          - image_tag
+          - IMAGE_TAG
+          - name: access_token
+            sensitive: true
+        script: |
+          printf manifest > /nopsai/outputs/release_manifest
+      - name: consume
+        depends_on:
+          - produce
+        variables:
+          RELEASE_MANIFEST: $steps.collect-runtime-values.produce.outputs.release_manifest
+          IMAGE_TAG_LOWER: $steps.collect-runtime-values.produce.outputs.image_tag
+          IMAGE_TAG_UPPER: $steps.collect-runtime-values.produce.outputs.IMAGE_TAG
+          ACCESS_TOKEN: $steps.collect-runtime-values.produce.outputs.access_token
+        script: echo consume
+  - name: child-pipeline-variable-overrides
+    include: pipeline:variable-feature-child
+    depends_on:
+      - collect-runtime-values.produce
+    variables:
+      CHILD_RELEASE_MANIFEST: $steps.collect-runtime-values.produce.outputs.release_manifest
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects invalid pipeline variable declarations in UI validation', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+variables:
+  - default:API_VERSION
+  - team-1/prod:API_VERSION
+steps:
+  - name: build
+    script: echo ok
+`);
+
+  assert.match(result.errors[0]?.message || '', /declares runtime variable 'API_VERSION' more than once/);
+});
+
+test('rejects runtime output references without valid dependencies in UI validation', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: prepare
+    tasks:
+      - name: produce
+        outputs:
+          - image_tag
+        script: echo ok
+  - name: build
+    variables:
+      IMAGE_TAG: $steps.prepare.produce.outputs.image_tag
+    script: echo build
+`);
+
+  assert.match(result.errors[0]?.message || '', /without a valid dependency/);
+});
+
 test('validates pipeline dashboard final outputs without dashboard field errors', () => {
   const result = validatePipelineYaml(`
 name: deploy

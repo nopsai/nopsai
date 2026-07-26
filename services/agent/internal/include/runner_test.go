@@ -79,6 +79,8 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 	var markedStatus string
 	var triggeredHistory string
 	var triggeredDef string
+	var triggeredVariables map[string]string
+	var triggeredSensitive []string
 	runner := NewRunner(Config{
 		FetchDefinition: func(_ context.Context, pipelineName string) ([]byte, error) {
 			if pipelineName != "release-child" {
@@ -86,12 +88,14 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 			}
 			return []byte("name: release-child"), nil
 		},
-		TriggerPipeline: func(_ context.Context, parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string) (string, error) {
+		TriggerPipeline: func(_ context.Context, parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string, variables map[string]string, sensitiveVariables []string) (string, error) {
 			if parentRunID != "run-1" || parentPipelineName != "release" || parentStepName != "include" || pipelineIdentifier != "release-child" {
 				t.Fatalf("trigger args = %q/%q/%q/%q", parentRunID, parentPipelineName, parentStepName, pipelineIdentifier)
 			}
 			triggeredDef = string(pipelineDef)
 			triggeredHistory = history
+			triggeredVariables = variables
+			triggeredSensitive = sensitiveVariables
 			return "child-run-1", nil
 		},
 		MonitorPipeline: func(_ context.Context, _ *zerolog.Logger, runID string) (string, error) {
@@ -109,6 +113,8 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 		StepName:           "include",
 		IncludeTarget:      "pipeline:release-child",
 		History:            "- Goal: build",
+		Variables:          map[string]string{"CHANNEL": "stable", "TOKEN": "secret"},
+		SensitiveVariables: []string{"TOKEN"},
 		Sync:               true,
 		LLMDurationMs:      34,
 		FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
@@ -127,6 +133,12 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 
 	if triggeredDef != "name: release-child" || triggeredHistory != "- Goal: build" {
 		t.Fatalf("triggered def/history = %q/%q", triggeredDef, triggeredHistory)
+	}
+	if triggeredVariables["CHANNEL"] != "stable" || triggeredVariables["TOKEN"] != "secret" {
+		t.Fatalf("triggered variables = %#v, want CHANNEL and TOKEN", triggeredVariables)
+	}
+	if len(triggeredSensitive) != 1 || triggeredSensitive[0] != "TOKEN" {
+		t.Fatalf("triggered sensitive variables = %#v, want TOKEN", triggeredSensitive)
 	}
 	if !markedFailed {
 		t.Fatal("sync child failure did not mark pipeline failed")

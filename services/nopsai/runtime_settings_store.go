@@ -95,6 +95,7 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		DockerNetworkName:             file.DockerNetworkName,
 		AutoRemovalAgentContainer:     file.AutoRemovalAgentContainer,
 		DefaultPipelineTimeout:        file.DefaultPipelineTimeout,
+		RuntimeOutputMaxBytes:         file.RuntimeOutputMaxBytes,
 		LLMAgentTimeout:               file.LLMAgentTimeout,
 		DispatcherRouting:             file.DispatcherRouting,
 		EjectedRunnerIDs:              file.EjectedRunnerIDs,
@@ -141,6 +142,9 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	}
 	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
 		return config.Config{}, fmt.Errorf("runner_capacity must be a positive integer")
+	}
+	if payload.RuntimeOutputMaxBytes != nil && *payload.RuntimeOutputMaxBytes <= 0 {
+		return config.Config{}, fmt.Errorf("runtime_output_max_bytes must be a positive integer")
 	}
 	if payload.Limits != nil {
 		if err := systemconfig.ValidateRunnerLimits(*payload.Limits); err != nil {
@@ -198,6 +202,9 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	}
 	if payload.DefaultPipelineTimeout != nil {
 		cfg.DefaultPipelineTimeout = strings.TrimSpace(*payload.DefaultPipelineTimeout)
+	}
+	if payload.RuntimeOutputMaxBytes != nil {
+		cfg.RuntimeOutputMaxBytes = *payload.RuntimeOutputMaxBytes
 	}
 	if payload.LLMAgentTimeout != nil {
 		cfg.LLMAgentTimeout = strings.TrimSpace(*payload.LLMAgentTimeout)

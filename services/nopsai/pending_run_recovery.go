@@ -84,6 +84,7 @@ func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, 
 		       created_at,
 		       timeout_at,
 		       COALESCE(runtime_variable_overrides, '{}'::jsonb),
+		       COALESCE(runtime_sensitive_variable_overrides, '{}'::jsonb),
 		       COALESCE(git_repo_owner, ''),
 		       COALESCE(git_repo_name, ''),
 		       COALESCE(git_clone_url, ''),
@@ -116,6 +117,7 @@ func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, 
 		var record pendingRunRecoveryRecord
 		var timeoutAt sql.NullTime
 		var overrides []byte
+		var sensitiveOverrides []byte
 		var repoOwner, repoName, cloneURL, sshURL, ref, targetRef, commitSHA, commitURL, commitMessage string
 		var commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, checkRunID, triggerEventID string
 		if err := rows.Scan(
@@ -130,6 +132,7 @@ func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, 
 			&record.CreatedAt,
 			&timeoutAt,
 			&overrides,
+			&sensitiveOverrides,
 			&repoOwner,
 			&repoName,
 			&cloneURL,
@@ -157,6 +160,13 @@ func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, 
 			if err := json.Unmarshal(overrides, &record.VariableOverrides); err != nil {
 				return nil, fmt.Errorf("decode variable overrides for run %s: %w", record.RunID, err)
 			}
+		}
+		decryptedSensitiveOverrides, err := a.decryptRunVariableOverridesJSON(sensitiveOverrides)
+		if err != nil {
+			return nil, fmt.Errorf("decode sensitive variable overrides for run %s: %w", record.RunID, err)
+		}
+		for key, value := range decryptedSensitiveOverrides {
+			record.VariableOverrides[key] = value
 		}
 		record.GitContext = pendingRunRecoveryGitContext(map[string]string{
 			"repo_owner":             repoOwner,
