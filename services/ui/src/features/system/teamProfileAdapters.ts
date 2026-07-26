@@ -9,8 +9,11 @@ import type {
   TeamAgentProfilesResponse,
   TeamLLMProfile,
   TeamLLMProfilesResponse,
+  TeamMCPProfile,
+  TeamMCPProfilesResponse,
 } from './teamProfileApi';
 import type { LLMProfileRecord } from './llm-profiles/model';
+import type { MCPProfileRecord } from './mcp/model';
 
 export function teamScopedResourceID(teamPath: string, localName: string) {
   return buildAIResourceScopedID(normalizeAIResourceTeamPath(teamPath), teamLocalResourceID(localName));
@@ -35,6 +38,11 @@ export function teamAgentProfileRecords(payload: TeamAgentProfilesResponse | nul
   return payload.profiles.map(profile => teamAgentProfileRecord(payload.team_path, profile)).sort((a, b) =>
     a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' })
   );
+}
+
+export function teamMCPProfileRecords(payload: TeamMCPProfilesResponse | null): MCPProfileRecord[] {
+  if (!payload) return [];
+  return payload.profiles.map(profile => teamMCPProfileRecord(payload.team_path, profile)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function teamLLMProfileRecord(teamPath: string, profile: TeamLLMProfile): LLMProfileRecord {
@@ -81,5 +89,23 @@ function teamAgentProfileRecord(teamPath: string, profile: TeamAgentProfile): Ag
     source: profile.source || 'team',
     usage_count: 0,
     references: [],
+  };
+}
+
+function teamMCPProfileRecord(teamPath: string, profile: TeamMCPProfile): MCPProfileRecord {
+  const normalizedTeamPath = normalizeAIResourceTeamPath(profile.team_path || teamPath);
+  const localName = teamLocalResourceID(profile.name);
+  return {
+    name: teamScopedResourceID(normalizedTeamPath, localName),
+    scope: 'team',
+    team_path: normalizedTeamPath,
+    team_local_name: localName,
+    description: profile.description || '',
+    enabled: profile.enabled !== false,
+    servers: (profile.servers || []).map(ref => ({
+      server: ref.server || '',
+      tools: ref.tools || [],
+    })).filter(ref => Boolean(ref.server)),
+    allowed_scopes: profile.allowed_scopes || [],
   };
 }

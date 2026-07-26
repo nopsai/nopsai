@@ -253,12 +253,12 @@ least-specific:
 3. Pipeline `llm_profile`
 4. `llm_default_profile`
 
-For team-owned pipeline runs, `llm_default_profile` must be the default
-configured on the owning team. If no explicit profile is selected and that team
-has no default, validation fails instead of falling back to a system or viewer
-preference. Team overview shows the configured default and links to the
-team-scoped profile page, where users with `team.update` on that team can
-change the default from the top selector.
+For team-owned pipeline runs, `llm_default_profile` first uses the default
+configured on the owning team. If the team has no default, runtime validation
+and launch inherit the system/global default profile; they never borrow a
+viewer preference or another team's default. Team overview shows the configured
+default and links to the team-scoped profile page, where users with
+`team.update` on that team can change the default from the top selector.
 
 Step-level conditions use the resolved step profile. Task-level goals use the
 resolved task profile. Script-only tasks can declare `llm_profile`, but it only

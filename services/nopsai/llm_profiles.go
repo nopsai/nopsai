@@ -215,21 +215,13 @@ func (a *App) validatePipelineLLMProfilesForTeam(ctx context.Context, pipeline *
 	if err != nil {
 		return err
 	}
-	requireTeamDefault := teamID != nil
-	if requireTeamDefault {
-		teamDefault, err := a.loadTeamProfileSetting(ctx, *teamID, teamLLMDefaultProfileSetting)
-		if err != nil {
-			return err
-		}
-		defaultProfile = config.NormalizeLLMProfileName(teamDefault)
-	}
 	profiles := make(map[string]validation.LLMProfileDefinition, len(effectiveProfiles))
 	for name, profile := range effectiveProfiles {
 		profiles[name] = validation.LLMProfileDefinition{AllowedScopes: append([]string(nil), profile.AllowedScopes...)}
 	}
 	if err := validation.ValidatePipelineLLMProfiles(pipeline, validation.LLMProfileValidationOptions{
 		DefaultProfile:        defaultProfile,
-		RequireDefaultProfile: requireTeamDefault,
+		RequireDefaultProfile: false,
 		Profiles:              profiles,
 		Scope:                 scope,
 	}); err != nil {

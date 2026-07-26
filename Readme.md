@@ -518,8 +518,9 @@ MCP servers and MCP profiles can be managed through system configuration at
 `setting/system/mcp.yaml`. The setup wizard can seed disabled MCP examples so
 operators can review and enable them deliberately.
 MCP server and profile IDs follow the same optional team path convention as LLM
-and agent profiles, so a team owner can manage `team/path/server` resources
-while global MCP subjects stay hidden unless separately granted.
+and agent profiles, and the MCP page lets operators adjust that placement during
+create or edit. A team owner can manage `team/path/server` resources while
+global MCP subjects stay hidden unless separately granted.
 
 The Nopsai AI Assistant exposes Nopsai itself through a first-party hosted MCP
 endpoint at `POST /v1/mcp`. Tools are filtered through AAA, audited, and kept

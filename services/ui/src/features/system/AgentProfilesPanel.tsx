@@ -31,7 +31,6 @@ import {
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
   normalizeAIResourceTeamPath,
-  selectableAIResourceTeamPath,
 } from './aiResourceTeams';
 import {
   formatAIResourceRatio,
@@ -216,8 +215,14 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     setForm(prev => ({ ...prev, id: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.id)) }));
   };
   const openDuplicate = (profile: AgentProfileRecord) => {
-    setCreateTeamPath(selectableAIResourceTeamPath(aiResourceTeamScope(profile.id).teamPath, teamPaths));
+    setCreateTeamPath(normalizeAIResourceTeamPath(aiResourceTeamScope(profile.id).teamPath));
     startDuplicate(profile);
+  };
+  const openEdit = (profile: AgentProfileRecord) => {
+    setCreateTeamPath(normalizeAIResourceTeamPath(
+      profile.scope === 'team' ? profile.team_path || aiResourceTeamScope(profile.id).teamPath : aiResourceTeamScope(profile.id).teamPath
+    ));
+    startEdit(profile);
   };
   const setCreateTeam = (teamPath: string) => {
     setCreateTeamPath(teamPath);
@@ -363,7 +368,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
                 canManage={canManageCurrentScope}
                 saving={saving}
                 onDuplicate={openDuplicate}
-                onEdit={startEdit}
+                onEdit={openEdit}
                 onToggleEnabled={toggleProfileEnabled}
                 onDelete={(id: string) => deleteProfile(id, { teamPath: detailProfile.team_path })}
                 onUsage={openUsage}
@@ -489,8 +494,6 @@ function AgentProfileForm({
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
 }) {
-  const isCreate = !editingID;
-
   return (
     <div className="ai-resource-detail">
       <div className="ai-resource-detail__header">
@@ -503,24 +506,22 @@ function AgentProfileForm({
         </button>
       </div>
       <form className="space-y-4" onSubmit={onSubmit}>
-        {isCreate && (
-          <AIResourceTeamPlacementField
-            teamPath={createTeamPath}
-            onTeamPathChange={onCreateTeamPathChange}
-            teamPaths={teamPaths}
-            teamPathsLoading={teamPathsLoading}
-            localName={aiResourceLocalName(form.id)}
-            resourceLabel="Profile"
-            disabled={!canManage}
-          />
-        )}
+        <AIResourceTeamPlacementField
+          teamPath={createTeamPath}
+          onTeamPathChange={onCreateTeamPathChange}
+          teamPaths={teamPaths}
+          teamPathsLoading={teamPathsLoading}
+          localName={aiResourceLocalName(form.id)}
+          resourceLabel="Profile"
+          disabled={!canManage}
+        />
         <label className="flex flex-col gap-1 text-sm">
           <span>ID</span>
           <input
             data-agent-profile-autofocus
             className="pipelines-input"
-            value={isCreate ? aiResourceLocalName(form.id) : form.id}
-            onChange={event => isCreate ? onCreateLocalIDChange(event.target.value) : setForm(prev => ({ ...prev, id: event.target.value }))}
+            value={aiResourceLocalName(form.id)}
+            onChange={event => onCreateLocalIDChange(event.target.value)}
             disabled={!canManage || Boolean(editingID)}
             placeholder="security-reviewer"
           />

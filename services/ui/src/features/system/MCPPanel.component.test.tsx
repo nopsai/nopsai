@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import MCPPanel from './MCPPanel';
 
 const apiMocks = vi.hoisted(() => {
@@ -58,9 +58,28 @@ const apiMocks = vi.hoisted(() => {
 const teamMocks = vi.hoisted(() => ({
   fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
 }));
+const teamProfileMocks = vi.hoisted(() => ({
+  deleteTeamMCPProfile: vi.fn(),
+  fetchTeamMCPProfiles: vi.fn(async (teamPath: string) => ({
+    team_id: 7,
+    team_path: teamPath,
+    profiles: [],
+  })),
+  requestTeamsJson: vi.fn(async () => ({ allowed: true })),
+  upsertTeamMCPProfile: vi.fn(async (teamPath: string, profileName: string, payload: Record<string, unknown>) => ({
+    team_id: 7,
+    team_path: teamPath,
+    profiles: [{ ...payload, name: profileName }],
+  })),
+}));
 
 vi.mock('./mcp/api', () => apiMocks);
+vi.mock('./teamProfileApi', () => teamProfileMocks);
 vi.mock('../../lib/resourceTeams', () => teamMocks);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 test('renders MCP servers and profiles in the split detail workspace', async () => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -97,6 +116,8 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getAllByText('/platform/ml')[0]).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: /edit server/i }));
+  expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
+  expect(screen.getByLabelText('Name')).toHaveValue('github');
   expect(screen.getByText('Expected type: bearer_token')).toBeVisible();
   await user.click(screen.getByRole('button', { name: /close server form/i }));
 
@@ -122,8 +143,118 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   await waitFor(() => expect(apiMocks.testMCPProfile).toHaveBeenCalledWith('platform/ml/pr-review'));
 
   await user.click(screen.getByRole('button', { name: /edit profile/i }));
-  expect(screen.getByLabelText('Name')).toHaveValue('platform/ml/pr-review');
+  expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
+  expect(screen.getByLabelText('Name')).toHaveValue('pr-review');
   expect(screen.getByLabelText('Allowed scopes')).toHaveValue('prod');
+});
+
+test('moves an edited MCP server to the global catalog when no profiles reference it', async () => {
+  apiMocks.fetchMCPRegistry.mockResolvedValueOnce({
+    servers: [
+      {
+        name: 'platform/ml/github',
+        display_name: 'GitHub MCP',
+        enabled: true,
+        provider: 'github',
+        transport: 'streamable_http',
+        url: 'https://api.githubcopilot.com/mcp/x/all/readonly',
+        auth_type: 'bearer_token',
+        credential_ref: 'credential://system/mcp/github',
+        headers: { 'X-MCP-Readonly': 'true' },
+        timeout: '30s',
+        allowed_scopes: ['prod'],
+        tools: [],
+      },
+    ],
+    profiles: [],
+  });
+  apiMocks.saveMCPServer.mockResolvedValueOnce([
+    {
+      name: 'github',
+      display_name: 'GitHub MCP',
+      enabled: true,
+      provider: 'github',
+      transport: 'streamable_http',
+      url: 'https://api.githubcopilot.com/mcp/x/all/readonly',
+      auth_type: 'bearer_token',
+      credential_ref: 'credential://system/mcp/github',
+      headers: { 'X-MCP-Readonly': 'true' },
+      timeout: '30s',
+      allowed_scopes: ['prod'],
+      tools: [],
+    },
+  ]);
+  const user = userEvent.setup();
+
+  render(
+    <MemoryRouter initialEntries={['/mcp?team=platform%2Fml&view=servers']}>
+      <MCPPanel canManage />
+    </MemoryRouter>
+  );
+
+  const serverTable = await screen.findByLabelText('MCP servers');
+  await user.click(within(serverTable).getByRole('button', { name: 'Select MCP server GitHub MCP' }));
+  await user.click(screen.getByRole('button', { name: /edit server/i }));
+
+  expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
+  expect(screen.getByLabelText('Name')).toHaveValue('github');
+  await user.selectOptions(screen.getByLabelText('Team placement'), '');
+  expect(screen.getByText('github')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Save server' }));
+
+  await waitFor(() => expect(apiMocks.saveMCPServer).toHaveBeenCalledWith(
+    expect.objectContaining({ name: 'github' }),
+    'platform/ml/github'
+  ));
+  expect(apiMocks.deleteMCPServer).toHaveBeenCalledWith('platform/ml/github');
+});
+
+test('moves an edited team MCP profile to the global catalog', async () => {
+  teamProfileMocks.fetchTeamMCPProfiles.mockResolvedValueOnce({
+    team_id: 7,
+    team_path: 'platform/ml',
+    profiles: [
+      {
+        name: 'pr-review',
+        description: 'Team-owned PR review tools.',
+        enabled: true,
+        servers: [{ server: 'platform/ml/github', tools: ['issues_list'] }],
+        allowed_scopes: ['prod'],
+      },
+    ],
+  });
+  apiMocks.saveMCPProfile.mockResolvedValueOnce([
+    {
+      name: 'pr-review',
+      description: 'Team-owned PR review tools.',
+      enabled: true,
+      servers: [{ server: 'platform/ml/github', tools: ['issues_list'] }],
+      allowed_scopes: ['prod'],
+    },
+  ]);
+  const user = userEvent.setup();
+
+  render(
+    <MemoryRouter initialEntries={['/mcp?team=platform%2Fml&view=profiles']}>
+      <MCPPanel canManage />
+    </MemoryRouter>
+  );
+
+  const profileTable = await screen.findByLabelText('MCP profiles');
+  await user.click(within(profileTable).getByRole('button', { name: 'Select MCP profile pr-review' }));
+  await user.click(screen.getByRole('button', { name: /edit profile/i }));
+
+  expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
+  expect(screen.getByLabelText('Name')).toHaveValue('pr-review');
+  await user.selectOptions(screen.getByLabelText('Team placement'), '');
+  expect(screen.getByText('pr-review')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Save profile' }));
+
+  await waitFor(() => expect(apiMocks.saveMCPProfile).toHaveBeenCalledWith(
+    expect.objectContaining({ name: 'pr-review' }),
+    'platform/ml/pr-review'
+  ));
+  expect(teamProfileMocks.deleteTeamMCPProfile).toHaveBeenCalledWith('platform/ml', 'pr-review');
 });
 
 test('applies the team filter and profiles view from the route query', async () => {

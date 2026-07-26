@@ -3,6 +3,8 @@ import { Boxes, Cable, CheckCircle2, Edit3, ExternalLink, KeyRound, Plus, Refres
 import { useLocation } from 'react-router-dom';
 import { useMCPRegistry } from './mcp/useMCPRegistry';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
+import { teamMCPProfileRecords } from './teamProfileAdapters';
+import { useTeamProfileWriteAccess } from './useTeamProfileWriteAccess';
 import {
   AIResourceEmptyState,
   AIResourceIconAction,
@@ -18,9 +20,11 @@ import {
   aiResourceLocalName,
   aiResourceMatchesTeamFilter,
   aiResourceTeamFilterFromSearch,
+  aiResourceTeamScope,
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
+  normalizeAIResourceTeamPath,
   selectableAIResourceTeamPath,
 } from './aiResourceTeams';
 import {
@@ -64,15 +68,24 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   const [selectedServerName, setSelectedServerName] = useState<string | null>(null);
   const [selectedProfileName, setSelectedProfileName] = useState<string | null>(null);
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
+  const selectedTeamPath = useMemo(() => {
+    if (teamFilter === AI_RESOURCE_TEAM_FILTER_ALL || teamFilter === AI_RESOURCE_TEAM_FILTER_GLOBAL) return '';
+    return normalizeAIResourceTeamPath(teamFilter);
+  }, [teamFilter]);
+  const teamWriteAccess = useTeamProfileWriteAccess(selectedTeamPath);
+  const canManageTeamProfiles = canManage || teamWriteAccess.allowed;
   const {
     innerTab,
     setInnerTab,
     servers,
     profiles,
+    teamProfilesPayload,
     loading,
+    teamProfilesLoading,
     saving,
     testing,
     error,
+    teamProfilesError,
     message,
     serverForm,
     setServerForm,
@@ -83,6 +96,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     panelMode,
     setPanelMode,
     loadMCP,
+    loadTeamProfiles,
     startServerCreate,
     startServerEdit,
     saveServer,
@@ -95,7 +109,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     saveProfile,
     deleteProfile,
     testProfile,
-  } = useMCPRegistry({ canManage });
+  } = useMCPRegistry({ canManage, canManageTeamProfiles });
 
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);
@@ -106,6 +120,10 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     setInnerTab(requestedView);
     setPanelMode(null);
   }, [requestedView, setInnerTab, setPanelMode]);
+
+  useEffect(() => {
+    void loadTeamProfiles(selectedTeamPath);
+  }, [loadTeamProfiles, selectedTeamPath]);
 
   useEffect(() => {
     if (!panelMode) return;
@@ -141,8 +159,32 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     ) && aiResourceMatchesTeamFilter(server.name, teamFilter)),
     [serverSearchTerm, servers, teamFilter]
   );
+  const selectedTeamPayload = selectedTeamPath && normalizeAIResourceTeamPath(teamProfilesPayload?.team_path || '') === selectedTeamPath
+    ? teamProfilesPayload
+    : null;
+  const teamScopedProfiles = useMemo(
+    () => teamMCPProfileRecords(selectedTeamPayload),
+    [selectedTeamPayload]
+  );
+  const catalogScopedProfiles = useMemo(
+    () => selectedTeamPath ? profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === selectedTeamPath) : [],
+    [profiles, selectedTeamPath]
+  );
+  const sourceProfiles = useMemo(() => {
+    if (!selectedTeamPath) return profiles;
+    const byName = new Map<string, MCPProfileRecord>();
+    catalogScopedProfiles.forEach(profile => byName.set(profile.name, profile));
+    teamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalogScopedProfiles, profiles, selectedTeamPath, teamScopedProfiles]);
+  const workspaceProfiles = useMemo(() => {
+    const byName = new Map<string, MCPProfileRecord>();
+    profiles.forEach(profile => byName.set(profile.name, profile));
+    teamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [profiles, teamScopedProfiles]);
   const visibleProfiles = useMemo(
-    () => profiles.filter(profile => matchesAIResourceSearch(
+    () => sourceProfiles.filter(profile => matchesAIResourceSearch(
       profileSearchTerm,
       profile.name,
       aiResourceLocalName(profile.name),
@@ -154,7 +196,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       profile.servers.flatMap(ref => ref.tools).join(', '),
       profile.servers.reduce((total, ref) => total + ref.tools.length, 0)
     ) && aiResourceMatchesTeamFilter(profile.name, teamFilter)),
-    [profileSearchTerm, profiles, teamFilter]
+    [profileSearchTerm, sourceProfiles, teamFilter]
   );
   const selectedServer = useMemo(
     () => selectedServerName ? visibleServers.find(server => server.name === selectedServerName) ?? null : null,
@@ -166,12 +208,15 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   );
   const showServerForm = panelMode === 'server-create' || panelMode === 'server-edit';
   const showProfileForm = panelMode === 'profile-create' || panelMode === 'profile-edit';
+  const profileListLoading = loading || (selectedTeamPath ? teamProfilesLoading : false);
+  const canManageCurrentProfileScope = selectedTeamPath ? canManageTeamProfiles : canManage;
+  const canManageCurrentTab = innerTab === 'profiles' ? canManageCurrentProfileScope : canManage;
   const teamFilterOptions = useMemo(
     () => collectAIResourceTeamPaths(
-      innerTab === 'servers' ? servers.map(server => server.name) : profiles.map(profile => profile.name),
+      innerTab === 'servers' ? servers.map(server => server.name) : workspaceProfiles.map(profile => profile.name),
       teamPaths
     ),
-    [innerTab, profiles, servers, teamPaths]
+    [innerTab, servers, teamPaths, workspaceProfiles]
   );
   const filteredCountToken = (innerTab === 'servers' ? serverSearchTerm : profileSearchTerm) ||
     (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
@@ -191,12 +236,12 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     [servers]
   );
   const profileWorkspaceResources = useMemo<AIResourceWorkspaceItem[]>(
-    () => profiles.map(profile => ({
+    () => workspaceProfiles.map(profile => ({
       id: profile.name,
       label: aiResourceLocalName(profile.name) || profile.name,
       description: profile.description || `${profile.servers.length} servers`,
     })),
-    [profiles]
+    [workspaceProfiles]
   );
   const selectedWorkspaceServerName = showServerForm ? null : selectedServer?.name ?? null;
   const selectedWorkspaceProfileName = showProfileForm ? null : selectedProfile?.name ?? null;
@@ -239,14 +284,26 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     startServerCreate();
     setServerForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
   };
+  const openServerEdit = (server: MCPServerRecord) => {
+    setCreateServerTeamPath(normalizeAIResourceTeamPath(aiResourceTeamScope(server.name).teamPath));
+    startServerEdit(server);
+  };
   const openProfileCreate = () => {
-    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL
-      ? selectableAIResourceTeamPath(teamFilter, teamPaths)
-      : '';
+    const initialTeamPath = selectedTeamPath;
     setSelectedProfileName(null);
     setCreateProfileTeamPath(initialTeamPath);
     startProfileCreate();
     setProfileForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
+  };
+  const openProfileEdit = (profile: MCPProfileRecord) => {
+    setCreateProfileTeamPath(normalizeAIResourceTeamPath(
+      profile.scope === 'team' ? profile.team_path || aiResourceTeamScope(profile.name).teamPath : aiResourceTeamScope(profile.name).teamPath
+    ));
+    startProfileEdit(profile);
+  };
+  const reloadMCP = () => {
+    void loadMCP();
+    if (selectedTeamPath) void loadTeamProfiles(selectedTeamPath);
   };
   const setCreateServerTeam = (teamPath: string) => {
     setCreateServerTeamPath(teamPath);
@@ -271,8 +328,8 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
           <MCPViewSwitch activeView={innerTab} onChange={openMCPView} />
         </div>
         <div className="ai-resource-page-actions">
-          {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
-          <button type="button" className="ai-resource-icon-button" onClick={() => void loadMCP()} disabled={loading || saving} aria-label="Reload">
+          {!canManageCurrentTab && <span className="runner-pill runner-pill--muted">Read-only</span>}
+          <button type="button" className="ai-resource-icon-button" onClick={reloadMCP} disabled={loading || saving || (innerTab === 'profiles' && teamProfilesLoading)} aria-label="Reload">
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
           </button>
           {canManage && innerTab === 'servers' && (
@@ -281,7 +338,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
               New server
             </button>
           )}
-          {canManage && innerTab === 'profiles' && (
+          {canManageCurrentProfileScope && innerTab === 'profiles' && (
             <button type="button" className="ai-resource-primary-button" onClick={openProfileCreate} disabled={saving}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               New profile
@@ -291,6 +348,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       </div>
 
       {error && <div className="ai-resource-alert ai-resource-alert--error whitespace-pre-wrap">{error}</div>}
+      {teamProfilesError && <div className="ai-resource-alert ai-resource-alert--error whitespace-pre-wrap">{teamProfilesError}</div>}
       {message && <div className="ai-resource-alert">{message}</div>}
 
       {innerTab === 'servers' ? (
@@ -373,7 +431,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
                     saving={saving}
                     testing={testing}
                     onDiscover={discoverServer}
-                    onEdit={startServerEdit}
+                    onEdit={openServerEdit}
                     onDelete={deleteServer}
                   />
                 ) : (
@@ -414,8 +472,8 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
             listHeader={(
               <AIResourceTableHeader
                 title="Profiles"
-                count={formatFilteredCount(visibleProfiles.length, profiles.length, filteredCountToken)}
-                loading={loading}
+                count={formatFilteredCount(visibleProfiles.length, sourceProfiles.length, filteredCountToken)}
+                loading={profileListLoading}
                 searchLabel="Search MCP profiles"
                 searchPlaceholder="Search MCP profiles..."
                 searchValue={profileSearchTerm}
@@ -434,8 +492,8 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
               <MCPProfileTable
                 profiles={visibleProfiles}
                 selectedProfileName={selectedWorkspaceProfileName}
-                loading={loading}
-                emptyMessage={profiles.length === 0 ? 'No MCP profiles configured.' : 'No MCP profiles match your filters.'}
+                loading={profileListLoading}
+                emptyMessage={sourceProfiles.length === 0 ? 'No MCP profiles configured.' : 'No MCP profiles match your filters.'}
                 onSelectProfile={selectProfile}
               />
             )}
@@ -443,7 +501,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
               <>
                 {showProfileForm ? (
                   <MCPProfileForm
-                    canManage={canManage}
+                    canManage={canManageCurrentProfileScope}
                     saving={saving}
                     editingProfile={editingProfile}
                     profileForm={profileForm}
@@ -462,12 +520,13 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
                 ) : selectedProfile ? (
                   <MCPProfileDetail
                     profile={selectedProfile}
-                    canManage={canManage}
+                    canManage={canManageCurrentProfileScope}
                     saving={saving}
                     testing={testing}
+                    canTest={selectedProfile.scope !== 'team'}
                     onTest={testProfile}
-                    onEdit={startProfileEdit}
-                    onDelete={deleteProfile}
+                    onEdit={openProfileEdit}
+                    onDelete={(name: string) => deleteProfile(name, { teamPath: selectedProfile.team_path })}
                   />
                 ) : (
                   <AIResourceEmptyState>Select an MCP profile to inspect.</AIResourceEmptyState>
@@ -508,8 +567,6 @@ function MCPServerForm({
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
 }) {
-  const isCreate = !editingServer;
-
   return (
     <div className="ai-resource-detail">
       <div className="ai-resource-detail__header">
@@ -522,18 +579,16 @@ function MCPServerForm({
         </button>
       </div>
       <form className="space-y-4" onSubmit={onSubmit}>
-        {isCreate && (
-          <AIResourceTeamPlacementField
-            teamPath={createTeamPath}
-            onTeamPathChange={onCreateTeamPathChange}
-            teamPaths={teamPaths}
-            teamPathsLoading={teamPathsLoading}
-            localName={aiResourceLocalName(serverForm.name)}
-            resourceLabel="Server"
-            disabled={!canManage}
-          />
-        )}
-        <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={isCreate ? aiResourceLocalName(serverForm.name) : serverForm.name} onChange={event => isCreate ? onCreateLocalNameChange(event.target.value) : setServerForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingServer)} placeholder="github" /></label>
+        <AIResourceTeamPlacementField
+          teamPath={createTeamPath}
+          onTeamPathChange={onCreateTeamPathChange}
+          teamPaths={teamPaths}
+          teamPathsLoading={teamPathsLoading}
+          localName={aiResourceLocalName(serverForm.name)}
+          resourceLabel="Server"
+          disabled={!canManage}
+        />
+        <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={aiResourceLocalName(serverForm.name)} onChange={event => onCreateLocalNameChange(event.target.value)} disabled={!canManage || Boolean(editingServer)} placeholder="github" /></label>
         <label className="flex flex-col gap-1 text-sm"><span>Display name</span><input className="pipelines-input" value={serverForm.display_name} onChange={event => setServerForm(prev => ({ ...prev, display_name: event.target.value }))} disabled={!canManage} placeholder="GitHub MCP" /></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={serverForm.enabled} onChange={event => setServerForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
         <label className="flex flex-col gap-1 text-sm"><span>Provider</span><input className="pipelines-input" value={serverForm.provider} onChange={event => setServerForm(prev => ({ ...prev, provider: event.target.value }))} disabled={!canManage} placeholder="github" /></label>
@@ -605,8 +660,6 @@ function MCPProfileForm({
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
 }) {
-  const isCreate = !editingProfile;
-
   return (
     <div className="ai-resource-detail">
       <div className="ai-resource-detail__header">
@@ -619,18 +672,16 @@ function MCPProfileForm({
         </button>
       </div>
       <form className="space-y-4" onSubmit={onSubmit}>
-        {isCreate && (
-          <AIResourceTeamPlacementField
-            teamPath={createTeamPath}
-            onTeamPathChange={onCreateTeamPathChange}
-            teamPaths={teamPaths}
-            teamPathsLoading={teamPathsLoading}
-            localName={aiResourceLocalName(profileForm.name)}
-            resourceLabel="Profile"
-            disabled={!canManage}
-          />
-        )}
-        <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={isCreate ? aiResourceLocalName(profileForm.name) : profileForm.name} onChange={event => isCreate ? onCreateLocalNameChange(event.target.value) : setProfileForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingProfile)} placeholder="github-pr-review" /></label>
+        <AIResourceTeamPlacementField
+          teamPath={createTeamPath}
+          onTeamPathChange={onCreateTeamPathChange}
+          teamPaths={teamPaths}
+          teamPathsLoading={teamPathsLoading}
+          localName={aiResourceLocalName(profileForm.name)}
+          resourceLabel="Profile"
+          disabled={!canManage}
+        />
+        <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={aiResourceLocalName(profileForm.name)} onChange={event => onCreateLocalNameChange(event.target.value)} disabled={!canManage || Boolean(editingProfile)} placeholder="github-pr-review" /></label>
         <label className="flex flex-col gap-1 text-sm"><span>Description</span><input className="pipelines-input" value={profileForm.description} onChange={event => setProfileForm(prev => ({ ...prev, description: event.target.value }))} disabled={!canManage} placeholder="Read-only GitHub PR review tools" /></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={profileForm.enabled} onChange={event => setProfileForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
         <div className="space-y-3">
@@ -802,6 +853,7 @@ function MCPProfileDetail({
   canManage,
   saving,
   testing,
+  canTest,
   onTest,
   onEdit,
   onDelete,
@@ -810,11 +862,15 @@ function MCPProfileDetail({
   canManage: boolean;
   saving: boolean;
   testing: string | null;
+  canTest: boolean;
   onTest: (name: string) => void | Promise<void>;
   onEdit: (profile: MCPProfileRecord) => void;
   onDelete: (name: string) => void | Promise<void>;
 }) {
   const toolCount = countMCPProfileTools(profile);
+  const testLabel = canTest
+    ? testing === profile.name ? 'Testing profile' : 'Test profile'
+    : 'Team profile test unavailable';
 
   return (
     <div className="ai-resource-detail">
@@ -835,7 +891,7 @@ function MCPProfileDetail({
           </div>
         </div>
         <div className="ai-resource-detail__actions">
-          <AIResourceIconAction label={testing === profile.name ? 'Testing profile' : 'Test profile'} tone="primary" onClick={() => void onTest(profile.name)} disabled={Boolean(testing)}>
+          <AIResourceIconAction label={testLabel} tone="primary" onClick={() => void onTest(profile.name)} disabled={!canTest || Boolean(testing)}>
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
           </AIResourceIconAction>
           {canManage && (

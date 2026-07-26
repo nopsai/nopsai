@@ -223,6 +223,45 @@ test('updates the selected team agent default through the team API', async () =>
   expect(apiMocks.setDefaultAgentProfile).not.toHaveBeenCalledWith('platform/ml/release-manager');
 });
 
+test('moves an edited team agent profile to the global catalog', async () => {
+  apiMocks.saveAgentProfile.mockResolvedValueOnce({
+    default_profile: 'devops-engineer',
+    profiles: [
+      {
+        id: 'security-reviewer',
+        display_name: 'Security Reviewer',
+        role: 'Senior Security Reviewer',
+        description: 'Reviews security posture.',
+        instructions: 'Focus on practical risk reduction.',
+        enabled: true,
+        source: 'ui',
+        usage_count: 0,
+        references: [],
+      },
+    ],
+  });
+  const user = userEvent.setup();
+
+  render(
+    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+      <AgentProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const profileTable = await screen.findByLabelText('Agent profiles');
+  await user.click(within(profileTable).getByRole('button', { name: /security reviewer/i }));
+  await user.click(screen.getByRole('button', { name: /edit profile/i }));
+
+  expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
+  expect(screen.getByLabelText('ID')).toHaveValue('security-reviewer');
+  await user.selectOptions(screen.getByLabelText('Team placement'), '');
+  expect(screen.getByText('security-reviewer')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Save profile' }));
+
+  await waitFor(() => expect(apiMocks.saveAgentProfile).toHaveBeenCalledWith(expect.objectContaining({ id: 'security-reviewer' })));
+  expect(teamProfileMocks.deleteTeamAgentProfile).toHaveBeenCalledWith('platform/ml', 'security-reviewer');
+});
+
 test('applies the team filter from the route query', async () => {
   render(
     <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>

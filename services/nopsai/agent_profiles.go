@@ -414,17 +414,9 @@ func (a *App) validatePipelineAgentProfilesForTeam(ctx context.Context, pipeline
 	if err != nil {
 		return err
 	}
-	requireTeamDefault := teamID != nil
-	if requireTeamDefault {
-		teamDefault, err := a.loadTeamProfileSetting(ctx, *teamID, teamAgentDefaultProfileSetting)
-		if err != nil {
-			return err
-		}
-		defaultProfile = normalizeAgentProfileDefault(teamDefault)
-	}
 	return validation.ValidatePipelineAgentProfiles(pipeline, validation.AgentProfileValidationOptions{
 		DefaultProfile:        defaultProfile,
-		RequireDefaultProfile: requireTeamDefault,
+		RequireDefaultProfile: false,
 		Profiles:              catalog,
 	})
 }
