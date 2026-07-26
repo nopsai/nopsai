@@ -102,7 +102,10 @@ third-party MCP server code, plugins, prompts, schemas, documentation, or data
 unless the source license or commercial agreement allows enterprise redistribution
 and the required notices are recorded.
 
-Team-scoped MCP profile storage and REST APIs are available at
+System MCP server IDs can include an optional team path such as
+`platform/ml/github`; the MCP page exposes the same placement control while
+creating or editing servers and stores the resulting slash-scoped ID in the
+system registry. Team-scoped MCP profile storage and REST APIs are available at
 `GET|POST /v1/teams/{teamID}/mcp-profiles` and
 `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}` for callers with
 `team.read` or `team.update` on the team resource. Team profiles compose approved

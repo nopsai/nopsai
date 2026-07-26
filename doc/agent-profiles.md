@@ -38,18 +38,18 @@ Current runtime resolution order:
 1. Step `agent_profile`
 2. Pipeline `agent_profile`
 3. Owning team `agent_default_profile`
-4. System `default_profile` for system-owned runs
+4. System `default_profile`
 
 Tasks must not define `agent_profile`. Use step-level profiles when different
 tasks inside a step should share the same persona, or split tasks into separate
 steps when they need different personas.
 
 For team-owned pipeline runs, no explicit `agent_profile` plus no owning-team
-default is a validation error. The runtime no longer silently borrows a default
-from the current viewer, another team, or the system catalog for that case.
-Team overview shows the configured default and links to the team-scoped Agent
-Profiles page, where users with `team.update` on that team can change the
-owning team's default from the top selector.
+default inherits the system/global default profile. The runtime does not borrow
+a default from the current viewer or another team. Team overview shows the
+configured default and links to the team-scoped Agent Profiles page, where users
+with `team.update` on that team can change the owning team's default from the
+top selector.
 
 ## GitOps Configuration
 

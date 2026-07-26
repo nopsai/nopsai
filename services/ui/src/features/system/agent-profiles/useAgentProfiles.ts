@@ -146,28 +146,58 @@ export function useAgentProfiles({
         setError('Agent profile id is required.');
         return;
       }
-      const inferredTeamPath = editingID ? '' : aiResourceTeamScope(next.id).teamPath;
-      const teamPath = normalizeAIResourceTeamPath(editingTeamPath || inferredTeamPath);
-      if (teamPath) {
+      const targetTeamPath = normalizeAIResourceTeamPath(aiResourceTeamScope(next.id).teamPath);
+      const localID = aiResourceLocalName(next.id);
+      const targetID = buildAIResourceScopedID(targetTeamPath, localID);
+      const originalTeamPath = editingID ? normalizeAIResourceTeamPath(editingTeamPath) : '';
+      const movingProfile = Boolean(editingID && (targetID !== editingID || targetTeamPath !== originalTeamPath));
+      if (!localID) {
+        setError(targetTeamPath ? 'Team agent profile id is required.' : 'Agent profile id is required.');
+        return;
+      }
+      if (movingProfile && !originalTeamPath && targetTeamPath && payload.default_profile === editingID) {
+        setError('Default agent profiles cannot be moved to a team. Change the global default profile first.');
+        return;
+      }
+      if (movingProfile && !originalTeamPath && targetTeamPath && !canManage) {
+        setError('You need system update permission to move a global agent profile into a team.');
+        return;
+      }
+      const references = selectedProfile?.id === editingID
+        ? selectedProfile.references
+        : payload.profiles.find(profile => profile.id === editingID)?.references || [];
+      if (movingProfile && !originalTeamPath && targetTeamPath && references.length > 0) {
+        setError(`Agent profile ${editingID} cannot be moved because it is still referenced by ${references.join(', ')}.`);
+        return;
+      }
+      if (targetTeamPath) {
         if (!canManageTeamProfiles && !canManage) {
           setError('You need team update permission to save team agent profiles.');
-          return;
-        }
-        const localID = aiResourceLocalName(next.id);
-        if (!localID) {
-          setError('Team agent profile id is required.');
           return;
         }
         setSaving(true);
         setError(null);
         try {
-          const result = await upsertTeamAgentProfile(teamPath, localID, { ...next, id: localID });
+          const result = await upsertTeamAgentProfile(targetTeamPath, localID, { ...next, id: localID });
+          if (movingProfile && editingID) {
+            if (originalTeamPath) {
+              await deleteTeamAgentProfile(originalTeamPath, aiResourceLocalName(editingID));
+            } else {
+              const deleteResult = await deleteAgentProfile(editingID);
+              if (deleteResult.status === 'conflict') {
+                setDeleteBlocker({ id: editingID, references: deleteResult.references });
+                setPanelMode('delete');
+                setError(`Agent profile ${editingID} was saved for /${targetTeamPath}, but the original global profile is still referenced.`);
+                return;
+              }
+            }
+          }
           setTeamProfilesPayload(result);
-          const scopedID = buildAIResourceScopedID(teamPath, localID);
+          const scopedID = buildAIResourceScopedID(targetTeamPath, localID);
           const saved = teamAgentProfileRecords(result).find(profile => profile.id === scopedID) || null;
           setSelectedProfile(saved);
           setEditingID(scopedID);
-          setEditingTeamPath(teamPath);
+          setEditingTeamPath(targetTeamPath);
           setForm(prev => ({ ...prev, id: scopedID }));
           setPanelMode('edit');
         } catch (err) {
@@ -181,11 +211,18 @@ export function useAgentProfiles({
       setSaving(true);
       setError(null);
       try {
-        const nextPayload = editingID ? await saveAgentProfile(form) : await createAgentProfile(form);
+        const targetForm = { ...form, id: targetID };
+        const nextPayload = editingID ? await saveAgentProfile(targetForm) : await createAgentProfile(targetForm);
+        if (movingProfile && editingID && originalTeamPath) {
+          await deleteTeamAgentProfile(originalTeamPath, aiResourceLocalName(editingID));
+          await loadTeamProfiles(originalTeamPath);
+        }
         setPayload(nextPayload);
-        const saved = nextPayload.profiles.find(profile => profile.id === next.id) || null;
+        const saved = nextPayload.profiles.find(profile => profile.id === targetID) || null;
         setSelectedProfile(saved);
-        setEditingID(next.id);
+        setEditingID(targetID);
+        setEditingTeamPath('');
+        setForm(prev => ({ ...prev, id: targetID }));
         setPanelMode('edit');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to save agent profile');
@@ -193,7 +230,7 @@ export function useAgentProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, editingID, editingTeamPath, form]
+    [canManage, canManageTeamProfiles, editingID, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles, selectedProfile]
   );
 
   const deleteProfile = useCallback(

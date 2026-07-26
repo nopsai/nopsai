@@ -208,6 +208,8 @@ export function AIResourceTeamPlacementField({
   disabled?: boolean;
 }) {
   const normalizedTeamPath = normalizeAIResourceTeamPath(teamPath);
+  const normalizedTeamPaths = teamPaths.map(normalizeAIResourceTeamPath).filter(Boolean);
+  const selectableTeamPaths = [...new Set(normalizedTeamPath ? [...normalizedTeamPaths, normalizedTeamPath] : normalizedTeamPaths)];
   const finalID = buildAIResourceScopedID(normalizedTeamPath, localName);
 
   return (
@@ -220,7 +222,7 @@ export function AIResourceTeamPlacementField({
           disabled={disabled || teamPathsLoading}
         >
           <option value="">Global workspace</option>
-          {teamPaths.map(path => (
+          {selectableTeamPaths.map(path => (
             <option key={path} value={path}>
               /{path}
             </option>

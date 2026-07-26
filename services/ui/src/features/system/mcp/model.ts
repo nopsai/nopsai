@@ -38,6 +38,9 @@ export type MCPProfileServerRef = {
 
 export type MCPProfileRecord = {
   name: string;
+  scope?: 'global' | 'team';
+  team_path?: string;
+  team_local_name?: string;
   description: string;
   enabled: boolean;
   servers: MCPProfileServerRef[];

@@ -142,21 +142,12 @@ func (a *App) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAIResourceWrite(w, r, mcpServerAccessSpec, name) {
 		return
 	}
-	profiles, err := a.loadMCPProfilesFromDB(r.Context())
+	refs, err := a.findMCPServerReferences(r.Context(), name)
 	if err != nil {
 		http.Error(w, "failed to inspect MCP profiles", http.StatusInternalServerError)
 		return
 	}
-	var refs []string
-	for profileName, profile := range profiles {
-		for _, ref := range profile.ServerRefs {
-			if strings.EqualFold(ref.ServerName, name) {
-				refs = append(refs, profileName)
-			}
-		}
-	}
 	if len(refs) > 0 {
-		sort.Strings(refs)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -179,6 +170,68 @@ func (a *App) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) findMCPServerReferences(ctx context.Context, name string) ([]string, error) {
+	name = models.NormalizeMCPServerName(name)
+	if name == "" {
+		return nil, nil
+	}
+	references := map[string]bool{}
+	profiles, err := a.loadMCPProfilesFromDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for profileName, profile := range profiles {
+		for _, ref := range profile.ServerRefs {
+			if strings.EqualFold(ref.ServerName, name) {
+				references[profileName] = true
+			}
+		}
+	}
+
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(NULLIF(t.path, ''), t.name, tm.team_id::text), tm.name, tm.server_refs
+		FROM team_mcp_profiles tm
+		JOIN teams t ON t.id = tm.team_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			teamPath    string
+			profileName string
+			refsRaw     []byte
+			serverRefs  []models.MCPProfileServerRef
+		)
+		if err := rows.Scan(&teamPath, &profileName, &refsRaw); err != nil {
+			return nil, err
+		}
+		if len(refsRaw) > 0 {
+			_ = json.Unmarshal(refsRaw, &serverRefs)
+		}
+		for _, ref := range serverRefs {
+			if strings.EqualFold(ref.ServerName, name) {
+				referenceName := models.NormalizeMCPProfileName(profileName)
+				if normalizedTeamPath := strings.Trim(strings.TrimSpace(teamPath), "/"); normalizedTeamPath != "" {
+					referenceName = normalizedTeamPath + "/" + referenceName
+				}
+				references[referenceName] = true
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make([]string, 0, len(references))
+	for ref := range references {
+		result = append(result, ref)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 func (a *App) handleTestMCPServer(w http.ResponseWriter, r *http.Request) {
