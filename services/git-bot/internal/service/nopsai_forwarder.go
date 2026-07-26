@@ -44,7 +44,7 @@ func (f httpNopsaiWebhookForwarder) ForwardWebhook(w http.ResponseWriter, r *htt
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	for _, header := range []string{"X-GitHub-Event", "X-GitHub-Delivery", "X-GitHub-Enterprise-Host", "X-GitHub-Enterprise-Version"} {
+	for _, header := range []string{"X-GitHub-Event", "X-GitHub-Delivery", "X-GitHub-Installation-ID", "X-GitHub-Enterprise-Host", "X-GitHub-Enterprise-Version"} {
 		if value := r.Header.Get(header); value != "" {
 			req.Header.Set(header, value)
 		}

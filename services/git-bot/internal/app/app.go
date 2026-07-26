@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"nopsai/config"
@@ -88,27 +87,25 @@ func newGitBotAppFromBootstrap(
 		log.Warn().Err(err).Str("github_app_id", bootstrap.GitHubAppID).Msg("Invalid GitHub App ID; starting git-bot in degraded mode")
 		return service.NewGitBotApp(cfg, nil, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
 	}
-	installationID, err := strconv.ParseInt(bootstrap.GitHubInstallationID, 10, 64)
-	if err != nil {
-		log.Warn().Err(err).Str("github_installation_id", bootstrap.GitHubInstallationID).Msg("Invalid GitHub Installation ID; starting git-bot in degraded mode")
-		return service.NewGitBotApp(cfg, nil, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
-	}
-
 	itr, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, []byte(bootstrap.GitHubPrivateKey))
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to create GitHub App transport; starting git-bot in degraded mode")
 		return service.NewGitBotApp(cfg, nil, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
 	}
 
-	installationTransport := ghinstallation.NewFromAppsTransport(itr, installationID)
-	githubHTTPClient := &http.Client{
-		Transport: installationTransport,
-		Timeout:   15 * time.Second,
+	fetcher := newNopsaiInstallationFetcher(cfg, httpClient, serviceCredentials)
+	factory := func(installationID int64) *github.Client {
+		installationTransport := ghinstallation.NewFromAppsTransport(itr, installationID)
+		githubHTTPClient := &http.Client{
+			Transport: installationTransport,
+			Timeout:   15 * time.Second,
+		}
+		return github.NewClient(githubHTTPClient)
 	}
-	ghClient := github.NewClient(githubHTTPClient)
+	resolver := service.NewGitHubClientResolver(fetcher, factory, 30*time.Second)
 	gitBot := service.NewGitBotApp(
 		cfg,
-		ghClient,
+		resolver,
 		httpClient,
 		appID,
 		bootstrap.GitHubWebhookSecret,
@@ -117,7 +114,6 @@ func newGitBotAppFromBootstrap(
 	)
 	log.Info().
 		Int64("github_app_id", appID).
-		Str("github_installation_id", strings.TrimSpace(bootstrap.GitHubInstallationID)).
 		Msg("GitHub App credentials loaded")
 	return gitBot
 }

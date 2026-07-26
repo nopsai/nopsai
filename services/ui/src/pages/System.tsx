@@ -7,6 +7,8 @@ import DataManagementPanel from '../features/system/DataManagementPanel';
 import SetupWizard from '../features/system/SetupWizard';
 import DispatcherPanel from '../features/system/DispatcherPanel';
 import { useSystemDispatcher } from '../features/system/dispatcher/useSystemDispatcher';
+import GitHubAppPanel from '../features/system/git-apps/GitHubAppPanel';
+import { useGitHubApp } from '../features/system/git-apps/useGitHubApp';
 import SystemConfig from '../features/system/SystemConfig';
 import AccessPanel from '../features/system/AccessPanel';
 import { useSystemAccess } from '../features/system/access/useSystemAccess';
@@ -14,11 +16,12 @@ import { useSystemConfig } from '../features/system/config/useSystemConfig';
 import SystemLogsPanel from '../features/system/logs/SystemLogsPanel';
 import type { SetupStatus } from '../features/system/setup/model';
 
-type SystemTab = 'config' | 'setup' | 'data-management' | 'dispatcher' | 'logs' | 'access';
+type SystemTab = 'config' | 'git-apps' | 'setup' | 'data-management' | 'dispatcher' | 'logs' | 'access';
 
 function resolveSystemTab(tab?: string): SystemTab {
   if (
     tab === 'setup' ||
+    tab === 'git-apps' ||
     tab === 'dispatcher' ||
     tab === 'logs' ||
     tab === 'access' ||
@@ -43,6 +46,7 @@ function SystemPage({
   const allowedTabs = useMemo(() => {
     const tabs: SystemTab[] = [];
     if (permissions.canViewConfig) tabs.push('config');
+    if (permissions.canViewGitApps) tabs.push('git-apps');
     if (permissions.canViewSetup) tabs.push('setup');
     if (permissions.canViewDataManagement) tabs.push('data-management');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
@@ -54,6 +58,7 @@ function SystemPage({
     permissions.canViewConfig,
     permissions.canViewDataManagement,
     permissions.canViewDispatcher,
+    permissions.canViewGitApps,
     permissions.canViewLogs,
     permissions.canViewSetup,
   ]);
@@ -96,6 +101,12 @@ function SystemPage({
     addToast,
   });
 
+  const gitHubApp = useGitHubApp({
+    enabled: permissions.canViewGitApps && visibleTab === 'git-apps',
+    canManage: permissions.canManageGitApps,
+    addToast,
+  });
+
   return (
     <div data-page="system" className="active p-6 space-y-6">
       {visibleTab === 'config' && (
@@ -109,6 +120,9 @@ function SystemPage({
       )}
       {visibleTab === 'setup' && (
         <SetupWizard canManage={permissions.canManageSetup} onStatusChange={onSetupStatusChange} />
+      )}
+      {visibleTab === 'git-apps' && (
+        <GitHubAppPanel controller={gitHubApp} canManage={permissions.canManageGitApps} />
       )}
       {visibleTab === 'data-management' && (
         <DataManagementPanel canManage={permissions.canManageDataManagement} />

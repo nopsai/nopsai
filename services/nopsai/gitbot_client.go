@@ -20,6 +20,7 @@ type GitCommitFile = gitbot.CommitFile
 type GitCommitFilesResponse = gitbot.CommitFilesResponse
 type GitFinalStatusRequest = gitbot.FinalStatusRequest
 type GitTaskStatusRequest = gitbot.TaskStatusRequest
+type GitHubInstalledRepository = gitbot.InstalledRepository
 
 type GitProvider interface {
 	File(owner, repo, ref, path string, notFoundErr error) (string, error)
@@ -27,6 +28,7 @@ type GitProvider interface {
 	CommitFiles(owner, repo, baseRef, branch, message string, files []GitCommitFile) (GitCommitFilesResponse, error)
 	BranchHasOpenPullRequest(owner, repo, branch string) (bool, error)
 	EnsureRepoAccessible(owner, repo string) error
+	ListInstallationRepositories(installationID string) ([]GitHubInstalledRepository, error)
 	Pipeline(owner, repo, ref string, source models.PipelineSource, notFoundErr error) ([]byte, error)
 	FindSuiteCheckRun(owner, repo string, suiteID int64, commitSHA string) (*SuiteCheckRunResponse, error)
 	CreateCheckRun(owner, repo, ref string, pipelineDef []byte, pipelineSource string) (int64, error)

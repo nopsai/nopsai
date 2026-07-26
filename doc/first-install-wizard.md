@@ -162,9 +162,10 @@ Do not commit these values to the config repository.
 
 The wizard prepares the internal NopsAI-to-git-bot service URL. In Docker
 Compose that URL is usually `http://git-bot:8081`. Manage GitHub App IDs and
-credential references in **System > Config** or `setting/system/github.yaml`,
-store private-key and webhook secret values in **Credentials**, and set
-the public webhook URL on the GitHub App.
+credential references in **System > Git Apps** or
+`setting/git-apps/github.yaml`, store private-key and webhook secret values in
+**Credentials**, and keep the internal git-bot service URL in **System >
+Config**.
 
 Install flow:
 
@@ -172,9 +173,9 @@ Install flow:
    URL reachable from git-bot, usually `http://nopsai:8080` in Docker Compose.
 2. Create or open a GitHub App and set its webhook URL to the public git-bot
    endpoint exposed by your deployment, ending in `/webhook`.
-3. Configure the App ID, installation ID, private-key credential reference, and
-   webhook credential reference in **System > Config**, then install the App on
-   the selected repositories.
+3. Configure the App ID, private-key credential reference, webhook credential
+   reference, and each installation account in **System > Git Apps**, then
+   install the App on the selected repositories.
 
 Required GitHub App events:
 

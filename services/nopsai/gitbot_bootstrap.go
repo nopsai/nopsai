@@ -12,10 +12,9 @@ import (
 )
 
 type gitBotBootstrapResponse struct {
-	GitHubAppID          string `json:"github_app_id"`
-	GitHubInstallationID string `json:"github_installation_id"`
-	GitHubPrivateKey     string `json:"github_private_key"`
-	GitHubWebhookSecret  string `json:"github_webhook_secret"`
+	GitHubAppID         string `json:"github_app_id"`
+	GitHubPrivateKey    string `json:"github_private_key"`
+	GitHubWebhookSecret string `json:"github_webhook_secret"`
 }
 
 type gitBotBootstrapEnvelope struct {
@@ -56,13 +55,11 @@ func (a *App) handleGitBotBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := gitBotBootstrapResponse{
-		GitHubAppID:          strings.TrimSpace(cfg.GitHubAppID),
-		GitHubInstallationID: strings.TrimSpace(cfg.GitHubInstallID),
-		GitHubPrivateKey:     privateKey,
-		GitHubWebhookSecret:  webhookSecret,
+		GitHubAppID:         strings.TrimSpace(cfg.GitHubAppID),
+		GitHubPrivateKey:    privateKey,
+		GitHubWebhookSecret: webhookSecret,
 	}
-	if response.GitHubAppID == "" || response.GitHubInstallationID == "" ||
-		response.GitHubPrivateKey == "" || response.GitHubWebhookSecret == "" {
+	if response.GitHubAppID == "" || response.GitHubPrivateKey == "" || response.GitHubWebhookSecret == "" {
 		http.Error(w, "GitHub integration is incomplete", http.StatusServiceUnavailable)
 		return
 	}

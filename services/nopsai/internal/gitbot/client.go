@@ -34,6 +34,15 @@ type CommitFilesResponse struct {
 	FilesChanged int    `json:"files_changed"`
 }
 
+type InstalledRepository struct {
+	ID            int64  `json:"id"`
+	FullName      string `json:"full_name"`
+	Owner         string `json:"owner"`
+	Name          string `json:"name"`
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+}
+
 type SuiteCheckRunResponse struct {
 	CheckRunID         int64  `json:"check_run_id"`
 	HeadSHA            string `json:"head_sha"`
@@ -218,6 +227,29 @@ func (c Client) EnsureRepoAccessible(owner, repo string) error {
 	default:
 		return fmt.Errorf("failed to verify config repository access for %s/%s (status %d): %s", owner, repo, resp.StatusCode, message)
 	}
+}
+
+func (c Client) ListInstallationRepositories(installationID string) ([]InstalledRepository, error) {
+	resp, err := c.getJSON("/v1/github/installations/" + urlPathEscape(installationID) + "/repositories")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("git-bot installation repository list failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	var out struct {
+		Repositories []InstalledRepository `json:"repositories"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Repositories == nil {
+		out.Repositories = []InstalledRepository{}
+	}
+	return out.Repositories, nil
 }
 
 func (c Client) Pipeline(owner, repo, ref string, source models.PipelineSource, notFoundErr error) ([]byte, error) {
@@ -425,6 +457,29 @@ func (c Client) NotifyTaskStatus(req TaskStatusRequest) error {
 	return nil
 }
 
+func (c Client) getJSON(path string) (*http.Response, error) {
+	client := c.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	ctx, _ := correlation.EnsureRequestID(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(path), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	if c.Credentials == nil {
+		return nil, fmt.Errorf("nopsai service credentials are not configured")
+	}
+	token, err := c.Credentials.MintToken(req.Context())
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	correlation.SetHTTPHeaders(ctx, req.Header)
+	return client.Do(req)
+}
+
 func (c Client) postJSON(path string, payload interface{}) (*http.Response, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -454,4 +509,8 @@ func (c Client) postJSON(path string, payload interface{}) (*http.Response, erro
 
 func (c Client) url(path string) string {
 	return strings.TrimRight(c.BaseURL, "/") + path
+}
+
+func urlPathEscape(value string) string {
+	return strings.NewReplacer("/", "%2F", " ", "%20").Replace(strings.TrimSpace(value))
 }

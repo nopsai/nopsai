@@ -302,14 +302,15 @@ type Config struct {
 	AAASharedToken       string `yaml:"aaa_shared_internal_token" env:"AAA_SHARED_INTERNAL_TOKEN"`
 
 	// Git Bot specific configuration
-	GitHubWebhookCredentialRef    string `yaml:"github_webhook_credential_ref" env:"GITHUB_WEBHOOK_CREDENTIAL_REF"`
-	GitHubPrivateKeyCredentialRef string `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
-	GitHubAppID                   string `yaml:"github_app_id" env:"GITHUB_APP_ID"`
-	GitHubInstallID               string `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
-	NopsaiGitBotAPIURL            string `yaml:"git_bot_api_url" env:"GIT_BOT_API_URL"`
-	LegacyGitHubWebhookSecret     string `yaml:"github_webhook_secret,omitempty" env:"GITHUB_WEBHOOK_SECRET" json:"-"`
-	LegacyGitHubPrivateKeyPath    string `yaml:"github_private_key_path,omitempty" env:"GITHUB_PRIVATE_KEY_PATH" json:"-"`
-	LegacyGitHubPrivateKey        string `yaml:"github_private_key,omitempty" env:"GITHUB_PRIVATE_KEY" json:"-"`
+	GitHubWebhookCredentialRef    string                     `yaml:"github_webhook_credential_ref" env:"GITHUB_WEBHOOK_CREDENTIAL_REF"`
+	GitHubPrivateKeyCredentialRef string                     `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
+	GitHubAppID                   string                     `yaml:"github_app_id" env:"GITHUB_APP_ID"`
+	GitHubInstallID               string                     `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
+	GitHubInstallations           []GitHubInstallationConfig `yaml:"github_installations" env:"-"`
+	NopsaiGitBotAPIURL            string                     `yaml:"git_bot_api_url" env:"GIT_BOT_API_URL"`
+	LegacyGitHubWebhookSecret     string                     `yaml:"github_webhook_secret,omitempty" env:"GITHUB_WEBHOOK_SECRET" json:"-"`
+	LegacyGitHubPrivateKeyPath    string                     `yaml:"github_private_key_path,omitempty" env:"GITHUB_PRIVATE_KEY_PATH" json:"-"`
+	LegacyGitHubPrivateKey        string                     `yaml:"github_private_key,omitempty" env:"GITHUB_PRIVATE_KEY" json:"-"`
 
 	DockerNetworkName         string `yaml:"docker_network_name" env:"DOCKER_NETWORK_NAME"`
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container" env:"AUTO_REMOVAL_AGENT_CONTAINER"`
@@ -327,6 +328,69 @@ type Config struct {
 	RunnerScopes      string                 `yaml:"runner_scopes" env:"RUNNER_SCOPES"`
 	RunnerCapacity    int                    `yaml:"runner_capacity" env:"RUNNER_CAPACITY"`
 	EjectedRunnerIDs  []string               `yaml:"-" env:"-" json:"-"`
+}
+
+type GitHubInstallationConfig struct {
+	InstallationID          string `yaml:"installation_id" json:"installation_id"`
+	AccountLogin            string `yaml:"account_login,omitempty" json:"account_login,omitempty"`
+	AccountType             string `yaml:"account_type,omitempty" json:"account_type,omitempty"`
+	Enabled                 *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	AccessibleRepositories  int    `yaml:"accessible_repositories,omitempty" json:"accessible_repositories,omitempty"`
+	LastVerifiedAt          string `yaml:"last_verified_at,omitempty" json:"last_verified_at,omitempty"`
+	LastRepositoryRefreshAt string `yaml:"last_repository_refresh_at,omitempty" json:"last_repository_refresh_at,omitempty"`
+	LastError               string `yaml:"last_error,omitempty" json:"last_error,omitempty"`
+}
+
+func GitHubInstallationEnabled(installation GitHubInstallationConfig) bool {
+	return installation.Enabled == nil || *installation.Enabled
+}
+
+func NormalizeGitHubAccountType(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "org", "organization", "organisation":
+		return "organization"
+	case "user", "personal", "personal_account", "personal account":
+		return "user"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+}
+
+func NormalizeGitHubInstallations(installations []GitHubInstallationConfig, legacyInstallationID string) []GitHubInstallationConfig {
+	normalized := make([]GitHubInstallationConfig, 0, len(installations)+1)
+	seen := map[string]struct{}{}
+	for _, installation := range installations {
+		id := strings.TrimSpace(installation.InstallationID)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, GitHubInstallationConfig{
+			InstallationID:          id,
+			AccountLogin:            strings.TrimSpace(installation.AccountLogin),
+			AccountType:             NormalizeGitHubAccountType(installation.AccountType),
+			Enabled:                 installation.Enabled,
+			AccessibleRepositories:  max(0, installation.AccessibleRepositories),
+			LastVerifiedAt:          strings.TrimSpace(installation.LastVerifiedAt),
+			LastRepositoryRefreshAt: strings.TrimSpace(installation.LastRepositoryRefreshAt),
+			LastError:               strings.TrimSpace(installation.LastError),
+		})
+	}
+	legacyID := strings.TrimSpace(legacyInstallationID)
+	if legacyID != "" {
+		if _, exists := seen[legacyID]; !exists {
+			enabled := true
+			normalized = append(normalized, GitHubInstallationConfig{
+				InstallationID: legacyID,
+				AccountType:    "",
+				Enabled:        &enabled,
+			})
+		}
+	}
+	return normalized
 }
 
 func (c *Config) EffectiveSystemLogsDockerHost() string {
@@ -435,6 +499,7 @@ func LoadConfig(path string) (*Config, error) {
 	config.SystemLogs = NormalizeSystemLogsConfig(config.SystemLogs)
 	config.RuntimePools = NormalizeRuntimePools(config.RuntimePools)
 	config.EjectedRunnerIDs = NormalizeRunnerIDs(config.EjectedRunnerIDs)
+	config.GitHubInstallations = NormalizeGitHubInstallations(config.GitHubInstallations, config.GitHubInstallID)
 	config.NormalizeServiceTopology()
 
 	return config, nil

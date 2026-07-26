@@ -1,6 +1,0 @@
-git_bot_api_url: http://git-bot:8081
-
-github_app_id: "123456"
-github_installation_id: "987654"
-github_private_key_credential_ref: credential://system/github/app-private-key
-github_webhook_credential_ref: credential://system/github/webhook-secret

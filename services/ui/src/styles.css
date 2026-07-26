@@ -2663,6 +2663,86 @@ html.dark .kc-markdown code {
     color: #7f1d1d;
 }
 
+.github-app-action {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.github-app-action svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    opacity: 1;
+}
+
+.github-app-action:hover {
+    border-color: color-mix(in srgb, #2563eb 35%, var(--border-primary));
+    background: color-mix(in srgb, #2563eb 8%, var(--bg-secondary));
+    color: #1d4ed8;
+}
+
+.github-app-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.github-app-action--verify {
+    color: #047857;
+    border-color: color-mix(in srgb, #10b981 35%, var(--border-primary));
+}
+
+.github-app-action--verify:hover {
+    background: color-mix(in srgb, #10b981 12%, var(--bg-secondary));
+    border-color: color-mix(in srgb, #10b981 55%, var(--border-primary));
+    color: #065f46;
+}
+
+.github-app-action--sync {
+    color: #0369a1;
+    border-color: color-mix(in srgb, #0ea5e9 35%, var(--border-primary));
+}
+
+.github-app-action--sync:hover {
+    background: color-mix(in srgb, #0ea5e9 12%, var(--bg-secondary));
+    border-color: color-mix(in srgb, #0ea5e9 55%, var(--border-primary));
+    color: #075985;
+}
+
+.github-app-action--edit {
+    color: #b45309;
+    border-color: color-mix(in srgb, #f59e0b 40%, var(--border-primary));
+}
+
+.github-app-action--edit:hover {
+    background: color-mix(in srgb, #f59e0b 12%, var(--bg-secondary));
+    border-color: color-mix(in srgb, #f59e0b 60%, var(--border-primary));
+    color: #92400e;
+}
+
+.github-app-action--danger {
+    color: #dc2626;
+    border-color: color-mix(in srgb, #ef4444 40%, var(--border-primary));
+}
+
+.github-app-action--danger:hover {
+    background: color-mix(in srgb, #ef4444 12%, var(--bg-secondary));
+    border-color: color-mix(in srgb, #ef4444 60%, var(--border-primary));
+    color: #991b1b;
+}
+
 html.dark .glass-button-ghost {
     background: rgba(148,163,184,0.12);
     border-color: rgba(148,163,184,0.18);
@@ -2670,6 +2750,27 @@ html.dark .glass-button-ghost {
 
 html.dark .glass-button-ghost:hover {
     background: rgba(148,163,184,0.22);
+}
+
+html.dark .github-app-action {
+    background: color-mix(in srgb, var(--bg-secondary) 84%, #000000);
+    color: var(--text-primary);
+}
+
+html.dark .github-app-action--verify {
+    color: #6ee7b7;
+}
+
+html.dark .github-app-action--sync {
+    color: #7dd3fc;
+}
+
+html.dark .github-app-action--edit {
+    color: #fcd34d;
+}
+
+html.dark .github-app-action--danger {
+    color: #fca5a5;
 }
 
 html.dark .glass-button-subtle {

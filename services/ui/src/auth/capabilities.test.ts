@@ -88,6 +88,8 @@ test('derives app and system access from normalized capabilities', () => {
   assert.equal(access.systemPermissions.canManageAgentProfiles, false);
   assert.equal(access.systemPermissions.canViewDataManagement, true);
   assert.equal(access.systemPermissions.canManageDataManagement, false);
+  assert.equal(access.systemPermissions.canViewGitApps, true);
+  assert.equal(access.systemPermissions.canManageGitApps, false);
 });
 
 test('keeps profile-only capabilities out of the System area', () => {

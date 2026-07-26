@@ -40,14 +40,14 @@ var FieldMetadataByKey = map[string]FieldMetadata{
 	"runtime_pools":                runtimeLive("Runtime pools", "Runtime"),
 	"assistant":                    runtimeLive("Assistant", "Assistant"),
 
-	"nopsai_api_url":          runtimeReload("NopsAI API URL", "Services"),
-	"dispatcher_grpc_address": runtimeReload("Dispatcher gRPC address", "Dispatcher"),
-	"dispatcher_routing":      runtimeLive("Dispatcher routing", "Dispatcher"),
-	"ejected_runner_ids":      runtimeLive("Ejected runner IDs", "Dispatcher"),
-	"git_bot_api_url":         runtimeLive("GitBot API URL", "GitHub App"),
-
+	"nopsai_api_url":                    runtimeReload("NopsAI API URL", "Services"),
+	"dispatcher_grpc_address":           runtimeReload("Dispatcher gRPC address", "Dispatcher"),
+	"dispatcher_routing":                runtimeLive("Dispatcher routing", "Dispatcher"),
+	"ejected_runner_ids":                runtimeLive("Ejected runner IDs", "Dispatcher"),
+	"git_bot_api_url":                   runtimeLive("GitBot API URL", "GitHub App"),
 	"github_app_id":                     runtimeReload("GitHub App ID", "GitHub App"),
 	"github_installation_id":            runtimeReload("GitHub installation ID", "GitHub App"),
+	"github_installations":              runtimeReload("GitHub installations", "GitHub App"),
 	"github_private_key_credential_ref": runtimeReload("GitHub private key credential", "GitHub App"),
 	"github_webhook_credential_ref":     runtimeReload("GitHub webhook credential", "GitHub App"),
 
@@ -74,6 +74,11 @@ func bootstrapOnly(label, section string) FieldMetadata {
 
 func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{} {
 	dispatcherRouting, _ := RemoveRunnersFromDispatcherRouting(cfg.DispatcherRouting, cfg.EjectedRunnerIDs)
+	githubInstallations := config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID)
+	githubInstallationID := strings.TrimSpace(cfg.GitHubInstallID)
+	if githubInstallationID == "" && len(githubInstallations) > 0 {
+		githubInstallationID = githubInstallations[0].InstallationID
+	}
 	return map[string]interface{}{
 		"log_level":                         cfg.LogLevel,
 		"log_format":                        cfg.LogFormat,
@@ -86,6 +91,11 @@ func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{}
 		"require_production_gates":          cfg.RequireProductionGates,
 		"nopsai_api_url":                    cfg.EffectiveNopsaiAPIURL(),
 		"git_bot_api_url":                   cfg.NopsaiGitBotAPIURL,
+		"github_app_id":                     cfg.GitHubAppID,
+		"github_installation_id":            githubInstallationID,
+		"github_installations":              githubInstallations,
+		"github_private_key_credential_ref": cfg.GitHubPrivateKeyCredentialRef,
+		"github_webhook_credential_ref":     cfg.GitHubWebhookCredentialRef,
 		"dispatcher_grpc_address":           cfg.DispatcherAddress,
 		"agent_image":                       cfg.AgentImage,
 		"docker_network_name":               cfg.DockerNetworkName,
@@ -96,10 +106,6 @@ func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{}
 		"runner_id":                         cfg.RunnerID,
 		"runner_scopes":                     cfg.RunnerScopes,
 		"runner_capacity":                   cfg.RunnerCapacity,
-		"github_app_id":                     cfg.GitHubAppID,
-		"github_installation_id":            cfg.GitHubInstallID,
-		"github_private_key_credential_ref": cfg.GitHubPrivateKeyCredentialRef,
-		"github_webhook_credential_ref":     cfg.GitHubWebhookCredentialRef,
 		"runtime":                           config.NormalizeRuntime(cfg.Runtime),
 		"kubernetes":                        config.NormalizeKubernetesConfig(cfg.Kubernetes),
 		"limits":                            cfg.Limits,

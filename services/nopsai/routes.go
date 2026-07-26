@@ -58,8 +58,21 @@ func (a *App) registerAccessRoutes(mux *http.ServeMux) {
 
 func (a *App) registerGitHubRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/git-bot/bootstrap", a.handleGitBotBootstrap)
+	mux.HandleFunc("GET /v1/internal/git-bot/installations", a.handleInternalGitBotInstallations)
 	mux.HandleFunc("POST /v1/git/events", a.handleGitEvent)
 	mux.HandleFunc("POST /v1/git/webhooks/{sourceID}", a.handleGitWebhookDelivery)
+}
+
+func (a *App) registerGitAppRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/git-apps/github", a.handleGetGitHubApp)
+	mux.HandleFunc("PUT /v1/git-apps/github", a.handlePutGitHubApp)
+	mux.HandleFunc("GET /v1/git-apps/github/installations", a.handleListGitHubAppInstallations)
+	mux.HandleFunc("POST /v1/git-apps/github/installations", a.handleCreateGitHubAppInstallation)
+	mux.HandleFunc("GET /v1/git-apps/github/installations/{installationID}", a.handleGetGitHubAppInstallation)
+	mux.HandleFunc("DELETE /v1/git-apps/github/installations/{installationID}", a.handleDeleteGitHubAppInstallation)
+	mux.HandleFunc("POST /v1/git-apps/github/installations/{installationID}/verify", a.handleVerifyGitHubAppInstallation)
+	mux.HandleFunc("POST /v1/git-apps/github/installations/{installationID}/refresh", a.handleRefreshGitHubAppInstallation)
+	mux.HandleFunc("GET /v1/git-apps/github/installations/{installationID}/repositories", a.handleListGitHubAppInstallationRepositories)
 }
 
 func (a *App) registerGitWebhookSourceRoutes(mux *http.ServeMux) {
@@ -394,6 +407,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerAuthRoutes(mux)
 	a.registerAccessRoutes(mux)
 	a.registerGitHubRoutes(mux)
+	a.registerGitAppRoutes(mux)
 	a.registerTeamRoutes(mux)
 	a.registerSystemRoutes(mux)
 	a.registerMonitoringRoutes(mux)

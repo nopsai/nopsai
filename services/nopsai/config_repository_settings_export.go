@@ -302,7 +302,7 @@ func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository
 	if err != nil {
 		return err
 	}
-	files["setting/system/github.yaml"] = string(githubContent)
+	files["setting/git-apps/github.yaml"] = string(githubContent)
 	return nil
 }
 

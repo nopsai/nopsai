@@ -326,7 +326,7 @@ Rerun:
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
    - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider credential references resolved from the encrypted registry
-   - `setting/system/github.yaml` becomes GitHub App IDs, credential references, and git-bot URLs, only from a system/global config repo
+   - `setting/git-apps/github.yaml` becomes GitHub App IDs, credential references, and installation records, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
    - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password plaintext kept out of the mail file
    - `setting/system/data-management.yaml` becomes scheduled data cleanup rules, only from a system/global config repo; backup files and cleanup job history remain runtime records

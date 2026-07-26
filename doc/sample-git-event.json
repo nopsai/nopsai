@@ -10,6 +10,9 @@
     },
     "name": "test-app"
   },
+  "installation": {
+    "id": 987654
+  },
   "head_commit": {
     "id": "877135bd89401db0c9868b032081945519d12add",
     "url": "https://github.com/nopsai/test-app/commit/877135bd89401db0c9868b032081945519d12add",
