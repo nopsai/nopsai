@@ -5,7 +5,7 @@ type: application
 version: 0.1.0
 appVersion: "dev"
 kubeVersion: ">=1.27.0-0"
-home: https://github.com/nopsai/NopsAI
-icon: https://raw.githubusercontent.com/nopsai/NopsAI/main/services/ui/public/brand/nopsai-app-icon.png
+home: https://github.com/nopsai/nopsai
+icon: https://raw.githubusercontent.com/nopsai/nopsai/main/services/ui/public/brand/nopsai-app-icon.png
 sources:
-  - https://github.com/nopsai/NopsAI
+  - https://github.com/nopsai/nopsai

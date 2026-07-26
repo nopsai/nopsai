@@ -33,8 +33,8 @@ The GitOps-managed `.nopsai/nopsai-platform-release.yaml` pipeline publishes
 
 - multi-architecture GHCR images for the base, API, AAA, agent, dispatcher,
   git-bot, Docker runner, Kubernetes runner, socket proxy, UI, and pipeline
-  helper
-- the NopsAI Helm chart to `oci://ghcr.io/<owner>/charts/nopsai`
+  helper, each with the exact version tag and an additional `latest` tag
+- the NopsAI Helm chart to `oci://<release-registry>/charts/nopsai`
 - GitHub Release asset `nopsai-helm-chart-<version>.tgz`
 - standalone `nopsai-cli_<version>_<os>_<arch>` archives for Linux, macOS, and
   Windows
@@ -45,6 +45,14 @@ The release pipeline intentionally does not upload `release-index.json`,
 `release-manifest.json`, `nopsai-docker-compose-<version>.yaml`, or
 `nopsai-deployment-bundle-<version>.tar.gz`. Operators generate deployment files
 from the CLI for the exact version they want to install.
+
+`NOPSAI_RELEASE_REGISTRY` is the shared GHCR package root for both container
+images and the Helm chart. When it is omitted, the release pipeline defaults to
+`ghcr.io/<owner>`, publishes the chart under `charts/nopsai`, and labels every
+container image with `org.opencontainers.image.source=https://github.com/<owner>/<repo>`
+so the GHCR packages link back to the source repository. The `latest` image tags
+are only a package convenience; installers and generated GitOps files continue to
+use exact release versions.
 
 ## CLI-Generated Installs
 
@@ -173,7 +181,7 @@ the dispatcher Service DNS name or port differs from the chart default
 
 ```bash
 helm upgrade --install nopsai \
-  oci://ghcr.io/<owner>/charts/nopsai \
+  oci://<release-registry>/charts/nopsai \
   --version <version> \
   --namespace nopsai \
   --create-namespace \
