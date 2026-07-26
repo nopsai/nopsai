@@ -49,6 +49,7 @@ type systemConfigPayload struct {
 	DefaultPipelineTimeout        *string                       `json:"default_pipeline_timeout"`
 	LLMAgentTimeout               *string                       `json:"llm_agent_timeout"`
 	DispatcherRouting             map[string][]string           `json:"dispatcher_routing"`
+	EjectedRunnerIDs              []string                      `json:"ejected_runner_ids"`
 	RunnerID                      *string                       `json:"runner_id"`
 	RunnerScopes                  *string                       `json:"runner_scopes"`
 	RunnerCapacity                *int                          `json:"runner_capacity"`
@@ -617,16 +618,21 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.cfgMu.RLock()
-	routing := a.cfg.DispatcherRouting
+	routing, _ := systemconfig.RemoveRunnersFromDispatcherRouting(a.cfg.DispatcherRouting, a.cfg.EjectedRunnerIDs)
 	a.cfgMu.RUnlock()
 
 	runners := []map[string]interface{}{}
+	runnerRoutes := []dispatcherRunnerRouteInfo{}
 	queuedJobs := int32(0)
 	if status != nil {
 		queuedJobs = status.GetQueuedJobs()
 		runners = make([]map[string]interface{}, 0, len(status.GetRunners()))
 		for _, runner := range status.GetRunners() {
 			metadata := runner.GetMetadata()
+			runnerRoutes = append(runnerRoutes, dispatcherRunnerRouteInfo{
+				id:     runner.GetRunnerId(),
+				scopes: runner.GetScopes(),
+			})
 			runners = append(runners, map[string]interface{}{
 				"runner_id":           runner.GetRunnerId(),
 				"scopes":              runner.GetScopes(),
@@ -641,6 +647,7 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	effectiveRouting := buildEffectiveDispatcherRouting(routing, runnerRoutes)
 
 	resp := map[string]interface{}{
 		"queued_jobs": queuedJobs,
@@ -648,6 +655,9 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(routing) > 0 {
 		resp["routing"] = routing
+	}
+	if len(effectiveRouting) > 0 {
+		resp["effective_routing"] = effectiveRouting
 	}
 	if dispatcherErr != nil {
 		resp["dispatcher_error"] = "Failed to fetch dispatcher status"
@@ -659,6 +669,54 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type dispatcherRunnerRouteInfo struct {
+	id     string
+	scopes []string
+}
+
+func buildEffectiveDispatcherRouting(configured map[string][]string, runners []dispatcherRunnerRouteInfo) map[string][]string {
+	effective := systemconfig.CloneDispatcherRouting(configured)
+	if effective == nil {
+		effective = map[string][]string{}
+	}
+	for _, runner := range runners {
+		runnerID := strings.TrimSpace(runner.id)
+		if runnerID == "" {
+			continue
+		}
+		scopes := runner.scopes
+		if len(scopes) == 0 {
+			scopes = []string{"*"}
+		}
+		scopeSet := make(map[string]struct{}, len(scopes))
+		for _, rawScope := range scopes {
+			scope := strings.TrimSpace(rawScope)
+			if scope == "" {
+				scope = "*"
+			}
+			if _, seen := scopeSet[scope]; seen {
+				continue
+			}
+			effective[scope] = appendUniqueRoutingRunner(effective[scope], runnerID)
+			scopeSet[scope] = struct{}{}
+		}
+	}
+	return effective
+}
+
+func appendUniqueRoutingRunner(existing []string, runnerID string) []string {
+	runnerID = strings.TrimSpace(runnerID)
+	if runnerID == "" {
+		return existing
+	}
+	for _, existingRunnerID := range existing {
+		if strings.TrimSpace(existingRunnerID) == runnerID {
+			return existing
+		}
+	}
+	return append(existing, runnerID)
+}
+
 func (a *App) handleInternalDispatcherRouting(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok || !isDispatcherInternalClaims(claims) {
@@ -667,8 +725,10 @@ func (a *App) handleInternalDispatcherRouting(w http.ResponseWriter, r *http.Req
 	}
 
 	cfg := a.getConfigSnapshot()
+	routing, _ := systemconfig.RemoveRunnersFromDispatcherRouting(cfg.DispatcherRouting, cfg.EjectedRunnerIDs)
 	resp := map[string]interface{}{
-		"dispatcher_routing": systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
+		"dispatcher_routing": routing,
+		"ejected_runner_ids": config.NormalizeRunnerIDs(cfg.EjectedRunnerIDs),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -704,23 +764,7 @@ func (a *App) handleUpdateRunnerDispatch(w http.ResponseWriter, r *http.Request)
 		ConnectionId:  strings.TrimSpace(payload.ConnectionID),
 	})
 	if err != nil {
-		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to update runner dispatch state")
-		statusCode := http.StatusBadGateway
-		if st, ok := grpcstatus.FromError(err); ok {
-			switch st.Code() {
-			case codes.InvalidArgument:
-				statusCode = http.StatusBadRequest
-			case codes.NotFound:
-				statusCode = http.StatusNotFound
-			case codes.Unavailable:
-				statusCode = http.StatusBadGateway
-			default:
-				statusCode = http.StatusInternalServerError
-			}
-			http.Error(w, st.Message(), statusCode)
-			return
-		}
-		http.Error(w, "Failed to update runner dispatch", statusCode)
+		writeDispatcherRunnerControlError(w, err, runnerID, "Failed to update runner dispatch", "Failed to update runner dispatch state")
 		return
 	}
 
@@ -733,4 +777,53 @@ func (a *App) handleUpdateRunnerDispatch(w http.ResponseWriter, r *http.Request)
 	if err := json.NewEncoder(w).Encode(resp.Runner); err != nil {
 		log.Warn().Err(err).Msg("Failed to encode runner dispatch response")
 	}
+}
+
+func (a *App) handleEjectRunner(w http.ResponseWriter, r *http.Request) {
+	runnerID := strings.TrimSpace(r.PathValue("runnerID"))
+	if runnerID == "" {
+		http.Error(w, "runner_id is required", http.StatusBadRequest)
+		return
+	}
+	if err := a.recordRunnerEjection(r.Context(), runnerID); err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to persist runner ejection")
+		http.Error(w, "Failed to persist runner ejection", http.StatusInternalServerError)
+		return
+	}
+
+	_, err := a.dispatcher.UpdateRunnerDispatch(r.Context(), &proto.UpdateRunnerDispatchRequest{
+		RunnerId:      runnerID,
+		AllowDispatch: false,
+		ConnectionId:  proto.RunnerControlConnectionIDEject,
+	})
+	if err != nil {
+		if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.NotFound {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeDispatcherRunnerControlError(w, err, runnerID, "Failed to eject runner", "Failed to eject runner")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeDispatcherRunnerControlError(w http.ResponseWriter, err error, runnerID, fallbackMessage, logMessage string) {
+	log.Error().Err(err).Str("runner_id", runnerID).Msg(logMessage)
+	statusCode := http.StatusBadGateway
+	if st, ok := grpcstatus.FromError(err); ok {
+		switch st.Code() {
+		case codes.InvalidArgument:
+			statusCode = http.StatusBadRequest
+		case codes.NotFound:
+			statusCode = http.StatusNotFound
+		case codes.Unavailable:
+			statusCode = http.StatusBadGateway
+		default:
+			statusCode = http.StatusInternalServerError
+		}
+		http.Error(w, st.Message(), statusCode)
+		return
+	}
+	http.Error(w, fallbackMessage, statusCode)
 }

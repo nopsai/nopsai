@@ -5,8 +5,10 @@ import {
   DEFAULT_KUBERNETES_RUNNER_IMAGE,
   nopsaiImageTag,
   normalizeKubernetesRunnerManifestTemplate,
+  normalizeDispatcherStatus,
   normalizeRunnerComposeTemplate,
   normalizeRuntimeScopeOptions,
+  type DispatcherStatusState,
   type KubernetesRunnerManifestTemplate,
   type RunnerComposeTemplate,
 } from './model';
@@ -37,6 +39,11 @@ export type KubernetesRunnerTemplateInput = {
 export async function fetchDispatcherScopeOptions(): Promise<string[]> {
   const payload = await fetchSystemJson('/v1/system/dispatcher/scopes', { cache: 'no-store' });
   return normalizeRuntimeScopeOptions(payload);
+}
+
+export async function fetchDispatcherStatus(): Promise<DispatcherStatusState> {
+  const payload = await fetchSystemJson('/v1/system/dispatcher', { cache: 'no-store' });
+  return { ...normalizeDispatcherStatus(payload), fetchedAt: Date.now() };
 }
 
 export async function fetchPlatformVersionTag(): Promise<string> {

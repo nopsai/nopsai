@@ -5,8 +5,10 @@ import { copyTextToClipboard } from '../../lib/clipboard';
 import type { ConfigFieldMetadata, ConfigFormState } from './config/model';
 import { ApplyBadge } from './config/ConfigApplyBadge';
 import {
+  buildLiveRunnerRoutingRows,
   dispatcherRoutingConfigSignature,
   dispatcherRoutingRowsToConfig,
+  formatDispatcherRouteScope,
   getRunnerMeta,
   normalizeDispatcherRoutingScope,
   runnerActionKey,
@@ -34,8 +36,10 @@ function DispatcherPanel({
   error,
   status,
   pendingActions,
+  pendingEjections,
   onRefresh,
   onToggleRunnerDispatch,
+  onEjectRunner,
   canManageDispatcher,
   canViewRuntimeConfig,
   canManageRuntimeConfig,
@@ -51,8 +55,10 @@ function DispatcherPanel({
   error: string | null;
   status: DispatcherStatusState | null;
   pendingActions: Set<string>;
+  pendingEjections: Set<string>;
   onRefresh: () => void;
   onToggleRunnerDispatch: (runner: Runner) => Promise<void>;
+  onEjectRunner: (runner: Runner) => Promise<void>;
   canManageDispatcher: boolean;
   canViewRuntimeConfig: boolean;
   canManageRuntimeConfig: boolean;
@@ -128,7 +134,9 @@ function DispatcherPanel({
               nowMs={nowMs}
               runner={runner}
               pendingActions={pendingActions}
+              pendingEjections={pendingEjections}
               onToggleDispatch={onToggleRunnerDispatch}
+              onEjectRunner={onEjectRunner}
               canManageDispatcher={canManageDispatcher}
             />
           ))}
@@ -163,7 +171,7 @@ function DispatcherPanel({
             Runtime config access is required to edit routing.
           </div>
         )}
-        <RoutingMap routing={status?.routing ?? {}} runners={runners} />
+        <RoutingMap routing={status?.routing ?? {}} effectiveRouting={status?.effectiveRouting ?? {}} runners={runners} />
       </section>
 
       <RunnerDeploymentGuide canManageDispatcher={canManageDispatcher} runnerDefaults={runnerDefaults} />
@@ -701,13 +709,17 @@ function RunnerCard({
   nowMs,
   runner,
   pendingActions,
+  pendingEjections,
   onToggleDispatch,
+  onEjectRunner,
   canManageDispatcher,
 }: {
   nowMs: number;
   runner: Runner;
   pendingActions: Set<string>;
+  pendingEjections: Set<string>;
   onToggleDispatch: (runner: Runner) => Promise<void>;
+  onEjectRunner: (runner: Runner) => Promise<void>;
   canManageDispatcher: boolean;
 }) {
   const meta = getRunnerMeta(runner);
@@ -722,11 +734,14 @@ function RunnerCard({
   const runtimeTone = meta.runtime === 'kubernetes' ? 'runner-pill--ok' : 'runner-pill--muted';
   const connectionLabel = formatConnection(meta.connectionId);
   const pendingKey = runnerActionKey(runner.runnerId, meta.connectionId);
-  const pending = Boolean(pendingKey && pendingActions.has(pendingKey));
+  const pendingDispatch = Boolean(pendingKey && pendingActions.has(pendingKey));
+  const pendingEject = Boolean(pendingKey && pendingEjections.has(pendingKey));
+  const pending = pendingDispatch || pendingEject;
 
   const toggleLabel = paused ? 'Resume dispatch' : 'Pause dispatch';
   const toggleTone = paused ? 'glass-button-primary' : 'glass-button-danger';
-  const actionLabel = pending ? (paused ? 'Resuming…' : 'Pausing…') : toggleLabel;
+  const actionLabel = pendingDispatch ? (paused ? 'Resuming…' : 'Pausing…') : toggleLabel;
+  const ejectLabel = pendingEject ? 'Ejecting…' : 'Eject';
   const scopesLabel = runner.scopes.length ? runner.scopes.join(', ') : 'All scopes';
   const activeRunCount = meta.activeRuns.length;
 
@@ -753,6 +768,15 @@ function RunnerCard({
           >
             {paused ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}
             {actionLabel}
+          </button>
+          <button
+            type="button"
+            className={`glass-button-danger text-xs ${pending ? 'opacity-60 cursor-wait' : ''}`}
+            disabled={!canManageDispatcher || pending}
+            onClick={() => void onEjectRunner(runner)}
+          >
+            <Trash2 className="h-4 w-4" />
+            {ejectLabel}
           </button>
         </div>
       </div>
@@ -834,14 +858,23 @@ function StatCard({ label, value, id, icon, hint }: { label: string; value: numb
   );
 }
 
-function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; runners: Runner[] }) {
-  const rows = Object.entries(routing || {})
+function RoutingMap({
+  routing,
+  effectiveRouting,
+  runners,
+}: {
+  routing: Record<string, string[]>;
+  effectiveRouting: Record<string, string[]>;
+  runners: Runner[];
+}) {
+  const routeMap = Object.keys(effectiveRouting || {}).length > 0 ? effectiveRouting : routing;
+  const rows = Object.entries(routeMap || {})
     .map(([scope, runners]) => ({
       scope: (scope || '*').trim() || '*',
       runners: Array.isArray(runners) && runners.length ? runners.map(r => (r || '*').trim() || '*') : ['*'],
     }))
     .sort((a, b) => a.scope.localeCompare(b.scope));
-  const liveRows = buildLiveRoutingRows(runners);
+  const liveRows = buildLiveRunnerRoutingRows(runners);
   const reachableRunnerIds = new Set(runners.filter(runner => getRunnerMeta(runner).reachable).map(runner => runner.runnerId).filter(Boolean));
 
   if (rows.length === 0 && liveRows.length === 0) {
@@ -856,13 +889,13 @@ function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; r
     <div id="dispatcher-routing" className="space-y-2">
       {rows.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Configured routing</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Effective routing</p>
           {rows.map(row => (
             <div
               key={row.scope}
               className="flex items-center justify-between gap-3 bg-[var(--bg-tertiary)] px-3 py-2 rounded-md border border-[var(--border-primary)]"
             >
-              <span className="runner-pill runner-pill--ok">{formatRoutingScope(row.scope)}</span>
+              <span className="runner-pill runner-pill--ok">{formatDispatcherRouteScope(row.scope)}</span>
               <div className="flex flex-wrap gap-2 justify-end text-sm">
                 {row.runners.map(runnerId => {
                   const connected = reachableRunnerIds.has(runnerId);
@@ -885,7 +918,7 @@ function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; r
               key={`live-${row.scope}`}
               className="flex items-center justify-between gap-3 bg-[var(--bg-tertiary)] px-3 py-2 rounded-md border border-[var(--border-primary)]"
             >
-              <span className="runner-pill runner-pill--ok">{formatRoutingScope(row.scope)}</span>
+              <span className="runner-pill runner-pill--ok">{formatDispatcherRouteScope(row.scope)}</span>
               <div className="flex flex-wrap gap-2 justify-end text-sm">
                 {row.runners.map(runnerId => (
                   <span key={`live-${row.scope}-${runnerId}`} className="runner-pill runner-pill--muted">
@@ -903,30 +936,6 @@ function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; r
       )}
     </div>
   );
-}
-
-function buildLiveRoutingRows(runners: Runner[]): Array<{ scope: string; runners: string[] }> {
-  const scopeMap = new Map<string, Set<string>>();
-  runners.forEach(runner => {
-    if (!runner.runnerId || !runner.reachable) return;
-    const scopes = runner.scopes.length ? runner.scopes : ['*'];
-    scopes.forEach(scopeValue => {
-      const scope = (scopeValue || '*').trim() || '*';
-      const existing = scopeMap.get(scope) || new Set<string>();
-      existing.add(runner.runnerId);
-      scopeMap.set(scope, existing);
-    });
-  });
-  return Array.from(scopeMap.entries())
-    .map(([scope, runnerSet]) => ({
-      scope,
-      runners: Array.from(runnerSet).sort((a, b) => a.localeCompare(b)),
-    }))
-    .sort((a, b) => a.scope.localeCompare(b.scope));
-}
-
-function formatRoutingScope(scope: string) {
-  return scope === '*' ? 'Default' : scope;
 }
 
 function formatConnection(connection: string) {

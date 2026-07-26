@@ -2,6 +2,12 @@
 
 System Logs provides live operational visibility for persistent NopsAI control-plane containers. It is separate from pipeline run/task logs and never writes platform log lines to `pipeline_run_logs` or Postgres.
 
+Pipeline run logs still ingest runner and agent activity through
+`/v1/runs/{runID}/logs/ingest`. NopsAI drops successful agent
+`grpc_client_request` telemetry from that durable run-log path so repeated gRPC
+client heartbeats do not hide build output. Warning and error gRPC client
+records are retained.
+
 ## Architecture and ownership
 
 The browser opens one authenticated `fetch()` stream through `apiClient`. The NopsAI API authorizes the logical source, applies best-effort redaction and line limits, writes the sanitized entry to a bounded per-source ring buffer, and fans it out as Server-Sent Events (SSE). `services/nopsai/internal/systemlogs` owns registry, cursor, redaction, buffer, broker, and provider contracts. `system_logs_handlers.go` owns REST/SSE composition. `services/ui/src/features/system/logs` separates transport, hook orchestration, types, and rendering.

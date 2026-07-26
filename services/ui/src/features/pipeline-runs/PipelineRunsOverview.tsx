@@ -87,7 +87,7 @@ export function PipelineRunsOverview({
     [isActiveApplication, runs, selectedBranchKey]
   );
   const metrics = useMemo(() => buildPipelineRunOverviewMetrics(branchFilteredRuns), [branchFilteredRuns]);
-  const rows = useMemo(() => buildPipelineRunTableRows(branchFilteredRuns, 30), [branchFilteredRuns]);
+  const rows = useMemo(() => buildPipelineRunTableRows(branchFilteredRuns), [branchFilteredRuns]);
   const navigationItems = useMemo(
     () => buildPipelineRunNavigationItems(teams, activeTeamId, teamSearch, expandedTeamIds, collapsedTeamIds),
     [activeTeamId, collapsedTeamIds, expandedTeamIds, teamSearch, teams]

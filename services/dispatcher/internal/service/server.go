@@ -39,6 +39,7 @@ type dispatcherServer struct {
 	mu                 sync.Mutex
 	runners            map[string]*runnerConn
 	registeredRunners  map[string]*runnerRecord
+	ejectedRunners     map[string]struct{}
 	queue              []*proto.JobRequest
 	routing            map[string][]string
 	triggerAssignments map[string]string
@@ -55,6 +56,7 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string, interna
 	return &dispatcherServer{
 		runners:            make(map[string]*runnerConn),
 		registeredRunners:  make(map[string]*runnerRecord),
+		ejectedRunners:     make(map[string]struct{}),
 		routing:            normalizeDispatcherRouting(routing),
 		triggerAssignments: make(map[string]string),
 		nopsai:             newNopsaiHTTPClient(nopsaiBase, credentials),
@@ -251,13 +253,14 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 	if reg == nil || strings.TrimSpace(reg.RunnerId) == "" {
 		return status.Error(codes.InvalidArgument, "first message must be runner registration")
 	}
+	runnerID := strings.TrimSpace(reg.RunnerId)
 
 	capacity := reg.Capacity
 	if capacity <= 0 {
 		capacity = 1
 	}
 
-	connectionID := d.nextConnectionID(reg.RunnerId)
+	connectionID := d.nextConnectionID(runnerID)
 	metadata := make(map[string]string, len(reg.Metadata)+2)
 	for k, v := range reg.Metadata {
 		key := strings.TrimSpace(k)
@@ -269,9 +272,10 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 	metadata["connection_id"] = connectionID
 	metadata["connected_at"] = time.Now().UTC().Format(time.RFC3339)
 
+	ctx, cancel := context.WithCancel(stream.Context())
 	rc := &runnerConn{
 		connectionID:  connectionID,
-		id:            reg.RunnerId,
+		id:            runnerID,
 		scopes:        toSet(reg.Scopes),
 		capacity:      capacity,
 		active:        0,
@@ -280,13 +284,18 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 		sendCh:        make(chan *proto.DispatcherMessage, 32),
 		metadata:      metadata,
 		allowDispatch: true,
+		cancel:        cancel,
 	}
 
-	d.addRunner(rc)
+	if !d.addRunner(rc) {
+		cancel()
+		log.Warn().
+			Str("runner_id", runnerID).
+			Msg("rejected ejected runner registration")
+		return status.Error(codes.PermissionDenied, "runner has been ejected")
+	}
 	defer d.removeRunner(rc.connectionID)
 
-	ctx, cancel := context.WithCancel(stream.Context())
-	rc.cancel = cancel
 	defer cancel()
 	sendErrCh := make(chan error, 1)
 	go func() {
@@ -306,31 +315,61 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 		}
 	}()
 
+	type runnerRecvResult struct {
+		msg *proto.RunnerMessage
+		err error
+	}
+	recvCh := make(chan runnerRecvResult, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			msg, err := stream.Recv()
+			select {
+			case recvCh <- runnerRecvResult{msg: msg, err: err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+		}
+	}()
+
 	rc.send(&proto.DispatcherMessage{Message: &proto.DispatcherMessage_Note{Note: "registered"}})
 	d.pumpQueue()
 
 	for {
 		select {
+		case <-ctx.Done():
+			return nil
 		case err := <-sendErrCh:
 			cancel()
 			return err
-		default:
-		}
-		msg, err := stream.Recv()
-		if err != nil {
-			cancel()
-			return err
-		}
-		switch body := msg.Message.(type) {
-		case *proto.RunnerMessage_Heartbeat:
-			d.handleHeartbeat(rc.connectionID, body.Heartbeat)
-		case *proto.RunnerMessage_JobResult:
-			d.handleJobResult(rc.connectionID, body.JobResult)
-		case *proto.RunnerMessage_Register:
-			// Ignore duplicate registration attempts on the same stream.
-			log.Warn().Str("runner_id", rc.id).Msg("received duplicate registration message on stream")
-		default:
-			log.Warn().Str("runner_id", rc.id).Msg("received unknown runner message")
+		case received := <-recvCh:
+			if received.err != nil {
+				cancel()
+				return received.err
+			}
+			switch body := received.msg.Message.(type) {
+			case *proto.RunnerMessage_Heartbeat:
+				d.handleHeartbeat(rc.connectionID, body.Heartbeat)
+			case *proto.RunnerMessage_JobResult:
+				d.handleJobResult(rc.connectionID, body.JobResult)
+			case *proto.RunnerMessage_Register:
+				// Ignore duplicate registration attempts on the same stream.
+				log.Warn().Str("runner_id", rc.id).Msg("received duplicate registration message on stream")
+			default:
+				log.Warn().Str("runner_id", rc.id).Msg("received unknown runner message")
+			}
 		}
 	}
 }
@@ -363,6 +402,10 @@ func (d *dispatcherServer) UpdateRunnerDispatch(ctx context.Context, req *proto.
 
 	runnerID := strings.TrimSpace(req.RunnerId)
 	connectionID := strings.TrimSpace(req.ConnectionId)
+
+	if connectionID == proto.RunnerControlConnectionIDEject {
+		return d.ejectRunner(runnerID)
+	}
 
 	d.mu.Lock()
 	var target *runnerConn
@@ -415,6 +458,78 @@ func (d *dispatcherServer) UpdateRunnerDispatch(ctx context.Context, req *proto.
 	go d.pumpQueue()
 
 	return &proto.UpdateRunnerDispatchResponse{Runner: info}, nil
+}
+
+func (d *dispatcherServer) ejectRunner(runnerID string) (*proto.UpdateRunnerDispatchResponse, error) {
+	d.mu.Lock()
+	targets, requeuedJobs, ok := d.ejectRunnerLocked(runnerID)
+	d.mu.Unlock()
+	if !ok {
+		return nil, status.Error(codes.NotFound, "runner is not registered")
+	}
+
+	for _, target := range targets {
+		if target.cancel != nil {
+			target.cancel()
+		}
+	}
+
+	log.Warn().
+		Str("runner_id", runnerID).
+		Int("connections", len(targets)).
+		Int("requeued_jobs", requeuedJobs).
+		Msg("runner ejected")
+	if requeuedJobs > 0 {
+		go d.pumpQueue()
+	}
+
+	return &proto.UpdateRunnerDispatchResponse{}, nil
+}
+
+func (d *dispatcherServer) ejectRunnerLocked(runnerID string) ([]*runnerConn, int, bool) {
+	runnerID = strings.TrimSpace(runnerID)
+	if runnerID == "" {
+		return nil, 0, false
+	}
+
+	if d.ejectedRunners == nil {
+		d.ejectedRunners = make(map[string]struct{})
+	}
+	_, alreadyEjected := d.ejectedRunners[runnerID]
+	d.ejectedRunners[runnerID] = struct{}{}
+
+	targets, requeuedJobs, removed := d.removeRunnerRegistrationLocked(runnerID, "eject")
+	if !removed && alreadyEjected {
+		return targets, requeuedJobs, true
+	}
+	return targets, requeuedJobs, true
+}
+
+func (d *dispatcherServer) removeRunnerRegistrationLocked(runnerID, reason string) ([]*runnerConn, int, bool) {
+	_, registered := d.registeredRunners[runnerID]
+	var targets []*runnerConn
+	requeuedJobs := 0
+	for connectionID, runner := range d.runners {
+		if runner == nil || runner.id != runnerID {
+			continue
+		}
+		delete(d.runners, connectionID)
+		targets = append(targets, runner)
+		d.dropTriggerAssignmentsForRunner(runner.id)
+		for _, job := range runner.inflight {
+			if job == nil {
+				continue
+			}
+			d.enqueueLocked(job)
+			requeuedJobs++
+			log.Warn().Str("run_id", job.RunId).Str("runner_id", runner.id).Str("reason", reason).Msg("requeuing inflight job after runner removal")
+		}
+		runner.inflight = make(map[string]*proto.JobRequest)
+		runner.active = 0
+	}
+	delete(d.registeredRunners, runnerID)
+	d.dropTriggerAssignmentsForRunner(runnerID)
+	return targets, requeuedJobs, registered || len(targets) > 0
 }
 
 func (d *dispatcherServer) IngestLogs(ctx context.Context, batch *proto.LogBatch) (*emptypb.Empty, error) {
@@ -572,8 +687,12 @@ func logIngestMetadataFromContext(ctx context.Context) LogIngestMetadata {
 	return metadata
 }
 
-func (d *dispatcherServer) addRunner(rc *runnerConn) {
+func (d *dispatcherServer) addRunner(rc *runnerConn) bool {
 	d.mu.Lock()
+	if d.runnerEjectedLocked(rc.id) {
+		d.mu.Unlock()
+		return false
+	}
 	if existing := d.registeredRunners[rc.id]; existing != nil {
 		rc.allowDispatch = existing.allowDispatch
 	}
@@ -587,6 +706,7 @@ func (d *dispatcherServer) addRunner(rc *runnerConn) {
 		Msg("runner connected")
 
 	d.mu.Unlock()
+	return true
 }
 
 func (d *dispatcherServer) removeRunner(connectionID string) {
@@ -684,11 +804,12 @@ func (d *dispatcherServer) fetchRunStatusValue(ctx context.Context, runID string
 }
 
 func (d *dispatcherServer) syncRoutingFromNopsai(ctx context.Context) error {
-	routing, err := d.nopsai.DispatcherRouting(ctx)
+	controlConfig, err := d.nopsai.DispatcherControlConfig(ctx)
 	if err != nil {
 		return err
 	}
-	d.updateRouting(routing)
+	d.updateRouting(controlConfig.DispatcherRouting)
+	d.updateEjectedRunners(controlConfig.EjectedRunnerIDs)
 	return nil
 }
 

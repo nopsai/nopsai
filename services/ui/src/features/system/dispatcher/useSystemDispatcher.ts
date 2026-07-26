@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getRunnerMeta,
-  normalizeDispatcherStatus,
   runnerActionKey,
   type DispatcherStatusState,
   type Runner,
 } from './model';
 import { fetchSystemJson } from '../api';
+import { fetchDispatcherStatus } from './api';
 
 type ToastTone = 'success' | 'error' | 'info';
 
@@ -21,8 +21,10 @@ type SystemDispatcherPanelState = {
   error: string | null;
   status: DispatcherStatusState | null;
   pendingActions: Set<string>;
+  pendingEjections: Set<string>;
   onRefresh: () => void;
   onToggleRunnerDispatch: (runner: Runner) => Promise<void>;
+  onEjectRunner: (runner: Runner) => Promise<void>;
 };
 
 const POLL_INTERVAL_MS = 5000;
@@ -46,6 +48,7 @@ export function useSystemDispatcher({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<DispatcherStatusState | null>(null);
   const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
+  const [pendingEjections, setPendingEjections] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -60,10 +63,9 @@ export function useSystemDispatcher({
       setLoading(true);
     }
     try {
-      const payload = await fetchSystemJson('/v1/system/dispatcher');
-      const normalized = normalizeDispatcherStatus(payload);
+      const normalized = await fetchDispatcherStatus();
       if (isMountedRef.current) {
-        setStatus({ ...normalized, fetchedAt: Date.now() });
+        setStatus(normalized);
         setError(null);
       }
     } catch (loadError) {
@@ -88,11 +90,22 @@ export function useSystemDispatcher({
     });
   }, []);
 
+  const setRunnerEjectionPending = useCallback((runnerId: string, connectionId: string, pending: boolean) => {
+    const key = runnerActionKey(runnerId, connectionId);
+    if (!key) return;
+    setPendingEjections(prev => {
+      const next = new Set(prev);
+      if (pending) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
   const toggleRunnerDispatch = useCallback(
     async (runner: Runner) => {
       const meta = getRunnerMeta(runner);
       const key = runnerActionKey(runner.runnerId, meta.connectionId);
-      if (!key || pendingActions.has(key)) return;
+      if (!key || pendingActions.has(key) || pendingEjections.has(key)) return;
 
       const nextAllow = !runner.allowDispatch;
       setRunnerPending(runner.runnerId, meta.connectionId, true);
@@ -113,7 +126,35 @@ export function useSystemDispatcher({
         setRunnerPending(runner.runnerId, meta.connectionId, false);
       }
     },
-    [addToast, loadStatus, pendingActions, setRunnerPending]
+    [addToast, loadStatus, pendingActions, pendingEjections, setRunnerPending]
+  );
+
+  const ejectRunner = useCallback(
+    async (runner: Runner) => {
+      const meta = getRunnerMeta(runner);
+      const key = runnerActionKey(runner.runnerId, meta.connectionId);
+      if (!key || pendingActions.has(key) || pendingEjections.has(key)) return;
+
+      const confirmed = window.confirm(
+        `Eject runner "${runner.runnerId}"? This removes it from dispatcher status, cleans configured routing references, blocks the same runner ID from registering again, and disconnects any live runner stream.`
+      );
+      if (!confirmed) return;
+
+      setRunnerEjectionPending(runner.runnerId, meta.connectionId, true);
+      try {
+        await fetchSystemJson(`/v1/system/dispatcher/runners/${encodeURIComponent(runner.runnerId)}`, {
+          method: 'DELETE',
+        });
+        await loadStatus({ quiet: true });
+        addToast('Runner ejected, routing cleaned, and blocked.', 'success');
+      } catch (deleteError) {
+        console.error('Failed to eject runner', deleteError);
+        addToast('Failed to eject runner.', 'error');
+      } finally {
+        setRunnerEjectionPending(runner.runnerId, meta.connectionId, false);
+      }
+    },
+    [addToast, loadStatus, pendingActions, pendingEjections, setRunnerEjectionPending]
   );
 
   const refresh = useCallback(() => {
@@ -145,7 +186,9 @@ export function useSystemDispatcher({
     error,
     status,
     pendingActions,
+    pendingEjections,
     onRefresh: refresh,
     onToggleRunnerDispatch: toggleRunnerDispatch,
+    onEjectRunner: ejectRunner,
   };
 }

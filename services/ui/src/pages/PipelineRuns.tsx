@@ -28,7 +28,7 @@ import type {
   PipelineRunsTriggerTeam as TriggerTeam,
 } from '../features/pipeline-runs/pageTypes';
 
-const RECENT_FETCH_SIZE = 60;
+const RUNS_FETCH_PAGE_SIZE = 1000;
 const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
 
@@ -242,9 +242,9 @@ function PipelineRunsPage() {
         setRecentLoadingMore(true);
       }
       try {
-        const data = await fetchJson<RunListItem[]>(`/v1/runs?offset=${offset}&limit=${RECENT_FETCH_SIZE}`);
+        const data = await fetchJson<RunListItem[]>(`/v1/runs?offset=${offset}&limit=${RUNS_FETCH_PAGE_SIZE}`);
         const list = Array.isArray(data) ? data : [];
-        setRecentHasMore(list.length === RECENT_FETCH_SIZE);
+        setRecentHasMore(list.length === RUNS_FETCH_PAGE_SIZE);
 
         let nextLength = 0;
         setRecentRunsAll(prev => {
@@ -321,7 +321,7 @@ function PipelineRunsPage() {
     setRunsError(null);
     try {
       if (activeTab === 'main' && activeTeamId) {
-        const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?teamId=${activeTeamId}`);
+        const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?teamId=${activeTeamId}&limit=${RUNS_FETCH_PAGE_SIZE}`);
         setRunsByBranch(data || {});
       } else if (activeTab === 'main') {
         setRunsByBranch({});
@@ -542,7 +542,7 @@ function PipelineRunsPage() {
   const filteredRecentRuns = useMemo(() => {
     if (activeTab === 'events') return [];
     const base = filterPipelineRuns(recentRunsAll, { searchTerm, sourceFilter, statusFilter });
-    return base.slice(0, recentVisibleCount);
+    return activeTab === 'recent' ? base.slice(0, recentVisibleCount) : base;
   }, [activeTab, recentRunsAll, recentVisibleCount, searchTerm, sourceFilter, statusFilter]);
 
   const analysisComparisonRuns = useMemo(() => {

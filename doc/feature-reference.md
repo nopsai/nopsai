@@ -770,7 +770,7 @@ Configuration management capabilities:
 - dispatcher and runner status inspection
 - monitoring page service status, runner summaries, and active runs filtered by
   the caller's pipeline-run access
-- runner dispatch pause/resume
+- runner dispatch pause/resume and permanent dispatcher registration ejection
 
 ## Authentication, Access, And Audit
 
@@ -816,13 +816,14 @@ Important behavior:
 
 Pages present in the current UI:
 
-- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows with status, run name, repository, 8-character run ID, branch, started time, and duration
+- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
-- `Triggers`: trigger override browser/editor with list scopes derived from trigger manifests
-- `Scopes`: variable and secret management by scope and repository, including scope use-access controls
+- `Triggers`: trigger override browser/editor with an owner/team tree and list scopes derived from trigger manifests
+- `Scopes`: variable and secret management by scope and repository, scope use-access controls, and registered runner assignments for the selected scope
+- `Teams`: team/application hierarchy, team-owned resources, config repository controls, and registered runner assignments for the team scope and subgroup scopes
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection

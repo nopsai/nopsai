@@ -118,6 +118,124 @@ func TestDisconnectedRunnerRemainsRegisteredAsUnreachable(t *testing.T) {
 	}
 }
 
+func TestEjectRunnerDeletesRegistrationAndCancelsConnection(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	cancelled := false
+	rc := newTestRunnerConn("runner-eject", "prod")
+	rc.cancel = func() {
+		cancelled = true
+	}
+	d.triggerAssignments["trigger-1"] = "runner-eject"
+	d.addRunner(rc)
+
+	_, err := d.UpdateRunnerDispatch(context.Background(), &proto.UpdateRunnerDispatchRequest{
+		RunnerId:     "runner-eject",
+		ConnectionId: proto.RunnerControlConnectionIDEject,
+	})
+	if err != nil {
+		t.Fatalf("eject runner: %v", err)
+	}
+	if !cancelled {
+		t.Fatal("expected connected runner stream cancel to be invoked")
+	}
+
+	status, err := d.GetStatus(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if len(status.GetRunners()) != 0 {
+		t.Fatalf("runners len = %d, want no registered runner after eject", len(status.GetRunners()))
+	}
+
+	d.mu.Lock()
+	_, connected := d.runners[rc.connectionID]
+	_, registered := d.registeredRunners["runner-eject"]
+	_, assigned := d.triggerAssignments["trigger-1"]
+	d.mu.Unlock()
+	if connected {
+		t.Fatal("runner connection remained registered after eject")
+	}
+	if registered {
+		t.Fatal("registered runner record remained after eject")
+	}
+	if assigned {
+		t.Fatal("trigger assignment remained after runner eject")
+	}
+}
+
+func TestEjectRunnerBlocksSameRunnerIDReconnect(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	rc := newTestRunnerConn("runner-eject-blocked", "prod")
+	d.addRunner(rc)
+
+	if _, err := d.UpdateRunnerDispatch(context.Background(), &proto.UpdateRunnerDispatchRequest{
+		RunnerId:     "runner-eject-blocked",
+		ConnectionId: proto.RunnerControlConnectionIDEject,
+	}); err != nil {
+		t.Fatalf("eject runner: %v", err)
+	}
+
+	replacement := newTestRunnerConn("runner-eject-blocked", "prod")
+	replacement.connectionID = "conn-replacement"
+	if d.addRunner(replacement) {
+		t.Fatal("addRunner() accepted a runner ID that had been ejected")
+	}
+
+	status, err := d.GetStatus(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if len(status.GetRunners()) != 0 {
+		t.Fatalf("runners len = %d, want ejected runner ID blocked", len(status.GetRunners()))
+	}
+}
+
+func TestEjectDisconnectedRunnerDeletesRegistration(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	rc := newTestRunnerConn("runner-offline-eject", "prod")
+	d.addRunner(rc)
+	d.removeRunner(rc.connectionID)
+
+	_, err := d.UpdateRunnerDispatch(context.Background(), &proto.UpdateRunnerDispatchRequest{
+		RunnerId:     "runner-offline-eject",
+		ConnectionId: proto.RunnerControlConnectionIDEject,
+	})
+	if err != nil {
+		t.Fatalf("eject disconnected runner: %v", err)
+	}
+
+	status, err := d.GetStatus(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if len(status.GetRunners()) != 0 {
+		t.Fatalf("runners len = %d, want disconnected registration removed", len(status.GetRunners()))
+	}
+}
+
+func TestEjectRunnerLockedRequeuesInflightJobs(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	rc := newTestRunnerConn("runner-eject-requeue", "prod")
+	rc.active = 1
+	rc.inflight["run-1"] = &proto.JobRequest{RunId: "run-1", Scope: "prod"}
+	d.addRunner(rc)
+
+	d.mu.Lock()
+	_, requeuedJobs, ok := d.ejectRunnerLocked("runner-eject-requeue")
+	queueLen := len(d.queue)
+	d.mu.Unlock()
+
+	if !ok {
+		t.Fatal("ejectRunnerLocked() ok = false, want true")
+	}
+	if requeuedJobs != 1 {
+		t.Fatalf("requeued jobs = %d, want 1", requeuedJobs)
+	}
+	if queueLen != 1 {
+		t.Fatalf("queue len = %d, want inflight job requeued", queueLen)
+	}
+}
+
 func TestRegisteredUnreachableRunnerDoesNotReceiveJobs(t *testing.T) {
 	server := newRunStatusServer(map[string]string{"run-queued": "pending"})
 	defer server.Close()
@@ -477,6 +595,24 @@ func TestPickRunnerFallsBackWhenAffinityRunnerAtCapacity(t *testing.T) {
 	}
 }
 
+func TestScopedRegisteredRunnerExtendsConfiguredRouting(t *testing.T) {
+	d := newDispatcherServer(map[string][]string{"prod": {"runner-static"}}, "http://example")
+	runner := newTestRunnerConn("runner-dynamic", "prod")
+	d.addRunner(runner)
+
+	d.mu.Lock()
+	got := d.pickRunnerForJobLocked(&proto.JobRequest{RunId: "run-prod", Scope: "prod"})
+	configured := append([]string(nil), d.routing["prod"]...)
+	d.mu.Unlock()
+
+	if got == nil || got.id != "runner-dynamic" {
+		t.Fatalf("pickRunnerForJobLocked() = %v, want runner-dynamic", runnerIDForTest(got))
+	}
+	if len(configured) != 1 || configured[0] != "runner-static" {
+		t.Fatalf("configured routing mutated = %#v, want runner-static only", configured)
+	}
+}
+
 func TestApplyRoutingNormalizesAndClearsAssignments(t *testing.T) {
 	d := newDispatcherServer(map[string][]string{"prod": {"runner-old"}}, "http://example")
 	d.triggerAssignments["event-1"] = "runner-old"
@@ -517,10 +653,11 @@ func TestSyncRoutingFromNopsaiUsesInternalEndpoint(t *testing.T) {
 			tokenSeen = true
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]map[string][]string{
-			"dispatcher_routing": {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"dispatcher_routing": map[string][]string{
 				"prod": {"runner-prod"},
 			},
+			"ejected_runner_ids": []string{"runner-blocked"},
 		})
 	}))
 	defer server.Close()
@@ -536,6 +673,9 @@ func TestSyncRoutingFromNopsaiUsesInternalEndpoint(t *testing.T) {
 	}
 	if got := d.routing["prod"]; len(got) != 1 || got[0] != "runner-prod" {
 		t.Fatalf("routing = %#v, want prod runner", d.routing)
+	}
+	if d.addRunner(newTestRunnerConn("runner-blocked", "prod")) {
+		t.Fatal("synced ejected runner ID should block registration")
 	}
 }
 

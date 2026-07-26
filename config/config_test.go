@@ -596,6 +596,13 @@ func TestNormalizeRuntimePools(t *testing.T) {
 	}
 }
 
+func TestNormalizeRunnerIDsTrimsDedupesAndSorts(t *testing.T) {
+	got := NormalizeRunnerIDs([]string{" runner-b ", "", "runner-a", "runner-b"})
+	if len(got) != 2 || got[0] != "runner-a" || got[1] != "runner-b" {
+		t.Fatalf("NormalizeRunnerIDs() = %#v, want sorted unique IDs", got)
+	}
+}
+
 func TestSystemLogsConfigurationRequiresAnExplicitProvider(t *testing.T) {
 	cfg := Config{}
 	if cfg.SystemLogsEnabled() {

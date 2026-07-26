@@ -235,7 +235,7 @@ High-value hosted tools include:
   `nopsai.call_api` calls guarded `/v1` REST routes as the current subject for
   compatibility coverage; mutating calls require `confirm:true`
 - triggers, schedules, scopes, cost, statistics, LLM profiles, MCP profiles,
-  system status, and dispatcher/runner status read/proposal/action tools
+  system status, and dispatcher/runner status, dispatch, and ejection tools
 
 Hosted MCP is always user-scoped: `tools/list`, `resources/list`, and
 `tools/call` evaluate against the authenticated subject from the request. Tool

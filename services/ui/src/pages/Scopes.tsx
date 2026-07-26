@@ -16,6 +16,7 @@ import {
 } from '../features/scopes/api';
 import { useScopeModalMutations } from '../features/scopes/useScopeModalMutations';
 import { useScopePermissions } from '../features/scopes/useScopePermissions';
+import { useDispatcherStatusSnapshot } from '../features/system/dispatcher/useDispatcherStatusSnapshot';
 import {
   buildScopeTree,
   asScopeRecord,
@@ -98,6 +99,7 @@ function ScopesPage({
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
   const usageReadyRef = useRef(false);
+  const runnerAssignments = useDispatcherStatusSnapshot({ enabled: selectedScope !== null });
 
   const addToast = useCallback((message: string, tone: WorkflowToast['tone'] = 'info') => {
     const id = Date.now() + Math.random();
@@ -796,6 +798,9 @@ function ScopesPage({
             triggersByScope={triggersByScope}
             usageLoading={usageLoading}
             usageError={usageError}
+            runnerStatus={runnerAssignments.status}
+            runnerStatusLoading={runnerAssignments.loading}
+            runnerStatusError={runnerAssignments.error}
             canWriteVariablesInSelectedScope={canWriteVariablesInSelectedScope}
             canWriteSecretsInSelectedScope={canWriteSecretsInSelectedScope}
             canDeleteScopes={canDeleteScopes}

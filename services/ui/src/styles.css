@@ -7017,6 +7017,8 @@ html.dark .access-modal-header--minimal {
 .runner-card__actions {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 8px;
     flex: 0 0 auto;
 }

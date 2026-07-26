@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildEffectiveRunnerRouting,
+  buildRunnerAssignmentsForScope,
   dispatcherRoutingConfigSignature,
   dispatcherRoutingRowsToConfig,
+  formatDispatcherRouteScope,
   getRunnerMeta,
   nopsaiImageTag,
   normalizeKubernetesRunnerManifestTemplate,
@@ -91,6 +94,38 @@ test('normalizes registered runner reachability metadata', () => {
     connectionStatus: 'unreachable',
     activeRuns: [],
   });
+});
+
+test('builds effective routing and runner assignments from registered scopes', () => {
+  const status = normalizeDispatcherStatus({
+    routing: { prod: ['runner-static'] },
+    runners: [
+      { runner_id: 'runner-prod', scopes: ['prod'], capacity: 2, allow_dispatch: true },
+      { runner_id: 'runner-team', scopes: ['team-1/subgroup'], capacity: 1, allow_dispatch: true },
+      { runner_id: 'runner-default', scopes: [], capacity: 1, allow_dispatch: true },
+      { runner_id: 'runner-literal-default', scopes: ['default'], capacity: 1, allow_dispatch: true },
+    ],
+  });
+
+  assert.deepEqual(buildEffectiveRunnerRouting(status.routing, status.runners), {
+    prod: ['runner-static', 'runner-prod'],
+    'team-1/subgroup': ['runner-team'],
+    '*': ['runner-default'],
+    default: ['runner-literal-default'],
+  });
+  assert.deepEqual(
+    buildRunnerAssignmentsForScope(status, 'prod').map(item => `${item.runner.runnerId}:${item.scopes.join(',')}`),
+    ['runner-default:*', 'runner-prod:prod']
+  );
+  assert.deepEqual(
+    buildRunnerAssignmentsForScope(status, 'team-1', true).map(item => `${item.runner.runnerId}:${item.scopes.join(',')}`),
+    ['runner-default:*', 'runner-team:team-1/subgroup']
+  );
+  assert.deepEqual(
+    buildRunnerAssignmentsForScope(status, '').map(item => `${item.runner.runnerId}:${item.scopes.join(',')}`),
+    ['runner-default:*', 'runner-literal-default:default']
+  );
+  assert.equal(formatDispatcherRouteScope('*'), 'Default');
 });
 
 test('normalizes and sorts dispatcher runtime scopes', () => {

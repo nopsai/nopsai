@@ -78,7 +78,7 @@ comparison aliases, pipeline health explanations, optimization opportunity
 discovery, data backup/cleanup operations, scope inventory, secret/variable
 metadata and repeated variable-name analysis plus safe write/GitOps plans,
 cost/statistics, LLM/MCP profile reads, system status,
-credential metadata/rotation/access/GitOps plans, runner install/dispatch operations,
+credential metadata/rotation/access/GitOps plans, runner install/dispatch/ejection operations,
 AAA/access/audit/admin workflows, dispatcher/runner health, and permission-bound
 System Log source discovery plus bounded redacted tails. Long-lived System Log
 SSE remains UI-only.

@@ -5,9 +5,9 @@ import { TriggerCollectionList } from './TriggerCollectionList';
 import { buildTriggerTree, findTriggerTreeNode } from './treeModel';
 
 const allTriggers = [
-  { slug: 'platform/api', source: 'gitops', scopes: ['prod'] },
-  { slug: 'platform/web', source: 'database', scopes: ['default'] },
-  { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'] },
+  { slug: 'platform/api', source: 'gitops', scopes: ['prod'], teamPath: 'platform' },
+  { slug: 'platform/web', source: 'database', scopes: ['default'], teamPath: 'platform' },
+  { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'], teamPath: 'platform/apps' },
 ];
 const treeRoot = buildTriggerTree(allTriggers);
 const activeOwnerNode = findTriggerTreeNode(treeRoot, 'platform');
@@ -24,9 +24,9 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
       listError={null}
       allTriggers={allTriggers}
       visibleTriggers={[
-        { slug: 'platform/api', source: 'gitops', scopes: ['prod'] },
-        { slug: 'platform/web', source: 'database', scopes: ['default'] },
-        { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'] },
+        { slug: 'platform/api', source: 'gitops', scopes: ['prod'], teamPath: 'platform' },
+        { slug: 'platform/web', source: 'database', scopes: ['default'], teamPath: 'platform' },
+        { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'], teamPath: 'platform/apps' },
       ]}
       treeRoot={treeRoot}
       activeOwnerNode={activeOwnerNode}

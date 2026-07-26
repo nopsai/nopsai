@@ -2406,11 +2406,14 @@ const baseWikiSections: WikiSectionInput[] = [
           'Runner tokens expire after ten minutes and are consumed after the first successful download.',
           'Each runner should have a unique ID, capacity, allowed scope list, and network path to the dispatcher.',
           'Separate runners are the natural boundary for production versus non-production, region, team, security zone, or workload class.',
+          'Ejecting a runner removes its dispatcher registration, cleans configured dispatcher routing references for that runner ID, blocks the same runner ID from registering again, and disconnects any live runner stream.',
         ],
         details: [
           'The dispatcher checks runner availability, scope compatibility, routing, affinity, and load before assignment.',
           'For Kubernetes, runner manifests include namespace, ServiceAccount, namespace-scoped Role, RoleBinding, dispatcher auth Secret, runtime ConfigMap, and Deployment.',
           'Runner defaults and hard routing can live in setting/system/runner.yaml. Dispatcher routing updates are exposed through internal runtime config and do not require a dispatcher container restart.',
+          'The ejected runner ID blocklist wins over GitOps routing at runtime. Remove ejected runner IDs from setting/system/runner.yaml to keep declarative routing clean.',
+          'Use runner ejection to clear stale registrations from dispatcher status, clean configured routing, and block that runner ID from future registration. Delete or scale down the underlying Docker runner or Kubernetes Deployment when retiring capacity permanently.',
         ],
         configRows: [
           {

@@ -823,6 +823,22 @@ func TestHostedMCPRunnerBootstrapCommandBlocksSensitiveResponseByDefault(t *test
 	}
 }
 
+func TestHostedMCPEjectRunnerRequiresConfirmation(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("system.update")}
+	result, err := app.executeHostedMCPTool(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "ops"}, "nopsai.eject_runner", map[string]any{
+		"runner_id": "runner-prod-5",
+	})
+	if err != nil {
+		t.Fatalf("executeHostedMCPTool() error = %v", err)
+	}
+	if result["requires_confirmation"] != true || result["applied"] != false || result["high_impact"] != true {
+		t.Fatalf("confirmation result = %#v", result)
+	}
+	if result["path"] != "/v1/system/dispatcher/runners/runner-prod-5" {
+		t.Fatalf("path = %#v, want runner eject route", result["path"])
+	}
+}
+
 func TestHostedMCPAuditRedactsSensitiveDedicatedTools(t *testing.T) {
 	input := hostedMCPAuditInput("nopsai.write_secret_value", map[string]any{
 		"name":  "TOKEN",

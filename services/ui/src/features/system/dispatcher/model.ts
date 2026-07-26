@@ -46,8 +46,19 @@ export type DispatcherStatusState = {
   queuedJobs: number;
   runners: Runner[];
   routing: Record<string, string[]>;
+  effectiveRouting: Record<string, string[]>;
   dispatcherError?: string;
   fetchedAt: number;
+};
+
+export type RunnerRoutingRow = {
+  scope: string;
+  runners: string[];
+};
+
+export type RunnerRouteAssignment = {
+  runner: Runner;
+  scopes: string[];
 };
 
 export type RunnerComposeTemplate = {
@@ -109,11 +120,16 @@ export function normalizeDispatcherStatus(value: unknown): Omit<DispatcherStatus
   const record = asRecord(value);
   const runnersRaw = record && Array.isArray(record.runners) ? record.runners : [];
   const routingRaw = record ? (record.routing ?? record.routing_map) : null;
+  const effectiveRoutingRaw = record ? (record.effective_routing ?? record.effectiveRouting) : null;
+  const runners = runnersRaw.map(normalizeRunner).filter(runner => runner.runnerId);
+  const routing = normalizeRouting(routingRaw);
+  const effectiveRouting = normalizeRouting(effectiveRoutingRaw);
 
   return {
     queuedJobs: record ? normalizeNumber(record.queued_jobs ?? record.queuedJobs) : 0,
-    runners: runnersRaw.map(normalizeRunner).filter(runner => runner.runnerId),
-    routing: normalizeRouting(routingRaw),
+    runners,
+    routing,
+    effectiveRouting: Object.keys(effectiveRouting).length > 0 ? effectiveRouting : buildEffectiveRunnerRouting(routing, runners),
     dispatcherError: record ? readOptionalString(record.dispatcher_error ?? record.dispatcherError) : undefined,
   };
 }
@@ -237,6 +253,104 @@ export function dispatcherRoutingConfigSignature(routing: Record<string, string[
       ])
       .sort(([left], [right]) => String(left).localeCompare(String(right)))
   );
+}
+
+export function buildLiveRunnerRoutingRows(
+  runners: Runner[],
+  { includeUnreachable = false }: { includeUnreachable?: boolean } = {}
+): RunnerRoutingRow[] {
+  const scopeMap = new Map<string, Set<string>>();
+  runners.forEach(runner => {
+    if (!runner.runnerId || (!includeUnreachable && !runner.reachable)) return;
+    const scopes = runner.scopes.length ? runner.scopes : ['*'];
+    scopes.forEach(scopeValue => {
+      const scope = normalizeRunnerRouteScope(scopeValue);
+      const existing = scopeMap.get(scope) || new Set<string>();
+      existing.add(runner.runnerId);
+      scopeMap.set(scope, existing);
+    });
+  });
+  return Array.from(scopeMap.entries())
+    .map(([scope, runnerSet]) => ({
+      scope,
+      runners: Array.from(runnerSet).sort((a, b) => a.localeCompare(b)),
+    }))
+    .sort((a, b) => a.scope.localeCompare(b.scope));
+}
+
+export function buildEffectiveRunnerRouting(configured: Record<string, string[]>, runners: Runner[]): Record<string, string[]> {
+  const routing = cloneRouting(configured);
+  buildLiveRunnerRoutingRows(runners, { includeUnreachable: true }).forEach(row => {
+    const existing = routing[row.scope] || [];
+    row.runners.forEach(runnerId => {
+      if (!existing.includes(runnerId)) existing.push(runnerId);
+    });
+    routing[row.scope] = existing;
+  });
+  return routing;
+}
+
+export function buildRunnerAssignmentsForScope(
+  status: Pick<DispatcherStatusState, 'runners' | 'routing' | 'effectiveRouting'> | null | undefined,
+  targetScope: string,
+  includeDescendantScopes = false
+): RunnerRouteAssignment[] {
+  if (!status) return [];
+  const routing = Object.keys(status.effectiveRouting || {}).length > 0
+    ? status.effectiveRouting
+    : buildEffectiveRunnerRouting(status.routing, status.runners);
+  const runnerById = new Map(status.runners.map(runner => [runner.runnerId, runner]));
+  const matchedByRunner = new Map<string, Set<string>>();
+
+  Object.entries(routing).forEach(([scope, runnerIds]) => {
+    if (!runnerRouteScopeMatchesTarget(scope, targetScope, includeDescendantScopes)) return;
+    (runnerIds || []).forEach(rawRunnerId => {
+      const runnerId = String(rawRunnerId || '').trim();
+      if (!runnerId || !runnerById.has(runnerId)) return;
+      const scopes = matchedByRunner.get(runnerId) || new Set<string>();
+      scopes.add(normalizeRunnerRouteScope(scope));
+      matchedByRunner.set(runnerId, scopes);
+    });
+  });
+
+  return Array.from(matchedByRunner.entries())
+    .map(([runnerId, scopes]) => ({
+      runner: runnerById.get(runnerId)!,
+      scopes: Array.from(scopes).sort((a, b) => a.localeCompare(b)),
+    }))
+    .sort((left, right) => left.runner.runnerId.localeCompare(right.runner.runnerId));
+}
+
+export function runnerRouteScopeMatchesTarget(routeScope: string, targetScope: string, includeDescendantScopes = false): boolean {
+  const route = normalizeRunnerRouteScope(routeScope);
+  const target = normalizeRunnerRouteScope(targetScope);
+  if (target === '*') return includeDescendantScopes || route === '*' || route === 'default';
+  if (route === '*') return true;
+  if (route === target) return true;
+  return includeDescendantScopes && route.startsWith(`${target}/`);
+}
+
+export function formatDispatcherRouteScope(scope: string) {
+  const normalized = normalizeRunnerRouteScope(scope);
+  return normalized === '*' || normalized === 'default' ? 'Default' : normalized;
+}
+
+function normalizeRunnerRouteScope(value: string) {
+  const trimmed = String(value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+  if (!trimmed) return '*';
+  const lower = trimmed.toLowerCase();
+  if (lower === 'root') return '*';
+  if (lower === 'default') return 'default';
+  return trimmed;
+}
+
+function cloneRouting(routing: Record<string, string[]>): Record<string, string[]> {
+  const clone: Record<string, string[]> = {};
+  Object.entries(routing || {}).forEach(([scope, runners]) => {
+    const key = normalizeRunnerRouteScope(scope);
+    clone[key] = Array.isArray(runners) ? runners.map(runner => String(runner || '').trim()).filter(Boolean) : [];
+  });
+  return clone;
 }
 
 function normalizeRunner(value: unknown): Runner {
