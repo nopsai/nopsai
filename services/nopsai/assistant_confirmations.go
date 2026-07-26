@@ -52,7 +52,7 @@ func (a *App) handleAssistantPendingConfirmation(
 		args["confirm"] = true
 		call := a.runAssistantHostedMCPTool(ctx, subject, userID, conversation.ID, pending.Tool, args)
 		memory = assistantClearPendingConfirmation(memory)
-		memory = assistantMemoryAfterTools(memory, assistantTurnPlan{Intent: "feature_tool"}, []assistantToolActivity{call})
+		memory = assistantMemoryAfterTools(memory, []assistantToolActivity{call})
 		memory.ConversationID = conversation.ID
 		return assistantOrchestrationResult{
 			Reply:     composeFeatureToolReply([]assistantToolActivity{call}),

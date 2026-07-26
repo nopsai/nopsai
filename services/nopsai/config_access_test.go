@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
@@ -288,7 +289,7 @@ advanced_role_bindings:
 func TestAccessGrantConfigWritableAdoptsOrphanManagedGrantInScope(t *testing.T) {
 	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	resource := accessGrantResource{Type: grantResourceKnowledgeContext, ID: "guardrail/team-1/repo-check"}
-	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:nopsai/test-app knowledge_context:guardrail/team-1/repo-check", sql.NullInt64{}, true)
+	writable, err := accessGrantConfigWritableDecision(context.TODO(), nil, binding, configSyncGrantResourceScope(resource), "repository:nopsai/test-app knowledge_context:guardrail/team-1/repo-check", sql.NullInt64{}, true)
 	if err != nil {
 		t.Fatalf("accessGrantConfigWritableDecision() error = %v", err)
 	}
@@ -300,7 +301,7 @@ func TestAccessGrantConfigWritableAdoptsOrphanManagedGrantInScope(t *testing.T) 
 func TestAccessGrantConfigWritableRejectsOrphanManagedGrantOutsideScope(t *testing.T) {
 	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	resource := accessGrantResource{Type: grantResourceKnowledgeContext, ID: "guardrail/team-2/repo-check"}
-	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:nopsai/test-app knowledge_context:guardrail/team-2/repo-check", sql.NullInt64{}, true)
+	writable, err := accessGrantConfigWritableDecision(context.TODO(), nil, binding, configSyncGrantResourceScope(resource), "repository:nopsai/test-app knowledge_context:guardrail/team-2/repo-check", sql.NullInt64{}, true)
 	if err == nil {
 		t.Fatal("expected out-of-scope orphaned managed access grant to fail")
 	}

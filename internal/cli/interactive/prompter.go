@@ -844,11 +844,7 @@ func renderChoiceScreen(writer io.Writer, label string, choices []Choice, query 
 	if title == "" {
 		title = strings.TrimSpace(label)
 	}
-	footer := options.Footer
-	if len(footer) == 0 {
-		footer = []string{"Keys: type filter | Up/Down move | PgUp/PgDn jump | Enter select | Esc back | Ctrl+C quit"}
-	}
-	footer = zenStableFooterLines()
+	footer := zenStableFooterLines()
 	bodyHeight := zenBodyHeight(height, footer)
 	blockWidth := zenChoiceBlockWidth(width)
 	body := zenChoiceBlock(title, choices, query, matches, selected, offset, blockWidth, bodyHeight, options)
@@ -870,14 +866,7 @@ func renderFieldScreen(writer io.Writer, label string, fields []Field, selected,
 		title = strings.TrimSpace(label)
 	}
 	header := append([]string(nil), options.Header...)
-	footer := options.Footer
-	if len(footer) == 0 {
-		footer = []string{
-			"Edit: type/backspace | Next: Enter or Tab | Move: Up/Down | Submit: Ctrl+S | Back: Esc | Quit: Ctrl+C",
-			"Boolean: y yes, n no, Space toggle | Multiline: Enter new line, Tab next",
-		}
-	}
-	footer = zenStableFooterLines()
+	footer := zenStableFooterLines()
 	bodyHeight := zenBodyHeight(height, footer)
 	blockWidth := zenChoiceBlockWidth(width)
 	body := zenAnchoredFieldBlock(label, fields, selected, offset, completed, status, options.ActionLabel, blockWidth, bodyHeight, options)
@@ -922,11 +911,7 @@ func renderTextScreen(writer io.Writer, label string, content []string, offset, 
 	if title == "" {
 		title = strings.TrimSpace(label)
 	}
-	footer := options.Footer
-	if len(footer) == 0 {
-		footer = []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter/Esc back | Ctrl+C quit"}
-	}
-	footer = zenStableFooterLines()
+	footer := zenStableFooterLines()
 	bodyHeight := zenBodyHeight(height, footer)
 	if bodyHeight < 3 {
 		bodyHeight = 3

@@ -39,12 +39,11 @@ type assistantOrchestrationResult struct {
 func (a *App) runAssistantConversationTurn(
 	ctx context.Context,
 	subject model.Subject,
-	userID string,
 	conversation assistantConversation,
 	content string,
 	selectedProfile string,
 ) assistantOrchestrationResult {
-	return a.runAssistantConversationTurnWithPageContext(ctx, subject, userID, conversation, content, selectedProfile, assistantPageContext{})
+	return a.runAssistantConversationTurnWithPageContext(ctx, subject, "user:viewer", conversation, content, selectedProfile, assistantPageContext{})
 }
 
 func (a *App) runAssistantConversationTurnWithPageContext(
@@ -67,7 +66,7 @@ func (a *App) runAssistantConversationTurnWithPageContext(
 	planned := a.runAssistantLLMPlannedTurnWithPageContext(ctx, subject, userID, conversation, content, selectedProfile, pageContext)
 	if planned.Handled {
 		memory := assistantMemoryForTurn(conversation, planned.Plan)
-		memory = assistantMemoryAfterTools(memory, planned.Plan, planned.ToolCalls)
+		memory = assistantMemoryAfterTools(memory, planned.ToolCalls)
 		if pending, ok := a.assistantPendingConfirmationFromDeniedPlan(ctx, subject, planned.Plan, planned.ToolCalls); ok {
 			memory = assistantSetPendingConfirmation(memory, pending)
 			memory.Summary = "Waiting for explicit confirmation before applying a direct MCP change."
@@ -224,7 +223,7 @@ func assistantMemoryForTurn(conversation assistantConversation, plan assistantTu
 	return memory
 }
 
-func assistantMemoryAfterTools(memory assistantConversationMemory, plan assistantTurnPlan, toolCalls []assistantToolActivity) assistantConversationMemory {
+func assistantMemoryAfterTools(memory assistantConversationMemory, toolCalls []assistantToolActivity) assistantConversationMemory {
 	for _, call := range toolCalls {
 		switch call.Name {
 		case "nopsai.analyze_pipeline_run_failure", "nopsai.get_pipeline_run":
@@ -593,11 +592,11 @@ func composeAIUsageReply(plan assistantTurnPlan, toolCalls []assistantToolActivi
 	lines = assistantAppendAIUsageOverview(lines, output)
 	if !assistantAnyAIUsageCallHasEvents(usageCalls) {
 		lines = append(lines, "", "Investigation evidence:")
-		for idx, usageCall := range usageCalls {
+		for _, usageCall := range usageCalls {
 			usageOutput := assistantAIUsageOutput(usageCall)
 			lines = append(lines, fmt.Sprintf(
 				"- %s: %.0f tokens across %.0f visible events",
-				assistantAIUsageWindowLabel(usageCall, idx),
+				assistantAIUsageWindowLabel(usageCall),
 				assistantOutputFloat(usageOutput, "total_tokens"),
 				assistantOutputFloat(usageOutput, "exact_token_events")+assistantOutputFloat(usageOutput, "estimated_token_events"),
 			))
@@ -1438,7 +1437,7 @@ func assistantPlannerFailureIsSchemaSubset(reason string) bool {
 
 func (a *App) assistantSchemaSubsetFailureReply(ctx context.Context, subject model.Subject, content string, plan assistantTurnPlan) string {
 	if strings.TrimSpace(plan.LowerContent) == "" {
-		plan = assistantBaseTurnPlan(content, assistantConversationMemory{})
+		plan = assistantBaseTurnPlan(content)
 	}
 	lower := strings.ToLower(strings.TrimSpace(content))
 	if lower == "" {

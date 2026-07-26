@@ -347,7 +347,7 @@ func parseMarkdownKnowledgeContextDocument(content string) (knowledgeFrontMatter
 				return doc, "", true, fmt.Errorf("content is required")
 			}
 			if strings.TrimSpace(body) != "" {
-				return doc, "", true, fmt.Errorf("markdown body outside content field is not supported; use content:")
+				return doc, "", true, fmt.Errorf("markdown body outside content field is not supported; use content")
 			}
 			return doc, doc.Content, true, nil
 		}
@@ -1211,7 +1211,7 @@ func (a *App) resolveKnowledgeContextsForRun(ctx context.Context, runID uuid.UUI
 			snapshots = append(snapshots, snapshot)
 			continue
 		}
-		snapshot, err := a.resolveRepositoryKnowledgeContext(ctx, gitContext, entry.ref)
+		snapshot, err := a.resolveRepositoryKnowledgeContext(gitContext, entry.ref)
 		if err != nil {
 			if entry.ref.Required {
 				return snapshots, authChecks, err
@@ -1317,7 +1317,7 @@ func (a *App) resolveManagedKnowledgeContext(ctx context.Context, callerType, ca
 	return snapshot, authResult, nil
 }
 
-func (a *App) resolveRepositoryKnowledgeContext(ctx context.Context, gitContext map[string]string, ref models.KnowledgeContextRef) (models.KnowledgeContextSnapshot, error) {
+func (a *App) resolveRepositoryKnowledgeContext(gitContext map[string]string, ref models.KnowledgeContextRef) (models.KnowledgeContextSnapshot, error) {
 	path, err := normalizeKnowledgeContextPath(ref.Path)
 	if err != nil {
 		return models.KnowledgeContextSnapshot{}, err

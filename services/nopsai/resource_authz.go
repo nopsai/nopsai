@@ -176,7 +176,7 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 		}
 	}
 
-	if teamAllowed, grantID, grantTeam, checkErr := a.callerHasExplicitTeamUseGrant(ctx, subject, action, resourceType, resourceID, callerTeam); checkErr != nil {
+	if teamAllowed, grantID, grantTeam, checkErr := a.callerHasExplicitTeamUseGrant(ctx, resourceType, resourceID, callerTeam); checkErr != nil {
 		return result, checkErr
 	} else if teamAllowed {
 		result.Allowed = true
@@ -367,7 +367,7 @@ func uuidParse(value string) (string, error) {
 				return "", fmt.Errorf("not a uuid")
 			}
 		default:
-			if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
 				return "", fmt.Errorf("not a uuid")
 			}
 		}
@@ -574,7 +574,7 @@ func (a *App) callerHasTeamAction(ctx context.Context, subject model.Subject, ac
 	return decision.Allowed, decision, nil
 }
 
-func (a *App) callerHasExplicitTeamUseGrant(ctx context.Context, subject model.Subject, action, resourceType, resourceID string, callerTeam TeamRef) (bool, int64, string, error) {
+func (a *App) callerHasExplicitTeamUseGrant(ctx context.Context, resourceType, resourceID string, callerTeam TeamRef) (bool, int64, string, error) {
 	if a == nil || a.db == nil || !callerTeam.Valid {
 		return false, 0, "", nil
 	}
@@ -688,7 +688,7 @@ func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID s
 				return "", err
 			}
 		} else if teamPath, slug, splitErr := splitDashboardRef(resourceID); splitErr == nil {
-			teamID, _, _, resolveErr := a.resolveDashboardRefTeam(ctx, dashboardResourceID(teamPath, slug))
+			teamID, _, resolveErr := a.resolveDashboardRefTeam(ctx, dashboardResourceID(teamPath, slug))
 			if resolveErr != nil {
 				return resourceVisibilityTeam, nil
 			}
@@ -946,7 +946,8 @@ func resourceUseDeniedMessage(callerType, callerID string, result ResourceUseAut
 	}
 }
 
-func resourceUseFailureSummary(callerType, callerID string, result ResourceUseAuthResult, authErr error) string {
+func resourceUseFailureSummary(callerID string, result ResourceUseAuthResult, authErr error) string {
+	callerType := model.SubjectTypeRepository
 	result = normalizeResourceUseFailureResult(result, authErr)
 	base := resourceUseDeniedMessage(callerType, callerID, result)
 	if authErr != nil {
@@ -1151,10 +1152,10 @@ func (a *App) runResourceUseCaller(ctx context.Context, runID string, gitContext
 	return model.SubjectTypeInternalService, "dispatcher", triggerSource, nil
 }
 
-func (a *App) authorizeRunRuntimeResourceUse(ctx context.Context, runID string, gitContext map[string]string, action, resourceType, resourceID string) (ResourceUseAuthResult, error) {
+func (a *App) authorizeRunRuntimeResourceUse(ctx context.Context, runID string, gitContext map[string]string, action, resourceType, resourceID string) error {
 	callerType, callerID, triggerSource, err := a.runResourceUseCaller(ctx, runID, gitContext)
 	if err != nil {
-		return ResourceUseAuthResult{}, err
+		return err
 	}
 	result, err := a.AuthorizeResourceUse(ctx, ResourceUseAuthInput{
 		CallerType:   callerType,
@@ -1167,13 +1168,13 @@ func (a *App) authorizeRunRuntimeResourceUse(ctx context.Context, runID string, 
 		Repo:         repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"]),
 	})
 	if err != nil {
-		return result, err
+		return err
 	}
 	_ = a.appendRunAuthorizationChecks(ctx, runID, triggerSource, callerType, callerID, []ResourceUseAuthResult{result})
 	if !result.Allowed {
-		return result, errors.New(resourceUseDeniedMessage(callerType, callerID, result))
+		return errors.New(resourceUseDeniedMessage(callerType, callerID, result))
 	}
-	return result, nil
+	return nil
 }
 
 func (a *App) appendRunAuthorizationChecks(ctx context.Context, runID, triggerSource, callerType, callerID string, checks []ResourceUseAuthResult) error {

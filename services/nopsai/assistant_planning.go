@@ -494,7 +494,7 @@ func assistantAnyAIUsageCallHasEvents(calls []assistantToolActivity) bool {
 	return false
 }
 
-func assistantAIUsageWindowLabel(call assistantToolActivity, idx int) string {
+func assistantAIUsageWindowLabel(call assistantToolActivity) string {
 	from := strings.TrimSpace(fmt.Sprint(call.Input["from"]))
 	to := strings.TrimSpace(fmt.Sprint(call.Input["to"]))
 	if from == "" || from == "<nil>" {
@@ -508,23 +508,23 @@ func assistantAIUsageWindowLabel(call assistantToolActivity, idx int) string {
 
 func assistantAppendTokenTeams(lines []string, call assistantToolActivity) []string {
 	output := assistantAIUsageOutput(call)
-	lines = assistantAppendTokenTeam(lines, "Highest token steps:", output["by_step"], 5)
-	lines = assistantAppendTokenTeam(lines, "Highest token tasks:", output["by_task"], 5)
-	lines = assistantAppendTokenTeam(lines, "Usage by provider:", output["by_provider"], 5)
-	lines = assistantAppendTokenTeam(lines, "Usage by model:", output["by_model"], 5)
-	lines = assistantAppendTokenTeam(lines, "Usage by LLM profile:", output["by_profile"], 5)
-	lines = assistantAppendTokenTeam(lines, "Usage by feature:", output["by_feature"], 5)
+	lines = assistantAppendTokenTeam(lines, "Highest token steps:", output["by_step"])
+	lines = assistantAppendTokenTeam(lines, "Highest token tasks:", output["by_task"])
+	lines = assistantAppendTokenTeam(lines, "Usage by provider:", output["by_provider"])
+	lines = assistantAppendTokenTeam(lines, "Usage by model:", output["by_model"])
+	lines = assistantAppendTokenTeam(lines, "Usage by LLM profile:", output["by_profile"])
+	lines = assistantAppendTokenTeam(lines, "Usage by feature:", output["by_feature"])
 	return lines
 }
 
-func assistantAppendTokenTeam(lines []string, title string, value any, limit int) []string {
+func assistantAppendTokenTeam(lines []string, title string, value any) []string {
 	items := assistantMapSlice(value)
 	if len(items) == 0 {
 		return lines
 	}
 	lines = append(lines, "", title)
 	for idx, item := range items {
-		if idx >= limit {
+		if idx >= 5 {
 			break
 		}
 		label := firstNonEmptyString(assistantOutputString(item, "label"), assistantOutputString(item, "key"))

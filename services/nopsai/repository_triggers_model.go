@@ -283,12 +283,12 @@ func normalizeTriggerProviderString(provider string) string {
 	return normalized
 }
 
-func repositoryTriggerAllowlistStatus(ctx context.Context, queryer repositoryTriggerQueryer, record repositoryTriggerRecord) (string, string, error) {
+func repositoryTriggerAllowlistStatus(ctx context.Context, queryer repositoryTriggerQueryer, record repositoryTriggerRecord) (string, string) {
 	if record.Provider == repositoryTriggerProviderGitHub {
-		return repositoryTriggerAllowlistAutomatic, "", nil
+		return repositoryTriggerAllowlistAutomatic, ""
 	}
 	if strings.TrimSpace(record.WebhookSourceID) == "" {
-		return repositoryTriggerAllowlistNotAssigned, "", nil
+		return repositoryTriggerAllowlistNotAssigned, ""
 	}
 	var sourceName string
 	var allowlistJSON []byte
@@ -298,12 +298,12 @@ func repositoryTriggerAllowlistStatus(ctx context.Context, queryer repositoryTri
 		WHERE id = $1
 	`, record.WebhookSourceID).Scan(&sourceName, &allowlistJSON)
 	if err != nil {
-		return repositoryTriggerAllowlistMissing, "", nil
+		return repositoryTriggerAllowlistMissing, ""
 	}
 	var allowlist []string
 	_ = decodeJSONWithDefault(allowlistJSON, &allowlist, []string{})
 	if gitWebhookRepositoryAllowed(record.RepositoryForWebhook, allowlist) {
-		return repositoryTriggerAllowlistAllowed, sourceName, nil
+		return repositoryTriggerAllowlistAllowed, sourceName
 	}
-	return repositoryTriggerAllowlistDenied, sourceName, nil
+	return repositoryTriggerAllowlistDenied, sourceName
 }

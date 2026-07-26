@@ -26,11 +26,11 @@ func configRepositoryIncludesResource(repo models.ConfigRepository, identifier, 
 	return configsync.IncludesResource(repo, identifier, source, configRepoID, managed, delegatedScopes)
 }
 
-func configRepositoryExportPath(repo models.ConfigRepository, identifier, sourcePath, directory, extension string, managed bool, configRepoID sql.NullInt64) (string, bool) {
-	return configsync.ExportPath(repo, identifier, sourcePath, directory, extension, managed, configRepoID, configRepositoryDriftPathOptions())
+func configRepositoryExportPath(repo models.ConfigRepository, identifier, sourcePath, directory string, managed bool, configRepoID sql.NullInt64) (string, bool) {
+	return configsync.ExportPath(repo, identifier, sourcePath, directory, ".yaml", managed, configRepoID, configRepositoryDriftPathOptions())
 }
 
-func configRepositoryNotificationRoutePath(repo models.ConfigRepository, teamPath, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
+func configRepositoryNotificationRoutePath(repo models.ConfigRepository, teamPath string) (string, bool) {
 	relID, ok := configsync.RelativeResourceIdentifier(repo, teamPath)
 	if !ok {
 		return "", false

@@ -138,38 +138,38 @@ func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput)
 	return record, nil
 }
 
-func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) (accessGrantRecord, error) {
+func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) error {
 	var record accessGrantRecord
 	if a == nil || a.db == nil {
-		return record, fmt.Errorf("database unavailable")
+		return fmt.Errorf("database unavailable")
 	}
 
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
-		return record, err
+		return err
 	}
 	defer tx.Rollback(ctx)
 
 	record, err = loadAccessGrantRecord(ctx, tx, grantID)
 	if err != nil {
-		return record, err
+		return err
 	}
 	if locked, err := isDefaultAdminGrantSubject(ctx, tx, record.SubjectType, record.SubjectID); err != nil {
-		return record, err
+		return err
 	} else if locked {
-		return record, fmt.Errorf("cannot modify default admin role assignments")
+		return fmt.Errorf("cannot modify default admin role assignments")
 	}
 	if locked, err := isExternallyManagedUserSubject(ctx, tx, record.SubjectType, record.SubjectID); err != nil {
-		return record, err
+		return err
 	} else if locked {
-		return record, errExternallyManagedUserRoleAssignments
+		return errExternallyManagedUserRoleAssignments
 	}
 	if err := validateTeamOwnerGuard(ctx, tx, record.RoleName, accessGrantResource{
 		Type:    record.ResourceType,
 		ID:      record.ResourceID,
 		Display: record.ResourceDisplay,
 	}, record.ID); err != nil {
-		return record, err
+		return err
 	}
 
 	if record.RoleName == productRoleAdmin {
@@ -178,17 +178,17 @@ func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) (access
 			SubjectType: record.SubjectType,
 			SubjectID:   record.SubjectID,
 		}); err != nil {
-			return accessGrantRecord{}, err
+			return err
 		}
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM access_grants WHERE id = $1`, grantID); err != nil {
-		return accessGrantRecord{}, err
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return accessGrantRecord{}, err
+		return err
 	}
-	return record, nil
+	return nil
 }
 
 func deleteUserAccessArtifacts(ctx context.Context, runner execRunner, userID string) error {

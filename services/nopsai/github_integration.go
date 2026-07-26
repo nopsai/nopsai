@@ -472,7 +472,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 				})
 				if authErr != nil || !authz.Allowed {
 					authz = normalizeResourceUseFailureResult(authz, authErr)
-					summary := resourceUseFailureSummary(model.SubjectTypeRepository, callerID, authz, authErr)
+					summary := resourceUseFailureSummary(callerID, authz, authErr)
 					checkRunID := a.failGitHubAuthorizationCheck(owner, repo, commitSHA, checkRunIDStr, normalizedPipelineID, pipelineSourceForCheck, summary)
 					placeholderDef := fmt.Sprintf("name: %q\nsteps: []\n", dbName)
 					a.recordAuthorizationDeniedPipelineRun(
@@ -580,7 +580,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			})
 			if scopeAuthErr != nil || !scopeAuthz.Allowed {
 				scopeAuthz = normalizeResourceUseFailureResult(scopeAuthz, scopeAuthErr)
-				summary := resourceUseFailureSummary(model.SubjectTypeRepository, callerID, scopeAuthz, scopeAuthErr)
+				summary := resourceUseFailureSummary(callerID, scopeAuthz, scopeAuthErr)
 				checkRunID := a.failGitHubAuthorizationCheck(owner, repo, commitSHA, checkRunIDStr, normalizedPipelineID, pipelineSourceForCheck, summary)
 				authChecks = append(authChecks, scopeAuthz)
 				a.recordAuthorizationDeniedPipelineRun(
@@ -781,7 +781,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (strin
 	storageScope := runtimeScopeForStorage(scope)
 	resourceScope := runtimeScopeForResource(storageScope)
 
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" LIMIT 1", secretName, repoFullName, storageScope).Scan(&encryptedValue)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3)+" LIMIT 1", secretName, repoFullName, storageScope).Scan(&encryptedValue)
 	if err == nil {
 		return encryptedValue.String, model.BuildNamedResourceID(repoFullName, resourceScope, secretName), true, nil
 	}
@@ -789,7 +789,7 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (strin
 		return "", "", false, err
 	}
 
-	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" LIMIT 1", secretName, storageScope).Scan(&encryptedValue)
+	err = a.db.QueryRow(context.Background(), "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2)+" LIMIT 1", secretName, storageScope).Scan(&encryptedValue)
 	if err == nil {
 		return encryptedValue.String, model.BuildNamedResourceID("", resourceScope, secretName), true, nil
 	}

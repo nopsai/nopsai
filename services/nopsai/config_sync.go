@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.ConfigRepository) (map[string]int, string, error) {
+func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.ConfigRepository) (map[string]int, error) {
 	details := map[string]int{
 		"pipelines_synced":               0,
 		"steps_synced":                   0,
@@ -44,27 +44,27 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 
 	repoCtx, err := newConfigSyncRepositoryContext(binding)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	commitSHA := ""
 
 	client, _, err := a.newConfigRepositoryGitContentClient(ctx, binding)
 	if err != nil {
-		return nil, commitSHA, err
+		return nil, err
 	}
 
 	files, err := fetchConfigSyncRepositoryFiles(ctx, client, repoCtx, binding)
 	if err != nil {
-		return nil, commitSHA, err
+		return nil, err
 	}
 
 	plan, err := a.parseConfigSyncPlan(binding, repoCtx, files)
 	if err != nil {
-		return nil, commitSHA, err
+		return nil, err
 	}
 
 	if err := a.configSyncStore().ApplyConfigSyncPlan(ctx, binding, plan, details, commitSHA); err != nil {
-		return nil, commitSHA, err
+		return nil, err
 	}
 
 	log.Info().
@@ -103,5 +103,5 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("notification_routes_synced", details["notification_routes_synced"]).
 		Msg("Configuration synchronization from Git completed")
 
-	return details, commitSHA, nil
+	return details, nil
 }

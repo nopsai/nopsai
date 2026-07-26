@@ -31,7 +31,7 @@ func (a *App) hostedMCPAnalyzeVariableUsage(ctx context.Context, subject aaamode
 	if scopeFilter != "" {
 		scope := runtimeScopeForStorage(scopeFilter)
 		queryArgs = append(queryArgs, scope)
-		conditions = append(conditions, runtimeScopeEqualsSQL("scope", len(queryArgs), scope))
+		conditions = append(conditions, runtimeScopeEqualsSQL("scope", len(queryArgs)))
 	}
 	repositoryFilter := hostedMCPRepositoryFullName(args)
 	if repositoryFilter != "" {

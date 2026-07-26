@@ -1037,15 +1037,9 @@ func normalizeDashboardBlockAliases(raw json.RawMessage, path string) (json.RawM
 		return nil, false, fmt.Errorf("%s.text: %w", path, err)
 	}
 	changed = changed || textChanged
-	statusChanged, err := normalizeDashboardStatusAlias(block, path)
-	if err != nil {
-		return nil, false, err
-	}
+	statusChanged := normalizeDashboardStatusAlias(block)
 	changed = changed || statusChanged
-	toneChanged, err := normalizeDashboardToneAlias(block, path)
-	if err != nil {
-		return nil, false, err
-	}
+	toneChanged := normalizeDashboardToneAlias(block)
 	changed = changed || toneChanged
 	if rawItems, hasItems := block["items"]; hasItems {
 		items, itemsChanged, err := normalizeDashboardItemsAlias(rawItems, path+".items", dashboardItemScalarMode(blockType))
@@ -1118,10 +1112,7 @@ func normalizeDashboardBlockChartAliases(block map[string]json.RawMessage, path 
 		chart["type"] = dashboardStringRawMessage(blockChartTypeAlias)
 		changed = true
 	}
-	shapeChanged, err := moveDashboardChartShapeAliasToType(block, chart)
-	if err != nil {
-		return false, fmt.Errorf("%s.shape: %w", path, err)
-	}
+	shapeChanged := moveDashboardChartShapeAliasToType(block, chart)
 	changed = changed || shapeChanged
 	unitChanged, err := moveDashboardStringAliasesToMap(block, chart, "unit", []string{"unit"})
 	if err != nil {
@@ -1404,28 +1395,22 @@ func normalizeDashboardItemObject(item map[string]json.RawMessage) (map[string]j
 	}
 	unitChanged := normalizeDashboardItemUnitAlias(item)
 	changed = changed || unitChanged
-	statusChanged, err := normalizeDashboardStatusAlias(item, "item")
-	if err != nil {
-		return nil, false, err
-	}
+	statusChanged := normalizeDashboardStatusAlias(item)
 	changed = changed || statusChanged
-	toneChanged, err := normalizeDashboardToneAlias(item, "item")
-	if err != nil {
-		return nil, false, err
-	}
+	toneChanged := normalizeDashboardToneAlias(item)
 	changed = changed || toneChanged
 	return item, changed, nil
 }
 
-func normalizeDashboardStatusAlias(fields map[string]json.RawMessage, _ string) (bool, error) {
+func normalizeDashboardStatusAlias(fields map[string]json.RawMessage) bool {
 	raw, ok := fields["status"]
 	if !ok {
-		return false, nil
+		return false
 	}
 	status := dashboardRawString(raw)
 	canonical, mapped := dashboardCanonicalStatus(status)
 	if !mapped {
-		return false, nil
+		return false
 	}
 	changed := !strings.EqualFold(strings.TrimSpace(status), canonical)
 	if changed {
@@ -1436,21 +1421,21 @@ func normalizeDashboardStatusAlias(fields map[string]json.RawMessage, _ string) 
 		fields["value"] = dashboardStringRawMessage(status)
 		changed = true
 	}
-	return changed, nil
+	return changed
 }
 
-func normalizeDashboardToneAlias(fields map[string]json.RawMessage, _ string) (bool, error) {
+func normalizeDashboardToneAlias(fields map[string]json.RawMessage) bool {
 	raw, ok := fields["tone"]
 	if !ok {
-		return false, nil
+		return false
 	}
 	tone := dashboardRawString(raw)
 	canonical, mapped := dashboardCanonicalTone(tone)
 	if !mapped || strings.EqualFold(strings.TrimSpace(tone), canonical) {
-		return false, nil
+		return false
 	}
 	fields["tone"] = dashboardStringRawMessage(canonical)
-	return true, nil
+	return true
 }
 
 func dashboardCanonicalStatus(raw string) (string, bool) {
@@ -1653,10 +1638,10 @@ func moveDashboardStringAliasesToMap(source, target map[string]json.RawMessage, 
 	return changed, nil
 }
 
-func moveDashboardChartShapeAliasToType(source, chart map[string]json.RawMessage) (bool, error) {
+func moveDashboardChartShapeAliasToType(source, chart map[string]json.RawMessage) bool {
 	raw, ok := source["shape"]
 	if !ok {
-		return false, nil
+		return false
 	}
 	if dashboardTitleIsEmpty(chart["type"]) {
 		shape := dashboardRawString(raw)
@@ -1665,7 +1650,7 @@ func moveDashboardChartShapeAliasToType(source, chart map[string]json.RawMessage
 		}
 	}
 	delete(source, "shape")
-	return true, nil
+	return true
 }
 
 func normalizeDashboardBlockUnitAlias(block map[string]json.RawMessage, path string) (bool, error) {
@@ -1969,10 +1954,7 @@ func normalizeDashboardChartAliases(raw json.RawMessage, path string) (json.RawM
 		return nil, false, fmt.Errorf("%s.type: %w", path, err)
 	}
 	changed = changed || typeChanged
-	shapeChanged, err := moveDashboardChartShapeAliasToType(chart, chart)
-	if err != nil {
-		return nil, false, fmt.Errorf("%s.shape: %w", path, err)
-	}
+	shapeChanged := moveDashboardChartShapeAliasToType(chart, chart)
 	changed = changed || shapeChanged
 	for _, field := range []string{"type", "unit", "aggregation_interval", "missing_values"} {
 		normalized, fieldChanged, err := dashboardStringAliasRaw(chart[field])

@@ -440,7 +440,7 @@ func (a *App) handleDeleteResourceAccessGrant(w http.ResponseWriter, r *http.Req
 		http.Error(w, "grant does not belong to resource", http.StatusBadRequest)
 		return
 	}
-	if _, err := a.deleteProductRoleGrant(r.Context(), grantID); err != nil {
+	if err := a.deleteProductRoleGrant(r.Context(), grantID); err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound

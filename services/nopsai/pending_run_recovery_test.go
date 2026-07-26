@@ -28,7 +28,7 @@ func TestPendingRunRecoveryLaunchRequestPreservesLaunchContext(t *testing.T) {
 			"trigger_event_id": "trigger-1",
 		},
 		VariableOverrides: map[string]string{"RELEASE_CHANNEL": "nightly"},
-	}, now)
+	})
 	if err != nil {
 		t.Fatalf("pendingRunRecoveryLaunchRequest() error = %v", err)
 	}
@@ -69,7 +69,7 @@ func TestPendingRunRecoveryLaunchRequestPreservesOriginalTimeoutAfterQueueWait(t
 		PipelineDefinition: "name: expired\nsteps: []\n",
 		CreatedAt:          createdAt,
 		TimeoutAt:          &timeoutAt,
-	}, now)
+	})
 	if err != nil {
 		t.Fatalf("pendingRunRecoveryLaunchRequest() error = %v", err)
 	}

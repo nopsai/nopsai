@@ -231,7 +231,6 @@ func TestAssistantRunAnalysisReplyUsesAnalyzerEmbeddedLogExcerpt(t *testing.T) {
 func TestAssistantPlannerCanonicalizesPipelineFailureAnalysisIntent(t *testing.T) {
 	plan := assistantTurnPlanFromPlannerDecision(assistantBaseTurnPlan(
 		"why this pipelinerun failed f04424d3-e33d-4334-9459-7d4a8b334719",
-		assistantConversationMemory{},
 	), assistantPlannerDecision{
 		Goal:   "Analyze why the pipeline run failed",
 		Intent: "analyze_pipeline_failure",
@@ -642,7 +641,6 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		conversation,
 		"What assistant capabilities can I use?",
 		"standard",
@@ -709,7 +707,6 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
 		"Prepare a GitOps create plan for pipeline YAML named deploy-web",
 		"standard",
@@ -795,7 +792,6 @@ func TestAssistantOrchestrationAllowsLLMDerivedEstimateFromPriorMCPEvidence(t *t
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		conversation,
 		"can you give me estimation of the cost",
 		"standard",
@@ -860,7 +856,6 @@ func TestAssistantOrchestrationFailsClosedWhenLLMProviderFails(t *testing.T) {
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
 		"Generate pipeline YAML named deploy-web",
 		"standard",
@@ -929,7 +924,6 @@ func TestAssistantLLMPlannerRepairsMalformedJSONAndUsesEvidence(t *testing.T) {
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		conversation,
 		"metrics, events, and pipeline gonna build docker images. I only need samples.",
 		"standard",
@@ -1011,7 +1005,6 @@ func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
 		"What assistant capabilities can I use?",
 		"standard",
@@ -1069,7 +1062,7 @@ func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
 func TestAssistantPlannerPromptUsesLiveToolSchemasWithoutStaticRouting(t *testing.T) {
 	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read", "pipeline.create", "system.read")}
 	content := "give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards"
-	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+	plan := assistantBaseTurnPlan(content)
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1133,7 +1126,7 @@ func TestAssistantPromptsIncludeSameChatHistoryForFollowUps(t *testing.T) {
 			},
 		},
 	}
-	plan := assistantBaseTurnPlan("generic pipeline", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("generic pipeline")
 
 	plannerPrompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1186,7 +1179,7 @@ func TestAssistantPlannerPromptIncludesPreviousEvidenceForDerivedEstimates(t *te
 			}},
 		}},
 	}
-	plan := assistantBaseTurnPlan("can you give me estimation of the cost", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("can you give me estimation of the cost")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1221,7 +1214,7 @@ func TestAssistantPlannerPromptNarrowsSchemasForVariableRequests(t *testing.T) {
 		aaaLocal: allowActionsForAssistantTest("variable.list_metadata", "variable.write_value", "variable.read_value", "scope.read", "pipeline.read"),
 	}
 	content := "set TEST_VAR = check check in scope prod"
-	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+	plan := assistantBaseTurnPlan(content)
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1256,7 +1249,7 @@ func TestAssistantPlannerPromptUsesGitOpsSchemaOnlyWhenAsked(t *testing.T) {
 		aaaLocal: allowActionsForAssistantTest("variable.write_value", "variable.list_metadata", "scope.read"),
 	}
 	content := "Create a GitOps plan to add variable DEPLOY_REGION=eu-west-1 to prod scope"
-	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+	plan := assistantBaseTurnPlan(content)
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1285,7 +1278,7 @@ func TestAssistantPlannerPromptUsesDirectSecretSchemaForDirectSecretRequest(t *t
 		aaaLocal: allowActionsForAssistantTest("secret.write_value", "secret.list_metadata", "scope.read"),
 	}
 	content := "add encrypted NEW=aaasderfdfhjbd I want to add it to secret prod"
-	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+	plan := assistantBaseTurnPlan(content)
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1315,7 +1308,7 @@ func TestAssistantPlannerPromptUsesDirectSecretSchemaForDirectSecretRequest(t *t
 func TestAssistantPlannerPromptDoesNotFallbackToGitOpsSchemaWhenDirectSecretToolUnavailable(t *testing.T) {
 	app := &App{aaaLocal: allowActionsForAssistantTest("secret.write_value", "secret.list_metadata", "scope.read")}
 	content := "add encrypted NEW=aaasderfdfhjbd I want to add it to secret prod"
-	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+	plan := assistantBaseTurnPlan(content)
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1348,7 +1341,6 @@ func TestAssistantDirectSecretWriteAsksForConfirmationAndStoresPending(t *testin
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		conversation,
 		"add encrypted NEW=aaasderfdfhjbd I want to add it to secret prod",
 		"",
@@ -1377,7 +1369,6 @@ func TestAssistantDirectSecretWriteAsksForConfirmationAndStoresPending(t *testin
 	followUp := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		conversation,
 		"NEW aaasderfdfhjbd prod",
 		"",
@@ -1399,7 +1390,7 @@ func TestAssistantPlannerPromptKeepsTokenUsageAwayFromCredentialSchemas(t *testi
 			return model.Decision{Allowed: true}, nil
 		},
 	}}
-	plan := assistantBaseTurnPlan("how much token did assistant chat use today", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("how much token did assistant chat use today")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1427,7 +1418,7 @@ func TestAssistantPlannerPromptKeepsBroadRolloutSchemasLean(t *testing.T) {
 			return model.Decision{Allowed: true}, nil
 		},
 	}}
-	plan := assistantBaseTurnPlan("Help me plan a rollout", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("Help me plan a rollout")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1457,7 +1448,7 @@ func TestAssistantPlannerPromptStaysCompactForFullToolCatalog(t *testing.T) {
 			return model.Decision{Allowed: true}, nil
 		},
 	}}
-	plan := assistantBaseTurnPlan("how many pipelines we have", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("how many pipelines we have")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1487,7 +1478,7 @@ func TestAssistantPlannerPromptRoutesSlowestStepQuestionToMonitoringSchemas(t *t
 			return model.Decision{Allowed: true}, nil
 		},
 	}}
-	plan := assistantBaseTurnPlan("Which steps are slowest across production deploy pipelines?", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("Which steps are slowest across production deploy pipelines?")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1518,7 +1509,7 @@ func TestAssistantPlannerPromptRoutesDashboardPipelineExampleToDocsAndValidation
 			return model.Decision{Allowed: true}, nil
 		},
 	}}
-	plan := assistantBaseTurnPlan("I want to have a pipeline which sends data to dashboard, I just need a working example of that pipeline definition to see how it is implemented", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("I want to have a pipeline which sends data to dashboard, I just need a working example of that pipeline definition to see how it is implemented")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1550,7 +1541,7 @@ func TestAssistantPlannerPromptRoutesEnvExposurePolicyToSafeSchemas(t *testing.T
 			return model.Decision{Allowed: true}, nil
 		},
 	}}
-	plan := assistantBaseTurnPlan("Do we have any policy to prevent showing envs?", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("Do we have any policy to prevent showing envs?")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1587,7 +1578,7 @@ func TestAssistantPlannerPromptRoutesKnowledgeContextPolicyFollowUpToKnowledgeSc
 			return model.Decision{Allowed: true}, nil
 		},
 	}}
-	plan := assistantBaseTurnPlan("any policy in knowledge context", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("any policy in knowledge context")
 
 	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
@@ -1739,7 +1730,7 @@ func TestAssistantAnswerQualityRequiresGitOpsSafetyLanguageForPipelineProposals(
 }
 
 func TestAssistantValidatePlannerFinalAnswerRequiresSuccessfulEvidence(t *testing.T) {
-	plan := assistantBaseTurnPlan("What changed?", assistantConversationMemory{})
+	plan := assistantBaseTurnPlan("What changed?")
 
 	if err := assistantValidatePlannerFinalAnswer(plan, nil, assistantConversation{}); err == nil {
 		t.Fatal("final answer without evidence should fail")
@@ -1821,7 +1812,6 @@ func TestAssistantLLMPlannerRejectsFinalAnswerWithoutToolEvidence(t *testing.T) 
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
 		"how many token is used by "+runID+" pipelinerun",
 		"standard",
@@ -1878,7 +1868,6 @@ func TestAssistantLLMPlannerBlocksUnconfirmedMutation(t *testing.T) {
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
 		"Pause runner runner-a",
 		"standard",
@@ -1931,7 +1920,6 @@ func TestAssistantLLMPlannerRejectsToolOutsideSchemaSubset(t *testing.T) {
 	result := app.runAssistantConversationTurn(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
 		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
 		"please add a secret to prod",
 		"standard",

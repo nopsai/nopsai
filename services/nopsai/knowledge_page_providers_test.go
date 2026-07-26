@@ -137,8 +137,8 @@ func TestNotionProviderFetchesPageBlocks(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer notion-token" {
 			t.Fatalf("authorization header = %q", r.Header.Get("Authorization"))
 		}
-		switch {
-		case r.URL.Path == "/v1/search":
+		switch r.URL.Path {
+		case "/v1/search":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{{
 					"id":               "12345678-90ab-cdef-1234-567890abcdef",
@@ -150,7 +150,7 @@ func TestNotionProviderFetchesPageBlocks(t *testing.T) {
 					}},
 				}},
 			})
-		case r.URL.Path == "/v1/pages/12345678-90ab-cdef-1234-567890abcdef":
+		case "/v1/pages/12345678-90ab-cdef-1234-567890abcdef":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":               "12345678-90ab-cdef-1234-567890abcdef",
 				"url":              "https://notion.test/page",
@@ -160,7 +160,7 @@ func TestNotionProviderFetchesPageBlocks(t *testing.T) {
 					"title": []map[string]string{{"plain_text": "Repository Guardrails"}},
 				}},
 			})
-		case r.URL.Path == "/v1/blocks/12345678-90ab-cdef-1234-567890abcdef/children":
+		case "/v1/blocks/12345678-90ab-cdef-1234-567890abcdef/children":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{
 					{
@@ -193,7 +193,7 @@ func TestNotionProviderFetchesPageBlocks(t *testing.T) {
 					},
 				},
 			})
-		case r.URL.Path == "/v1/blocks/block-table/children":
+		case "/v1/blocks/block-table/children":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{
 					{

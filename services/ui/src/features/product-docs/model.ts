@@ -3783,6 +3783,126 @@ const baseWikiSections: WikiSectionInput[] = [
         caveats: ['System Logs redaction is best effort; avoid attaching unrestricted logs to support cases.'],
       },
       {
+        id: 'browser-console-troubleshooting',
+        title: 'Browser Console Troubleshooting',
+        level: 'Troubleshoot',
+        audience: 'Support, operations, and UI developers',
+        summary:
+          'DevTools warnings that name contentscript.js, ObjectMultiplex, app-init-liveness, or background-liveness are usually injected browser extension diagnostics rather than NopsAI UI code.',
+        keyFacts: [
+          'NopsAI UI source does not import wallet, web3, ObjectMultiplex, or Node EventEmitter browser code.',
+          'A stack pointing to contentscript.js or a chrome-extension:// or moz-extension:// URL means the warning is extension-owned until proven otherwise.',
+          'Verify in a clean browser profile, incognito window with extensions disabled, or Playwright Chromium before changing NopsAI UI listener code.',
+          'Do not increase listener limits in NopsAI UI code for extension-owned warnings because it masks the signal and does not remove the extension listener source.',
+          'AAA, GitOps, MCP, and service monitoring are unaffected unless separate NopsAI API, System Logs, metrics, or network errors appear.',
+        ],
+        details: [
+          'The reported ObjectMultiplex stream names app-init-liveness and background-liveness are browser extension liveness streams. They can appear on a NopsAI page because extensions inject content scripts into every allowed origin.',
+          'Product-owned browser warnings should name a NopsAI source file, Vite /src path, or built /assets file. In that case, inspect the owning feature hook, component, or API wrapper for missing listener cleanup.',
+        ],
+        prerequisites: [
+          {
+            label: 'Console stack',
+            value: 'Open browser DevTools and expand the warning stack or source location.',
+            verification: 'The source URL identifies either the NopsAI origin or a browser extension origin.',
+          },
+          {
+            label: 'Clean profile',
+            value: 'Use a browser profile with extensions disabled, or run Playwright/Chromium without installed extensions.',
+            verification: 'The same route loads without contentscript.js ObjectMultiplex warnings.',
+          },
+        ],
+        steps: [
+          {
+            title: 'Identify the source owner',
+            description:
+              'Compare the console source URL with the NopsAI origin. Treat contentscript.js, chrome-extension://, and moz-extension:// frames as extension-owned.',
+            verification: 'The warning either maps to an extension content script or to a concrete NopsAI source file.',
+          },
+          {
+            title: 'Reproduce without extensions',
+            description:
+              'Reload the same NopsAI route in a clean browser profile or Playwright browser context. Keep the same authenticated role and route where possible.',
+            expectedOutput: 'Extension-owned warnings disappear while normal Vite or React development messages may remain.',
+          },
+          {
+            title: 'Escalate only product-owned stacks',
+            description:
+              'If the warning remains and points to a NopsAI source file, capture route, action, role, console stack, and network trace before assigning it to the owning UI module.',
+            warning: 'Do not add global console filters or EventEmitter listener-limit changes to hide extension-owned warnings.',
+          },
+        ],
+        configRows: [],
+        examples: [
+          {
+            title: 'Extension-owned warning pattern',
+            language: 'text',
+            code:
+              'contentscript.js:14083 MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 close listeners added.\ncontentscript.js:14083 ObjectMultiplex - orphaned data for stream "app-init-liveness"\ncontentscript.js:14083 ObjectMultiplex - orphaned data for stream "background-liveness"',
+            complete: true,
+            expectedOutput: 'Investigate browser extensions before changing NopsAI UI code.',
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
+        relatedDocs: ['doc/browser-console-troubleshooting.md', 'services/ui/README.md'],
+        sourceLinks: [
+          {
+            title: 'Browser console troubleshooting runbook',
+            repositoryPath: 'doc/browser-console-troubleshooting.md',
+            purpose: 'Focused operator runbook for extension-owned browser console warnings.',
+          },
+          {
+            title: 'UI package dependencies',
+            repositoryPath: 'services/ui/package.json',
+            purpose: 'Shows the first-party UI dependency set and absence of wallet or ObjectMultiplex packages.',
+          },
+          {
+            title: 'UI app bootstrap',
+            repositoryPath: 'services/ui/src/App.tsx',
+            purpose: 'Shows route and authentication composition for the browser app.',
+          },
+          {
+            title: 'UI API client',
+            repositoryPath: 'services/ui/src/lib/api.ts',
+            purpose: 'Shows that NopsAI browser API transport is fetch-based and does not own extension streams.',
+          },
+        ],
+        runbooks: ['Triage extension-injected console warnings'],
+        runbookEntries: [
+          {
+            id: 'triage-extension-injected-console-warnings',
+            title: 'Triage extension-injected console warnings',
+            symptoms: [
+              'Browser DevTools shows MaxListenersExceededWarning from contentscript.js.',
+              'Console warnings mention ObjectMultiplex orphaned data for app-init-liveness or background-liveness.',
+            ],
+            impact:
+              'The browser console is noisy, but NopsAI access, GitOps state, MCP behavior, service logs, and metrics are unchanged unless separate product errors are present.',
+            requiredAccess:
+              'Browser DevTools access and permission to use a clean browser profile for the affected NopsAI route.',
+            initialChecks: [
+              'Confirm the source URL for the warning.',
+              'Search the NopsAI bundle or source for ObjectMultiplex and the liveness stream names.',
+              'Reload the same route with extensions disabled.',
+            ],
+            diagnosticCommands: [
+              'rg -n "ObjectMultiplex|app-init-liveness|background-liveness|contentscript" services/ui/src services/ui/package.json',
+            ],
+            resolution: [
+              'If the source URL is an extension content script, disable or update that extension for the NopsAI origin.',
+              'If the source URL is a NopsAI file, fix listener cleanup in the owning feature hook, component, or API wrapper and add coverage for the lifecycle.',
+            ],
+            rollback:
+              'Re-enable the browser extension only after confirming the warning is acceptable or the extension has been updated.',
+            escalation:
+              'Escalate to UI maintainers only when a clean profile reproduces a NopsAI source-file stack.',
+          },
+        ],
+        caveats: [
+          'A browser extension can inject into the same tab as NopsAI, so the page URL alone does not prove the warning is product-owned.',
+        ],
+      },
+      {
         id: 'known-limits',
         title: 'Confirmed Gaps and Limits',
         level: 'Reference',

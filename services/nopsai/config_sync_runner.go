@@ -110,7 +110,8 @@ func (a *App) syncConfigRepository(ctx context.Context, repo models.ConfigReposi
 		Str("scope_id", repo.ScopeID).
 		Msg("Starting configuration synchronization from Git")
 
-	details, commitSHA, syncErr := a.syncConfigurationFromGit(ctx, repo)
+	commitSHA := ""
+	details, syncErr := a.syncConfigurationFromGit(ctx, repo)
 	completedAt := time.Now()
 	syncStore := a.configSyncStore()
 	if syncErr != nil {

@@ -901,7 +901,6 @@ func TestRepositoryFullNameFromURLUsesGitHubRepoRoot(t *testing.T) {
 }
 
 func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T) {
-	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
 	generalScopeVars := map[generalScopeVarKey]storedScopeVar{
 		{scopePath: "data-team/dev", name: "API_VERSION"}: {},
 		{scopePath: "prod", name: "API_VERSION"}:          {},
@@ -932,7 +931,6 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 
 	filterDelegatedConfigResources(
-		binding,
 		[]string{"data-team"},
 		map[string]storedPipeline{},
 		map[string]storedStep{},

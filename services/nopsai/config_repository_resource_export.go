@@ -35,7 +35,7 @@ func (a *App) exportConfigRepositoryPipelines(ctx context.Context, repo models.C
 		if !configRepositoryIncludesResource(repo, identifier, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
-		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "pipelines", ".yaml", managed, configRepoID)
+		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "pipelines", managed, configRepoID)
 		if !ok {
 			continue
 		}
@@ -72,7 +72,7 @@ func (a *App) exportConfigRepositorySteps(ctx context.Context, repo models.Confi
 		if !configRepositoryIncludesResource(repo, identifier, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
-		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "steps", ".yaml", managed, configRepoID)
+		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "steps", managed, configRepoID)
 		if !ok {
 			continue
 		}
@@ -358,7 +358,7 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 		if !configRepositoryIncludesResource(repo, identifier, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
-		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "schedules", ".yaml", managed, configRepoID)
+		filePath, ok := configRepositoryExportPath(repo, identifier, sourcePath, "schedules", managed, configRepoID)
 		if !ok {
 			continue
 		}
@@ -428,7 +428,7 @@ func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo
 		if !configRepositoryIncludesResource(repo, teamPath, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
-		filePath, ok := configRepositoryNotificationRoutePath(repo, teamPath, sourcePath, managed, configRepoID)
+		filePath, ok := configRepositoryNotificationRoutePath(repo, teamPath)
 		if !ok {
 			continue
 		}

@@ -28,7 +28,7 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 	}
 	defer tx.Rollback(ctx)
 
-	if err := a.syncPipelineRunTeams(ctx, tx, setupPipelineRunStructure(req.Profile, req.RepositoryTeams, req.Repositories), details); err != nil {
+	if err := a.syncPipelineRunTeams(ctx, tx, setupPipelineRunStructure(req.RepositoryTeams, req.Repositories), details); err != nil {
 		return nil, err
 	}
 
@@ -92,7 +92,7 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 		}
 	}
 
-	knowledge := setupKnowledgeContexts(req.Profile, req.RepositoryTeams, req.Repositories)
+	knowledge := setupKnowledgeContexts(req.RepositoryTeams, req.Repositories)
 	for _, item := range knowledge {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO knowledge_contexts (kind, team_path, name, description, content, source, updated_at)
@@ -245,8 +245,8 @@ func (a *App) seedSetupMCPExamples(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profile string, repositoryTeams []setupRepositoryTeamInput, actor string) ([]setupTemporaryCredential, error) {
-	grantTeams := setupAccessGrantTeams(profile, repositoryTeams)
+func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, repositoryTeams []setupRepositoryTeamInput, actor string) ([]setupTemporaryCredential, error) {
+	grantTeams := setupAccessGrantTeams(repositoryTeams)
 	if err := a.ensureSetupRootTeams(ctx, grantTeams); err != nil {
 		return nil, err
 	}

@@ -290,7 +290,7 @@ func (a *App) handleCreateTeamApplication(w http.ResponseWriter, r *http.Request
 		writeTeamMutationError(w, err, "Failed to create application")
 		return
 	}
-	if _, err := reassignRepositoryRunsToApplication(r.Context(), tx, created.ID, created.ParentID, created.RepositoryFullName); err != nil {
+	if err := reassignRepositoryRunsToApplication(r.Context(), tx, created.ID, created.ParentID, created.RepositoryFullName); err != nil {
 		writeTeamMutationError(w, err, "Failed to assign existing runs to application")
 		return
 	}
@@ -345,7 +345,7 @@ func (a *App) handleUpdateTeamApplication(w http.ResponseWriter, r *http.Request
 		writeTeamMutationError(w, err, "Failed to update application")
 		return
 	}
-	if _, err := reassignRepositoryRunsToApplication(r.Context(), tx, team.ID, team.ParentID, team.RepositoryFullName); err != nil {
+	if err := reassignRepositoryRunsToApplication(r.Context(), tx, team.ID, team.ParentID, team.RepositoryFullName); err != nil {
 		writeTeamMutationError(w, err, "Failed to assign existing runs to application")
 		return
 	}

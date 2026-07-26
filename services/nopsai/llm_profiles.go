@@ -517,14 +517,13 @@ func (a *App) migrateLLMProfileReferences(oldProfile, newProfile string) error {
 	return tx.Commit(ctx)
 }
 
-func (a *App) setLLMProfiles(defaultProfile string, profiles map[string]config.LLMProfile) config.Config {
+func (a *App) setLLMProfiles(defaultProfile string, profiles map[string]config.LLMProfile) {
 	a.cfgMu.Lock()
 	defer a.cfgMu.Unlock()
 
 	next := configWithLLMProfiles(*a.cfg, defaultProfile, profiles)
 	a.cfg.LLMDefaultProfile = next.LLMDefaultProfile
 	a.cfg.LLMProfiles = next.LLMProfiles
-	return *a.cfg
 }
 
 func configWithLLMProfiles(base config.Config, defaultProfile string, profiles map[string]config.LLMProfile) config.Config {
@@ -1489,10 +1488,10 @@ func buildNopsaiLMStudioChatURL(baseURL string) string {
 }
 
 func writeLLMProfileStoreError(w http.ResponseWriter, err error) {
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		return
-	case err == pgx.ErrNoRows:
+	case pgx.ErrNoRows:
 		http.Error(w, "LLM profile not found", http.StatusNotFound)
 	default:
 		http.Error(w, "LLM profile request failed", http.StatusInternalServerError)

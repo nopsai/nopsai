@@ -19,6 +19,14 @@ npm run test:e2e
 npm run test:e2e:live
 ```
 
+## Browser Console Troubleshooting
+
+Warnings that name `contentscript.js`, `ObjectMultiplex`,
+`app-init-liveness`, or `background-liveness` usually come from injected browser
+extension content scripts rather than the NopsAI UI bundle. Verify in a clean
+browser profile or Playwright before changing UI listener code. See
+[`doc/browser-console-troubleshooting.md`](../../doc/browser-console-troubleshooting.md).
+
 ## Architecture Notes
 
 - `src/App.tsx` is only the router/bootstrap wrapper.

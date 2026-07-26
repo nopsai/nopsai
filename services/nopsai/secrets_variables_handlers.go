@@ -64,7 +64,7 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 	queryRepo := "SELECT repository_name, name, COALESCE(source, 'database'), created_at, updated_at FROM variables WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC"
 
 	ctx := context.Background()
-	condition := runtimeScopeEqualsSQL("scope", 1, scope)
+	condition := runtimeScopeEqualsSQL("scope", 1)
 	args := []interface{}{scope}
 
 	rows, err = a.db.Query(ctx, fmt.Sprintf(queryGeneral, condition), args...)
@@ -111,7 +111,7 @@ func (a *App) handleListGeneralVariables(w http.ResponseWriter, r *http.Request)
 	}
 
 	rows.Close()
-	repoCondition := runtimeScopeEqualsSQL("scope", 1, scope)
+	repoCondition := runtimeScopeEqualsSQL("scope", 1)
 	repoArgs := []interface{}{scope}
 
 	rows, err = a.db.Query(ctx, fmt.Sprintf(queryRepo, repoCondition), repoArgs...)
@@ -328,7 +328,7 @@ func (a *App) handleCreateOrUpdateGeneralVariable(w http.ResponseWriter, r *http
 func (a *App) handleDeleteGeneralVariable(w http.ResponseWriter, r *http.Request) {
 	variableName := r.PathValue("variableName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
-	_, err := a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope), variableName, scope)
+	_, err := a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2), variableName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete variable from database")
@@ -342,7 +342,7 @@ func (a *App) handleGetGeneralVariableValue(w http.ResponseWriter, r *http.Reque
 	variableName := r.PathValue("variableName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var value string
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" LIMIT 1", variableName, scope).Scan(&value)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2)+" LIMIT 1", variableName, scope).Scan(&value)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -365,7 +365,7 @@ func (a *App) handleListRepoVariables(w http.ResponseWriter, r *http.Request) {
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	resourceScope := runtimeScopeForResource(scope)
-	rows, err := a.db.Query(context.Background(), "SELECT name FROM variables WHERE repository_name = $1 AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" ORDER BY name ASC", fullName, scope)
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM variables WHERE repository_name = $1 AND "+runtimeScopeEqualsSQL("scope", 2)+" ORDER BY name ASC", fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query repository variables from database")
@@ -444,7 +444,7 @@ func (a *App) handleDeleteRepoVariable(w http.ResponseWriter, r *http.Request) {
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	variableName := r.PathValue("variableName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
-	_, err := a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope), variableName, fullName, scope)
+	_, err := a.db.Exec(context.Background(), "DELETE FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3), variableName, fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete repository variable from database")
@@ -461,7 +461,7 @@ func (a *App) handleGetRepoVariableValue(w http.ResponseWriter, r *http.Request)
 	variableName := r.PathValue("variableName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var value string
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope)+" LIMIT 1", variableName, fullName, scope).Scan(&value)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3)+" LIMIT 1", variableName, fullName, scope).Scan(&value)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -483,7 +483,7 @@ func (a *App) findVariableValue(varName, repoFullName, scope string) (string, st
 	storageScope := runtimeScopeForStorage(scope)
 	resourceScope := runtimeScopeForResource(storageScope)
 
-	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, storageScope)+" LIMIT 1", varName, repoFullName, storageScope).Scan(&value)
+	err := a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3)+" LIMIT 1", varName, repoFullName, storageScope).Scan(&value)
 	if err == nil {
 		return value, model.BuildNamedResourceID(repoFullName, resourceScope, varName), true, nil
 	}
@@ -491,7 +491,7 @@ func (a *App) findVariableValue(varName, repoFullName, scope string) (string, st
 		return "", "", false, err
 	}
 
-	err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, storageScope)+" LIMIT 1", varName, storageScope).Scan(&value)
+	err = a.db.QueryRow(context.Background(), "SELECT value FROM variables WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2)+" LIMIT 1", varName, storageScope).Scan(&value)
 	if err == nil {
 		return value, model.BuildNamedResourceID("", resourceScope, varName), true, nil
 	}
@@ -557,7 +557,7 @@ func (a *App) prepareVariablesForPipeline(runID string, pipeline models.Pipeline
 		}
 
 		if strings.TrimSpace(runID) != "" {
-			if _, err := a.authorizeRunRuntimeResourceUse(context.Background(), runID, gitContext, "variable.use", grantResourceVariable, resourceID); err != nil {
+			if err := a.authorizeRunRuntimeResourceUse(context.Background(), runID, gitContext, "variable.use", grantResourceVariable, resourceID); err != nil {
 				return nil, fmt.Errorf("pipeline aborted: %w", err)
 			}
 		}
@@ -602,7 +602,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 
 	var candidates []secretCandidate
 
-	condition := runtimeScopeEqualsSQL("scope", 1, scope)
+	condition := runtimeScopeEqualsSQL("scope", 1)
 	args := []interface{}{scope}
 
 	generalQuery := fmt.Sprintf("SELECT name, COALESCE(source, 'database'), created_at, updated_at FROM secrets WHERE repository_name IS NULL AND %s ORDER BY name ASC", condition)
@@ -631,7 +631,7 @@ func (a *App) handleListGeneralSecrets(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	repoCondition := runtimeScopeEqualsSQL("scope", 1, scope)
+	repoCondition := runtimeScopeEqualsSQL("scope", 1)
 	repoArgs := []interface{}{scope}
 	repoQuery := fmt.Sprintf("SELECT repository_name, name, COALESCE(source, 'database'), created_at, updated_at FROM secrets WHERE repository_name IS NOT NULL AND %s ORDER BY repository_name ASC, name ASC", repoCondition)
 	rows, err = a.db.Query(ctx, repoQuery, repoArgs...)
@@ -830,7 +830,7 @@ func (a *App) handleGetGeneralSecretValue(w http.ResponseWriter, r *http.Request
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	var query string
 	var args []any
-	query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2, scope) + " LIMIT 1"
+	query = "SELECT value FROM secrets WHERE name = $1 AND repository_name IS NULL AND " + runtimeScopeEqualsSQL("scope", 2) + " LIMIT 1"
 	args = []any{secretName, scope}
 
 	var encryptedValue sql.NullString
@@ -899,7 +899,7 @@ func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.R
 func (a *App) handleDeleteGeneralSecret(w http.ResponseWriter, r *http.Request) {
 	secretName := r.PathValue("secretName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
-	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2, scope), secretName, scope)
+	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name IS NULL AND "+runtimeScopeEqualsSQL("scope", 2), secretName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete general secret from database")
@@ -915,7 +915,7 @@ func (a *App) handleListRepoSecrets(w http.ResponseWriter, r *http.Request) {
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
 	resourceScope := runtimeScopeForResource(scope)
-	rows, err := a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND "+runtimeScopeEqualsSQL("scope", 2, scope)+" ORDER BY name ASC", fullName, scope)
+	rows, err := a.db.Query(context.Background(), "SELECT name FROM secrets WHERE repository_name = $1 AND "+runtimeScopeEqualsSQL("scope", 2)+" ORDER BY name ASC", fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query repo secrets from database")
@@ -1001,7 +1001,7 @@ func (a *App) handleDeleteRepoSecret(w http.ResponseWriter, r *http.Request) {
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 	secretName := r.PathValue("secretName")
 	scope := runtimeScopeForStorage(r.URL.Query().Get("scope"))
-	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3, scope), secretName, fullName, scope)
+	_, err := a.db.Exec(context.Background(), "DELETE FROM secrets WHERE name = $1 AND repository_name = $2 AND "+runtimeScopeEqualsSQL("scope", 3), secretName, fullName, scope)
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete repo secret from database")

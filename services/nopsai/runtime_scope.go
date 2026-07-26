@@ -33,7 +33,7 @@ func runtimeScopeForDisplay(scope string) string {
 	return scope
 }
 
-func runtimeScopeEqualsSQL(column string, argPosition int, scope string) string {
+func runtimeScopeEqualsSQL(column string, argPosition int) string {
 	column = strings.TrimSpace(column)
 	if column == "" {
 		column = "scope"

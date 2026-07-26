@@ -483,7 +483,7 @@ func findOIDCProviderForEmail(ctx context.Context, db *pgxpool.Pool, email strin
 		provider, err := getOIDCProvider(ctx, db, providerID)
 		return provider, provider.Enabled, err
 	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
 		return oidcProviderRecord{}, false, err
 	}
 	providers, err := listOIDCProviders(ctx, db, true)
@@ -595,7 +595,7 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 		}
 		return result, tx.Commit(ctx)
 	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
 		return result, err
 	}
 
@@ -616,7 +616,7 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 			}
 			return result, tx.Commit(ctx)
 		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
 			return result, err
 		}
 	}
@@ -633,7 +633,7 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 	if err == nil {
 		return result, fmt.Errorf("email is already owned by an existing account")
 	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
 		return result, err
 	}
 

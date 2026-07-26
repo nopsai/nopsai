@@ -30,6 +30,7 @@ Start here when you want to understand the system from different angles:
 - [agent-profiles.md](./agent-profiles.md): AI role/persona selection for pipelines and steps, GitOps management, AAA, and runtime prompt behavior.
 - [final-output-rendering.md](./final-output-rendering.md): Final-output generation contracts, retry/audit behavior, current renderers, and the structured-document rendering roadmap.
 - [system-logs.md](./system-logs.md): Live allow-listed platform logs, Docker and Kubernetes providers, SSE replay, AAA, redaction, limits, GitOps configuration, and monitoring.
+- [browser-console-troubleshooting.md](./browser-console-troubleshooting.md): How to triage DevTools warnings from injected browser extension content scripts versus NopsAI UI code.
 
 Existing focused docs:
 

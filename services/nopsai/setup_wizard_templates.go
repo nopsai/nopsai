@@ -55,13 +55,9 @@ func setupRuntimeEnvironment() string {
 
 func setupRepositoriesFromQuery(values url.Values) []string {
 	var repositories []string
-	for _, raw := range values["repository"] {
-		repositories = append(repositories, raw)
-	}
+	repositories = append(repositories, values["repository"]...)
 	for _, raw := range values["repositories"] {
-		for _, part := range strings.Split(raw, ",") {
-			repositories = append(repositories, part)
-		}
+		repositories = append(repositories, strings.Split(raw, ",")...)
 	}
 	return normalizeSetupRepositories(repositories)
 }
@@ -118,13 +114,9 @@ func setupRepositoryTeamsFromQuery(values url.Values) []setupRepositoryTeamInput
 		if !found {
 			continue
 		}
-		var repositories []string
-		for _, repo := range strings.Split(reposText, ",") {
-			repositories = append(repositories, repo)
-		}
 		teams = append(teams, setupRepositoryTeamInput{
 			Name:         name,
-			Repositories: repositories,
+			Repositories: strings.Split(reposText, ","),
 		})
 	}
 	return normalizeSetupRepositoryTeams(teams, nil)
@@ -281,14 +273,14 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 		repositoryTeams = normalizeSetupRepositoryTeams(nil, repositories)
 	}
 	files := map[string]string{
-		"README.md":                      setupReadme(profile, repositoryTeams, repositories),
+		"README.md":                      setupReadme(repositoryTeams, repositories),
 		"pipelines/setup/first-run.yaml": setupFirstRunPipelineYAML(profile),
 		"steps/setup/announce.yaml":      setupReusableStepYAML(),
-		"scopes/dev/scope.yaml":          setupScopeYAML(profile, "dev", repositoryTeams, repositories),
-		"access/bootstrap.yaml":          setupAccessYAML(profile, repositoryTeams, options.Users),
+		"scopes/dev/scope.yaml":          setupScopeYAML("dev", repositoryTeams, repositories),
+		"access/bootstrap.yaml":          setupAccessYAML(repositoryTeams, options.Users),
 	}
-	if knowledgeTeam := setupStarterKnowledgeTeam(profile, repositoryTeams, repositories); knowledgeTeam != "" {
-		files["knowledge/guideline/"+knowledgeTeam+"/setup-run.md"] = setupKnowledgeMarkdown(profile, repositoryTeams, repositories)
+	if knowledgeTeam := setupStarterKnowledgeTeam(repositoryTeams, repositories); knowledgeTeam != "" {
+		files["knowledge/guideline/"+knowledgeTeam+"/setup-run.md"] = setupKnowledgeMarkdown(repositoryTeams, repositories)
 	}
 	for path, content := range setupConfigRepositoryStructureFiles(repositoryTeams, repositories) {
 		files[path] = content
@@ -300,7 +292,7 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 		files["setting/system/mcp.yaml"] = setupMCPYAML()
 	}
 	if profile == setupProfileTeam || profile == setupProfileProduction {
-		files["scopes/prod/scope.yaml"] = setupScopeYAML(profile, "prod", repositoryTeams, repositories)
+		files["scopes/prod/scope.yaml"] = setupScopeYAML("prod", repositoryTeams, repositories)
 	}
 	for _, repo := range repositories {
 		files["triggers/"+repo+".yaml"] = setupTriggerYAML(profile)
@@ -308,7 +300,7 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 	return files
 }
 
-func setupPipelineRunStructure(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]*configsync.PipelineRunStructureNode {
+func setupPipelineRunStructure(repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]*configsync.PipelineRunStructureNode {
 	repositoryTeams = normalizeSetupRepositoryTeams(repositoryTeams, repositories)
 	if len(repositoryTeams) == 0 {
 		return map[string]*configsync.PipelineRunStructureNode{}
@@ -352,24 +344,24 @@ func setupAccessTeam(profile string) string {
 	}
 }
 
-func setupStarterTeamNames(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) []string {
-	return setupAccessGrantTeams(profile, normalizeSetupRepositoryTeams(repositoryTeams, repositories))
+func setupStarterTeamNames(repositoryTeams []setupRepositoryTeamInput, repositories []string) []string {
+	return setupAccessGrantTeams(normalizeSetupRepositoryTeams(repositoryTeams, repositories))
 }
 
-func setupStarterKnowledgeTeam(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
-	teams := setupStarterTeamNames(profile, repositoryTeams, repositories)
+func setupStarterKnowledgeTeam(repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	teams := setupStarterTeamNames(repositoryTeams, repositories)
 	if len(teams) == 0 {
 		return ""
 	}
 	return teams[0]
 }
 
-func setupStarterTeamValue(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
-	return strings.Join(setupStarterTeamNames(profile, repositoryTeams, repositories), ",")
+func setupStarterTeamValue(repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	return strings.Join(setupStarterTeamNames(repositoryTeams, repositories), ",")
 }
 
-func setupStarterTeamLabel(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
-	teams := setupStarterTeamNames(profile, repositoryTeams, repositories)
+func setupStarterTeamLabel(repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	teams := setupStarterTeamNames(repositoryTeams, repositories)
 	quoted := make([]string, 0, len(teams))
 	for _, team := range teams {
 		quoted = append(quoted, fmt.Sprintf("`%s`", team))
@@ -384,7 +376,7 @@ func setupStarterTeamLabel(profile string, repositoryTeams []setupRepositoryTeam
 }
 
 func setupScopeVariables(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]map[string]string {
-	workspace := setupStarterTeamValue(profile, repositoryTeams, repositories)
+	workspace := setupStarterTeamValue(repositoryTeams, repositories)
 	values := map[string]map[string]string{
 		"dev": {
 			"NOPSAI_SETUP_WORKSPACE": workspace,
@@ -408,8 +400,8 @@ type setupKnowledgeContextSeed struct {
 	content     string
 }
 
-func setupKnowledgeContexts(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) []setupKnowledgeContextSeed {
-	team := setupStarterKnowledgeTeam(profile, repositoryTeams, repositories)
+func setupKnowledgeContexts(repositoryTeams []setupRepositoryTeamInput, repositories []string) []setupKnowledgeContextSeed {
+	team := setupStarterKnowledgeTeam(repositoryTeams, repositories)
 	if team == "" {
 		return nil
 	}
@@ -418,7 +410,7 @@ func setupKnowledgeContexts(profile string, repositoryTeams []setupRepositoryTea
 		team:        team,
 		name:        "setup-run",
 		description: "Starter pipeline run expectations",
-		content:     fmt.Sprintf("Use the starter pipeline for %s to verify runner connectivity, log streaming, and optional LLM execution before attaching production repositories.", setupStarterTeamLabel(profile, repositoryTeams, repositories)),
+		content:     fmt.Sprintf("Use the starter pipeline for %s to verify runner connectivity, log streaming, and optional LLM execution before attaching production repositories.", setupStarterTeamLabel(repositoryTeams, repositories)),
 	}}
 }
 
@@ -494,26 +486,26 @@ triggers:
 `, scope, scope)) + "\n"
 }
 
-func setupScopeYAML(profile, scope string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+func setupScopeYAML(scope string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 variables:
   NOPSAI_SETUP_WORKSPACE: %q
   NOPSAI_SETUP_SCOPE: %s
 secrets:
   GEMINI_API_KEY:
-`, setupStarterTeamValue(profile, repositoryTeams, repositories), scope)) + "\n"
+`, setupStarterTeamValue(repositoryTeams, repositories), scope)) + "\n"
 }
 
-func setupReadme(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
-	return fmt.Sprintf("# NopsAI starter config\n\nStarter %s\n\nThis repository contains starter resources for the first NopsAI bootstrap. Keep plaintext secrets outside this repository. Scope files define plaintext scoped values under `variables:` and may define secret keys under `secrets:` with `null` placeholders or encrypted values generated by this NopsAI instance.\n", setupStarterTeamLabel(profile, repositoryTeams, repositories))
+func setupReadme(repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	return fmt.Sprintf("# NopsAI starter config\n\nStarter %s\n\nThis repository contains starter resources for the first NopsAI bootstrap. Keep plaintext secrets outside this repository. Scope files define plaintext scoped values under `variables:` and may define secret keys under `secrets:` with `null` placeholders or encrypted values generated by this NopsAI instance.\n", setupStarterTeamLabel(repositoryTeams, repositories))
 }
 
-func setupKnowledgeMarkdown(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
-	return fmt.Sprintf("---\ndescription: Starter setup run expectations\n---\n\nUse the starter pipeline for %s to prove runner connectivity, logs, repository triggers, and optional LLM execution before onboarding production automation.\n", setupStarterTeamLabel(profile, repositoryTeams, repositories))
+func setupKnowledgeMarkdown(repositoryTeams []setupRepositoryTeamInput, repositories []string) string {
+	return fmt.Sprintf("---\ndescription: Starter setup run expectations\n---\n\nUse the starter pipeline for %s to prove runner connectivity, logs, repository triggers, and optional LLM execution before onboarding production automation.\n", setupStarterTeamLabel(repositoryTeams, repositories))
 }
 
-func setupAccessYAML(profile string, repositoryTeams []setupRepositoryTeamInput, users []setupUserInput) string {
-	teams := setupAccessGrantTeams(profile, repositoryTeams)
+func setupAccessYAML(repositoryTeams []setupRepositoryTeamInput, users []setupUserInput) string {
+	teams := setupAccessGrantTeams(repositoryTeams)
 	var builder strings.Builder
 	if len(users) == 0 {
 		builder.WriteString("users: []\n")
@@ -525,8 +517,8 @@ func setupAccessYAML(profile string, repositoryTeams []setupRepositoryTeamInput,
 				continue
 			}
 			email := strings.TrimSpace(firstNonEmptyString(user.Email, sub))
-			builder.WriteString(fmt.Sprintf("  - sub: %q\n", sub))
-			builder.WriteString(fmt.Sprintf("    email: %q\n", email))
+			fmt.Fprintf(&builder, "  - sub: %q\n", sub)
+			fmt.Fprintf(&builder, "    email: %q\n", email)
 			builder.WriteString("    provider: local\n")
 			builder.WriteString("    status: active\n")
 			builder.WriteString("    # password is intentionally not generated into GitOps; set it out of band if GitOps creates the account.\n")
@@ -536,7 +528,7 @@ func setupAccessYAML(profile string, repositoryTeams []setupRepositoryTeamInput,
 	for _, team := range teams {
 		builder.WriteString("  - user: admin\n")
 		builder.WriteString("    role: owner\n")
-		builder.WriteString(fmt.Sprintf("    resource: team:%s\n", team))
+		fmt.Fprintf(&builder, "    resource: team:%s\n", team)
 	}
 	for _, user := range users {
 		sub := strings.TrimSpace(firstNonEmptyString(user.Sub, user.Email))
@@ -554,14 +546,14 @@ func setupAccessYAML(profile string, repositoryTeams []setupRepositoryTeamInput,
 		if team == "" {
 			continue
 		}
-		builder.WriteString(fmt.Sprintf("  - user: %q\n", sub))
-		builder.WriteString(fmt.Sprintf("    role: %s\n", role))
-		builder.WriteString(fmt.Sprintf("    resource: team:%s\n", team))
+		fmt.Fprintf(&builder, "  - user: %q\n", sub)
+		fmt.Fprintf(&builder, "    role: %s\n", role)
+		fmt.Fprintf(&builder, "    resource: team:%s\n", team)
 	}
 	return builder.String()
 }
 
-func setupAccessGrantTeams(profile string, repositoryTeams []setupRepositoryTeamInput) []string {
+func setupAccessGrantTeams(repositoryTeams []setupRepositoryTeamInput) []string {
 	seen := map[string]bool{}
 	var teams []string
 	for _, team := range repositoryTeams {
@@ -685,8 +677,8 @@ func setupConfigRepositoryTeamStructureYAML(team setupRepositoryTeamInput) strin
 	}
 	builder.WriteString("apps:\n")
 	for _, repo := range team.Repositories {
-		builder.WriteString(fmt.Sprintf("  - name: %s\n", configsync.RepositoryDisplayNameFromFullName(repo)))
-		builder.WriteString(fmt.Sprintf("    repo_url: %s\n", configsync.CanonicalRepositoryURL(repo)))
+		fmt.Fprintf(&builder, "  - name: %s\n", configsync.RepositoryDisplayNameFromFullName(repo))
+		fmt.Fprintf(&builder, "    repo_url: %s\n", configsync.CanonicalRepositoryURL(repo))
 	}
 	return builder.String()
 }

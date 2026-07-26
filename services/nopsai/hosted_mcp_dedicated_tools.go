@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	aaamodel "nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
 )
@@ -128,11 +131,12 @@ func (a *App) authorizeHostedMCPDedicatedToolCall(ctx context.Context, subject a
 		if teamID := hostedMCPTeamArg(args); teamID != "" {
 			permission.Resource.Type = "team"
 			permission.Resource.ID = teamID
-			if tool.Name == "nopsai.sync_config_repo" {
+			switch tool.Name {
+			case "nopsai.sync_config_repo":
 				permission.Action = "config_repo.sync"
-			} else if tool.Name == "nopsai.write_config_repo" {
+			case "nopsai.write_config_repo":
 				permission.Action = "config_repo.manage"
-			} else {
+			default:
 				permission.Action = "config_repo.read"
 			}
 		}
@@ -528,7 +532,7 @@ func hostedMCPSchedulePlan(mode string, input scheduleInput, message string) map
 	content, err := hostedMCPScheduleYAML(input)
 	valid := err == nil
 	if message == "" {
-		message = strings.Title(mode) + " NopsAI schedule " + configsync.BuildPipelineIdentifier(input.Path, input.Name)
+		message = cases.Title(language.Und).String(mode) + " NopsAI schedule " + configsync.BuildPipelineIdentifier(input.Path, input.Name)
 	}
 	plan := map[string]any{
 		"proposal_type": "schedule_" + mode,
@@ -609,7 +613,7 @@ func (a *App) hostedMCPProposeKnowledgeContext(ctx context.Context, args map[str
 	path := hostedMCPKnowledgeContextGitOpsPath(kind, team, name)
 	message := stringArg(args, "message")
 	if message == "" {
-		message = strings.Title(mode) + " NopsAI knowledge context " + id
+		message = cases.Title(language.Und).String(mode) + " NopsAI knowledge context " + id
 	}
 	deleteFile := mode == "delete"
 	content := ""
