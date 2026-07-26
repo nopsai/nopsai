@@ -229,24 +229,25 @@ export function buildPipelineRunNavigationItems(
   return items;
 }
 
-export function buildPipelineRunTableRows(runs: RunListItem[], limit = 25, now = Date.now()): PipelineRunTableRow[] {
-  return [...runs]
-    .sort((left, right) => runTimestamp(right) - runTimestamp(left))
-    .slice(0, limit)
-    .map(run => {
-      const status = normalizedRunStatus(run);
-      return {
-        run,
-        pipelineName: run.pipeline_name || 'Pipeline run',
-        repoName: formatRepoLabel(run),
-        branchLabel: formatPipelineRunBranch(run),
-        runID: formatPipelineRunID(run.run_id),
-        status,
-        statusLabel: statusDisplayLabel(status),
-        startedLabel: timeAgo(runStartedTimestamp(run), now),
-        durationLabel: formatDuration(run),
-      };
-    });
+export function buildPipelineRunTableRows(runs: RunListItem[], limit?: number, now = Date.now()): PipelineRunTableRow[] {
+  const sorted = [...runs].sort((left, right) => runTimestamp(right) - runTimestamp(left));
+  const visible = typeof limit === 'number' && Number.isFinite(limit) && limit > 0
+    ? sorted.slice(0, limit)
+    : sorted;
+  return visible.map(run => {
+    const status = normalizedRunStatus(run);
+    return {
+      run,
+      pipelineName: run.pipeline_name || 'Pipeline run',
+      repoName: formatRepoLabel(run),
+      branchLabel: formatPipelineRunBranch(run),
+      runID: formatPipelineRunID(run.run_id),
+      status,
+      statusLabel: statusDisplayLabel(status),
+      startedLabel: timeAgo(runStartedTimestamp(run), now),
+      durationLabel: formatDuration(run),
+    };
+  });
 }
 
 function runMatchesStatusFilter(run: RunListItem, filter: PipelineRunStatusFilter): boolean {

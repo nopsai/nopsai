@@ -197,6 +197,7 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/system/dispatcher/kubernetes-runner-manifest", a.handleGenerateKubernetesRunnerManifest)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-bootstrap", a.handleRunnerBootstrap)
 	mux.HandleFunc("POST /v1/system/dispatcher/runners/{runnerID}/dispatch", a.handleUpdateRunnerDispatch)
+	mux.HandleFunc("DELETE /v1/system/dispatcher/runners/{runnerID}", a.handleEjectRunner)
 }
 
 func (a *App) registerMonitoringRoutes(mux *http.ServeMux) {

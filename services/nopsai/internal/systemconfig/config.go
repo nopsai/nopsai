@@ -43,6 +43,7 @@ var FieldMetadataByKey = map[string]FieldMetadata{
 	"nopsai_api_url":          runtimeReload("NopsAI API URL", "Services"),
 	"dispatcher_grpc_address": runtimeReload("Dispatcher gRPC address", "Dispatcher"),
 	"dispatcher_routing":      runtimeLive("Dispatcher routing", "Dispatcher"),
+	"ejected_runner_ids":      runtimeLive("Ejected runner IDs", "Dispatcher"),
 	"git_bot_api_url":         runtimeLive("GitBot API URL", "GitHub App"),
 
 	"github_app_id":                     runtimeReload("GitHub App ID", "GitHub App"),
@@ -72,6 +73,7 @@ func bootstrapOnly(label, section string) FieldMetadata {
 }
 
 func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{} {
+	dispatcherRouting, _ := RemoveRunnersFromDispatcherRouting(cfg.DispatcherRouting, cfg.EjectedRunnerIDs)
 	return map[string]interface{}{
 		"log_level":                         cfg.LogLevel,
 		"log_format":                        cfg.LogFormat,
@@ -90,7 +92,7 @@ func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{}
 		"auto_removal_agent_container":      cfg.AutoRemovalAgentContainer,
 		"default_pipeline_timeout":          cfg.DefaultPipelineTimeout,
 		"llm_agent_timeout":                 cfg.LLMAgentTimeout,
-		"dispatcher_routing":                CloneDispatcherRouting(cfg.DispatcherRouting),
+		"dispatcher_routing":                dispatcherRouting,
 		"runner_id":                         cfg.RunnerID,
 		"runner_scopes":                     cfg.RunnerScopes,
 		"runner_capacity":                   cfg.RunnerCapacity,
@@ -137,6 +139,43 @@ func NormalizeDispatcherRoutingConfig(routing map[string][]string) map[string][]
 		return nil
 	}
 	return CloneDispatcherRouting(routing)
+}
+
+func RemoveRunnerFromDispatcherRouting(routing map[string][]string, runnerID string) (map[string][]string, bool) {
+	runnerID = strings.TrimSpace(runnerID)
+	clean := CloneDispatcherRouting(routing)
+	if runnerID == "" || len(clean) == 0 {
+		return clean, false
+	}
+
+	changed := false
+	for scope, runners := range clean {
+		next := runners[:0]
+		for _, currentRunnerID := range runners {
+			if strings.TrimSpace(currentRunnerID) == runnerID {
+				changed = true
+				continue
+			}
+			next = append(next, currentRunnerID)
+		}
+		if len(next) == 0 {
+			delete(clean, scope)
+			continue
+		}
+		clean[scope] = next
+	}
+	return clean, changed
+}
+
+func RemoveRunnersFromDispatcherRouting(routing map[string][]string, runnerIDs []string) (map[string][]string, bool) {
+	clean := CloneDispatcherRouting(routing)
+	changed := false
+	for _, runnerID := range runnerIDs {
+		next, removed := RemoveRunnerFromDispatcherRouting(clean, runnerID)
+		clean = next
+		changed = changed || removed
+	}
+	return clean, changed
 }
 
 func NormalizeRunnerScopes(raw string) string {

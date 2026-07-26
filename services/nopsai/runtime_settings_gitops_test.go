@@ -284,6 +284,7 @@ func TestHandleInternalDispatcherRoutingRequiresDispatcherClaims(t *testing.T) {
 		DispatcherRouting: map[string][]string{
 			"prod": {"runner-prod"},
 		},
+		EjectedRunnerIDs: []string{"runner-blocked"},
 	}}
 
 	unauthorizedReq := httptest.NewRequest(http.MethodGet, "/v1/internal/dispatcher/routing", nil)
@@ -306,12 +307,16 @@ func TestHandleInternalDispatcherRoutingRequiresDispatcherClaims(t *testing.T) {
 
 	var resp struct {
 		DispatcherRouting map[string][]string `json:"dispatcher_routing"`
+		EjectedRunnerIDs  []string            `json:"ejected_runner_ids"`
 	}
 	if err := json.Unmarshal(authorizedRec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if got := resp.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
 		t.Fatalf("dispatcher routing = %#v, want prod runner", resp.DispatcherRouting)
+	}
+	if got := resp.EjectedRunnerIDs; len(got) != 1 || got[0] != "runner-blocked" {
+		t.Fatalf("ejected runner ids = %#v, want runner-blocked", got)
 	}
 }
 
@@ -498,12 +503,13 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 		AutoRemovalAgentContainer: false,
 		DefaultPipelineTimeout:    "45m",
 		DispatcherRouting: map[string][]string{
-			" prod ": {" runner-prod ", ""},
+			" prod ": {" runner-prod ", "runner-a", ""},
 			"":       {" runner-default "},
 		},
 		RunnerID:                      "runner-prod",
 		RunnerScopes:                  "prod,dev",
 		RunnerCapacity:                3,
+		EjectedRunnerIDs:              []string{" runner-z ", "runner-a", "runner-a"},
 		GitHubAppID:                   "123456",
 		GitHubInstallID:               "987654",
 		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
@@ -540,6 +546,9 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 	if got := stored.DispatcherRouting["*"]; len(got) != 1 || got[0] != "runner-default" {
 		t.Fatalf("stored routing = %#v", stored.DispatcherRouting)
 	}
+	if got := stored.EjectedRunnerIDs; len(got) != 2 || got[0] != "runner-a" || got[1] != "runner-z" {
+		t.Fatalf("stored ejected runner ids = %#v, want sorted unique IDs", got)
+	}
 	if stored.GitHubAppID == nil || *stored.GitHubAppID != "123456" ||
 		stored.GitHubInstallationID == nil || *stored.GitHubInstallationID != "987654" ||
 		stored.GitHubPrivateKeyRef == nil || *stored.GitHubPrivateKeyRef != "credential://system/github/app-private-key" ||
@@ -554,7 +563,8 @@ func TestLoadRuntimeSettingsRecordAppliesPersistedGitOpsSnapshot(t *testing.T) {
 	raw := []byte(`{
 		"dispatcher_grpc_address": "dispatcher-gitops:9090",
 		"auto_removal_agent_container": false,
-		"dispatcher_routing": {" prod ": [" runner-prod ", ""]},
+		"dispatcher_routing": {" prod ": [" runner-prod ", "runner-a", ""]},
+		"ejected_runner_ids": [" runner-z ", "runner-a", "runner-a"],
 		"runner_id": " runner-prod ",
 		"runner_scopes": "prod, /dev/, prod",
 		"runner_capacity": 5,
@@ -610,6 +620,9 @@ func TestLoadRuntimeSettingsRecordAppliesPersistedGitOpsSnapshot(t *testing.T) {
 	}
 	if got := next.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
 		t.Fatalf("dispatcher routing = %#v", next.DispatcherRouting)
+	}
+	if got := next.EjectedRunnerIDs; len(got) != 2 || got[0] != "runner-a" || got[1] != "runner-z" {
+		t.Fatalf("ejected runner ids = %#v, want sorted unique IDs", got)
 	}
 	if next.GitHubAppID != "123456" ||
 		next.GitHubInstallID != "987654" ||

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -325,6 +326,7 @@ type Config struct {
 	RunnerID          string                 `yaml:"runner_id" env:"RUNNER_ID"`
 	RunnerScopes      string                 `yaml:"runner_scopes" env:"RUNNER_SCOPES"`
 	RunnerCapacity    int                    `yaml:"runner_capacity" env:"RUNNER_CAPACITY"`
+	EjectedRunnerIDs  []string               `yaml:"-" env:"-" json:"-"`
 }
 
 func (c *Config) EffectiveSystemLogsDockerHost() string {
@@ -432,6 +434,7 @@ func LoadConfig(path string) (*Config, error) {
 	config.Kubernetes = NormalizeKubernetesConfig(config.Kubernetes)
 	config.SystemLogs = NormalizeSystemLogsConfig(config.SystemLogs)
 	config.RuntimePools = NormalizeRuntimePools(config.RuntimePools)
+	config.EjectedRunnerIDs = NormalizeRunnerIDs(config.EjectedRunnerIDs)
 	config.NormalizeServiceTopology()
 
 	return config, nil
@@ -870,6 +873,27 @@ func NormalizeRuntimePools(pools map[string]RuntimePool) map[string]RuntimePool 
 		pool.Resources.Limits = normalizeStringMap(pool.Resources.Limits)
 		normalized[poolName] = pool
 	}
+	return normalized
+}
+
+func NormalizeRunnerIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(ids))
+	normalized := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	sort.Strings(normalized)
 	return normalized
 }
 

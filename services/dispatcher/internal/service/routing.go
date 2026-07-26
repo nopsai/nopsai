@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -10,14 +11,16 @@ func (d *dispatcherServer) allowedRunnerIDs(scope string) []string {
 	if len(d.routing) == 0 {
 		return nil
 	}
-	scope = strings.TrimSpace(scope)
+	scope = normalizeDispatcherRoutingScope(scope)
 	var ids []string
 	if runners, ok := d.routing[scope]; ok {
-		ids = append(ids, runners...)
+		ids = appendUniqueRunnerIDs(ids, runners...)
 	}
+	ids = appendUniqueRunnerIDs(ids, d.liveRunnerIDsForScopeLocked(scope)...)
 	if runners, ok := d.routing["*"]; ok {
-		ids = append(ids, runners...)
+		ids = appendUniqueRunnerIDs(ids, runners...)
 	}
+	ids = appendUniqueRunnerIDs(ids, d.liveRunnerIDsForScopeLocked("*")...)
 	return ids
 }
 
@@ -44,6 +47,66 @@ func normalizeDispatcherRouting(routing map[string][]string) map[string][]string
 		}
 	}
 	return clean
+}
+
+func normalizeDispatcherRoutingScope(scope string) string {
+	scopeKey := strings.TrimSpace(scope)
+	if scopeKey == "" {
+		return "*"
+	}
+	return scopeKey
+}
+
+func (d *dispatcherServer) liveRunnerIDsForScopeLocked(scope string) []string {
+	scope = normalizeDispatcherRoutingScope(scope)
+	var ids []string
+	for _, runner := range d.runners {
+		if runner == nil || strings.TrimSpace(runner.id) == "" {
+			continue
+		}
+		if runnerRoutesToScope(runner, scope) {
+			ids = append(ids, runner.id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func runnerRoutesToScope(runner *runnerConn, scope string) bool {
+	if runner == nil {
+		return false
+	}
+	if scope == "*" {
+		return len(runner.scopes) == 0
+	}
+	if len(runner.scopes) == 0 {
+		return false
+	}
+	_, ok := runner.scopes[strings.ToLower(scope)]
+	return ok
+}
+
+func appendUniqueRunnerIDs(ids []string, candidates ...string) []string {
+	seen := make(map[string]struct{}, len(ids)+len(candidates))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+	for _, id := range candidates {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		ids = append(ids, id)
+		seen[id] = struct{}{}
+	}
+	return ids
 }
 
 func dispatcherRoutingEqual(a, b map[string][]string) bool {

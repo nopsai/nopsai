@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import { createTeamItem, fetchTeams, requestTeamsJson, updateTeamItem } from '../features/teams/api';
 import { EditTeamItemModal, TeamConfigRepositoryModal, NewTeamItemModal, type TeamItemEditPayload } from '../features/teams/TeamSettingsModals';
 import { TeamsStatusPanel, TeamsWorkspace } from '../features/teams/TeamsWorkspace';
+import { useDispatcherStatusSnapshot } from '../features/system/dispatcher/useDispatcherStatusSnapshot';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
 import { useTeamOperationsSummary } from '../features/teams/hooks/useTeamOperationsSummary';
 import { useTeamResourceCatalog } from '../features/teams/hooks/useTeamResourceCatalog';
@@ -96,6 +97,7 @@ export default function TeamsPage() {
     checkAccessPermission,
   });
   const resourceCatalog = useTeamResourceCatalog({ teamPath: resourceCatalogPath });
+  const runnerAssignments = useDispatcherStatusSnapshot({ enabled: teamsLoaded });
 
   const loadTeams = useCallback(async () => {
     setTeamsLoaded(false);
@@ -318,6 +320,9 @@ export default function TeamsPage() {
           onOpenConfig={config.openTeamConfigRepository}
           operationsSummary={operationsSummary}
           resourceCatalog={resourceCatalog}
+          runnerStatus={runnerAssignments.status}
+          runnerStatusLoading={runnerAssignments.loading}
+          runnerStatusError={runnerAssignments.error}
           currentUser={currentUser}
         />
       )}

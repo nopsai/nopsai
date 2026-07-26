@@ -78,3 +78,32 @@ func TestRunLogFieldsForLineInfersPlainTextSeverity(t *testing.T) {
 		t.Fatalf("level = %q, want warn", fields.Level)
 	}
 }
+
+func TestFilterRunLogIngestLinesDropsSuccessfulAgentGRPCClientNoise(t *testing.T) {
+	payload := normalizeRunLogIngestPayload(nil, runLogIngestPayload{
+		Source: serviceauth.RoleAgent,
+		Lines: []string{
+			`{"level":"info","grpc_code":"OK","message":"grpc_client_request"}`,
+			"9 amAGENT grpc_client_request",
+			`{"level":"warn","grpc_code":"Unavailable","message":"grpc_client_request"}`,
+			"build output",
+		},
+	})
+
+	got := filterRunLogIngestLines(payload)
+	if len(got) != 2 || got[0] != `{"level":"warn","grpc_code":"Unavailable","message":"grpc_client_request"}` || got[1] != "build output" {
+		t.Fatalf("filtered lines = %#v, want warning and build output", got)
+	}
+}
+
+func TestFilterRunLogIngestLinesKeepsNonAgentGRPCTelemetry(t *testing.T) {
+	payload := normalizeRunLogIngestPayload(nil, runLogIngestPayload{
+		Source: serviceauth.RoleRunner,
+		Lines:  []string{`{"level":"info","grpc_code":"OK","message":"grpc_client_request"}`},
+	})
+
+	got := filterRunLogIngestLines(payload)
+	if len(got) != 1 {
+		t.Fatalf("filtered lines = %#v, want runner telemetry retained", got)
+	}
+}

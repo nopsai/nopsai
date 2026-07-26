@@ -232,10 +232,12 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 			fields: []string{
 				"nopsai_api_url",
 				"dispatcher_routing",
+				"ejected_runner_ids",
 			},
 			values: map[string]any{
 				"nopsai_api_url":     strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()),
 				"dispatcher_routing": systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
+				"ejected_runner_ids": config.NormalizeRunnerIDs(cfg.EjectedRunnerIDs),
 			},
 		}
 	case "runner":

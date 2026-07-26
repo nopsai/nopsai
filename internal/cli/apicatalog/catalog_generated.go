@@ -281,6 +281,7 @@ var generatedRoutes = []Route{
 	newRoute("GET", "/v1/system/dispatcher/runner-bootstrap"),
 	newRoute("GET", "/v1/system/dispatcher/runner-bootstrap-command"),
 	newRoute("GET", "/v1/system/dispatcher/runner-compose"),
+	newRoute("DELETE", "/v1/system/dispatcher/runners/{runnerID}"),
 	newRoute("POST", "/v1/system/dispatcher/runners/{runnerID}/dispatch"),
 	newRoute("GET", "/v1/system/dispatcher/scopes"),
 	newRoute("GET", "/v1/system/llm-profiles"),

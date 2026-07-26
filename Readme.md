@@ -309,7 +309,16 @@ so GitOps changes do not require a second sync. Services can read versioned
 snapshots from `GET /internal/v1/runtime-config/{service}` or long-poll
 `GET /internal/v1/runtime-config/{service}/watch?version=<n>`. Dispatcher
 routing changes made from the UI or synced from GitOps are published through
-`nopsai` and picked up by the live dispatcher without a restart.
+`nopsai` and picked up by the live dispatcher without a restart. Registered
+runners also contribute their advertised scopes to the live effective routing
+view, so a newly connected scoped runner can receive matching work while the
+configured `dispatcher_routing` map remains GitOps-owned.
+Runner ejection is an explicit runtime control that removes the dispatcher
+registration, removes the runner from configured dispatcher routing, blocks the
+same runner ID from registering again, and disconnects any live runner stream.
+If GitOps later syncs a route that still names an ejected runner, the runtime
+blocklist keeps that runner ID out of live dispatcher routing; remove the entry
+from the config repository to keep declarative routing clean.
 
 SSO settings live under **System > Access > Identity Providers** and can be
 declared in the global config repository at `setting/system/auth.yaml`. GitOps
@@ -544,6 +553,11 @@ Before production use:
   pull access.
 - Review product role grants and team inheritance.
 - Restrict runner scopes and capacity according to environment.
+- Review Scope and Team runner assignment panels after registering or moving a
+  scoped runner.
+- Eject stale runner registrations from **System > Dispatcher** to clean
+  dispatcher routing and block the runner ID, and remove the underlying Docker
+  process or Kubernetes Deployment when retiring a runner.
 - Check dispatcher, runner, git-bot, LLM, and config sync health checks.
 - Back up Postgres and protect access to the Docker socket on runner hosts.
 - Review audit logs for sensitive operations.

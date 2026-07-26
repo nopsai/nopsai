@@ -44,6 +44,19 @@ dispatcher, so a namespace runner can be dedicated to production, a region, a
 team, or a workload class. Routing updates from the UI or the system GitOps repo
 are applied to the live dispatcher for new scheduling decisions.
 
+Runner registration also contributes to the dispatcher's effective routing
+view. The configured `dispatcher_routing` map remains GitOps-owned, while a
+newly connected runner is immediately eligible for the scopes it advertises.
+Dispatcher status exposes both configured and effective routes, and the Scope
+and Team pages show the registered runners that can receive work for the
+selected scope or team subtree.
+
+Ejecting a runner from **System > Dispatcher** removes its dispatcher
+registration, removes configured dispatcher routing references for that runner
+ID, blocks the same runner ID from registering again, and disconnects any live
+stream. To retire a Kubernetes runner at the infrastructure level, delete or
+scale down the underlying Deployment too.
+
 Agent pods must also receive a `NOPSAI_API_URL` that is reachable from inside
 the Kubernetes cluster. Docker Compose names such as `http://nopsai:8080` work
 for Docker runners, but Kubernetes runners usually need an externally

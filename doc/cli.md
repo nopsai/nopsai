@@ -153,7 +153,7 @@ which makes the same commands deterministic in automation.
 ## Complete API Access
 
 The CLI contains a generated catalog for every route registered by the API. The
-catalog currently covers 348 method/path combinations across operator, public,
+catalog currently covers 351 method/path combinations across operator, public,
 and internal service domains. A parity test compares it to the Go route
 composition and fails when the server changes without regenerating the catalog.
 

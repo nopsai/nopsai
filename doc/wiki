@@ -19,6 +19,12 @@ Runner-private-registry documentation must be searchable by
 `imagePullSecrets`, and `RegistryAuth`, and must clearly separate
 infrastructure-owned platform pull secrets from NopsAI-owned runner credential
 assignments.
+Runner routing documentation must be searchable by `dispatcher_routing`,
+`effective_routing`, `runner_scopes`, Scope runner assignments, and Team runner
+assignments. Runner lifecycle documentation must be searchable by runner
+ejection. It must distinguish the GitOps-owned configured route map from the
+live effective routing view derived from registered runner scopes and from
+runtime-only registered runner deletion, route cleanup, and blocklisting.
 
 The wiki must be self-contained. It may list repository files as implementation
 evidence, but it must not depend on outbound GitHub, external documentation, or
