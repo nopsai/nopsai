@@ -264,6 +264,50 @@ test('updates the selected team LLM default through the team API', async () => {
   expect(apiMocks.saveDefaultLLMProfile).not.toHaveBeenCalled();
 });
 
+test('moves an edited team LLM profile to the global catalog', async () => {
+  apiMocks.saveLLMProfile.mockResolvedValueOnce({
+    name: 'reasoning',
+    payload: {
+      default_profile: 'hosted',
+      profiles: [
+        {
+          name: 'reasoning',
+          provider: 'openai',
+          model: 'gpt-4.1-mini',
+          base_url: 'https://api.openai.com/v1',
+          credential_ref: 'credential://system/llm/openai',
+          allowed_scopes: ['prod'],
+          reasoning: '',
+          timeout_seconds: 30,
+          max_tokens: 2048,
+          extra: {},
+          status: 'valid',
+        },
+      ],
+    },
+  });
+  const user = userEvent.setup();
+
+  render(
+    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+      <LLMProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const profileList = await screen.findByLabelText('LLM profiles');
+  await user.click(within(profileList).getByRole('button', { name: 'Select LLM profile reasoning' }));
+  await user.click(screen.getByRole('button', { name: /edit profile/i }));
+
+  expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
+  expect(screen.getByLabelText('Name')).toHaveValue('reasoning');
+  await user.selectOptions(screen.getByLabelText('Team placement'), '');
+  expect(screen.getByText('reasoning')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Save profile' }));
+
+  await waitFor(() => expect(apiMocks.saveLLMProfile).toHaveBeenCalledWith(expect.objectContaining({ name: 'reasoning' })));
+  expect(teamProfileMocks.deleteTeamLLMProfile).toHaveBeenCalledWith('platform/ml', 'reasoning');
+});
+
 test('applies the team filter from the route query', async () => {
   render(
     <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>

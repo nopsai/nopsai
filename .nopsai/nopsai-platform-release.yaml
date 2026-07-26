@@ -678,6 +678,7 @@ steps:
       printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | helm registry login ghcr.io \
         --username "$GHCR_USERNAME" \
         --password-stdin
+      # Default release registry resolves to oci://ghcr.io/<owner>/charts.
       chart_repository="oci://$REGISTRY/charts"
       chart_reference="$chart_repository/nopsai"
       chart_push_output="$(helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1)"

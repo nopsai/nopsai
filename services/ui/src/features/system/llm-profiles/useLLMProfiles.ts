@@ -120,26 +120,55 @@ export function useLLMProfiles({
         setError('Profile name is required.');
         return;
       }
-      const inferredTeamPath = editingName ? '' : aiResourceTeamScope(next.name).teamPath;
-      const teamPath = normalizeAIResourceTeamPath(editingTeamPath || inferredTeamPath);
-      if (teamPath) {
+      const targetTeamPath = normalizeAIResourceTeamPath(aiResourceTeamScope(next.name).teamPath);
+      const localName = aiResourceLocalName(next.name);
+      const targetName = buildAIResourceScopedID(targetTeamPath, localName);
+      const originalTeamPath = editingName ? normalizeAIResourceTeamPath(editingTeamPath) : '';
+      const movingProfile = Boolean(editingName && (targetName !== editingName || targetTeamPath !== originalTeamPath));
+      if (!localName) {
+        setError(targetTeamPath ? 'Team profile name is required.' : 'Profile name is required.');
+        return;
+      }
+      if (movingProfile && !originalTeamPath && targetTeamPath && payload.default_profile === editingName) {
+        setError('Default LLM profiles cannot be moved to a team. Change the global default profile first.');
+        return;
+      }
+      if (movingProfile && !originalTeamPath && targetTeamPath && !canManage) {
+        setError('You need system update permission to move a global LLM profile into a team.');
+        return;
+      }
+      const references = payload.profiles.find(profile => profile.name === editingName)?.references || [];
+      if (movingProfile && !originalTeamPath && targetTeamPath && references.length > 0) {
+        setError(`LLM profile ${editingName} cannot be moved because it is still referenced by ${references.join(', ')}.`);
+        return;
+      }
+      if (targetTeamPath) {
         if (!canManageTeamProfiles && !canManage) {
           setError('You need team update permission to save team LLM profiles.');
-          return;
-        }
-        const localName = aiResourceLocalName(next.name);
-        if (!localName) {
-          setError('Team profile name is required.');
           return;
         }
         setSaving(true);
         setError(null);
         try {
-          const result = await upsertTeamLLMProfile(teamPath, localName, { ...next, name: localName });
+          const result = await upsertTeamLLMProfile(targetTeamPath, localName, { ...next, name: localName });
+          if (movingProfile && editingName) {
+            if (originalTeamPath) {
+              await deleteTeamLLMProfile(originalTeamPath, aiResourceLocalName(editingName));
+            } else {
+              const deleteResult = await deleteLLMProfile(editingName);
+              if (deleteResult.status === 'conflict') {
+                const fallback = payload.profiles.find(profile => profile.name !== editingName)?.name || '';
+                setDeleteBlocker({ name: editingName, references: deleteResult.references, migrateTo: fallback });
+                setPanelMode('delete');
+                setError(`LLM profile ${editingName} was saved for /${targetTeamPath}, but the original global profile is still referenced.`);
+                return;
+              }
+            }
+          }
           setTeamProfilesPayload(result);
-          setEditingName(buildAIResourceScopedID(teamPath, localName));
-          setEditingTeamPath(teamPath);
-          setForm(prev => ({ ...prev, name: buildAIResourceScopedID(teamPath, localName) }));
+          setEditingName(targetName);
+          setEditingTeamPath(targetTeamPath);
+          setForm(prev => ({ ...prev, name: targetName }));
           setPanelMode('edit');
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Unable to save team LLM profile');
@@ -152,9 +181,16 @@ export function useLLMProfiles({
       setSaving(true);
       setError(null);
       try {
-        const result = await saveLLMProfile(form);
+        const targetForm = { ...form, name: targetName };
+        const result = await saveLLMProfile(targetForm);
+        if (movingProfile && editingName && originalTeamPath) {
+          await deleteTeamLLMProfile(originalTeamPath, aiResourceLocalName(editingName));
+          await loadTeamProfiles(originalTeamPath);
+        }
         setPayload(result.payload);
         setEditingName(result.name);
+        setEditingTeamPath('');
+        setForm(prev => ({ ...prev, name: result.name }));
         setPanelMode('edit');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to save LLM profile');
@@ -162,7 +198,7 @@ export function useLLMProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, editingName, editingTeamPath, form]
+    [canManage, canManageTeamProfiles, editingName, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles]
   );
 
   const saveDefaultProfile = useCallback(

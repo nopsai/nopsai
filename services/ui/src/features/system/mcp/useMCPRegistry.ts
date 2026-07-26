@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   deleteMCPProfile,
   deleteMCPServer,
@@ -8,6 +8,19 @@ import {
   saveMCPServer,
   testMCPProfile,
 } from './api';
+import {
+  deleteTeamMCPProfile,
+  fetchTeamMCPProfiles,
+  upsertTeamMCPProfile,
+  type TeamMCPProfilesResponse,
+} from '../teamProfileApi';
+import {
+  aiResourceLocalName,
+  aiResourceTeamScope,
+  buildAIResourceScopedID,
+  normalizeAIResourceTeamPath,
+} from '../aiResourceTeams';
+import { teamMCPProfileRecords } from '../teamProfileAdapters';
 import {
   emptyMCPProfileForm,
   emptyMCPServerForm,
@@ -24,20 +37,31 @@ import {
   type MCPServerRecord,
 } from './model';
 
-export function useMCPRegistry({ canManage }: { canManage: boolean }) {
+export function useMCPRegistry({
+  canManage,
+  canManageTeamProfiles = false,
+}: {
+  canManage: boolean;
+  canManageTeamProfiles?: boolean;
+}) {
   const [innerTab, setInnerTab] = useState<'servers' | 'profiles'>('servers');
   const [servers, setServers] = useState<MCPServerRecord[]>([]);
   const [profiles, setProfiles] = useState<MCPProfileRecord[]>([]);
+  const [teamProfilesPayload, setTeamProfilesPayload] = useState<TeamMCPProfilesResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [teamProfilesLoading, setTeamProfilesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [teamProfilesError, setTeamProfilesError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [serverForm, setServerForm] = useState<MCPServerFormState>(emptyMCPServerForm);
   const [profileForm, setProfileForm] = useState<MCPProfileFormState>(emptyMCPProfileForm);
   const [editingServer, setEditingServer] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
+  const [editingProfileTeamPath, setEditingProfileTeamPath] = useState('');
   const [panelMode, setPanelMode] = useState<MCPPanelMode | null>(null);
+  const teamProfilesRequestRef = useRef(0);
 
   const loadMCP = useCallback(async () => {
     setLoading(true);
@@ -50,6 +74,31 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
       setError(err instanceof Error ? err.message : 'Unable to load MCP registry');
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const loadTeamProfiles = useCallback(async (teamPath: string) => {
+    const normalizedTeamPath = normalizeAIResourceTeamPath(teamPath);
+    const requestID = ++teamProfilesRequestRef.current;
+    if (!normalizedTeamPath) {
+      setTeamProfilesPayload(null);
+      setTeamProfilesError(null);
+      setTeamProfilesLoading(false);
+      return;
+    }
+
+    setTeamProfilesLoading(true);
+    setTeamProfilesError(null);
+    try {
+      const result = await fetchTeamMCPProfiles(normalizedTeamPath);
+      if (teamProfilesRequestRef.current !== requestID) return;
+      setTeamProfilesPayload(result);
+    } catch (err) {
+      if (teamProfilesRequestRef.current !== requestID) return;
+      setTeamProfilesPayload(null);
+      setTeamProfilesError(err instanceof Error ? err.message : 'Unable to load team MCP profiles');
+    } finally {
+      if (teamProfilesRequestRef.current === requestID) setTeamProfilesLoading(false);
     }
   }, []);
 
@@ -84,21 +133,46 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
         setError('MCP server name is required.');
         return;
       }
+      const targetTeamPath = normalizeAIResourceTeamPath(aiResourceTeamScope(payload.name).teamPath);
+      const localName = aiResourceLocalName(payload.name);
+      const targetName = buildAIResourceScopedID(targetTeamPath, localName);
+      const movingServer = Boolean(editingServer && targetName !== editingServer);
+      if (!localName) {
+        setError(targetTeamPath ? 'Team MCP server name is required.' : 'MCP server name is required.');
+        return;
+      }
+      if (movingServer && editingServer) {
+        const profileReferences = [...profiles, ...teamMCPProfileRecords(teamProfilesPayload)]
+          .filter(profile => profile.servers.some(ref => ref.server === editingServer))
+          .map(profile => profile.name)
+          .sort((a, b) => a.localeCompare(b));
+        if (profileReferences.length > 0) {
+          setError(`MCP server ${editingServer} cannot be moved because it is still referenced by profiles: ${profileReferences.join(', ')}.`);
+          return;
+        }
+      }
       setSaving(true);
       setError(null);
       setMessage(null);
       try {
-        setServers(await saveMCPServer(payload, editingServer));
-        setEditingServer(payload.name);
+        const nextServers = await saveMCPServer({ ...payload, name: targetName }, editingServer);
+        if (movingServer && editingServer) {
+          await deleteMCPServer(editingServer);
+          await loadMCP();
+        } else {
+          setServers(nextServers);
+        }
+        setEditingServer(targetName);
+        setServerForm(prev => ({ ...prev, name: targetName }));
         setPanelMode('server-edit');
-        setMessage(`Saved MCP server ${payload.name}.`);
+        setMessage(`Saved MCP server ${targetName}.`);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to save MCP server');
       } finally {
         setSaving(false);
       }
     },
-    [canManage, editingServer, serverForm]
+    [canManage, editingServer, loadMCP, profiles, serverForm, teamProfilesPayload]
   );
 
   const deleteServer = useCallback(
@@ -145,6 +219,7 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
 
   const startProfileCreate = useCallback(() => {
     setEditingProfile(null);
+    setEditingProfileTeamPath('');
     setProfileForm(emptyMCPProfileForm);
     setInnerTab('profiles');
     setPanelMode('profile-create');
@@ -152,6 +227,10 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
 
   const startProfileEdit = useCallback((profile: MCPProfileRecord) => {
     setEditingProfile(profile.name);
+    setEditingProfileTeamPath(profile.scope === 'team'
+      ? normalizeAIResourceTeamPath(profile.team_path || aiResourceTeamScope(profile.name).teamPath)
+      : ''
+    );
     setProfileForm(mcpProfileFormFromRecord(profile));
     setInnerTab('profiles');
     setPanelMode('profile-edit');
@@ -168,31 +247,105 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
   const saveProfile = useCallback(
     async (event: FormEvent) => {
       event.preventDefault();
-      if (!canManage) return;
       const payload = mcpProfilePayloadFromForm(profileForm);
       if (!payload.name) {
         setError('MCP profile name is required.');
         return;
       }
+      const targetTeamPath = normalizeAIResourceTeamPath(aiResourceTeamScope(payload.name).teamPath);
+      const localName = aiResourceLocalName(payload.name);
+      const targetName = buildAIResourceScopedID(targetTeamPath, localName);
+      const originalTeamPath = editingProfile ? normalizeAIResourceTeamPath(editingProfileTeamPath) : '';
+      const movingProfile = Boolean(editingProfile && (targetName !== editingProfile || targetTeamPath !== originalTeamPath));
+      if (!localName) {
+        setError(targetTeamPath ? 'Team MCP profile name is required.' : 'MCP profile name is required.');
+        return;
+      }
+      if (targetTeamPath) {
+        if (movingProfile && !originalTeamPath && !canManage) {
+          setError('You need system update permission to move a global MCP profile into a team.');
+          return;
+        }
+        if (!canManageTeamProfiles && !canManage) {
+          setError('You need team update permission to save team MCP profiles.');
+          return;
+        }
+        setSaving(true);
+        setError(null);
+        setMessage(null);
+        try {
+          const result = await upsertTeamMCPProfile(targetTeamPath, localName, { ...payload, name: localName });
+          if (movingProfile && editingProfile) {
+            if (originalTeamPath) {
+              await deleteTeamMCPProfile(originalTeamPath, aiResourceLocalName(editingProfile));
+            } else {
+              await deleteMCPProfile(editingProfile);
+            }
+          }
+          setTeamProfilesPayload(result);
+          const saved = teamMCPProfileRecords(result).find(profile => profile.name === targetName) || null;
+          setEditingProfile(targetName);
+          setEditingProfileTeamPath(targetTeamPath);
+          setProfileForm(prev => ({ ...prev, name: targetName }));
+          setPanelMode('profile-edit');
+          setMessage(`Saved MCP profile ${saved?.name || targetName}.`);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Unable to save team MCP profile');
+        } finally {
+          setSaving(false);
+        }
+        return;
+      }
+      if (!canManage) return;
       setSaving(true);
       setError(null);
       setMessage(null);
       try {
-        setProfiles(await saveMCPProfile(payload, editingProfile));
-        setEditingProfile(payload.name);
+        const nextProfiles = await saveMCPProfile({ ...payload, name: targetName }, editingProfile);
+        if (movingProfile && editingProfile && originalTeamPath) {
+          await deleteTeamMCPProfile(originalTeamPath, aiResourceLocalName(editingProfile));
+          await loadTeamProfiles(originalTeamPath);
+        }
+        setProfiles(nextProfiles);
+        setEditingProfile(targetName);
+        setEditingProfileTeamPath('');
+        setProfileForm(prev => ({ ...prev, name: targetName }));
         setPanelMode('profile-edit');
-        setMessage(`Saved MCP profile ${payload.name}.`);
+        setMessage(`Saved MCP profile ${targetName}.`);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to save MCP profile');
       } finally {
         setSaving(false);
       }
     },
-    [canManage, editingProfile, profileForm]
+    [canManage, canManageTeamProfiles, editingProfile, editingProfileTeamPath, loadTeamProfiles, profileForm]
   );
 
   const deleteProfile = useCallback(
-    async (name: string) => {
+    async (name: string, opts?: { teamPath?: string }) => {
+      const teamPath = normalizeAIResourceTeamPath(opts?.teamPath || '');
+      if (teamPath) {
+        if (!canManageTeamProfiles && !canManage) return;
+        setSaving(true);
+        setError(null);
+        setMessage(null);
+        try {
+          await deleteTeamMCPProfile(teamPath, aiResourceLocalName(name));
+          if (editingProfile === name) {
+            setEditingProfile(null);
+            setEditingProfileTeamPath('');
+            setProfileForm(emptyMCPProfileForm);
+            setPanelMode(prev => (prev === 'profile-edit' ? null : prev));
+          }
+          await loadTeamProfiles(teamPath);
+          setMessage(`Deleted MCP profile ${name}.`);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Unable to delete team MCP profile');
+        } finally {
+          setSaving(false);
+        }
+        return;
+      }
       if (!canManage) return;
       setSaving(true);
       setError(null);
@@ -201,6 +354,7 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
         await deleteMCPProfile(name);
         if (editingProfile === name) {
           setEditingProfile(null);
+          setEditingProfileTeamPath('');
           setProfileForm(emptyMCPProfileForm);
           setPanelMode(prev => (prev === 'profile-edit' ? null : prev));
         }
@@ -212,7 +366,7 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
         setSaving(false);
       }
     },
-    [canManage, editingProfile, loadMCP]
+    [canManage, canManageTeamProfiles, editingProfile, loadMCP, loadTeamProfiles]
   );
 
   const testProfile = useCallback(async (name: string) => {
@@ -233,10 +387,13 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
     setInnerTab,
     servers,
     profiles,
+    teamProfilesPayload,
     loading,
+    teamProfilesLoading,
     saving,
     testing,
     error,
+    teamProfilesError,
     message,
     serverForm,
     setServerForm,
@@ -247,6 +404,7 @@ export function useMCPRegistry({ canManage }: { canManage: boolean }) {
     panelMode,
     setPanelMode,
     loadMCP,
+    loadTeamProfiles,
     startServerCreate,
     startServerEdit,
     saveServer,

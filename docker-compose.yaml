@@ -274,7 +274,7 @@ services:
     depends_on:
       - dispatcher
     environment:
-      <<: [*service-auth-env, *observability-env]
+      <<: [*service-auth-env, *local-topology-env, *observability-env]
 
   k8s-runner:
     container_name: nopsai-k8s-runner-image

@@ -389,8 +389,8 @@ truth; this file is the source-adjacent placement guide.
 - Individual LLM profiles, agent profiles, MCP servers, and MCP profiles share
   access through `ResourceAccessCard` with `llm_profile`, `agent_profile`,
   `mcp_server`, and `mcp_profile` resource types.
-- New LLM profiles, agent profiles, MCP servers, and MCP profiles use the same
-  slash path placement as pipelines: `team/subteam/name` belongs to
+- New and edited LLM profiles, agent profiles, MCP servers, and MCP profiles use
+  the same slash path placement as pipelines: `team/subteam/name` belongs to
   `/team/subteam`, inherits parent team access, and remains global when no team
   prefix is present.
 - Global default selectors stay tied to global system profile defaults. When

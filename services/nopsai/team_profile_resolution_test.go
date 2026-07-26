@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"testing"
 
 	"nopsai/config"
@@ -46,5 +47,51 @@ func TestCloneMCPProfilesLetsTeamOverrideSystemProfile(t *testing.T) {
 	}
 	if got := system["github"].Description; got != "system" {
 		t.Fatalf("system profile mutated to %q", got)
+	}
+}
+
+func TestValidatePipelineLLMProfilesForTeamFallsBackToGlobalDefaultWhenTeamDefaultUnset(t *testing.T) {
+	teamID := 42
+	app := &App{cfg: &config.Config{
+		LLMDefaultProfile: "standard",
+		LLMProfiles: map[string]config.LLMProfile{
+			"standard": {
+				Provider: config.LLMProviderLMStudio,
+				BaseURL:  "http://lmstudio:1234",
+			},
+		},
+	}}
+	pipeline := &models.Pipeline{
+		Name:           "team-fallback",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{{
+			Step: &models.GoalStep{
+				BaseStep: models.BaseStep{Name: "review"},
+				Goal:     "Review this change.",
+			},
+		}},
+	}
+
+	if err := app.validatePipelineLLMProfilesForTeam(context.Background(), pipeline, "prod", &teamID); err != nil {
+		t.Fatalf("validatePipelineLLMProfilesForTeam() error = %v", err)
+	}
+}
+
+func TestValidatePipelineAgentProfilesForTeamFallsBackToGlobalDefaultWhenTeamDefaultUnset(t *testing.T) {
+	teamID := 42
+	app := &App{}
+	pipeline := &models.Pipeline{
+		Name:           "team-agent-fallback",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{{
+			Step: &models.GoalStep{
+				BaseStep: models.BaseStep{Name: "review"},
+				Goal:     "Review this change.",
+			},
+		}},
+	}
+
+	if err := app.validatePipelineAgentProfilesForTeam(context.Background(), pipeline, &teamID); err != nil {
+		t.Fatalf("validatePipelineAgentProfilesForTeam() error = %v", err)
 	}
 }

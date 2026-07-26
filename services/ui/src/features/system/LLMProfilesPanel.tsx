@@ -274,6 +274,12 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     startCreate();
     setForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
   };
+  const openEdit = (profile: LLMProfileRecord) => {
+    setCreateTeamPath(normalizeAIResourceTeamPath(
+      profile.scope === 'team' ? profile.team_path || aiResourceTeamScope(profile.name).teamPath : aiResourceTeamScope(profile.name).teamPath
+    ));
+    startEdit(profile);
+  };
   const reloadProfiles = () => {
     void loadProfiles();
     if (selectedTeamPath) void loadTeamProfiles(selectedTeamPath);
@@ -395,24 +401,22 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                   </button>
                 </div>
                 <form className="space-y-4" onSubmit={saveProfile}>
-                  {panelMode === 'create' && (
-                    <AIResourceTeamPlacementField
-                      teamPath={createTeamPath}
-                      onTeamPathChange={setCreateTeam}
-                      teamPaths={teamPaths}
-                      teamPathsLoading={teamPathsLoading}
-                      localName={aiResourceLocalName(form.name)}
-                      resourceLabel="Profile"
-                      disabled={!canManageCurrentScope}
-                    />
-                  )}
+                  <AIResourceTeamPlacementField
+                    teamPath={createTeamPath}
+                    onTeamPathChange={setCreateTeam}
+                    teamPaths={teamPaths}
+                    teamPathsLoading={teamPathsLoading}
+                    localName={aiResourceLocalName(form.name)}
+                    resourceLabel="Profile"
+                    disabled={!canManageCurrentScope}
+                  />
                   <label className="flex flex-col gap-1 text-sm">
                     <span>Name</span>
                     <input
                       data-profile-autofocus
                       className="pipelines-input"
-                      value={panelMode === 'create' ? aiResourceLocalName(form.name) : form.name}
-                      onChange={event => panelMode === 'create' ? setCreateScopedName(event.target.value) : setForm(prev => ({ ...prev, name: event.target.value }))}
+                      value={aiResourceLocalName(form.name)}
+                      onChange={event => setCreateScopedName(event.target.value)}
                       disabled={!canManageCurrentScope || Boolean(editingName)}
                       placeholder="reasoning"
                     />
@@ -566,7 +570,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                 testing={testing}
                 testResult={testResult}
                 canTest={selectedProfile.scope !== 'team'}
-                onEdit={() => startEdit(selectedProfile)}
+                onEdit={() => openEdit(selectedProfile)}
                 onDelete={() => void deleteProfile(selectedProfile.name, { teamPath: selectedProfile.team_path })}
                 onTest={() => void testProfile(selectedProfile.name)}
               />
