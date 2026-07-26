@@ -22,10 +22,12 @@ FROM nginx:1.27-alpine
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
+ARG SOURCE_URL=https://github.com/nopsai/nopsai
 
 LABEL org.opencontainers.image.version="${VERSION}" \
   org.opencontainers.image.revision="${COMMIT}" \
-  org.opencontainers.image.created="${BUILD_DATE}"
+  org.opencontainers.image.created="${BUILD_DATE}" \
+  org.opencontainers.image.source="${SOURCE_URL}"
 
 RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf

@@ -142,6 +142,9 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   expect(screen.getByText('Reviews security posture.')).toBeVisible();
   expect(screen.getByText('Focus on practical risk reduction.')).toBeVisible();
   expect(screen.getAllByText('/platform/ml')[0]).toBeVisible();
+  const detailPanel = screen.getByLabelText('Agent profile detail');
+  expect(within(detailPanel).getByRole('button', { name: 'Delete profile' }).closest('.ai-resource-detail__actions')).toBeTruthy();
+  expect(detailPanel.querySelector('.ai-resource-detail__footer button')).toBeNull();
 
   await user.click(screen.getByRole('button', { name: /^duplicate$/i }));
   expect(screen.getByLabelText('ID')).toHaveValue('security-reviewer-custom');
