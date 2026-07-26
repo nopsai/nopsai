@@ -355,7 +355,7 @@ Responsibilities:
 - Polls `nopsai` for the current dispatcher routing snapshot and updates its in-memory routing table without restart.
 - Queues jobs when no runner is available.
 - Requeues inflight jobs if a runner disconnects.
-- Exposes status and runner dispatch controls for the system UI.
+- Exposes status, runner dispatch, and runner ejection controls for the system UI.
 - Proxies agent-originated logs, task updates, final status, child pipeline
   triggers, and pipeline fetches back into `nopsai` through a dedicated NopsAI
   callback client boundary.

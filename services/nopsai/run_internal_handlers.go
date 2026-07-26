@@ -16,6 +16,7 @@ import (
 
 	"nopsai/pkg/correlation"
 	"nopsai/pkg/httpapi"
+	"nopsai/pkg/serviceauth"
 	runquery "nopsai/services/nopsai/internal/runs"
 	"nopsai/services/nopsai/pkg/auth"
 	"nopsai/services/nopsai/pkg/routeauthz"
@@ -337,6 +338,11 @@ func (a *App) handleIngestLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload = normalizeRunLogIngestPayload(r, payload)
+	payload.Lines = filterRunLogIngestLines(payload)
+	if len(payload.Lines) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	metadataJSON, err := json.Marshal(payload.Metadata)
 	if err != nil {
 		http.Error(w, "Invalid log metadata", http.StatusBadRequest)
@@ -485,6 +491,50 @@ func normalizeRunLogIngestPayload(r *http.Request, payload runLogIngestPayload) 
 		payload.Metadata["service_role"] = payload.ServiceRole
 	}
 	return payload
+}
+
+func filterRunLogIngestLines(payload runLogIngestPayload) []string {
+	if len(payload.Lines) == 0 {
+		return nil
+	}
+	filtered := make([]string, 0, len(payload.Lines))
+	for _, line := range payload.Lines {
+		if shouldDropRunLogIngestLine(payload, line) {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return filtered
+}
+
+func shouldDropRunLogIngestLine(payload runLogIngestPayload, line string) bool {
+	if !isAgentRunLogPayload(payload) || !strings.Contains(line, "grpc_client_request") {
+		return false
+	}
+
+	parsed := parseStructuredRunLogFields(line)
+	if len(parsed) == 0 {
+		return true
+	}
+	message := strings.TrimSpace(structuredRunLogString(parsed, "message", "msg"))
+	if message != "" && message != "grpc_client_request" {
+		return false
+	}
+	level := normalizeRunLogLevelValue(structuredRunLogString(parsed, "output_level", "severity", "level"))
+	if level == "" {
+		level = payload.Level
+	}
+	if level == "warn" || level == "error" {
+		return false
+	}
+	code := strings.ToUpper(strings.TrimSpace(structuredRunLogString(parsed, "grpc_code")))
+	return code == "" || code == "OK"
+}
+
+func isAgentRunLogPayload(payload runLogIngestPayload) bool {
+	source := strings.ToLower(strings.TrimSpace(payload.Source))
+	role := strings.ToLower(strings.TrimSpace(payload.ServiceRole))
+	return source == serviceauth.RoleAgent || role == serviceauth.RoleAgent
 }
 
 type inferredRunLogFields struct {

@@ -25,7 +25,7 @@ Tradeoffs:
 Decision:
 
 - Make runners persistent and agents per-run.
-- Keep a dispatcher-owned registered-runner view so a runner that has checked in remains visible until a future explicit delete path removes it. A disconnected runner is retained as unreachable and is excluded from scheduling.
+- Keep a dispatcher-owned registered-runner view so a runner that has checked in remains visible until an explicit eject action removes it. A disconnected runner is retained as unreachable and is excluded from scheduling.
 
 Why:
 

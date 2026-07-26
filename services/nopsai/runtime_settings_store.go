@@ -97,6 +97,7 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		DefaultPipelineTimeout:        file.DefaultPipelineTimeout,
 		LLMAgentTimeout:               file.LLMAgentTimeout,
 		DispatcherRouting:             file.DispatcherRouting,
+		EjectedRunnerIDs:              file.EjectedRunnerIDs,
 		RunnerID:                      file.RunnerID,
 		RunnerScopes:                  file.RunnerScopes,
 		RunnerCapacity:                file.RunnerCapacity,
@@ -183,6 +184,9 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	if payload.DispatcherRouting != nil {
 		cfg.DispatcherRouting = routing
 	}
+	if payload.EjectedRunnerIDs != nil {
+		cfg.EjectedRunnerIDs = config.NormalizeRunnerIDs(payload.EjectedRunnerIDs)
+	}
 	if payload.RunnerID != nil {
 		cfg.RunnerID = strings.TrimSpace(*payload.RunnerID)
 	}
@@ -219,6 +223,7 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	if payload.Assistant != nil {
 		cfg.Assistant = config.NormalizeAssistantConfig(*payload.Assistant)
 	}
+	cfg.DispatcherRouting, _ = systemconfig.RemoveRunnersFromDispatcherRouting(cfg.DispatcherRouting, cfg.EjectedRunnerIDs)
 	cfg.NormalizeServiceTopology()
 
 	return *cfg, nil

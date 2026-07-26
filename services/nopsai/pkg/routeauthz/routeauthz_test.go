@@ -575,6 +575,14 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "runners",
 		},
 		{
+			name:       "runner eject uses dispatcher runner update",
+			method:     http.MethodDelete,
+			path:       "/v1/system/dispatcher/runners/runner-prod-5",
+			wantAction: "system.update",
+			wantType:   "dispatcher",
+			wantID:     "runners",
+		},
+		{
 			name:       "llm profile delete defers to handler resource filtering",
 			method:     http.MethodDelete,
 			path:       "/v1/system/llm-profiles/fast",

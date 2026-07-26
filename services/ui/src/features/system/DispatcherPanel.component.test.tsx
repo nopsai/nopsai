@@ -59,8 +59,10 @@ test('loads runner scopes and generates an install command through the dispatche
         error={null}
         status={null}
         pendingActions={new Set()}
+        pendingEjections={new Set()}
         onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={async () => undefined}
         canManageDispatcher
         canViewRuntimeConfig
         canManageRuntimeConfig
@@ -106,10 +108,12 @@ test('edits dispatcher routing from the dispatcher panel and saves runtime confi
       <DispatcherPanel
         loading={false}
         error={null}
-        status={{ queuedJobs: 0, runners: [], routing: {}, fetchedAt: Date.now() }}
+        status={{ queuedJobs: 0, runners: [], routing: {}, effectiveRouting: {}, fetchedAt: Date.now() }}
         pendingActions={new Set()}
+        pendingEjections={new Set()}
         onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={async () => undefined}
         canManageDispatcher
         canViewRuntimeConfig
         canManageRuntimeConfig
@@ -165,11 +169,14 @@ test('shows previously registered unreachable runners with a warning', () => {
             },
           ],
           routing: { prod: ['runner-offline'] },
+          effectiveRouting: { prod: ['runner-offline'] },
           fetchedAt: Date.parse('2026-07-14T10:01:00Z'),
         }}
         pendingActions={new Set()}
+        pendingEjections={new Set()}
         onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={async () => undefined}
         canManageDispatcher
         canViewRuntimeConfig
         canManageRuntimeConfig
@@ -187,4 +194,60 @@ test('shows previously registered unreachable runners with a warning', () => {
   expect(screen.getByText('1 unreachable')).toBeVisible();
   expect(screen.getByText('Unreachable')).toBeVisible();
   expect(screen.getByText('No live runner scopes.')).toBeVisible();
+});
+
+test('offers a permanent runner eject action from runner cards', async () => {
+  const user = userEvent.setup();
+  const onEjectRunner = vi.fn(async () => undefined);
+  render(
+    <MemoryRouter>
+      <DispatcherPanel
+        loading={false}
+        error={null}
+        status={{
+          queuedJobs: 0,
+          runners: [
+            {
+              runnerId: 'runner-prod-5',
+              scopes: ['prod'],
+              capacity: 2,
+              activeJobs: 0,
+              inflightJobs: 0,
+              lastHeartbeatUnix: Date.now() / 1000,
+              allowDispatch: true,
+              reachable: true,
+              connectionStatus: 'connected',
+              metadata: {
+                runtime: 'docker',
+                connection_id: 'conn-runner-prod-5',
+                connection_status: 'connected',
+                reachable: 'true',
+              },
+            },
+          ],
+          routing: { prod: ['runner-prod-5'] },
+          effectiveRouting: { prod: ['runner-prod-5'] },
+          fetchedAt: Date.now(),
+        }}
+        pendingActions={new Set()}
+        pendingEjections={new Set()}
+        onRefresh={() => undefined}
+        onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={onEjectRunner}
+        canManageDispatcher
+        canViewRuntimeConfig
+        canManageRuntimeConfig
+        runnerDefaults={{ runner_id: 'runner-test', runner_scopes: 'prod', runner_capacity: '2' } as ConfigFormState}
+        config={{ dispatcher_routing: { prod: ['runner-prod-5'] } } as ConfigFormState}
+        fieldMetadata={{}}
+        configLoading={false}
+        saving={false}
+        onConfigChange={() => undefined}
+        onSaveConfig={async () => undefined}
+      />
+    </MemoryRouter>
+  );
+
+  await user.click(screen.getByRole('button', { name: 'Eject' }));
+  expect(onEjectRunner).toHaveBeenCalledWith(expect.objectContaining({ runnerId: 'runner-prod-5' }));
 });

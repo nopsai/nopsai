@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { ArrowLeft, Copy, Eye, EyeOff, KeyRound, Pencil, Trash2 } from 'lucide-react';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
+import { RunnerAssignmentsPanel } from '../system/dispatcher/RunnerAssignmentsPanel';
+import type { DispatcherStatusState } from '../system/dispatcher/model';
 import {
   createInitialScopeData,
   formatScopeDisplay,
@@ -31,6 +33,9 @@ type ScopeDetailViewProps = {
   triggersByScope: Map<string, ScopeTriggerDescriptor[]>;
   usageLoading: boolean;
   usageError: string | null;
+  runnerStatus?: DispatcherStatusState | null;
+  runnerStatusLoading?: boolean;
+  runnerStatusError?: string | null;
   canWriteVariablesInSelectedScope: boolean;
   canWriteSecretsInSelectedScope: boolean;
   canDeleteScopes: boolean;
@@ -62,6 +67,9 @@ export function ScopeDetailView({
   triggersByScope,
   usageLoading,
   usageError,
+  runnerStatus = null,
+  runnerStatusLoading = false,
+  runnerStatusError = null,
   canWriteVariablesInSelectedScope,
   canWriteSecretsInSelectedScope,
   canDeleteScopes,
@@ -222,6 +230,12 @@ export function ScopeDetailView({
         </div>
 
         <div className="space-y-4">
+          <RunnerAssignmentsPanel
+            targetScope={scopeLabel}
+            status={runnerStatus}
+            loading={runnerStatusLoading}
+            error={runnerStatusError}
+          />
           <ScopeUsagePanel
             selection={activeSelection}
             pipelineMetadata={pipelineMetadata}

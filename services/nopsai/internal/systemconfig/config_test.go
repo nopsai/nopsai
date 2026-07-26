@@ -1,6 +1,10 @@
 package systemconfig
 
-import "testing"
+import (
+	"testing"
+
+	"nopsai/config"
+)
 
 func TestNormalizeRunnerScopesTrimsDeduplicatesAndDropsEmpty(t *testing.T) {
 	got := NormalizeRunnerScopes(" /prod/, prod, team/a, TEAM/a, , /staging ")
@@ -21,5 +25,69 @@ func TestCloneDispatcherRoutingNormalizesScopesAndRunners(t *testing.T) {
 	}
 	if runners := got["prod"]; len(runners) != 1 || runners[0] != "runner-prod" {
 		t.Fatalf("prod runners = %#v, want trimmed runner", runners)
+	}
+}
+
+func TestRemoveRunnerFromDispatcherRoutingDropsRunnerAndEmptyScopes(t *testing.T) {
+	got, changed := RemoveRunnerFromDispatcherRouting(map[string][]string{
+		"*":    {"runner-general", " runner-prod-5 "},
+		"prod": {"runner-prod-5"},
+		"dev":  {"runner-dev"},
+	}, " runner-prod-5 ")
+
+	if !changed {
+		t.Fatal("changed = false, want true")
+	}
+	if runners := got["*"]; len(runners) != 1 || runners[0] != "runner-general" {
+		t.Fatalf("default runners = %#v, want runner-general only", runners)
+	}
+	if _, exists := got["prod"]; exists {
+		t.Fatalf("prod route remained after removing its only runner: %#v", got)
+	}
+	if runners := got["dev"]; len(runners) != 1 || runners[0] != "runner-dev" {
+		t.Fatalf("dev runners = %#v, want runner-dev unchanged", runners)
+	}
+}
+
+func TestRemoveRunnerFromDispatcherRoutingReportsUnchanged(t *testing.T) {
+	got, changed := RemoveRunnerFromDispatcherRouting(map[string][]string{
+		"prod": {"runner-prod-1"},
+	}, "runner-prod-5")
+
+	if changed {
+		t.Fatal("changed = true, want false")
+	}
+	if runners := got["prod"]; len(runners) != 1 || runners[0] != "runner-prod-1" {
+		t.Fatalf("prod runners = %#v, want original runner", runners)
+	}
+}
+
+func TestRemoveRunnersFromDispatcherRoutingDropsMultipleIDs(t *testing.T) {
+	got, changed := RemoveRunnersFromDispatcherRouting(map[string][]string{
+		"prod": {"runner-prod-1", "runner-prod-2", "runner-prod-3"},
+	}, []string{" runner-prod-1 ", "runner-prod-3"})
+
+	if !changed {
+		t.Fatal("changed = false, want true")
+	}
+	if runners := got["prod"]; len(runners) != 1 || runners[0] != "runner-prod-2" {
+		t.Fatalf("prod runners = %#v, want runner-prod-2 only", runners)
+	}
+}
+
+func TestBuildResponseFiltersEjectedRunnerIDsFromDispatcherRouting(t *testing.T) {
+	resp := BuildResponse(config.Config{
+		DispatcherRouting: map[string][]string{
+			"prod": {"runner-prod-1", "runner-prod-5"},
+		},
+		EjectedRunnerIDs: []string{"runner-prod-5"},
+	}, "")
+
+	routing, ok := resp["dispatcher_routing"].(map[string][]string)
+	if !ok {
+		t.Fatalf("dispatcher_routing = %T, want map[string][]string", resp["dispatcher_routing"])
+	}
+	if got := routing["prod"]; len(got) != 1 || got[0] != "runner-prod-1" {
+		t.Fatalf("prod runners = %#v, want runner-prod-1 only", got)
 	}
 }

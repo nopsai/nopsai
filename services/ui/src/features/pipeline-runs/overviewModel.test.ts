@@ -204,3 +204,13 @@ test('flattens branch buckets and shapes table rows', () => {
   assert.equal(failedRow?.startedLabel, '—');
   assert.equal(failedRow?.durationLabel, '-');
 });
+
+test('builds all table rows unless a limit is requested', () => {
+  const runs = Array.from({ length: 35 }, (_, index) => run({
+    run_id: `run-${index}`,
+    started_at: `2026-07-12T11:${String(index).padStart(2, '0')}:00Z`,
+  }));
+
+  assert.equal(buildPipelineRunTableRows(runs).length, 35);
+  assert.equal(buildPipelineRunTableRows(runs, 30).length, 30);
+});

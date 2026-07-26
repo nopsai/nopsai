@@ -60,6 +60,7 @@ type runtimeSettingsGitOpsFile struct {
 	DefaultPipelineTimeout        *string                       `json:"default_pipeline_timeout" yaml:"default_pipeline_timeout,omitempty"`
 	LLMAgentTimeout               *string                       `json:"llm_agent_timeout" yaml:"llm_agent_timeout,omitempty"`
 	DispatcherRouting             map[string][]string           `json:"dispatcher_routing" yaml:"dispatcher_routing,omitempty"`
+	EjectedRunnerIDs              []string                      `json:"ejected_runner_ids,omitempty" yaml:"-"`
 	RunnerID                      *string                       `json:"runner_id" yaml:"runner_id,omitempty"`
 	RunnerScopes                  *string                       `json:"runner_scopes" yaml:"runner_scopes,omitempty"`
 	RunnerCapacity                *int                          `json:"runner_capacity" yaml:"runner_capacity,omitempty"`
@@ -152,6 +153,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		DefaultPipelineTimeout:        file.DefaultPipelineTimeout,
 		LLMAgentTimeout:               file.LLMAgentTimeout,
 		DispatcherRouting:             file.DispatcherRouting,
+		EjectedRunnerIDs:              file.EjectedRunnerIDs,
 		RunnerID:                      file.RunnerID,
 		RunnerScopes:                  file.RunnerScopes,
 		RunnerCapacity:                file.RunnerCapacity,
@@ -231,6 +233,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 	if runnerCapacity <= 0 {
 		runnerCapacity = 1
 	}
+	dispatcherRouting, _ := systemconfig.RemoveRunnersFromDispatcherRouting(cfg.DispatcherRouting, cfg.EjectedRunnerIDs)
 	return runtimeSettingsGitOpsFile{
 		LogLevel:                      stringPtr(cfg.LogLevel),
 		LogFormat:                     stringPtr(cfg.LogFormat),
@@ -248,7 +251,8 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		AutoRemovalAgentContainer:     boolPtr(cfg.AutoRemovalAgentContainer),
 		DefaultPipelineTimeout:        stringPtr(cfg.DefaultPipelineTimeout),
 		LLMAgentTimeout:               stringPtr(cfg.LLMAgentTimeout),
-		DispatcherRouting:             systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
+		DispatcherRouting:             dispatcherRouting,
+		EjectedRunnerIDs:              config.NormalizeRunnerIDs(cfg.EjectedRunnerIDs),
 		RunnerID:                      stringPtr(cfg.RunnerID),
 		RunnerScopes:                  stringPtr(cfg.RunnerScopes),
 		RunnerCapacity:                intPtr(runnerCapacity),

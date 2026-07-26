@@ -138,6 +138,7 @@ func hostedMCPFinalTools() []hostedMCPTool {
 		toolDef("nopsai.generate_runner_bootstrap_command", "Generate a runner bootstrap command. Sensitive response requires include_sensitive_response:true.", "system.update", "dispatcher", "runners", objectSchema(map[string]any{"runner_id": stringSchema(), "runner_scopes": stringSchema(), "runner_capacity": numberSchema(), "registry_credential_ref": stringSchema(), "registry_credential_refs": arraySchema(stringSchema()), "include_sensitive_response": booleanSchema(), "query": objectSchema(map[string]any{})})),
 		toolDef("nopsai.generate_kubernetes_runner_bootstrap_command", "Generate a Kubernetes runner bootstrap command. Sensitive response requires include_sensitive_response:true.", "system.update", "dispatcher", "runners", objectSchema(map[string]any{"runner_id": stringSchema(), "runner_scopes": stringSchema(), "runner_capacity": numberSchema(), "namespace": stringSchema(), "service_account": stringSchema(), "storage_class": stringSchema(), "registry_credential_ref": stringSchema(), "registry_credential_refs": arraySchema(stringSchema()), "include_sensitive_response": booleanSchema(), "query": objectSchema(map[string]any{})})),
 		toolDef("nopsai.update_runner_dispatch", "Pause or resume dispatcher work assignment for a runner. Requires confirm:true.", "system.update", "dispatcher", "runners", objectSchema(map[string]any{"runner_id": stringSchema(), "allow_dispatch": booleanSchema(), "connection_id": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.eject_runner", "Permanently remove a runner registration, clean dispatcher routing references, block the runner ID from registering again, and disconnect live runner streams. Requires confirm:true.", "system.update", "dispatcher", "runners", objectSchema(map[string]any{"runner_id": stringSchema(), "confirm": booleanSchema()})),
 
 		toolDef("nopsai.list_access_grants", "List access grants. Global listing requires iam.admin; resource-scoped listing is still enforced by the API.", "iam.admin", "iam", "admin", objectSchema(map[string]any{"resource_type": stringSchema(), "resource_id": stringSchema(), "role": stringSchema()})),
 		toolDef("nopsai.create_access_grant", "Create an access grant. Requires confirm:true and API-level grant authorization.", "iam.admin", "iam", "admin", objectSchema(map[string]any{"subject_type": stringSchema(), "subject_id": stringSchema(), "role": stringSchema(), "resource_type": stringSchema(), "resource_id": stringSchema(), "inherit": booleanSchema(), "confirm": booleanSchema()})),
@@ -188,7 +189,7 @@ func (a *App) authorizeHostedMCPFinalToolCall(ctx context.Context, subject aaamo
 		permission.Resource.ID = stringArg(args, "credential_id")
 	case "nopsai.propose_credential_gitops":
 		permission.Resource.ID = firstNonEmptyString(hostedMCPCredentialReferenceResourceID(args), "*")
-	case "nopsai.update_runner_dispatch":
+	case "nopsai.update_runner_dispatch", "nopsai.eject_runner":
 		permission.Resource.ID = firstNonEmptyString(stringArg(args, "runner_id"), "runners")
 	case "nopsai.explain_internal_run_operations":
 		permission.Resource.ID = firstNonEmptyString(stringArg(args, "run_id"), "*")
@@ -313,6 +314,8 @@ func (a *App) executeHostedMCPFinalTool(ctx context.Context, subject aaamodel.Su
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, hostedMCPRunnerPath("/v1/system/dispatcher/kubernetes-runner-bootstrap-command", args), nil, false, boolArg(args, "include_sensitive_response", false), true, "Runner bootstrap commands contain one-time bootstrap tokens."), true, nil
 	case "nopsai.update_runner_dispatch":
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodPost, "/v1/system/dispatcher/runners/"+hostedMCPPathTail(stringArg(args, "runner_id"))+"/dispatch", hostedMCPRunnerDispatchBody(args), boolArg(args, "confirm", false), false, true, "Changing runner dispatch can pause or resume work assignment for active capacity."), true, nil
+	case "nopsai.eject_runner":
+		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodDelete, "/v1/system/dispatcher/runners/"+hostedMCPPathTail(stringArg(args, "runner_id")), nil, boolArg(args, "confirm", false), false, true, "Ejecting a runner removes its dispatcher registration, cleans dispatcher routing references, blocks the runner ID from registering again, and disconnects any live runner stream."), true, nil
 	case "nopsai.list_access_grants":
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, hostedMCPPathWithQuery("/v1/access/grants", args, map[string]string{}), nil, false, false, false, ""), true, nil
 	case "nopsai.create_access_grant":

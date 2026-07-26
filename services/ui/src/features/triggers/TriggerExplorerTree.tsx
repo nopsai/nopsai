@@ -153,7 +153,7 @@ function TriggerExplorerNode({
           onClick={() => onOpenOwner(isTeam ? node.ownerPath : node.fullPath)}
         >
           <span className="triggers-explorer-folder" aria-hidden="true">
-            <ObjectIcon type="repository-owner" />
+            <ObjectIcon type={isTeam ? 'team' : 'repository-owner'} />
           </span>
           <span className="truncate">{node.name}</span>
           <strong>{total}</strong>

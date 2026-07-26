@@ -45,6 +45,8 @@ import {
 } from './TeamsWorkspacePanels';
 import { AnalysisModal } from '../analysis/AnalysisModal';
 import { buildTeamResourceAnalysis } from '../analysis/model';
+import { RunnerAssignmentsPanel } from '../system/dispatcher/RunnerAssignmentsPanel';
+import type { DispatcherStatusState } from '../system/dispatcher/model';
 import { buildTeamAnalysisPromptContext } from './teamAnalysisEvidence';
 import {
   getTeamTableCopy,
@@ -78,6 +80,9 @@ export function TeamsWorkspace({
   onOpenConfig,
   operationsSummary,
   resourceCatalog,
+  runnerStatus,
+  runnerStatusLoading = false,
+  runnerStatusError = null,
   currentUser,
 }: {
   teams: Team[];
@@ -94,6 +99,9 @@ export function TeamsWorkspace({
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
   operationsSummary: TeamOperationsSummaryState;
   resourceCatalog: TeamResourceCatalogState;
+  runnerStatus?: DispatcherStatusState | null;
+  runnerStatusLoading?: boolean;
+  runnerStatusError?: string | null;
   currentUser?: CurrentUser | null;
 }) {
   const activeTeamID = activeTeam?.id ?? null;
@@ -118,6 +126,12 @@ export function TeamsWorkspace({
     visibleItems,
   });
   const activeLabel = activeTeam ? teamDisplayName(activeTeam) : 'Global';
+  const activeRunnerScope = activeTeam ? teamPathForURL(activeTeam, teams) : '';
+  const runnerAssignmentDescription = activeTeamIsApp
+    ? 'Routes available to this application scope.'
+    : activeTeam
+      ? 'Routes for this team scope and subgroup scopes.'
+      : 'All effective runner routes.';
   const emptySelection = activeDetailTab === 'overview' && Boolean(activeTeam) && !activeTeamIsApp && !searching && directChildren.length === 0;
   const showChildrenTable = activeDetailTab === 'overview' && (!activeTeamIsApp || searching);
   const tableCopy = getTeamTableCopy({ activeLabel, searching });
@@ -194,6 +208,14 @@ export function TeamsWorkspace({
                 operationsSummary={operationsSummary}
                 resourceCatalog={resourceCatalog}
                 onTabChange={selectDetailTab}
+              />
+              <RunnerAssignmentsPanel
+                description={runnerAssignmentDescription}
+                targetScope={activeRunnerScope}
+                includeDescendantScopes={!activeTeamIsApp}
+                status={runnerStatus}
+                loading={runnerStatusLoading}
+                error={runnerStatusError}
               />
             </>
           ) : (

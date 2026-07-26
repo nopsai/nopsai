@@ -267,7 +267,7 @@ For a `step:<identifier>` include:
 3. While each task action is executing, the agent emits stdout and stderr lines as structured run logs with `stream`, `step`, `task`, and normalized `output_level` fields. Stderr is preserved as a stream and is not treated as error severity unless the line contains an explicit structured or plain-text error level; tools such as Docker BuildKit often write normal progress to stderr. The full command output is still captured for execution history and final task summaries.
 4. Logs go to `dispatcher.IngestLogs`.
 5. The dispatcher makes an authenticated internal service call to `nopsai` at `/v1/runs/{runID}/logs/ingest`, carrying source service, service ID, request ID, traceparent, and optional metadata for the batch.
-6. `nopsai` derives per-line `level`, `step_name`, and `task_name` from structured log fields when the batch metadata does not provide them, then persists the line for durable filtering and audit.
+6. `nopsai` derives per-line `level`, `step_name`, and `task_name` from structured log fields when the batch metadata does not provide them, suppresses successful low-signal agent `grpc_client_request` telemetry, then persists the remaining lines for durable filtering and audit.
 7. The agent reports task status to `dispatcher.ReportTaskStatus`.
 8. The dispatcher forwards that to `nopsai` at `/v1/runs/{runID}/steps/{step}/tasks/{task}`.
 9. `nopsai` persists the update and asynchronously tells `git-bot` about the task status.

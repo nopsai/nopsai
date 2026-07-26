@@ -27,7 +27,7 @@ type nopsaiClient interface {
 	FetchPipeline(context.Context, *proto.FetchPipelineRequest) ([]byte, error)
 	TriggerPipeline(context.Context, *proto.TriggerPipelineRequest) (*proto.TriggerPipelineResponse, error)
 	RunStatus(context.Context, string) (string, error)
-	DispatcherRouting(context.Context) (map[string][]string, error)
+	DispatcherControlConfig(context.Context) (dispatcherControlConfig, error)
 }
 
 type LogIngestMetadata struct {
@@ -249,29 +249,37 @@ func (c *nopsaiHTTPClient) RunStatus(ctx context.Context, runID string) (string,
 	return statusResp["status"], nil
 }
 
-func (c *nopsaiHTTPClient) DispatcherRouting(ctx context.Context) (map[string][]string, error) {
+type dispatcherControlConfig struct {
+	DispatcherRouting map[string][]string
+	EjectedRunnerIDs  []string
+}
+
+func (c *nopsaiHTTPClient) DispatcherControlConfig(ctx context.Context) (dispatcherControlConfig, error) {
 	if err := c.requireBaseURL(); err != nil {
-		return nil, err
+		return dispatcherControlConfig{}, err
 	}
 
 	target := c.baseURL + "/v1/internal/dispatcher/routing"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build dispatcher routing request: %v", err)
+		return dispatcherControlConfig{}, status.Errorf(codes.Internal, "build dispatcher routing request: %v", err)
 	}
 	if err := c.authorize(ctx, httpReq); err != nil {
-		return nil, status.Errorf(codes.Internal, "authorize dispatcher routing request: %v", err)
+		return dispatcherControlConfig{}, status.Errorf(codes.Internal, "authorize dispatcher routing request: %v", err)
 	}
 
 	body, err := c.doRead(httpReq, http.StatusOK, "fetch dispatcher routing")
 	if err != nil {
-		return nil, err
+		return dispatcherControlConfig{}, err
 	}
 	var payload dispatcherRoutingResponse
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, status.Errorf(codes.Internal, "decode dispatcher routing response: %v", err)
+		return dispatcherControlConfig{}, status.Errorf(codes.Internal, "decode dispatcher routing response: %v", err)
 	}
-	return payload.DispatcherRouting, nil
+	return dispatcherControlConfig{
+		DispatcherRouting: payload.DispatcherRouting,
+		EjectedRunnerIDs:  payload.EjectedRunnerIDs,
+	}, nil
 }
 
 func (c *nopsaiHTTPClient) postJSON(ctx context.Context, path string, body []byte, expectedStatuses ...int) error {
@@ -374,4 +382,5 @@ func normalizeLogIngestMetadata(ctx context.Context, metadata LogIngestMetadata)
 
 type dispatcherRoutingResponse struct {
 	DispatcherRouting map[string][]string `json:"dispatcher_routing"`
+	EjectedRunnerIDs  []string            `json:"ejected_runner_ids"`
 }

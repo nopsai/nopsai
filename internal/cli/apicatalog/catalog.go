@@ -520,8 +520,8 @@ func bodySpec(method, path string) *BodySpec {
 		spec.Example = `{"recipient":"operator@example.com"}`
 	case "/v1/system/dispatcher/runners/{runnerID}/dispatch":
 		spec.Required = true
-		spec.Description = "Internal dispatcher task assignment payload."
-		spec.Example = `{"run_id":"run-id","step_name":"build","task_name":"test"}`
+		spec.Description = "Pause or resume dispatcher work assignment for a runner."
+		spec.Example = `{"allow_dispatch":false}`
 	case "/v1/secrets/encrypt":
 		spec.Required = true
 		spec.Description = "Encrypt a secret value for GitOps-safe storage."

@@ -639,8 +639,9 @@ Main MCP coverage: `nopsai.list_credentials_metadata`,
 
 The assistant can inspect dispatcher/system status, generate local runner
 Docker Compose, generate Kubernetes runner manifests, generate runner bootstrap
-commands, inspect runner monitoring history, and pause/resume dispatch for a
-runner with confirmation.
+commands, inspect runner monitoring history, pause/resume dispatch for a
+runner, and eject a runner registration with confirmation. Ejection removes
+routing references and blocks the runner ID from registering again.
 Dispatcher status includes previously registered runners and marks those without
 a live connection as unreachable rather than hiding them.
 
@@ -653,6 +654,7 @@ Ask:
 - "Show runner history for the last seven days."
 - "Pause dispatch to runner `runner-prod-1`; I confirm."
 - "Resume dispatch to runner `runner-prod-1`; I confirm."
+- "Eject runner `runner-prod-5`; I confirm."
 
 Main MCP coverage: `nopsai.get_system_status`,
 `nopsai.get_dispatcher_status`, `nopsai.generate_runner_compose`,
@@ -660,7 +662,7 @@ Main MCP coverage: `nopsai.get_system_status`,
 `nopsai.generate_runner_bootstrap_command`,
 `nopsai.generate_kubernetes_runner_bootstrap_command`,
 `nopsai.get_monitoring_runner_history`, and
-`nopsai.update_runner_dispatch`.
+`nopsai.update_runner_dispatch` and `nopsai.eject_runner`.
 
 ### AAA, Access, Audit, And Admin
 

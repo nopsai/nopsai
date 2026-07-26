@@ -290,7 +290,9 @@ The dispatcher uses a few simple but important rules:
 
 - Route by `scope` and optional `dispatcher_routing` config. Runner scope
   registration is the first filter; `dispatcher_routing` can further allow-list
-  runner IDs for a scope.
+  runner IDs for a scope. When a runner registers, its advertised scopes are
+  layered into the dispatcher's effective routing view for scheduling and status
+  without rewriting the GitOps-owned configured routing map.
 - Prefer `preferred_runner_id` when a child pipeline should stay near its parent.
 - Prefer affinity using `runner_affinity_key`, usually derived from `trigger_event_id`, parent run, or run ID.
 - Prefer the least-loaded eligible runner.
