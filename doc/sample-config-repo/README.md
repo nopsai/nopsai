@@ -164,7 +164,7 @@ global-repo/pipelines/platform/prod/platform-maintenance.yaml
   -> pipeline platform/prod/platform-maintenance, public use access
 
 .nopsai/nopsai-platform-release.yaml
-  -> pipeline platform/prod/nopsai-platform-release, repository-owned self-hosted release publication workflow for NopsAI images, Helm chart, CLI archives, changelog, and checksums
+  -> pipeline platform/prod/nopsai-platform-release, repository-owned self-hosted release publication workflow for NopsAI images, image package metadata, Helm chart, CLI archives, changelog, and checksums
 
 global-repo/pipelines/knowledge-kind-comparison.yaml
   -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior
@@ -307,9 +307,9 @@ no `webhook_source` because GitHub App ingress is automatic. The release
 pipeline in `.nopsai/nopsai-platform-release.yaml` and `prod` scope both grant
 use access to `repository:nopsai/nopsai` so the GitHub-triggered
 run can pass runtime authorization. Release inputs come
-from `scopes/prod/scope.yaml`, including the repository URL, source ref, GHCR
-registry, image platforms, and Docker host. GitHub and GHCR token values stay as
-secret placeholders.
+from `scopes/prod/scope.yaml`, including the repository URL, source ref, shared
+GHCR package root, image platforms, and Docker host. GitHub and GHCR token values
+stay as secret placeholders.
 If a service account is first created in the UI or API, config repository drift
 can export the identity and service-account product grants back to
 `access/service-accounts.yaml` for review-branch push. Token values remain local

@@ -180,10 +180,13 @@ steps:
         exit 1
       fi
       repo_owner="${repo%%/*}"
+      repo_name="${repo#*/}"
       repo_owner_lower="$(printf '%s' "$repo_owner" | tr '[:upper:]' '[:lower:]')"
+      repo_name_lower="$(printf '%s' "$repo_name" | tr '[:upper:]' '[:lower:]')"
       registry="${NOPSAI_RELEASE_REGISTRY:-ghcr.io/$repo_owner_lower}"
       ghcr_username="${NOPSAI_RELEASE_GHCR_USERNAME:-$repo_owner}"
       platforms="${NOPSAI_RELEASE_PLATFORMS:-linux/amd64,linux/arm64}"
+      source_url="https://github.com/$repo_owner_lower/$repo_name_lower"
 
       mkdir -p dist/release
       {
@@ -195,6 +198,7 @@ steps:
         printf 'GITHUB_REPOSITORY_OWNER=%q\n' "$repo_owner"
         printf 'GHCR_USERNAME=%q\n' "$ghcr_username"
         printf 'PLATFORMS=%q\n' "$platforms"
+        printf 'SOURCE_URL=%q\n' "$source_url"
         printf 'ALLOW_EXISTING_RELEASE=%q\n' "$allow_existing"
         printf 'SHOULD_RELEASE=%q\n' "$should_release"
       } >dist/release/env
@@ -202,6 +206,7 @@ steps:
       echo "release_version=$version"
       echo "source_commit=$source_commit"
       echo "registry=${registry%/}"
+      echo "source_url=$source_url"
       echo "should_release=$should_release"
       BASH
 
@@ -335,10 +340,12 @@ steps:
         --platform "$PLATFORMS" \
         --push \
         --tag "$REGISTRY/$image_name:$VERSION" \
+        --tag "$REGISTRY/$image_name:latest" \
         --build-arg "BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest" \
         --build-arg "VERSION=$VERSION" \
         --build-arg "COMMIT=$SOURCE_COMMIT" \
         --build-arg "BUILD_DATE=$BUILD_DATE" \
+        --build-arg "SOURCE_URL=$SOURCE_URL" \
         --provenance=mode=max \
         --sbom=true \
         --metadata-file "$metadata_file" \
@@ -385,9 +392,11 @@ steps:
         --platform "$PLATFORMS" \
         --push \
         --tag "$REGISTRY/nopsai-base:$VERSION" \
+        --tag "$REGISTRY/nopsai-base:latest" \
         --build-arg "VERSION=$VERSION" \
         --build-arg "COMMIT=$SOURCE_COMMIT" \
         --build-arg "BUILD_DATE=$BUILD_DATE" \
+        --build-arg "SOURCE_URL=$SOURCE_URL" \
         --provenance=mode=max \
         --sbom=true \
         --metadata-file dist/docker-metadata/nopsai-base.json \
@@ -669,7 +678,7 @@ steps:
       printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | helm registry login ghcr.io \
         --username "$GHCR_USERNAME" \
         --password-stdin
-      chart_repository="oci://ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/charts"
+      chart_repository="oci://$REGISTRY/charts"
       chart_reference="$chart_repository/nopsai"
       chart_push_output="$(helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1)"
       printf '%s\n' "$chart_push_output"

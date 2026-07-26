@@ -636,6 +636,16 @@ function AgentProfileDetail({
               <Power className="h-4 w-4" aria-hidden="true" />
             </AIResourceIconAction>
           )}
+          {canEdit && (
+            <AIResourceIconAction
+              label="Delete profile"
+              tone="danger"
+              onClick={() => void onDelete(profile.id)}
+              disabled={saving || isDefault}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </AIResourceIconAction>
+          )}
         </div>
       </div>
 
@@ -671,16 +681,12 @@ function AgentProfileDetail({
         ]}
       />
 
-      <div className="ai-resource-detail__footer">
-        {canEdit && (
-          <button type="button" className="ai-resource-delete-link" onClick={() => void onDelete(profile.id)} disabled={saving || isDefault}>
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-            Delete profile
-          </button>
-        )}
-        {isDefault && <p>Default profiles cannot be deleted.</p>}
-        {readOnly && !isDefault && <p>{sourceLabel} profiles are managed outside this page.</p>}
-      </div>
+      {(isDefault || readOnly) && (
+        <div className="ai-resource-detail__footer">
+          {isDefault && <p>Default profiles cannot be deleted.</p>}
+          {readOnly && !isDefault && <p>{sourceLabel} profiles are managed outside this page.</p>}
+        </div>
+      )}
     </div>
   );
 }

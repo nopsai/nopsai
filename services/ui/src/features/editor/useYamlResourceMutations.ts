@@ -188,12 +188,12 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
         'success'
       );
       const wasDraft = detailSource === 'draft';
-      if (wasDraft) removeDraft(detail.id);
       const resolvedSource = wasDraft || wasGit
         ? 'database'
         : resources.find(item => item.id === detail.id)?.source;
       onSaved(parseSaved(editorValue, detail.id, resolvedSource));
       await reloadResources({ quiet: true });
+      if (wasDraft) removeDraft(detail.id);
       return true;
     } catch (error) {
       console.error('Save failed', error);

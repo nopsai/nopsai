@@ -142,6 +142,7 @@ test('persists an editable draft and converts it to a database resource', async 
     expect.objectContaining({ id: detail.id, source: 'database' })
   );
   expect(reloadResources).toHaveBeenCalledWith({ quiet: true });
+  expect(reloadResources.mock.invocationCallOrder[0]).toBeLessThan(removeDraft.mock.invocationCallOrder[0]);
   expect(result.current.saving).toBe(false);
 });
 
