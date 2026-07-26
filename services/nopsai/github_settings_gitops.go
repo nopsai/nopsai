@@ -13,7 +13,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const githubSettingsGitOpsPath = "system/github.yaml"
+const (
+	githubSettingsGitOpsPath       = "git-apps/github.yaml"
+	legacyGitHubSettingsGitOpsPath = "system/github.yaml"
+)
 
 var githubSettingsForbiddenRuntimeKeys = []string{
 	"log_level",
@@ -48,11 +51,17 @@ type gitOpsGitHubSettingsPlan struct {
 }
 
 type githubSettingsGitOpsFile struct {
-	GitBotAPIURL         *string `json:"git_bot_api_url" yaml:"git_bot_api_url,omitempty"`
-	GitHubAppID          *string `json:"github_app_id" yaml:"github_app_id,omitempty"`
-	GitHubInstallationID *string `json:"github_installation_id" yaml:"github_installation_id,omitempty"`
-	GitHubPrivateKeyRef  *string `json:"github_private_key_credential_ref" yaml:"github_private_key_credential_ref,omitempty"`
-	GitHubWebhookRef     *string `json:"github_webhook_credential_ref" yaml:"github_webhook_credential_ref,omitempty"`
+	Provider                *string                           `json:"provider" yaml:"provider,omitempty"`
+	GitBotAPIURL            *string                           `json:"git_bot_api_url" yaml:"git_bot_api_url,omitempty"`
+	AppID                   *string                           `json:"app_id" yaml:"app_id,omitempty"`
+	GitHubAppID             *string                           `json:"github_app_id" yaml:"github_app_id,omitempty"`
+	GitHubInstallationID    *string                           `json:"github_installation_id" yaml:"github_installation_id,omitempty"`
+	PrivateKeyCredentialRef *string                           `json:"private_key_credential_ref" yaml:"private_key_credential_ref,omitempty"`
+	WebhookCredentialRef    *string                           `json:"webhook_credential_ref" yaml:"webhook_credential_ref,omitempty"`
+	GitHubPrivateKeyRef     *string                           `json:"github_private_key_credential_ref" yaml:"github_private_key_credential_ref,omitempty"`
+	GitHubWebhookRef        *string                           `json:"github_webhook_credential_ref" yaml:"github_webhook_credential_ref,omitempty"`
+	Installations           []config.GitHubInstallationConfig `json:"installations" yaml:"installations,omitempty"`
+	GitHubInstallations     []config.GitHubInstallationConfig `json:"github_installations" yaml:"github_installations,omitempty"`
 }
 
 func parseGitOpsGitHubSettingsPlan(binding models.ConfigRepository, directories ...gitOpsRuntimeSettingsDirectory) (*gitOpsGitHubSettingsPlan, error) {
@@ -91,7 +100,8 @@ func parseGitOpsGitHubSettingsPlan(binding models.ConfigRepository, directories 
 }
 
 func isGitOpsGitHubSettingsRelativePath(rel string) bool {
-	return strings.Trim(filepath.ToSlash(rel), "/") == githubSettingsGitOpsPath
+	normalized := strings.Trim(filepath.ToSlash(rel), "/")
+	return normalized == githubSettingsGitOpsPath || normalized == legacyGitHubSettingsGitOpsPath
 }
 
 func parseGitOpsGitHubSettingsFile(content, sourcePath string) (*gitOpsGitHubSettingsPlan, error) {
@@ -104,6 +114,13 @@ func parseGitOpsGitHubSettingsFile(content, sourcePath string) (*gitOpsGitHubSet
 			return nil, fmt.Errorf("GitHub settings GitOps file '%s' contains runtime setting %q; move runner and dispatcher settings to setting/system/runner.yaml", sourcePath, key)
 		}
 	}
+	if isCanonicalGitHubAppResourcePath(sourcePath) {
+		for _, key := range []string{"git_bot_api_url", "github_installation_id", "github_installations", "team_path", "visibility", "repository_allowlist"} {
+			if _, exists := raw[key]; exists {
+				return nil, fmt.Errorf("GitHub App GitOps file '%s' contains unsupported field %q", sourcePath, key)
+			}
+		}
+	}
 
 	var file githubSettingsGitOpsFile
 	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
@@ -114,21 +131,72 @@ func parseGitOpsGitHubSettingsFile(content, sourcePath string) (*gitOpsGitHubSet
 }
 
 func gitHubSettingsPayloadFromFile(file githubSettingsGitOpsFile) systemConfigPayload {
+	appID := firstStringPtr(file.AppID, file.GitHubAppID)
+	privateKeyRef := firstStringPtr(file.PrivateKeyCredentialRef, file.GitHubPrivateKeyRef)
+	webhookRef := firstStringPtr(file.WebhookCredentialRef, file.GitHubWebhookRef)
+	installations := file.Installations
+	if len(installations) == 0 {
+		installations = file.GitHubInstallations
+	}
+	installations = stripGitHubInstallationRuntimeMetadata(installations)
 	return systemConfigPayload{
 		GitBotAPIURL:         file.GitBotAPIURL,
-		GitHubAppID:          file.GitHubAppID,
+		GitHubAppID:          appID,
 		GitHubInstallationID: file.GitHubInstallationID,
-		GitHubPrivateKeyRef:  file.GitHubPrivateKeyRef,
-		GitHubWebhookRef:     file.GitHubWebhookRef,
+		GitHubInstallations:  &installations,
+		GitHubPrivateKeyRef:  privateKeyRef,
+		GitHubWebhookRef:     webhookRef,
 	}
 }
 
 func buildGitHubSettingsGitOpsFile(cfg config.Config) githubSettingsGitOpsFile {
 	return githubSettingsGitOpsFile{
-		GitBotAPIURL:         stringPtr(cfg.NopsaiGitBotAPIURL),
-		GitHubAppID:          stringPtr(cfg.GitHubAppID),
-		GitHubInstallationID: stringPtr(cfg.GitHubInstallID),
-		GitHubPrivateKeyRef:  stringPtr(cfg.GitHubPrivateKeyCredentialRef),
-		GitHubWebhookRef:     stringPtr(cfg.GitHubWebhookCredentialRef),
+		Provider:                stringPtr("github"),
+		AppID:                   stringPtr(cfg.GitHubAppID),
+		PrivateKeyCredentialRef: stringPtr(cfg.GitHubPrivateKeyCredentialRef),
+		WebhookCredentialRef:    stringPtr(cfg.GitHubWebhookCredentialRef),
+		Installations:           gitHubSettingsInstallationsForGitOps(cfg),
 	}
+}
+
+func buildGitHubSettingsRuntimeSnapshotFile(cfg config.Config) githubSettingsGitOpsFile {
+	return githubSettingsGitOpsFile{
+		Provider:                stringPtr("github"),
+		AppID:                   stringPtr(cfg.GitHubAppID),
+		PrivateKeyCredentialRef: stringPtr(cfg.GitHubPrivateKeyCredentialRef),
+		WebhookCredentialRef:    stringPtr(cfg.GitHubWebhookCredentialRef),
+		Installations:           config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID),
+	}
+}
+
+func gitHubSettingsInstallationsForGitOps(cfg config.Config) []config.GitHubInstallationConfig {
+	installations := config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID)
+	return stripGitHubInstallationRuntimeMetadata(installations)
+}
+
+func stripGitHubInstallationRuntimeMetadata(installations []config.GitHubInstallationConfig) []config.GitHubInstallationConfig {
+	out := make([]config.GitHubInstallationConfig, 0, len(installations))
+	for _, installation := range installations {
+		out = append(out, config.GitHubInstallationConfig{
+			InstallationID: strings.TrimSpace(installation.InstallationID),
+			AccountLogin:   strings.TrimSpace(installation.AccountLogin),
+			AccountType:    config.NormalizeGitHubAccountType(installation.AccountType),
+			Enabled:        installation.Enabled,
+		})
+	}
+	return out
+}
+
+func firstStringPtr(values ...*string) *string {
+	for _, value := range values {
+		if value != nil && strings.TrimSpace(*value) != "" {
+			return value
+		}
+	}
+	return nil
+}
+
+func isCanonicalGitHubAppResourcePath(sourcePath string) bool {
+	return strings.Trim(filepath.ToSlash(sourcePath), "/") == "setting/"+githubSettingsGitOpsPath ||
+		strings.Trim(filepath.ToSlash(sourcePath), "/") == githubSettingsGitOpsPath
 }

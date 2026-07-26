@@ -26,11 +26,14 @@ func TestRequestGitBotFileUsesInjectedGitProvider(t *testing.T) {
 }
 
 type fakeGitProvider struct {
-	fileOwner   string
-	fileRepo    string
-	fileRef     string
-	filePath    string
-	fileContent string
+	fileOwner                string
+	fileRepo                 string
+	fileRef                  string
+	filePath                 string
+	fileContent              string
+	repositoryInstallationID string
+	repositories             []GitHubInstalledRepository
+	repositoriesErr          error
 }
 
 func (f *fakeGitProvider) File(owner, repo, ref, path string, notFoundErr error) (string, error) {
@@ -58,6 +61,14 @@ func (f *fakeGitProvider) BranchHasOpenPullRequest(owner, repo, branch string) (
 
 func (f *fakeGitProvider) EnsureRepoAccessible(owner, repo string) error {
 	return errors.New("not implemented")
+}
+
+func (f *fakeGitProvider) ListInstallationRepositories(installationID string) ([]GitHubInstalledRepository, error) {
+	f.repositoryInstallationID = installationID
+	if f.repositoriesErr != nil {
+		return nil, f.repositoriesErr
+	}
+	return append([]GitHubInstalledRepository(nil), f.repositories...), nil
 }
 
 func (f *fakeGitProvider) Pipeline(owner, repo, ref string, source models.PipelineSource, notFoundErr error) ([]byte, error) {

@@ -87,6 +87,7 @@ export const baseNavItems: NavItem[] = [
 
 export const baseSystemSubNav: NavItem[] = [
   { label: 'Config', path: '/system/config', icon: <ObjectIcon type="system-config" /> },
+  { label: 'Git Apps', path: '/system/git-apps', icon: <ObjectIcon type="git-app" /> },
   { label: 'Setup', path: '/system/setup', icon: <ObjectIcon type="setup" /> },
   { label: 'Data Management', path: '/system/data-management', icon: <ObjectIcon type="data-management" /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <ObjectIcon type="dispatcher" /> },

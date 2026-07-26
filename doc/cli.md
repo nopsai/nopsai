@@ -216,12 +216,16 @@ whose path is already known:
 
 ```bash
 nopsai api request GET /v1/monitoring/summary
+nopsai api request GET /v1/git-apps/github
 nopsai api request POST /v1/system/config/sync --data sync.json
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
   nopsai api request POST /v1/mcp --data -
 ```
 
-All registered API transport shapes are supported:
+All registered API transport shapes are supported. Git Apps uses the same
+generic `api request` path; no CLI version bump or dedicated command is needed
+for `/v1/git-apps/github` as long as the API catalog is regenerated after route
+composition changes:
 
 ```bash
 # YAML or other non-JSON request bodies

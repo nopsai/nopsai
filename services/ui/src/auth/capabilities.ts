@@ -50,6 +50,8 @@ export type SystemPagePermissions = {
   canViewConfig: boolean;
   canViewSetup: boolean;
   canManageSetup: boolean;
+  canViewGitApps: boolean;
+  canManageGitApps: boolean;
   canViewRuntimeConfig: boolean;
   canManageRuntimeConfig: boolean;
   canViewLLMProfiles: boolean;
@@ -299,6 +301,7 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
 
 export function getPreferredSystemPath(permissions: SystemPagePermissions): string {
   if (permissions.canViewConfig) return '/system/config';
+  if (permissions.canViewGitApps) return '/system/git-apps';
   if (permissions.canViewSetup) return '/system/setup';
   if (permissions.canViewDataManagement) return '/system/data-management';
   if (permissions.canViewDispatcher) return '/system/dispatcher';
@@ -317,6 +320,8 @@ export function getSystemPagePermissions(user: CurrentUser | null | undefined): 
     canViewConfig: canViewRuntimeConfig || canViewGlobalConfigRepo,
     canViewSetup: canViewRuntimeConfig,
     canManageSetup: canManageRuntimeConfig,
+    canViewGitApps: canViewRuntimeConfig,
+    canManageGitApps: canManageRuntimeConfig,
     canViewRuntimeConfig,
     canManageRuntimeConfig,
     canViewLLMProfiles: can(user, 'system.llm_profiles.read') || canViewRuntimeConfig,
@@ -353,6 +358,7 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
   const isNopsAIAdmin = isNopsAIAdminUser(user, session);
   const canViewAnySystem =
     systemPermissions.canViewConfig ||
+    systemPermissions.canViewGitApps ||
     systemPermissions.canViewSetup ||
     systemPermissions.canViewDataManagement ||
     systemPermissions.canViewDispatcher ||

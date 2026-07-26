@@ -91,3 +91,27 @@ func TestBuildResponseFiltersEjectedRunnerIDsFromDispatcherRouting(t *testing.T)
 		t.Fatalf("prod runners = %#v, want runner-prod-1 only", got)
 	}
 }
+
+func TestBuildResponseIncludesGitHubAppCompatibilityFields(t *testing.T) {
+	resp := BuildResponse(config.Config{
+		GitHubAppID:                   "123456",
+		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
+		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
+		GitHubInstallations: []config.GitHubInstallationConfig{{
+			InstallationID: "987654",
+			AccountLogin:   "nopsai",
+			AccountType:    "organization",
+		}},
+	}, "")
+
+	if resp["github_app_id"] != "123456" ||
+		resp["github_installation_id"] != "987654" ||
+		resp["github_private_key_credential_ref"] != "credential://system/github/app-private-key" ||
+		resp["github_webhook_credential_ref"] != "credential://system/github/webhook-secret" {
+		t.Fatalf("GitHub compatibility fields = %#v", resp)
+	}
+	installations, ok := resp["github_installations"].([]config.GitHubInstallationConfig)
+	if !ok || len(installations) != 1 || installations[0].InstallationID != "987654" {
+		t.Fatalf("github_installations = %#v", resp["github_installations"])
+	}
+}

@@ -56,15 +56,19 @@ type checkRunSummary struct {
 }
 
 type githubChecksProvider struct {
-	client *github.Client
+	resolver GitHubClientResolver
 }
 
-func newGitHubChecksProvider(client *github.Client) checksProvider {
-	return githubChecksProvider{client: client}
+func newGitHubChecksProvider(resolver GitHubClientResolver) checksProvider {
+	return githubChecksProvider{resolver: resolver}
 }
 
 func (p githubChecksProvider) CreateQueued(ctx context.Context, req createQueuedCheckRunRequest) (int64, error) {
-	checkRun, _, err := p.client.Checks.CreateCheckRun(ctx, req.Owner, req.Repo, github.CreateCheckRunOptions{
+	client, _, err := p.resolver.ClientForRepository(ctx, req.Owner, req.Repo)
+	if err != nil {
+		return 0, err
+	}
+	checkRun, _, err := client.Checks.CreateCheckRun(ctx, req.Owner, req.Repo, github.CreateCheckRunOptions{
 		Name:    req.Name,
 		HeadSHA: req.Ref,
 		Status:  github.String("queued"),
@@ -79,6 +83,10 @@ func (p githubChecksProvider) CreateQueued(ctx context.Context, req createQueued
 }
 
 func (p githubChecksProvider) MarkInProgress(ctx context.Context, update checkRunProgressUpdate) error {
+	client, _, err := p.resolver.ClientForRepository(ctx, update.Owner, update.Repo)
+	if err != nil {
+		return err
+	}
 	opts := github.UpdateCheckRunOptions{
 		Name:   update.Name,
 		Status: github.String("in_progress"),
@@ -89,11 +97,15 @@ func (p githubChecksProvider) MarkInProgress(ctx context.Context, update checkRu
 			Summary: github.String(update.Summary),
 		}
 	}
-	_, _, err := p.client.Checks.UpdateCheckRun(ctx, update.Owner, update.Repo, update.CheckRunID, opts)
+	_, _, err = client.Checks.UpdateCheckRun(ctx, update.Owner, update.Repo, update.CheckRunID, opts)
 	return err
 }
 
 func (p githubChecksProvider) Conclude(ctx context.Context, update checkRunConclusionUpdate) error {
+	client, _, err := p.resolver.ClientForRepository(ctx, update.Owner, update.Repo)
+	if err != nil {
+		return err
+	}
 	completedAt := update.CompletedAt
 	if completedAt.IsZero() {
 		completedAt = time.Now()
@@ -108,12 +120,16 @@ func (p githubChecksProvider) Conclude(ctx context.Context, update checkRunConcl
 			Summary: github.String(update.Summary),
 		},
 	}
-	_, _, err := p.client.Checks.UpdateCheckRun(ctx, update.Owner, update.Repo, update.CheckRunID, opts)
+	_, _, err = client.Checks.UpdateCheckRun(ctx, update.Owner, update.Repo, update.CheckRunID, opts)
 	return err
 }
 
 func (p githubChecksProvider) ListForRef(ctx context.Context, owner, repo, ref string) ([]checkRunSummary, error) {
-	response, _, err := p.client.Checks.ListCheckRunsForRef(ctx, owner, repo, ref, &github.ListCheckRunsOptions{})
+	client, _, err := p.resolver.ClientForRepository(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	response, _, err := client.Checks.ListCheckRunsForRef(ctx, owner, repo, ref, &github.ListCheckRunsOptions{})
 	if err != nil {
 		return nil, err
 	}

@@ -591,12 +591,13 @@ source of truth. GitOps can manage:
 - `knowledge/`
 - `access/`
 - `config-repositories/`
+- `setting/git-apps/`
 - `setting/system/`
 
 Canonical system files include:
 
 - `setting/system/credentials.yaml`
-- `setting/system/github.yaml`
+- `setting/git-apps/github.yaml`
 - `setting/system/runner.yaml`
 - `setting/system/auth.yaml`
 - `setting/system/mail.yaml`
@@ -604,6 +605,12 @@ Canonical system files include:
 - `setting/system/llm_profile.yaml`
 - `setting/system/mcp.yaml`
 - `setting/system/agent-profiles.yaml`
+
+`setting/git-apps/github.yaml` is app-scoped. It contains the GitHub App ID,
+credential references, and one or more installations. Internal service URLs such
+as `git_bot_api_url` stay in system/service configuration. The legacy
+`setting/system/github.yaml` file is read for migration compatibility for one
+release, but exports and UI writes use `setting/git-apps/github.yaml`.
 
 UI or API edits to GitOps-managed resources create database overrides. The next
 sync can replace or recreate those resources unless the desired change is pushed

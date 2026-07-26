@@ -56,6 +56,23 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+	case path == "/v1/git-apps/github":
+		if r.Method == http.MethodGet {
+			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+	case path == "/v1/git-apps/github/installations":
+		if r.Method == http.MethodGet {
+			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+	case strings.HasPrefix(path, "/v1/git-apps/github/installations/"):
+		switch r.Method {
+		case http.MethodGet:
+			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+		default:
+			return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+		}
 	case path == "/v1/system/notifications/mail" || path == "/v1/system/notifications/mail/test":
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "notifications"}, false, nil

@@ -57,11 +57,16 @@ func TestHandleHealthz(t *testing.T) {
 }
 
 func TestHandleWebhookDelegatesToForwarder(t *testing.T) {
-	body := []byte(`{"action":"opened"}`)
+	body := []byte(`{"action":"opened","installation":{"id":80056360}}`)
 	forwarder := &recordingWebhookForwarder{}
 	app := &GitBotApp{
 		webhookSecret:    "test-webhook-secret",
 		webhookForwarder: forwarder,
+		clientResolver: NewGitHubClientResolver(
+			StaticGitHubInstallationFetcher([]GitHubInstallation{{InstallationID: 80056360, AccountLogin: "acme", Enabled: true}}),
+			nil,
+			0,
+		),
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(string(body)))
@@ -75,6 +80,36 @@ func TestHandleWebhookDelegatesToForwarder(t *testing.T) {
 	}
 	if string(forwarder.body) != string(body) {
 		t.Fatalf("forwarded body = %q, want %q", string(forwarder.body), string(body))
+	}
+	if forwarder.installationHeader != "80056360" {
+		t.Fatalf("forwarded installation header = %q, want 80056360", forwarder.installationHeader)
+	}
+}
+
+func TestHandleWebhookRejectsUnknownInstallation(t *testing.T) {
+	body := []byte(`{"action":"opened","installation":{"id":999}}`)
+	forwarder := &recordingWebhookForwarder{}
+	app := &GitBotApp{
+		webhookSecret:    "test-webhook-secret",
+		webhookForwarder: forwarder,
+		clientResolver: NewGitHubClientResolver(
+			StaticGitHubInstallationFetcher([]GitHubInstallation{{InstallationID: 80056360, AccountLogin: "acme", Enabled: true}}),
+			nil,
+			0,
+		),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(string(body)))
+	req.Header.Set("X-Hub-Signature-256", testGitHubSignature("test-webhook-secret", body))
+	rec := httptest.NewRecorder()
+
+	app.handleWebhook(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if len(forwarder.body) != 0 {
+		t.Fatalf("webhook was forwarded despite unknown installation: %q", string(forwarder.body))
 	}
 }
 
@@ -228,11 +263,13 @@ func testGitHubSignature(secret string, body []byte) string {
 }
 
 type recordingWebhookForwarder struct {
-	body []byte
+	body               []byte
+	installationHeader string
 }
 
-func (f *recordingWebhookForwarder) ForwardWebhook(w http.ResponseWriter, _ *http.Request, body []byte) {
+func (f *recordingWebhookForwarder) ForwardWebhook(w http.ResponseWriter, r *http.Request, body []byte) {
 	f.body = append([]byte(nil), body...)
+	f.installationHeader = r.Header.Get("X-GitHub-Installation-ID")
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -257,6 +294,10 @@ func (p fakeRepositoryProvider) BranchHasOpenPR(context.Context, BranchPROpenReq
 }
 
 func (p fakeRepositoryProvider) ListInstalled(context.Context) ([]InstalledRepository, error) {
+	return nil, nil
+}
+
+func (p fakeRepositoryProvider) ListInstalledForInstallation(context.Context, int64) ([]InstalledRepository, error) {
 	return nil, nil
 }
 

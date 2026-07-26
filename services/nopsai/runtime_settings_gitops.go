@@ -22,8 +22,13 @@ var runtimeSettingsForbiddenGitHubKeys = []string{
 	"git_bot_api_url",
 	"github_app_id",
 	"github_installation_id",
+	"github_installations",
 	"github_private_key_credential_ref",
 	"github_webhook_credential_ref",
+	"app_id",
+	"private_key_credential_ref",
+	"webhook_credential_ref",
+	"installations",
 }
 
 type gitOpsRuntimeSettingsDirectory struct {
@@ -123,7 +128,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 	}
 	for _, key := range runtimeSettingsForbiddenGitHubKeys {
 		if _, exists := raw[key]; exists {
-			return nil, fmt.Errorf("runtime settings GitOps file '%s' contains GitHub setting %q; move GitHub settings to setting/system/github.yaml", sourcePath, key)
+			return nil, fmt.Errorf("runtime settings GitOps file '%s' contains GitHub setting %q; move GitHub settings to setting/git-apps/github.yaml", sourcePath, key)
 		}
 	}
 
@@ -267,7 +272,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 func buildRuntimeSettingsSnapshotFile(cfg config.Config) runtimeSettingsSnapshotFile {
 	return runtimeSettingsSnapshotFile{
 		runtimeSettingsGitOpsFile: buildRuntimeSettingsGitOpsFile(cfg),
-		githubSettingsGitOpsFile:  buildGitHubSettingsGitOpsFile(cfg),
+		githubSettingsGitOpsFile:  buildGitHubSettingsRuntimeSnapshotFile(cfg),
 	}
 }
 

@@ -268,8 +268,8 @@ global-repo/setting/system/mcp.yaml
 global-repo/setting/system/auth.yaml
   -> local-login and OIDC SSO settings
 
-global-repo/setting/system/github.yaml
-  -> GitHub App IDs, credential references, and git-bot URLs
+global-repo/setting/git-apps/github.yaml
+  -> GitHub App ID, credential references, and installation records
 
 global-repo/setting/system/runner.yaml
   -> runner install defaults, dispatcher runtime routing, and assistant settings
@@ -445,22 +445,27 @@ manually syncing again. Services can read versioned snapshots from
 
 ## GitHub App settings
 
-A system/global config repo can define GitHub App and git-bot runtime settings
-in `setting/system/github.yaml`:
+A system/global config repo can define GitHub App settings in
+`setting/git-apps/github.yaml`:
 
 ```yaml
-git_bot_api_url: http://git-bot:8081
-
-github_app_id: "123456"
-github_installation_id: "987654"
-github_private_key_credential_ref: credential://system/github/app-private-key
-github_webhook_credential_ref: credential://system/github/webhook-secret
+provider: github
+app_id: "123456"
+private_key_credential_ref: credential://system/github/app-private-key
+webhook_credential_ref: credential://system/github/webhook-secret
+installations:
+  - installation_id: "987654"
+    account_login: nopsai
+    account_type: organization
+    enabled: true
 ```
 
-The GitHub file stores only stable IDs, internal service URLs, and credential
-references. Store encrypted private-key and webhook-secret versions in
-`setting/system/credentials.yaml` or through **Credentials**. These
-GitHub settings are not accepted from `setting/system/runner.yaml`.
+The GitHub file stores only app-scoped IDs and credential references. Store
+encrypted private-key and webhook-secret versions in
+`setting/system/credentials.yaml` or through **Credentials**. Keep
+`git_bot_api_url` in System Config or service configuration. The legacy
+`setting/system/github.yaml` path is read for migration compatibility for one
+release, but exports write `setting/git-apps/github.yaml`.
 
 Keep bootstrap values out of GitOps. Database URLs, master keys, and service JWT
 signing keys stay in deployment secrets. Operational integration credentials

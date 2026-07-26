@@ -84,10 +84,10 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
   assert.equal(payload.public_url, 'https://nopsai.prod.example.com');
   assert.equal(payload.require_production_gates, true);
   assert.equal(payload.agent_image, 'nopsai-agent:prod');
-  assert.equal(payload.github_app_id, '654321');
-  assert.equal(payload.github_installation_id, '456789');
-  assert.equal(payload.github_private_key_credential_ref, 'credential://system/github/prod-private-key');
-  assert.equal(payload.github_webhook_credential_ref, 'credential://system/github/prod-webhook-secret');
+  assert.equal(Object.hasOwn(payload, 'github_app_id'), false);
+  assert.equal(Object.hasOwn(payload, 'github_installation_id'), false);
+  assert.equal(Object.hasOwn(payload, 'github_private_key_credential_ref'), false);
+  assert.equal(Object.hasOwn(payload, 'github_webhook_credential_ref'), false);
   assert.equal(payload.runner_capacity, 3);
   assert.deepEqual(payload.runtime_pools, config.runtime_pools);
 });

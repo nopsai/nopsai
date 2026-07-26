@@ -36,6 +36,7 @@ Existing focused docs:
 - [api.md](./api.md): REST API guide.
 - [triggering.md](./triggering.md): Local GitHub and generic Git webhook simulation.
 - [git-webhook-sources.md](./git-webhook-sources.md): GitLab, Bitbucket, Gitea, and generic source configuration, security, GitOps, payload normalization, path filters, and operations.
+- [git-apps.md](./git-apps.md): GitHub App multi-installation management, GitOps schema, git-bot routing, AAA, monitoring, and MCP boundaries.
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.
 - [mcp-pipeline-integration.md](./mcp-pipeline-integration.md): MCP integration details.
 - [mcp-feature-coverage.md](./mcp-feature-coverage.md): Hosted MCP feature coverage, user-scoped permissions, and enterprise automation boundaries.

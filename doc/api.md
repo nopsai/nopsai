@@ -175,7 +175,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - System Agent Profiles and the default agent profile can be managed in the global config repo at `setting/system/agent-profiles.yaml`.
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
 - Local-login and OIDC SSO settings can be managed in the global config repo at `setting/system/auth.yaml`.
-- GitHub App IDs, credential references, and git-bot URLs can be managed in the global config repo at `setting/system/github.yaml`.
+- GitHub App IDs, credential references, and installations can be managed in the global config repo at `setting/git-apps/github.yaml`. The internal git-bot URL remains a system/service setting.
 - Runner defaults, runtime defaults, dispatcher routing, and assistant settings can be managed in the global config repo at `setting/system/runner.yaml`.
 - Scheduled cleanup rules can be managed in the global config repo at `setting/system/data-management.yaml`.
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
@@ -1102,6 +1102,62 @@ the generic payload contract, path-filter semantics, and operations guidance.
 
 ---
 
+## Git Apps
+
+Git Apps manage provider app-level configuration separately from webhook source
+or trigger ownership. The GitHub App resource is system-scoped and is guarded by
+`system.read` / `system.update` on `system:config`.
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider":"github",
+    "app_id":"123456",
+    "private_key_credential_ref":"credential://system/github/app-private-key",
+    "webhook_credential_ref":"credential://system/github/webhook-secret",
+    "installations":[{
+      "installation_id":"987654",
+      "account_login":"nopsai",
+      "account_type":"organization",
+      "enabled":true
+    }]
+  }' \
+  http://localhost:8080/v1/git-apps/github
+```
+
+Endpoints:
+
+- `GET|PUT /v1/git-apps/github`
+- `GET|POST /v1/git-apps/github/installations`
+- `GET|DELETE /v1/git-apps/github/installations/{installationID}`
+- `POST /v1/git-apps/github/installations/{installationID}/verify`
+- `POST /v1/git-apps/github/installations/{installationID}/refresh`
+- `GET /v1/git-apps/github/installations/{installationID}/repositories`
+
+Installation records are provider/app scoped and do not accept `team_path`,
+`visibility`, or `repository_allowlist`. Trigger ownership still lives on
+triggers and Git webhook sources. GitHub webhooks must include
+`installation.id`; git-bot rejects unknown or disabled installations before
+forwarding events to NopsAI.
+
+GitOps uses `setting/git-apps/github.yaml`:
+
+```yaml
+provider: github
+app_id: "123456"
+private_key_credential_ref: credential://system/github/app-private-key
+webhook_credential_ref: credential://system/github/webhook-secret
+installations:
+  - installation_id: "987654"
+    account_login: nopsai
+    account_type: organization
+    enabled: true
+```
+
+---
+
 ## Access Grants
 
 Use these endpoints to assign product roles to subjects on resources.
@@ -1756,7 +1812,7 @@ curl -X POST -H "Content-Type: application/json" \
 - System-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`. Team repos can use root `notifications.yaml` for their bound team.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
 - The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
-- The system/global repo may define GitHub App IDs, credential references, and git-bot URLs under `setting/system/github.yaml`.
+- The system/global repo may define GitHub App IDs, credential references, and installations under `setting/git-apps/github.yaml`. The legacy `setting/system/github.yaml` file is read for one release to migrate `github_installation_id` into the first installation record, but exports stop writing it.
 - The system/global repo may define runtime runner defaults, dispatcher routing, and `runner_registry_credentials` under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_credential_ref` is synced for credentials.
 - The system/global repo may define scheduled cleanup rules under `setting/system/data-management.yaml`; backups and cleanup job history remain runtime-only.
@@ -1798,7 +1854,6 @@ Example `git-bot` response:
   "reload_mode": "runtime_reload",
   "config": {
     "github_app_id": "123456",
-    "github_installation_id": "987654",
     "github_private_key_ref": "credential://system/github/app-private-key",
     "github_webhook_secret_ref": "credential://system/github/webhook-secret",
     "nopsai_api_url": "http://nopsai:8080"
@@ -1809,7 +1864,9 @@ Example `git-bot` response:
 The endpoint returns credential references and non-secret runtime values only.
 Plaintext secret values remain behind the credential registry and existing
 sealed bootstrap/credential resolution flows, even when encrypted envelopes are
-GitOps-managed in `setting/system/credentials.yaml`.
+GitOps-managed in `setting/system/credentials.yaml`. GitHub App installation
+records are served to git-bot through `GET /v1/internal/git-bot/installations`
+using the git-bot internal service identity.
 - Only owners of the target team, including inherited parent owners, can sync that team repo.
 - Complete examples live under `doc/sample-config-repo`.
 

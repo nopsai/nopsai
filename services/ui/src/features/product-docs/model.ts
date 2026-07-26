@@ -2046,7 +2046,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         configRows: triggerRows,
         examples: [],
-        relatedDocs: ['doc/triggering.md', 'doc/git-webhook-sources.md'],
+        relatedDocs: ['doc/git-apps.md', 'doc/triggering.md', 'doc/git-webhook-sources.md'],
         runbooks: ['Debug GitHub webhook no-run outcome', 'Replay an external trigger safely'],
         caveats: ['Changing trigger YAML in the UI can be overwritten by GitOps unless the change is pushed back to the owning repository.'],
       },
@@ -2663,7 +2663,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'System setting file map',
             language: 'text',
             code:
-              'setting/system/credentials.yaml\nsetting/system/github.yaml\nsetting/system/runner.yaml\nsetting/system/auth.yaml\nsetting/system/mail.yaml\nsetting/system/data-management.yaml\nsetting/system/llm_profile.yaml\nsetting/system/mcp.yaml\nsetting/system/agent-profiles.yaml',
+              'setting/system/credentials.yaml\nsetting/git-apps/github.yaml\nsetting/system/runner.yaml\nsetting/system/auth.yaml\nsetting/system/mail.yaml\nsetting/system/data-management.yaml\nsetting/system/llm_profile.yaml\nsetting/system/mcp.yaml\nsetting/system/agent-profiles.yaml',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
@@ -2886,16 +2886,16 @@ const baseWikiSections: WikiSectionInput[] = [
         configRows: [
           ...triggerRows,
           {
-            key: 'setting/system/github.yaml',
+            key: 'setting/git-apps/github.yaml',
             area: 'GitHub App',
-            description: 'System GitHub App settings path for git-bot URL, app ID, installation ID, and credential references.',
-            example: 'setting/system/github.yaml',
+            description: 'System GitHub App settings path for app ID, credential references, and installation records.',
+            example: 'setting/git-apps/github.yaml',
             type: 'path',
             required: 'conditional',
             scope: 'system config repository',
           },
           {
-            key: 'github_private_key_credential_ref',
+            key: 'private_key_credential_ref',
             area: 'GitHub App',
             description: 'Credential reference for the GitHub App private key.',
             example: 'credential://system/github/app-private-key',
@@ -2905,7 +2905,7 @@ const baseWikiSections: WikiSectionInput[] = [
             security: 'Store the private key as a credential, not plaintext GitOps YAML.',
           },
           {
-            key: 'github_webhook_credential_ref',
+            key: 'webhook_credential_ref',
             area: 'GitHub App',
             description: 'Credential reference for the webhook HMAC secret that git-bot uses to verify X-Hub-Signature-256.',
             example: 'credential://system/github/webhook-secret',
@@ -2920,7 +2920,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'GitHub App settings',
             language: 'yaml',
             code:
-              'git_bot_api_url: http://git-bot:8081\ngithub_app_id: "123456"\ngithub_installation_id: "987654"\ngithub_private_key_credential_ref: credential://system/github/app-private-key\ngithub_webhook_credential_ref: credential://system/github/webhook-secret',
+              'provider: github\napp_id: "123456"\nprivate_key_credential_ref: credential://system/github/app-private-key\nwebhook_credential_ref: credential://system/github/webhook-secret\ninstallations:\n  - installation_id: "987654"\n    account_login: nopsai\n    account_type: organization\n    enabled: true',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
             permission: 'config_repo.manage and credential.use for referenced credentials',

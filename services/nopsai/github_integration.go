@@ -84,6 +84,7 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		rerunCheckRun               *github.CheckRun
 	)
 	deliveryID := strings.TrimSpace(r.Header.Get("X-GitHub-Delivery"))
+	installationID := strings.TrimSpace(r.Header.Get("X-GitHub-Installation-ID"))
 	triggerEventID := deliveryID
 
 	switch event := payload.(type) {
@@ -396,6 +397,9 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			"pusher_email":           pusherEmail,
 			"trigger_event_id":       triggerEventID,
 		}
+		if installationID != "" {
+			gitContext["github_installation_id"] = installationID
+		}
 		if checkRunID != 0 {
 			gitContext["check_run_id"] = strconv.FormatInt(checkRunID, 10)
 		}
@@ -628,6 +632,9 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			"X-Nopsai-Caller-Type":         model.SubjectTypeRepository,
 			"X-Nopsai-Caller-ID":           callerID,
 			"X-Nopsai-Trigger-Source":      "github_" + eventType,
+		}
+		if installationID != "" {
+			headers["X-GitHub-Installation-ID"] = installationID
 		}
 		if isRerun {
 			headers["X-Git-Rerun-Commit-SHA"] = commitSHA
