@@ -113,7 +113,11 @@ begins.
 Bootstrap-created local admin credentials must rotate on first login by default,
 and generated Docker Compose installs must reject the built-in development
 `admin` password. Generated Docker Compose installs must include the dispatcher
-TLS secret in `.env` and pass it to dispatcher gRPC clients. First-install setup
+TLS secret in `.env` and pass it to dispatcher gRPC clients. Identity-provider
+documentation must state that local login and the protected break-glass
+administrator are always enabled, only one external provider can be active per
+installation, and IdP sync owns only `source: idp` grants for that provider
+while local UI/API/GitOps grants remain editable. First-install setup
 must not force an env-file write for dispatcher TLS when a valid effective
 service JWT fallback is already configured, and setup apply errors must include
 the actionable write/configuration reason.
@@ -655,7 +659,8 @@ query parameters.
 
 Monitoring is authorization-filtered and covers runs, pipelines, steps, tasks,
 triggers, external triggers, runners, LLM usage, reliability, efficiency, and
-security. The API exposes Prometheus metrics at `GET /metrics`.
+security. The API exposes Prometheus metrics at `GET /metrics`, including
+identity provider capability and authorization grant ownership series.
 
 Pipeline logs are durable run records. System Logs are live allow-listed
 platform container or pod logs streamed through authenticated SSE. Docker

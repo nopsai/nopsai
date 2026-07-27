@@ -64,6 +64,15 @@ function renderMutation(overrides: Partial<Parameters<typeof useTriggerManifestM
   );
 }
 
+async function withMutedConsoleError(run: () => Promise<void>) {
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    await run();
+  } finally {
+    errorSpy.mockRestore();
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   checkTriggerPermissionMock.mockResolvedValue(true);
@@ -244,8 +253,10 @@ test('saves and deletes GitOps triggers as database overrides and surfaces delet
   act(() => {
     stored.result.current.openDeleteModal(detail.slug);
   });
-  await act(async () => {
-    expect(await stored.result.current.confirmDelete()).toBe(false);
+  await withMutedConsoleError(async () => {
+    await act(async () => {
+      expect(await stored.result.current.confirmDelete()).toBe(false);
+    });
   });
   expect(stored.result.current.deleteModal).toMatchObject({
     slug: detail.slug,

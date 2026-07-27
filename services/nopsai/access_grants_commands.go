@@ -38,11 +38,6 @@ func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput)
 	} else if locked {
 		return record, fmt.Errorf("cannot modify default admin role assignments")
 	}
-	if locked, err := isExternallyManagedUserSubject(ctx, tx, subject.Type, subject.ID); err != nil {
-		return record, err
-	} else if locked {
-		return record, errExternallyManagedUserRoleAssignments
-	}
 	resource, err := resolveAccessGrantResource(ctx, tx, input.ResourceType, input.ResourceID, true)
 	if err != nil {
 		return record, err
@@ -159,9 +154,7 @@ func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) error {
 	} else if locked {
 		return fmt.Errorf("cannot modify default admin role assignments")
 	}
-	if locked, err := isExternallyManagedUserSubject(ctx, tx, record.SubjectType, record.SubjectID); err != nil {
-		return err
-	} else if locked {
+	if record.ManagedByIdentityProvider || record.Source == grantSourceIDP {
 		return errExternallyManagedUserRoleAssignments
 	}
 	if err := validateTeamOwnerGuard(ctx, tx, record.RoleName, accessGrantResource{
@@ -232,7 +225,11 @@ func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int6
 			config_source_commit_sha,
 			managed_by_identity_provider,
 			identity_provider_id,
-			external_team_name
+			external_team_name,
+			source,
+			provider_id,
+			external_group_id,
+			external_role_id
 		FROM access_grants
 		WHERE id = $1
 	`, grantID).Scan(
@@ -253,6 +250,10 @@ func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int6
 		&record.ManagedByIdentityProvider,
 		&record.IdentityProviderID,
 		&record.ExternalTeamName,
+		&record.Source,
+		&record.ProviderID,
+		&record.ExternalGroupID,
+		&record.ExternalRoleID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
@@ -281,40 +282,6 @@ func isDefaultAdminGrantSubject(ctx context.Context, runner queryRunner, subject
 		  AND LOWER(provider) = 'local'
 		LIMIT 1
 	`, subjectID, defaultAdminSub).Scan(&exists)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
-		return false, nil
-	case err != nil:
-		return false, err
-	default:
-		return true, nil
-	}
-}
-
-func isExternallyManagedUserSubject(ctx context.Context, runner queryRunner, subjectType, subjectID string) (bool, error) {
-	if model.NormalizeType(subjectType) != model.SubjectTypeUser {
-		return false, nil
-	}
-	subjectID = strings.TrimSpace(subjectID)
-	if subjectID == "" {
-		return false, nil
-	}
-
-	var exists int
-	err := runner.QueryRow(ctx, `
-		SELECT 1
-		FROM users u
-		WHERE u.id::text = $1
-		  AND (
-			LOWER(u.provider) LIKE 'oidc:%'
-			OR EXISTS (
-				SELECT 1
-				FROM auth_external_identities ei
-				WHERE ei.user_id = u.id
-			)
-		  )
-		LIMIT 1
-	`, subjectID).Scan(&exists)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
 		return false, nil

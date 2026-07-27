@@ -748,7 +748,7 @@ func normalizeOIDCProviders(providers map[string]OIDCProviderConfig) map[string]
 		provider.ClientID = strings.TrimSpace(provider.ClientID)
 		provider.ClientCredentialRef = strings.TrimSpace(provider.ClientCredentialRef)
 		provider.LegacyClientSecret = strings.TrimSpace(provider.LegacyClientSecret)
-		provider.Scopes = normalizeOIDCScopes(provider.Scopes)
+		provider.Scopes = normalizeAuthProviderScopes(provider.Type, provider.Scopes)
 		provider.AllowedEmailDomains = normalizeEmailDomains(provider.AllowedEmailDomains)
 		provider.TeamClaim = strings.TrimSpace(provider.TeamClaim)
 		provider.RoleMapping = normalizeStringMap(provider.RoleMapping)
@@ -827,6 +827,12 @@ func normalizeProviderID(raw string) string {
 func normalizeOIDCProviderType(raw string) string {
 	normalized := strings.ToLower(strings.TrimSpace(raw))
 	switch normalized {
+	case "okta":
+		return "okta"
+	case "keycloak":
+		return "keycloak"
+	case "github", "github-oauth", "oauth2-github":
+		return "github"
 	case "entra", "entra-id", "azure", "azure-ad", "microsoft-entra":
 		return "microsoft"
 	case "google-workspace":
@@ -836,6 +842,31 @@ func normalizeOIDCProviderType(raw string) string {
 	default:
 		return normalized
 	}
+}
+
+func normalizeAuthProviderScopes(providerType string, scopes []string) []string {
+	if normalizeOIDCProviderType(providerType) == "github" {
+		seen := map[string]bool{}
+		normalized := make([]string, 0, len(scopes)+3)
+		add := func(scope string) {
+			scope = strings.TrimSpace(scope)
+			if scope == "" || seen[scope] {
+				return
+			}
+			seen[scope] = true
+			normalized = append(normalized, scope)
+		}
+		for _, scope := range scopes {
+			add(scope)
+		}
+		if len(normalized) == 0 {
+			add("read:user")
+			add("user:email")
+			add("read:org")
+		}
+		return normalized
+	}
+	return normalizeOIDCScopes(scopes)
 }
 
 func normalizeOIDCScopes(scopes []string) []string {
@@ -1316,10 +1347,7 @@ func (c Config) EffectiveMCPProfiles() map[string]models.MCPProfile {
 }
 
 func (c Config) EffectiveAuthProviderLocalEnabled() bool {
-	if c.Auth.LocalEnabled != nil {
-		return *c.Auth.LocalEnabled
-	}
-	return c.AuthProviderLocalEnabled
+	return true
 }
 
 func (c Config) EffectiveOIDCAuth() OIDCAuthConfig {

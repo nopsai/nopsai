@@ -5,7 +5,7 @@ import { isEmailLikeIdentifier, shouldUseLocalPasswordForIdentifier } from '../a
 import BrandIdentity from '../components/BrandIdentity';
 import {
   apiClient,
-  buildOIDCStartUrl,
+  buildAuthProviderStartUrl,
   consumeNextSSOLoginPrompt,
   discoverAuthProvider,
   exchangeSessionCode,
@@ -153,10 +153,10 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const ssoEnabled = authProviders.oidc_enabled && authProviders.providers.length > 0;
   const localEnabled = authProviders.local_enabled;
 
-  const startProviderLogin = (providerID: string) => {
+  const startProviderLogin = (providerID: string, kind = 'oidc') => {
     if (loginBlocked) return;
     const prompt = consumeNextSSOLoginPrompt() ? 'login' : undefined;
-    window.location.assign(buildOIDCStartUrl(providerID, postLoginPath, { prompt }));
+    window.location.assign(buildAuthProviderStartUrl(providerID, postLoginPath, { prompt, kind }));
   };
 
   const handleDiscover = async () => {
@@ -180,7 +180,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
     try {
       const provider = await discoverAuthProvider(loginIdentifier);
       if (provider) {
-        startProviderLogin(provider.id);
+        startProviderLogin(provider.id, provider.auth_url_kind);
         return;
       }
       if (localEnabled) {
@@ -286,7 +286,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
                       type="button"
                       className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:border-[var(--border-accent)] disabled:opacity-60"
                       disabled={loginBlocked || providersLoading}
-                      onClick={() => startProviderLogin(provider.id)}
+                      onClick={() => startProviderLogin(provider.id, provider.auth_url_kind)}
                     >
                       Continue with {provider.display_name}
                     </button>

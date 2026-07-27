@@ -145,7 +145,11 @@ func (a *App) handleListAccessGrants(w http.ResponseWriter, r *http.Request) {
 			config_source_commit_sha,
 			managed_by_identity_provider,
 			identity_provider_id,
-			external_team_name
+			external_team_name,
+			source,
+			provider_id,
+			external_group_id,
+			external_role_id
 		FROM access_grants
 		WHERE ($1 = '' OR resource_type = $1)
 		  AND ($2 = '' OR resource_id = $2)
@@ -182,6 +186,10 @@ func (a *App) handleListAccessGrants(w http.ResponseWriter, r *http.Request) {
 			&record.ManagedByIdentityProvider,
 			&record.IdentityProviderID,
 			&record.ExternalTeamName,
+			&record.Source,
+			&record.ProviderID,
+			&record.ExternalGroupID,
+			&record.ExternalRoleID,
 		); err != nil {
 			http.Error(w, "failed to read grants", http.StatusInternalServerError)
 			return

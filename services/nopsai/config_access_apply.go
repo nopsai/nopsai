@@ -251,11 +251,6 @@ func upsertAccessRoleBinding(ctx context.Context, tx pgx.Tx, binding models.Conf
 	} else if locked {
 		return fmt.Errorf("cannot modify default admin role assignments")
 	}
-	if locked, err := isExternallyManagedUserSubject(ctx, tx, subject.Type, subject.ID); err != nil {
-		return err
-	} else if locked {
-		return errExternallyManagedUserRoleAssignments
-	}
 	if err := ensureGlobalConfigObjectWritable(ctx, tx, binding, "auth_role_bindings", "role binding", roleBinding.role, "role_name = $1 AND subject_type = $2 AND subject_id = $3", roleBinding.role, subject.Type, subject.ID); err != nil {
 		return err
 	}

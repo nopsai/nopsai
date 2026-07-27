@@ -21,7 +21,6 @@ import {
   identityProviderFormFromRecord,
   isBasicAccessGrant,
   isDefaultAdminUser,
-  isExternallyManagedUser,
   isProtectedAccessRole,
   isUserRoleManagementLocked,
   normalizeEditableBasicGrants,
@@ -1066,11 +1065,7 @@ export function useAccessPanelController({
   const userRoleAssignmentsLocked = isUserRoleManagementLocked(
     userAccessEditor?.user,
   );
-  const userRoleAssignmentsLockLabel = isExternallyManagedUser(
-    userAccessEditor?.user,
-  )
-    ? "Managed by identity provider"
-    : "Protected admin role assignment";
+  const userRoleAssignmentsLockLabel = "Protected admin role assignment";
   const selectedBasicUserGrants = useMemo(
     () =>
       selectedBasicUserID
@@ -1339,12 +1334,6 @@ export function useAccessPanelController({
       setBasicGrantError("Default admin role assignments are locked.");
       return;
     }
-    if (selectedBasicUser && isExternallyManagedUser(selectedBasicUser)) {
-      setBasicGrantError(
-        "Role assignments for this user are managed by the identity provider.",
-      );
-      return;
-    }
     if (creatingUser && newUser.sub.trim().toLowerCase() === "admin") {
       setBasicGrantError("Default admin role assignments are locked.");
       return;
@@ -1386,12 +1375,6 @@ export function useAccessPanelController({
     }
     if (isDefaultAdminUser(user)) {
       setBasicGrantError("Default admin role assignments are locked.");
-      return;
-    }
-    if (isExternallyManagedUser(user)) {
-      setBasicGrantError(
-        "Role assignments for this user are managed by the identity provider.",
-      );
       return;
     }
     if (!basicGrantDirty) return;

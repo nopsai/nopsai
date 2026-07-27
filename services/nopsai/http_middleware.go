@@ -47,6 +47,7 @@ func isPublicPath(path string) bool {
 		return true
 	default:
 		return strings.HasPrefix(path, "/v1/auth/oidc/") ||
+			strings.HasPrefix(path, "/v1/auth/oauth2/") ||
 			strings.HasPrefix(path, "/v1/git/webhooks/")
 	}
 }

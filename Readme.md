@@ -272,7 +272,7 @@ GitOps sync can import:
 - `knowledge/`: managed knowledge documents
 - `access/`: users, roles, policies, bindings, and basic product role grants
 - `config-repositories/`: global and team config repository bindings, per-team hierarchy, and notification routing
-- `setting/system/auth.yaml`: local-login and OIDC SSO settings from the global config repo
+- `setting/system/auth.yaml`: mandatory local login and external identity-provider settings from the global config repo
 - `setting/system/github.yaml`: GitHub App IDs, credential references, and git-bot URLs from the global config repo
 - `setting/system/mail.yaml`: mail notification SMTP settings from the global config repo
 - `setting/system/data-management.yaml`: scheduled data cleanup rules from the global config repo
@@ -322,12 +322,15 @@ from the config repository to keep declarative routing clean.
 
 SSO settings live under **System > Access > Identity Providers** and can be
 declared in the global config repository at `setting/system/auth.yaml`. GitOps
-sync manages `local_enabled`, OIDC enablement, auto-create/linking defaults,
-domain mappings, providers, Keycloak entitlement-sync mappings, and their
+sync keeps local login enabled, manages external-provider enablement,
+auto-create/linking defaults, domain mappings, providers, Keycloak
+entitlement-sync mappings, and their
 `client_credential_ref`, `admin_client_credential_ref`, and
 `admin_password_credential_ref` bindings. Plaintext values remain write-only in
 the API/UI; encrypted versions can be synced in
 `setting/system/credentials.yaml`.
+Only one external identity provider can be enabled at a time; IdP sync owns only
+IdP-sourced grants and leaves local UI/API/GitOps grants intact.
 
 Mail notification settings live under **System > Config** and can be
 declared in the global config repository at `setting/system/mail.yaml`. GitOps

@@ -308,6 +308,7 @@ export type AuthProviderOption = {
   display_name: string;
   scopes?: string[];
   allowed_email_domains?: string[];
+  auth_url_kind?: string;
 };
 
 export type AuthProvidersResponse = {
@@ -327,7 +328,7 @@ export async function fetchAuthProviders(): Promise<AuthProvidersResponse> {
   }
   const payload = await response.json();
   return {
-    local_enabled: Boolean(payload?.local_enabled),
+    local_enabled: true,
     oidc_enabled: Boolean(payload?.oidc_enabled),
     providers: Array.isArray(payload?.providers)
       ? payload.providers.filter((provider: unknown): provider is AuthProviderOption => {
@@ -368,10 +369,15 @@ export async function exchangeSessionCode(code: string) {
 }
 
 export function buildOIDCStartUrl(providerID: string, returnTo: string, options: { prompt?: string } = {}): string {
+  return buildAuthProviderStartUrl(providerID, returnTo, { ...options, kind: 'oidc' });
+}
+
+export function buildAuthProviderStartUrl(providerID: string, returnTo: string, options: { prompt?: string; kind?: string } = {}): string {
   const values = new URLSearchParams();
   if (returnTo) values.set('return_to', returnTo);
   if (options.prompt) values.set('prompt', options.prompt);
-  return buildApiUrl(`/v1/auth/oidc/${encodeURIComponent(providerID)}/start?${values.toString()}`);
+  const kind = options.kind === 'oauth2' ? 'oauth2' : 'oidc';
+  return buildApiUrl(`/v1/auth/${kind}/${encodeURIComponent(providerID)}/start?${values.toString()}`);
 }
 
 export async function logoutCurrentSession(): Promise<{ logoutURL?: string }> {

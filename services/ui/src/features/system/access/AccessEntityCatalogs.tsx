@@ -137,7 +137,7 @@ export function AccessUsersCatalog({
                     </span>
                     {externalManaged && (
                       <span className="access-chip access-chip--muted">
-                        Managed by {providerLabel}
+                        Authenticated by {providerLabel}
                       </span>
                     )}
                   </div>
@@ -213,7 +213,7 @@ export function AccessUsersCatalog({
                         key={`${user.id}-external-${team}`}
                         className="access-chip access-chip--muted"
                       >
-                        Keycloak: {team}
+                        IdP: {team}
                       </span>
                     ))}
                     {(user.external_auth_teams || [])

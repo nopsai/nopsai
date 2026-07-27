@@ -7,6 +7,8 @@ func (a *App) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/auth/discover", a.handleAuthDiscover)
 	mux.HandleFunc("GET /v1/auth/oidc/{provider}/start", a.handleAuthOIDCStart)
 	mux.HandleFunc("GET /v1/auth/oidc/{provider}/callback", a.handleAuthOIDCCallback)
+	mux.HandleFunc("GET /v1/auth/oauth2/{provider}/start", a.handleAuthOAuth2Start)
+	mux.HandleFunc("GET /v1/auth/oauth2/{provider}/callback", a.handleAuthOAuth2Callback)
 	mux.HandleFunc("POST /v1/auth/session/exchange", a.handleAuthSessionExchange)
 	mux.HandleFunc("POST /v1/auth/login", a.handleAuthLogin)
 	mux.HandleFunc("POST /v1/auth/refresh", a.handleAuthRefresh)

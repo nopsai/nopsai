@@ -101,16 +101,14 @@ func (s *Service) SetLocalEnabled(enabled bool) {
 	}
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
-	s.cfg.LocalEnabled = enabled
+	s.cfg.LocalEnabled = true
 }
 
 func (s *Service) localEnabled() bool {
 	if s == nil {
 		return false
 	}
-	s.cfgMu.RLock()
-	defer s.cfgMu.RUnlock()
-	return s.cfg.LocalEnabled
+	return true
 }
 
 func (s *Service) authenticatePersonalAccessToken(ctx context.Context, raw string) (*Claims, error) {
@@ -502,7 +500,16 @@ func (s *Service) lookupLoginUser(
 }
 
 func (s *Service) fetchRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
-	rows, err := s.db.Query(ctx, `SELECT role FROM user_roles WHERE user_id = $1`, userID)
+	rows, err := s.db.Query(ctx, `
+		SELECT role
+		FROM user_roles
+		WHERE user_id = $1
+		UNION
+		SELECT role_name
+		FROM auth_role_bindings
+		WHERE subject_type = 'user' AND subject_id = $2
+		ORDER BY 1 ASC
+	`, userID, userID.String())
 	if err != nil {
 		return nil, err
 	}

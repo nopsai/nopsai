@@ -173,6 +173,8 @@ func TestOIDCAuthEndpointsArePublic(t *testing.T) {
 		"/v1/auth/session/exchange",
 		"/v1/auth/oidc/corporate/start",
 		"/v1/auth/oidc/corporate/callback",
+		"/v1/auth/oauth2/github/start",
+		"/v1/auth/oauth2/github/callback",
 	}
 
 	for _, path := range publicPaths {

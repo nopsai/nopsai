@@ -35,7 +35,7 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 		len(oidc.Providers) > 0
 	if hasConfigAuth {
 		settings := oidcSettings{
-			LocalEnabled:      cfg.EffectiveAuthProviderLocalEnabled(),
+			LocalEnabled:      true,
 			OIDCEnabled:       oidc.Enabled,
 			AutoCreateUsers:   oidc.AutoCreateUsers,
 			DefaultRole:       strings.TrimSpace(oidc.DefaultRole),
@@ -45,7 +45,21 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 			return err
 		}
 	}
-	for id, providerCfg := range oidc.Providers {
+	providerIDs := make([]string, 0, len(oidc.Providers))
+	for id := range oidc.Providers {
+		providerIDs = append(providerIDs, id)
+	}
+	sort.Strings(providerIDs)
+	activeProviderSeeded := false
+	for _, id := range providerIDs {
+		providerCfg := oidc.Providers[id]
+		enabled := providerCfg.Enabled == nil || *providerCfg.Enabled
+		if enabled && activeProviderSeeded {
+			enabled = false
+		}
+		if enabled {
+			activeProviderSeeded = true
+		}
 		provider := oidcProviderRecord{
 			ID:                    normalizeOIDCProviderID(id),
 			Type:                  normalizeOIDCProviderType(providerCfg.Type),
@@ -57,7 +71,7 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 			UserInfoEndpoint:      strings.TrimSpace(providerCfg.UserInfoEndpoint),
 			ClientID:              strings.TrimSpace(providerCfg.ClientID),
 			ClientCredentialRef:   strings.TrimSpace(providerCfg.ClientCredentialRef),
-			Scopes:                normalizeOIDCScopes(providerCfg.Scopes),
+			Scopes:                normalizeExternalProviderScopes(providerCfg.Type, providerCfg.Scopes),
 			AllowedEmailDomains:   normalizeOIDCEmailDomains(providerCfg.AllowedEmailDomains),
 			TeamClaim:             strings.TrimSpace(providerCfg.TeamClaim),
 			RoleMapping:           normalizeOIDCRoleMapping(providerCfg.RoleMapping),
@@ -67,10 +81,10 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 			AutoCreateUsers:       providerCfg.AutoCreateUsers,
 			DefaultRole:           strings.TrimSpace(providerCfg.DefaultRole),
 			AllowEmailLinking:     providerCfg.AllowEmailLinking,
-			Enabled:               providerCfg.Enabled == nil || *providerCfg.Enabled,
+			Enabled:               enabled,
 			ConfigSource:          authProviderSourceConfig,
 		}
-		if provider.ID == "" || provider.Issuer == "" || provider.ClientID == "" {
+		if provider.ID == "" || provider.ClientID == "" || (!providerUsesOAuth2(provider) && provider.Issuer == "") {
 			continue
 		}
 		if err := upsertOIDCProvider(ctx, db, provider, true); err != nil {
@@ -95,7 +109,7 @@ func getOIDCSettings(ctx context.Context, db *pgxpool.Pool, cfg *config.Config) 
 	}
 	if cfg != nil {
 		oidc := cfg.EffectiveOIDCAuth()
-		defaults.LocalEnabled = cfg.EffectiveAuthProviderLocalEnabled()
+		defaults.LocalEnabled = true
 		defaults.OIDCEnabled = oidc.Enabled
 		defaults.AutoCreateUsers = oidc.AutoCreateUsers
 		defaults.DefaultRole = strings.TrimSpace(oidc.DefaultRole)
@@ -119,6 +133,7 @@ func getOIDCSettings(ctx context.Context, db *pgxpool.Pool, cfg *config.Config) 
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		return defaults, err
 	}
+	stored.LocalEnabled = true
 	stored.DefaultRole = strings.TrimSpace(stored.DefaultRole)
 	return stored, nil
 }
@@ -127,6 +142,7 @@ func upsertOIDCSettings(ctx context.Context, db *pgxpool.Pool, settings oidcSett
 	if db == nil {
 		return nil
 	}
+	settings.LocalEnabled = true
 	settings.DefaultRole = strings.TrimSpace(settings.DefaultRole)
 	raw, err := json.Marshal(settings)
 	if err != nil {
@@ -260,7 +276,7 @@ func scanOIDCProvider(scanner oidcProviderScanner) (oidcProviderRecord, error) {
 	_ = json.Unmarshal(teamMappingJSON, &provider.TeamMapping)
 	_ = json.Unmarshal(basicRoleMappingJSON, &provider.BasicRoleMapping)
 	_ = json.Unmarshal(entitlementSyncJSON, &provider.EntitlementSync)
-	provider.Scopes = normalizeOIDCScopes(provider.Scopes)
+	provider.Scopes = normalizeExternalProviderScopes(provider.Type, provider.Scopes)
 	provider.AllowedEmailDomains = normalizeOIDCEmailDomains(provider.AllowedEmailDomains)
 	provider.RoleMapping = normalizeOIDCRoleMapping(provider.RoleMapping)
 	provider.TeamMapping = normalizeOIDCTeamMapping(provider.TeamMapping)
@@ -274,7 +290,33 @@ func scanOIDCProvider(scanner oidcProviderScanner) (oidcProviderRecord, error) {
 		value := allowLink.Bool
 		provider.AllowEmailLinking = &value
 	}
+	provider.Capabilities = identityProviderCapabilitiesForRecord(provider)
 	return provider, nil
+}
+
+func identityProviderCapabilitiesForRecord(provider oidcProviderRecord) identityProviderCapabilities {
+	capabilities := identityProviderCapabilities{Authentication: true}
+	if provider.AutoCreateUsers != nil && *provider.AutoCreateUsers {
+		capabilities.Provisioning = true
+	}
+	if len(provider.TeamMapping) > 0 || len(provider.BasicRoleMapping) > 0 || strings.TrimSpace(provider.TeamClaim) != "" {
+		capabilities.GroupSync = true
+	}
+	if len(provider.RoleMapping) > 0 || strings.TrimSpace(provider.DefaultRole) != "" {
+		capabilities.RoleSync = true
+	}
+	sync := normalizeOIDCEntitlementSync(provider.EntitlementSync)
+	switch sync.Mode {
+	case "keycloak_team_roles", "github_organization_teams", "okta_groups", "scim_groups":
+		capabilities.DirectorySync = true
+		capabilities.GroupSync = true
+		capabilities.RoleSync = true
+		capabilities.Provisioning = true
+	}
+	if providerUsesOAuth2(provider) {
+		capabilities.GroupSync = true
+	}
+	return capabilities
 }
 
 func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProviderRecord, replaceCredentialRefs bool) error {
@@ -285,15 +327,26 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 	provider.Type = normalizeOIDCProviderType(provider.Type)
 	provider.Issuer = strings.TrimRight(strings.TrimSpace(provider.Issuer), "/")
 	provider.DisplayName = firstNonEmpty(strings.TrimSpace(provider.DisplayName), provider.ID)
-	provider.Scopes = normalizeOIDCScopes(provider.Scopes)
+	provider.Scopes = normalizeExternalProviderScopes(provider.Type, provider.Scopes)
 	provider.AllowedEmailDomains = normalizeOIDCEmailDomains(provider.AllowedEmailDomains)
 	provider.RoleMapping = normalizeOIDCRoleMapping(provider.RoleMapping)
 	provider.TeamMapping = normalizeOIDCTeamMapping(provider.TeamMapping)
 	provider.BasicRoleMapping = normalizeOIDCBasicRoleMapping(provider.BasicRoleMapping)
 	provider.EntitlementSync = normalizeOIDCEntitlementSync(provider.EntitlementSync)
 	provider.ConfigSource = firstNonEmpty(strings.TrimSpace(provider.ConfigSource), authProviderSourceDatabase)
-	if provider.ID == "" || provider.Issuer == "" || provider.ClientID == "" {
-		return fmt.Errorf("provider id, issuer, and client_id are required")
+	if providerUsesOAuth2(provider) {
+		provider.Issuer = firstNonEmptyString(provider.Issuer, "https://github.com")
+		provider.AuthorizationEndpoint = firstNonEmptyString(provider.AuthorizationEndpoint, "https://github.com/login/oauth/authorize")
+		provider.TokenEndpoint = firstNonEmptyString(provider.TokenEndpoint, "https://github.com/login/oauth/access_token")
+		provider.UserInfoEndpoint = firstNonEmptyString(provider.UserInfoEndpoint, "https://api.github.com/user")
+	}
+	if provider.ID == "" || provider.ClientID == "" || (!providerUsesOAuth2(provider) && provider.Issuer == "") {
+		return fmt.Errorf("provider id and client_id are required; issuer is required for OIDC providers")
+	}
+	if provider.Enabled {
+		if err := disableOtherIdentityProviders(ctx, db, provider.ID); err != nil {
+			return err
+		}
 	}
 	if !replaceCredentialRefs {
 		existing, err := getOIDCProvider(ctx, db, provider.ID)
@@ -380,6 +433,20 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 	return err
 }
 
+func disableOtherIdentityProviders(ctx context.Context, db *pgxpool.Pool, providerID string) error {
+	if db == nil {
+		return nil
+	}
+	_, err := db.Exec(ctx, `
+		UPDATE auth_identity_providers
+		SET enabled = FALSE,
+		    updated_at = NOW()
+		WHERE id <> $1
+		  AND enabled = TRUE
+	`, normalizeOIDCProviderID(providerID))
+	return err
+}
+
 func deleteOIDCProvider(ctx context.Context, db *pgxpool.Pool, providerID string) error {
 	providerID = normalizeOIDCProviderID(providerID)
 	if providerID == "" {
@@ -387,8 +454,22 @@ func deleteOIDCProvider(ctx context.Context, db *pgxpool.Pool, providerID string
 	}
 	if _, err := db.Exec(ctx, `
 		DELETE FROM access_grants
-		WHERE managed_by_identity_provider = TRUE
-		  AND identity_provider_id = $1
+		WHERE (managed_by_identity_provider = TRUE OR source = 'idp')
+		  AND COALESCE(NULLIF(provider_id, ''), identity_provider_id) = $1
+	`, providerID); err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, `
+		DELETE FROM auth_role_bindings
+		WHERE source = 'idp'
+		  AND provider_id = $1
+	`, providerID); err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, `
+		DELETE FROM auth_team_members
+		WHERE (managed_by_identity_provider = TRUE OR source = 'idp')
+		  AND COALESCE(NULLIF(provider_id, ''), identity_provider_id) = $1
 	`, providerID); err != nil {
 		return err
 	}
@@ -638,11 +719,16 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 	}
 
 	userID := uuid.New()
-	sub := fmt.Sprintf("oidc:%s:%s", provider.ID, identity.Subject)
+	providerPrefix := "oidc"
+	if providerUsesOAuth2(provider) {
+		providerPrefix = "oauth2"
+	}
+	sub := fmt.Sprintf("%s:%s:%s", providerPrefix, provider.ID, identity.Subject)
+	userProvider := providerPrefix + ":" + provider.ID
 	_, err = tx.Exec(ctx, `
 		INSERT INTO users (id, sub, email, provider, password_hash, status, must_change_password)
 		VALUES ($1, $2, $3, $4, NULL, 'active', FALSE)
-	`, userID, sub, identity.Email, "oidc:"+provider.ID)
+	`, userID, sub, identity.Email, userProvider)
 	if err != nil {
 		return result, err
 	}
@@ -894,15 +980,18 @@ func syncOIDCRolesAndTeams(ctx context.Context, tx oidcTx, userID uuid.UUID, pro
 		`, userID, provider.ID, role); err != nil {
 			return err
 		}
-		if err := aaastore.EnsureRoleBinding(ctx, tx, aaastore.RoleBinding{
+		if err := aaastore.EnsureExternalRoleBinding(ctx, tx, aaastore.RoleBinding{
 			RoleName:    role,
 			SubjectType: "user",
 			SubjectID:   userID.String(),
+		}, aaastore.ExternalBindingMetadata{
+			ProviderID:     provider.ID,
+			ExternalRoleID: role,
 		}); err != nil {
 			return err
 		}
 	}
-	return pruneNonExternalUserRoleAssignments(ctx, tx, userID)
+	return nil
 }
 
 func oidcDesiredAccessRoleSet(provider oidcProviderRecord, settings oidcSettings, identity oidcVerifiedIdentity) map[string]bool {
@@ -1088,20 +1177,36 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 			INSERT INTO access_grants (
 				subject_type, subject_id, subject_display, role_name,
 				resource_type, resource_id, resource_display, inherit, granted_by,
+				source, provider_id, external_group_id, external_role_id,
 				managed_by_identity_provider, identity_provider_id, external_team_name
 			)
-			VALUES ('user', $1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10)
+			VALUES ('user', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, TRUE, $10, $11)
 			ON CONFLICT (subject_type, subject_id, resource_type, resource_id) DO UPDATE
 			SET subject_display = EXCLUDED.subject_display,
 			    role_name = EXCLUDED.role_name,
 			    resource_display = EXCLUDED.resource_display,
 			    inherit = EXCLUDED.inherit,
 			    granted_by = EXCLUDED.granted_by,
+			    source = EXCLUDED.source,
+			    provider_id = EXCLUDED.provider_id,
+			    external_group_id = EXCLUDED.external_group_id,
+			    external_role_id = EXCLUDED.external_role_id,
 			    managed_by_identity_provider = TRUE,
 			    identity_provider_id = EXCLUDED.identity_provider_id,
 			    external_team_name = EXCLUDED.external_team_name
+			WHERE access_grants.managed_by_identity_provider = TRUE
+			   OR access_grants.source = 'idp'
 			RETURNING id
-		`, subjectID, subjectDisplay, roleName, resource.Type, resource.ID, resource.Display, grant.Inherit, "sso:"+providerID, providerID, grant.ExternalTeam).Scan(&grantID); err != nil {
+		`, subjectID, subjectDisplay, roleName, resource.Type, resource.ID, resource.Display, grant.Inherit, "sso:"+providerID, grantSourceIDP, providerID, grant.ExternalTeam, roleName).Scan(&grantID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+				log.Warn().
+					Str("provider", providerID).
+					Str("subject_id", subjectID).
+					Str("resource_type", resource.Type).
+					Str("resource_id", resource.ID).
+					Msg("Skipping SSO basic role grant because a local grant already owns this target.")
+				continue
+			}
 			return err
 		}
 		if err := rebuildAccessGrantExpansion(ctx, tx, grantID, grantSubjectUser, subjectID, roleName, resource); err != nil {
@@ -1115,8 +1220,8 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 			DELETE FROM access_grants
 			WHERE subject_type = 'user'
 			  AND subject_id = $1
-			  AND managed_by_identity_provider = TRUE
-			  AND identity_provider_id = $2
+			  AND (managed_by_identity_provider = TRUE OR source = 'idp')
+			  AND COALESCE(NULLIF(provider_id, ''), identity_provider_id) = $2
 		`, subjectID, providerID)
 		return err
 	}
@@ -1124,8 +1229,8 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 		DELETE FROM access_grants
 		WHERE subject_type = 'user'
 		  AND subject_id = $1
-		  AND managed_by_identity_provider = TRUE
-		  AND identity_provider_id = $2
+		  AND (managed_by_identity_provider = TRUE OR source = 'idp')
+		  AND COALESCE(NULLIF(provider_id, ''), identity_provider_id) = $2
 		  AND NOT (id = ANY($3::bigint[]))
 	`, subjectID, providerID, keptGrantIDs)
 	return err
@@ -1180,7 +1285,7 @@ func syncOIDCAuthTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUI
 		if authTeamName == "" {
 			continue
 		}
-		description := fmt.Sprintf("Managed by OIDC provider %s", providerID)
+		description := fmt.Sprintf("Managed by identity provider %s", providerID)
 		if _, err := tx.Exec(ctx, `
 			WITH team_record AS (
 				INSERT INTO auth_teams (name, description)
@@ -1190,16 +1295,22 @@ func syncOIDCAuthTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUI
 				RETURNING id
 			)
 			INSERT INTO auth_team_members (
-				team_id, subject_type, subject_id, managed_by_identity_provider,
-				identity_provider_id, external_team_name, auth_team_name
+				team_id, subject_type, subject_id,
+				source, provider_id, external_group_id,
+				managed_by_identity_provider, identity_provider_id, external_team_name, auth_team_name
 			)
-			SELECT id, 'user', $3, TRUE, $4, $5, $1
+			SELECT id, 'user', $3, 'idp', $4, $5, TRUE, $4, $5, $1
 			FROM team_record
 			ON CONFLICT (team_id, subject_type, subject_id) DO UPDATE
-			SET managed_by_identity_provider = TRUE,
+			SET source = 'idp',
+			    provider_id = EXCLUDED.provider_id,
+			    external_group_id = EXCLUDED.external_group_id,
+			    managed_by_identity_provider = TRUE,
 			    identity_provider_id = EXCLUDED.identity_provider_id,
 			    external_team_name = EXCLUDED.external_team_name,
 			    auth_team_name = EXCLUDED.auth_team_name
+			WHERE auth_team_members.managed_by_identity_provider = TRUE
+			   OR auth_team_members.source = 'idp'
 		`, authTeamName, description, subjectID, providerID, externalTeam); err != nil {
 			return err
 		}
@@ -1207,9 +1318,9 @@ func syncOIDCAuthTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUI
 			DELETE FROM auth_team_members
 			WHERE subject_type = 'user'
 			  AND subject_id = $1
-			  AND managed_by_identity_provider = TRUE
-			  AND identity_provider_id = $2
-			  AND external_team_name = $3
+			  AND (managed_by_identity_provider = TRUE OR source = 'idp')
+			  AND COALESCE(NULLIF(provider_id, ''), identity_provider_id) = $2
+			  AND COALESCE(NULLIF(external_group_id, ''), external_team_name) = $3
 			  AND auth_team_name <> $4
 		`, subjectID, providerID, externalTeam, authTeamName); err != nil {
 			return err
@@ -1221,8 +1332,8 @@ func syncOIDCAuthTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUI
 			DELETE FROM auth_team_members
 			WHERE subject_type = 'user'
 			  AND subject_id = $1
-			  AND managed_by_identity_provider = TRUE
-			  AND identity_provider_id = $2
+			  AND (managed_by_identity_provider = TRUE OR source = 'idp')
+			  AND COALESCE(NULLIF(provider_id, ''), identity_provider_id) = $2
 		`, subjectID, providerID); err != nil {
 			return err
 		}
@@ -1230,20 +1341,13 @@ func syncOIDCAuthTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUI
 		DELETE FROM auth_team_members
 		WHERE subject_type = 'user'
 		  AND subject_id = $1
-		  AND managed_by_identity_provider = TRUE
-		  AND identity_provider_id = $2
-		  AND NOT (external_team_name = ANY($3::text[]))
+		  AND (managed_by_identity_provider = TRUE OR source = 'idp')
+		  AND COALESCE(NULLIF(provider_id, ''), identity_provider_id) = $2
+		  AND NOT (COALESCE(NULLIF(external_group_id, ''), external_team_name) = ANY($3::text[]))
 	`, subjectID, providerID, externalTeams); err != nil {
 		return err
 	}
-
-	_, err := tx.Exec(ctx, `
-		DELETE FROM auth_team_members
-		WHERE subject_type = 'user'
-		  AND subject_id = $1
-		  AND managed_by_identity_provider = FALSE
-	`, subjectID)
-	return err
+	return nil
 }
 
 func pruneStaleExternalTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUID, providerID string, desired map[string]bool) error {
@@ -1310,15 +1414,14 @@ func pruneStaleExternalRoleAssignments(ctx context.Context, tx oidcTx, userID uu
 		`, userID, providerID, role); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM user_roles
-			WHERE user_id = $1 AND role = $2
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM auth_external_role_assignments
-				WHERE user_id = $1 AND role_name = $2
-			  )
-		`, userID, role); err != nil {
+		if _, err := aaastore.DeleteExternalRoleBinding(ctx, tx, aaastore.RoleBinding{
+			RoleName:    role,
+			SubjectType: "user",
+			SubjectID:   userID.String(),
+		}, aaastore.ExternalBindingMetadata{
+			ProviderID:     providerID,
+			ExternalRoleID: role,
+		}); err != nil {
 			return err
 		}
 		var remaining int
@@ -1330,64 +1433,27 @@ func pruneStaleExternalRoleAssignments(ctx context.Context, tx oidcTx, userID uu
 		`, userID, role).Scan(&remaining)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
-			if _, err := aaastore.DeleteRoleBinding(ctx, tx, aaastore.RoleBinding{
-				RoleName:    role,
-				SubjectType: "user",
-				SubjectID:   userID.String(),
-			}); err != nil {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM user_roles ur
+					WHERE ur.user_id = $1
+					  AND ur.role = $2
+					  AND NOT EXISTS (
+						SELECT 1
+						FROM auth_external_role_assignments er
+						WHERE er.user_id = $1 AND er.role_name = $2
+					  )
+					  AND NOT EXISTS (
+						SELECT 1
+						FROM auth_role_bindings rb
+						WHERE rb.subject_type = 'user'
+						  AND rb.subject_id = $3
+						  AND rb.role_name = $2
+						  AND COALESCE(rb.source, 'local') = 'local'
+					  )
+				`, userID, role, userID.String()); err != nil {
 				return err
 			}
 		case err != nil:
-			return err
-		}
-	}
-	return nil
-}
-
-func pruneNonExternalUserRoleAssignments(ctx context.Context, tx oidcTx, userID uuid.UUID) error {
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM user_roles ur
-		WHERE ur.user_id = $1
-		  AND NOT EXISTS (
-			SELECT 1
-			FROM auth_external_role_assignments er
-			WHERE er.user_id = $1 AND er.role_name = ur.role
-		  )
-	`, userID); err != nil {
-		return err
-	}
-	rows, err := tx.Query(ctx, `
-		SELECT rb.role_name
-		FROM auth_role_bindings rb
-		WHERE rb.subject_type = 'user'
-		  AND rb.subject_id = $2
-		  AND NOT EXISTS (
-			SELECT 1
-			FROM auth_external_role_assignments er
-			WHERE er.user_id = $1 AND er.role_name = rb.role_name
-		  )
-	`, userID, userID.String())
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	var staleRoles []string
-	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
-			return err
-		}
-		staleRoles = append(staleRoles, role)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, role := range staleRoles {
-		if _, err := aaastore.DeleteRoleBinding(ctx, tx, aaastore.RoleBinding{
-			RoleName:    role,
-			SubjectType: "user",
-			SubjectID:   userID.String(),
-		}); err != nil {
 			return err
 		}
 	}

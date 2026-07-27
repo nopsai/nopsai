@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const apiMocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  buildAuthProviderStartUrl: vi.fn(),
   buildOIDCStartUrl: vi.fn(),
   consumeNextSSOLoginPrompt: vi.fn(),
   discoverAuthProvider: vi.fn(),
@@ -15,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('../lib/api', () => ({
   apiClient: { fetch: apiMocks.apiFetch },
+  buildAuthProviderStartUrl: apiMocks.buildAuthProviderStartUrl,
   buildOIDCStartUrl: apiMocks.buildOIDCStartUrl,
   consumeNextSSOLoginPrompt: apiMocks.consumeNextSSOLoginPrompt,
   discoverAuthProvider: apiMocks.discoverAuthProvider,

@@ -9,6 +9,15 @@ vi.mock('../../lib/api', () => ({
 
 const fetchMock = vi.mocked(apiClient.fetch);
 
+async function withMutedConsoleError(run: () => Promise<void>) {
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    await run();
+  } finally {
+    errorSpy.mockRestore();
+  }
+}
+
 beforeEach(() => {
   sessionStorage.clear();
   fetchMock.mockReset();
@@ -104,8 +113,10 @@ test('keeps pipeline load failures visible and clears loading state', async () =
   fetchMock.mockResolvedValue(new Response('pipeline unavailable', { status: 503 }));
   const { result } = renderHook(() => useLabSession());
 
-  await act(async () => {
-    expect(await result.current.changePipeline('team/release')).toBe(false);
+  await withMutedConsoleError(async () => {
+    await act(async () => {
+      expect(await result.current.changePipeline('team/release')).toBe(false);
+    });
   });
   expect(result.current.feedback).toEqual({
     tone: 'error',

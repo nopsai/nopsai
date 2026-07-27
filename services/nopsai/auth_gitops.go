@@ -88,6 +88,9 @@ func parseGitOpsAuthSettingsFile(content, sourcePath string) (*gitOpsAuthSetting
 	default:
 		return nil, fmt.Errorf("auth settings GitOps file '%s' must define auth settings", sourcePath)
 	}
+	if authCfg.LocalEnabled != nil && !*authCfg.LocalEnabled {
+		return nil, fmt.Errorf("auth settings GitOps file '%s' cannot disable local authentication", sourcePath)
+	}
 
 	authCfg = config.NormalizeAuthConfig(authCfg)
 	settings, providers, domainMappings, err := oidcGitOpsStateFromAuthConfig(authCfg)
@@ -106,9 +109,6 @@ func parseGitOpsAuthSettingsFile(content, sourcePath string) (*gitOpsAuthSetting
 
 func oidcGitOpsStateFromAuthConfig(authCfg config.AuthConfig) (oidcSettings, map[string]oidcProviderRecord, map[string]string, error) {
 	localEnabled := true
-	if authCfg.LocalEnabled != nil {
-		localEnabled = *authCfg.LocalEnabled
-	}
 
 	settings := oidcSettings{
 		LocalEnabled:      localEnabled,
@@ -125,7 +125,11 @@ func oidcGitOpsStateFromAuthConfig(authCfg config.AuthConfig) (oidcSettings, map
 		if provider.ID == "" {
 			continue
 		}
-		if provider.Issuer == "" || provider.ClientID == "" {
+		if providerUsesOAuth2(provider) {
+			if provider.ClientID == "" {
+				return oidcSettings{}, nil, nil, fmt.Errorf("provider %q requires client_id", provider.ID)
+			}
+		} else if provider.Issuer == "" || provider.ClientID == "" {
 			return oidcSettings{}, nil, nil, fmt.Errorf("provider %q requires issuer and client_id", provider.ID)
 		}
 		providers[provider.ID] = provider
@@ -158,7 +162,7 @@ func oidcProviderRecordFromConfig(id string, providerCfg config.OIDCProviderConf
 		UserInfoEndpoint:      strings.TrimSpace(providerCfg.UserInfoEndpoint),
 		ClientID:              strings.TrimSpace(providerCfg.ClientID),
 		ClientCredentialRef:   strings.TrimSpace(providerCfg.ClientCredentialRef),
-		Scopes:                normalizeOIDCScopes(providerCfg.Scopes),
+		Scopes:                normalizeExternalProviderScopes(providerCfg.Type, providerCfg.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(providerCfg.AllowedEmailDomains),
 		TeamClaim:             strings.TrimSpace(providerCfg.TeamClaim),
 		RoleMapping:           normalizeOIDCRoleMapping(providerCfg.RoleMapping),
@@ -235,7 +239,7 @@ func (a *App) applyAuthSettingsGitOpsPlan(ctx context.Context, plan *gitOpsAuthS
 
 func buildAuthSettingsGitOpsFile(settings oidcSettings, providers []oidcProviderRecord, mappings map[string]string) authSettingsGitOpsFile {
 	doc := authSettingsGitOpsFile{
-		LocalEnabled: boolPtr(settings.LocalEnabled),
+		LocalEnabled: boolPtr(true),
 		OIDC: &config.OIDCAuthConfig{
 			Enabled:           settings.OIDCEnabled,
 			AutoCreateUsers:   settings.AutoCreateUsers,
@@ -275,7 +279,7 @@ func oidcProviderConfigFromRecord(provider oidcProviderRecord) config.OIDCProvid
 		UserInfoEndpoint:      strings.TrimSpace(provider.UserInfoEndpoint),
 		ClientID:              strings.TrimSpace(provider.ClientID),
 		ClientCredentialRef:   strings.TrimSpace(provider.ClientCredentialRef),
-		Scopes:                normalizeOIDCScopes(provider.Scopes),
+		Scopes:                normalizeExternalProviderScopes(provider.Type, provider.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(provider.AllowedEmailDomains),
 		TeamClaim:             strings.TrimSpace(provider.TeamClaim),
 		RoleMapping:           normalizeOIDCRoleMapping(provider.RoleMapping),

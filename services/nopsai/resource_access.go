@@ -501,9 +501,13 @@ func (a *App) listResourceAccessGrants(ctx context.Context, resource accessGrant
 			managed_by_config_repo,
 			config_source_path,
 			config_source_commit_sha,
-			managed_by_identity_provider,
-			identity_provider_id,
-			external_team_name
+				managed_by_identity_provider,
+				identity_provider_id,
+				external_team_name,
+				source,
+				provider_id,
+				external_group_id,
+				external_role_id
 		FROM access_grants
 		WHERE resource_type = $1 AND resource_id = $2
 		ORDER BY role_name ASC, subject_type ASC, subject_display ASC, subject_id ASC
@@ -534,6 +538,10 @@ func (a *App) listResourceAccessGrants(ctx context.Context, resource accessGrant
 			&record.ManagedByIdentityProvider,
 			&record.IdentityProviderID,
 			&record.ExternalTeamName,
+			&record.Source,
+			&record.ProviderID,
+			&record.ExternalGroupID,
+			&record.ExternalRoleID,
 		); err != nil {
 			return nil, err
 		}
@@ -572,9 +580,13 @@ func (a *App) listInheritedResourceAccessGrants(ctx context.Context, resource ac
 			managed_by_config_repo,
 			config_source_path,
 			config_source_commit_sha,
-			managed_by_identity_provider,
-			identity_provider_id,
-			external_team_name
+				managed_by_identity_provider,
+				identity_provider_id,
+				external_team_name,
+				source,
+				provider_id,
+				external_group_id,
+				external_role_id
 		FROM access_grants
 		WHERE resource_type = $1
 		  AND resource_id = ANY($2)
@@ -607,6 +619,10 @@ func (a *App) listInheritedResourceAccessGrants(ctx context.Context, resource ac
 			&record.ManagedByIdentityProvider,
 			&record.IdentityProviderID,
 			&record.ExternalTeamName,
+			&record.Source,
+			&record.ProviderID,
+			&record.ExternalGroupID,
+			&record.ExternalRoleID,
 		); err != nil {
 			return nil, err
 		}

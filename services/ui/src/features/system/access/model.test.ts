@@ -56,11 +56,14 @@ test("maps API access grant records into the UI contract", () => {
       identityProviderID: undefined,
       externalTeamName: undefined,
       source: undefined,
+      providerID: undefined,
+      externalGroupID: undefined,
+      externalRoleID: undefined,
     },
   );
 });
 
-test("formats externally managed OIDC users without exposing raw subject first", () => {
+test("formats externally authenticated users without exposing raw subject first", () => {
   const user = {
     id: "user-1",
     sub: "oidc:nopsai:7e9b8422-a701-4b4a-bf36-60b973fa98c6",
@@ -75,7 +78,7 @@ test("formats externally managed OIDC users without exposing raw subject first",
   };
 
   assert.equal(isExternallyManagedUser(user), true);
-  assert.equal(isUserRoleManagementLocked(user), true);
+  assert.equal(isUserRoleManagementLocked(user), false);
   assert.equal(userDisplayName(user), "sso-admin@example.com");
   assert.equal(userProviderLabel(user), "Local Keycloak");
   assert.equal(userSubjectLabel(user), "7e9b8422-a701-4b4a-bf36-60b973fa98c6");
@@ -114,7 +117,7 @@ test("normalizes identity provider state and builds save payloads", () => {
     ],
   });
 
-  assert.equal(state.settings.local_enabled, false);
+  assert.equal(state.settings.local_enabled, true);
   assert.equal(state.settings.default_role, "viewer");
   assert.equal(state.providers[0].display_name, "Company SSO");
   assert.deepEqual(state.providers[0].team_mapping, { "nopsai-admins": "sso-admins" });
