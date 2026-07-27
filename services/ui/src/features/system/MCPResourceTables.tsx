@@ -130,7 +130,7 @@ export function MCPProfileTable({
                   <button
                     type="button"
                     className="ai-resource-table-resource"
-                    aria-label={`Select MCP profile table row ${profile.name.split('/').filter(Boolean).pop() || profile.name}`}
+                    aria-label={`Select MCP profile ${profile.name.split('/').filter(Boolean).pop() || profile.name}`}
                     onClick={event => {
                       event.stopPropagation();
                       onSelectProfile(profile.name);
