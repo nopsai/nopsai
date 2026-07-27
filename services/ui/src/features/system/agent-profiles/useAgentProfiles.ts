@@ -13,7 +13,7 @@ import {
   buildAIResourceScopedID,
   normalizeAIResourceTeamPath,
 } from '../aiResourceTeams';
-import { teamAgentProfileRecords } from '../teamProfileAdapters';
+import { teamAgentProfileRecords, teamDefaultProfileAPIValue } from '../teamProfileAdapters';
 import {
   agentProfileFormFromRecord,
   agentProfilePayloadFromForm,
@@ -336,12 +336,15 @@ export function useAgentProfiles({
       const teamPath = normalizeAIResourceTeamPath(opts?.teamPath || aiResourceTeamScope(profileID).teamPath);
       if (teamPath) {
         if (!canManageTeamProfiles && !canManage) return;
-        const scopedDefault = aiResourceTeamScope(profileID).teamPath;
-        const localDefault = profileID ? (scopedDefault ? profileID : aiResourceLocalName(profileID)) : '';
+        const defaultForAPI = teamDefaultProfileAPIValue(
+          teamPath,
+          profileID,
+          teamProfilesPayload?.profiles.map(profile => profile.id) || []
+        );
         setSaving(true);
         setError(null);
         try {
-          setTeamProfilesPayload(await setTeamDefaultAgentProfile(teamPath, localDefault));
+          setTeamProfilesPayload(await setTeamDefaultAgentProfile(teamPath, defaultForAPI));
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Unable to set team default agent profile');
         } finally {
@@ -360,7 +363,7 @@ export function useAgentProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles]
+    [canManage, canManageTeamProfiles, teamProfilesPayload]
   );
 
   return {

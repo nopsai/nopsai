@@ -19,6 +19,7 @@ import {
   buildAIResourceScopedID,
   normalizeAIResourceTeamPath,
 } from '../aiResourceTeams';
+import { teamDefaultProfileAPIValue } from '../teamProfileAdapters';
 import {
   emptyLLMProfileForm,
   emptyLLMProfilesPayload,
@@ -206,12 +207,15 @@ export function useLLMProfiles({
       const teamPath = normalizeAIResourceTeamPath(opts?.teamPath || aiResourceTeamScope(nextDefault).teamPath);
       if (teamPath) {
         if (!canManageTeamProfiles && !canManage) return;
-        const scopedDefault = aiResourceTeamScope(nextDefault).teamPath;
-        const localDefault = nextDefault ? (scopedDefault ? nextDefault : aiResourceLocalName(nextDefault)) : '';
+        const defaultForAPI = teamDefaultProfileAPIValue(
+          teamPath,
+          nextDefault,
+          teamProfilesPayload?.profiles.map(profile => profile.name) || []
+        );
         setSaving(true);
         setError(null);
         try {
-          setTeamProfilesPayload(await setTeamDefaultLLMProfile(teamPath, localDefault));
+          setTeamProfilesPayload(await setTeamDefaultLLMProfile(teamPath, defaultForAPI));
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Unable to update team default profile');
         } finally {
@@ -230,7 +234,7 @@ export function useLLMProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, payload.profiles]
+    [canManage, canManageTeamProfiles, payload.profiles, teamProfilesPayload]
   );
 
   const deleteProfile = useCallback(

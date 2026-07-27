@@ -301,7 +301,7 @@ test('moves an edited team LLM profile to the global catalog', async () => {
   expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
   expect(screen.getByLabelText('Name')).toHaveValue('reasoning');
   await user.selectOptions(screen.getByLabelText('Team placement'), '');
-  expect(screen.getByText('reasoning')).toBeVisible();
+  expect(screen.getByLabelText('Name')).toHaveValue('reasoning');
   await user.click(screen.getByRole('button', { name: 'Save profile' }));
 
   await waitFor(() => expect(apiMocks.saveLLMProfile).toHaveBeenCalledWith(expect.objectContaining({ name: 'reasoning' })));
