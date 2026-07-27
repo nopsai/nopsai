@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -162,6 +163,38 @@ func parseGitOpsDashboards(files map[string]string, dashboardDir string, binding
 		}
 	}
 	return dashboards, nil
+}
+
+func dashboardPruneTargetsFromTeamRecords(dashboards map[string]storedDashboard, teamRecords map[int]teamPathRecord) ([]int, []string, error) {
+	if len(dashboards) == 0 {
+		return nil, nil, nil
+	}
+	teamIDsByPath := make(map[string]int, len(teamRecords))
+	for _, record := range teamRecords {
+		path := strings.Trim(strings.TrimSpace(record.Path), "/")
+		if path == "" {
+			continue
+		}
+		teamIDsByPath[path] = record.ID
+	}
+	keys := make([]string, 0, len(dashboards))
+	for key := range dashboards {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	teamIDs := make([]int, 0, len(keys))
+	slugs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		dashboard := dashboards[key]
+		teamPath := strings.Trim(strings.TrimSpace(dashboard.teamPath), "/")
+		teamID := teamIDsByPath[teamPath]
+		if teamID == 0 {
+			return nil, nil, fmt.Errorf("dashboard '%s' references missing team '%s'", key, dashboard.teamPath)
+		}
+		teamIDs = append(teamIDs, teamID)
+		slugs = append(slugs, dashboard.slug)
+	}
+	return teamIDs, slugs, nil
 }
 
 func (a *App) applyGitOpsDashboards(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, dashboards map[string]storedDashboard, commitSHA string, details map[string]int) error {

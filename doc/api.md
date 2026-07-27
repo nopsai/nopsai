@@ -854,7 +854,7 @@ GitOps:
 - The global config repo may define `setting/system/auth.yaml`.
 - The global config repo may define `setting/system/mail.yaml`.
 - The global config repo may define team notification policies with one or more named routes at `config-repositories/teams/<team>/notifications.yaml`.
-- A team-scoped config repo may define `notifications.yaml` with one or more named routes for its bound team.
+- A team-scoped config repo may define `config-repositories/teams/<team>/notifications.yaml` with one or more named routes for its bound team.
 - SMTP passwords are never stored in GitOps; only
   `smtp.password_credential_ref` is synced.
 
@@ -1567,10 +1567,10 @@ curl -X PUT -d '{"value":"repo"}' \
 curl "http://localhost:8080/v1/variables?scope=prod"
 ```
 
-- The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`.
+- The list endpoint now returns both global variables (e.g. `DATABASE_URL`) and repository-scoped entries in the form `owner/repo/NAME`; team-owned entries may also include the canonical team path, such as `team-1/owner/repo/NAME`.
 - Omitting `?scope=` targets the default scope and stores `scope = 'default'`.
 - Duplicate keys inside the same scope are rejected during config sync.
-- The config repo may define scoped variables under `variables:` and secret keys under `secrets:` in `scopes/<scope>/scope.yaml`; the sync endpoint imports them automatically. Scope variables must be inside the `variables:` section; flat top-level variable entries are rejected. GitOps secret values must be encrypted by this NopsAI instance, otherwise the key is imported with no value.
+- The config repo may define scoped variables under `variables:` and secret keys under `secrets:` in `scopes/<scope>/scope.yaml`; the sync endpoint imports them automatically. Scope variables must be inside the `variables:` section; flat top-level variable entries are rejected. Team config repositories accept repository keys as local `owner/repo/NAME` shorthand or canonical `team/path/owner/repo/NAME`. GitOps secret values must be encrypted by this NopsAI instance, otherwise the key is imported with no value.
 - To generate a GitOps secret value without storing it, call `POST /v1/secrets/encrypt` with `{"value":"plain"}` and commit the returned `encrypted_value`.
 - Pipeline `variables` entries can use `scope:NAME` to resolve from that explicit scope while injecting `NAME` at runtime. Bare `NAME` resolves from the run's current scope.
 - Updating a GitOps-managed scoped variable through the UI/API stores a database override and clears GitOps ownership metadata. Deleting one removes the database row; the next GitOps sync can recreate it unless the change is pushed back to GitOps.
@@ -1816,7 +1816,7 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and team-scoped repos may define team repo bindings under `config-repositories/teams/<team>.yaml`.
 - System- and team-scoped repos may define pipeline schedules under `schedules/`.
 - System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`.
-- System-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`. Team repos can use root `notifications.yaml` for their bound team.
+- System- and team-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`; team repos keep the bound team path explicit.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
 - The system/global repo may define mandatory local login and one enabled external identity provider under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
 - The system/global repo may define GitHub App IDs, credential references, and installations under `setting/git-apps/github.yaml`. The legacy `setting/system/github.yaml` file is read for one release to migrate `github_installation_id` into the first installation record, but exports stop writing it.

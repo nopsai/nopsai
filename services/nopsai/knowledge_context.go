@@ -269,7 +269,11 @@ func isKnowledgeContextGitOpsFile(path string) bool {
 func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository, boundTeam string) (string, string, string, error) {
 	rel = strings.Trim(strings.TrimSpace(filepath.ToSlash(rel)), "/")
 	parts := strings.Split(rel, "/")
-	if len(parts) < 3 {
+	minParts := 3
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+		minParts = 2
+	}
+	if len(parts) < minParts {
 		return "", "", "", fmt.Errorf("knowledge document path must use kind/team/document")
 	}
 	kind, err := normalizeKnowledgeContextKind(parts[0])
@@ -283,11 +287,19 @@ func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository
 	if err != nil {
 		return "", "", "", err
 	}
-	team, err := normalizeKnowledgeContextTeam(strings.Join(parts[1:len(parts)-1], "/"))
-	if err != nil {
-		return "", "", "", err
+	var team string
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam && len(parts) == 2 {
+		team, err = configsync.NormalizePathForTeam(boundTeam, "")
+		if err != nil {
+			return "", "", "", err
+		}
+	} else {
+		team, err = normalizeKnowledgeContextTeam(strings.Join(parts[1:len(parts)-1], "/"))
+		if err != nil {
+			return "", "", "", err
+		}
 	}
-	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam && len(parts) > 2 {
 		if team == "" {
 			team = boundTeam
 		} else {

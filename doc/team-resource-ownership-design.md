@@ -294,11 +294,12 @@ Support a new canonical layout while importing legacy team files during
 migration:
 
 ```text
-teams/
-  payments/
-    team.yaml
-    notifications.yaml
-    ai-profiles.yaml
+config-repositories/
+  teams/
+    payments/
+      structure.yaml
+      notifications.yaml
+ai-profiles.yaml
 ```
 
 Example:

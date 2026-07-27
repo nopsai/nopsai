@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, resourceAccess map[resourceAccessPlanKey]configRepositoryResourceAccessState, files map[string]string) error {
@@ -35,23 +36,9 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 		if !configRepositoryIncludesResource(repo, teamPath, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
-		filePath := strings.TrimSpace(sourcePath)
-		if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && filePath != "" {
-			var ok bool
-			filePath, ok = configRepositoryManagedSourcePath(repo, filePath)
-			if !ok {
-				continue
-			}
-		} else {
-			relTeam, ok := configRepositoryRelativeResourceIdentifier(repo, teamPath)
-			if !ok {
-				continue
-			}
-			relID := strings.Trim(strings.Trim(relTeam, "/")+"/"+strings.Trim(name, "/"), "/")
-			if relID == "" {
-				continue
-			}
-			filePath = filepath.ToSlash(filepath.Join("knowledge", kind, relID+".md"))
+		filePath, ok := configRepositoryKnowledgeExportPath(repo, kind, teamPath, name, sourcePath, managed, configRepoID)
+		if !ok {
+			continue
 		}
 		if !isConfigRepositoryDriftPath(filePath) {
 			continue
@@ -63,6 +50,27 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 		files[filePath] = renderKnowledgeContextGitOpsDocument(kind, name, description, content, identifier, access)
 	}
 	return rows.Err()
+}
+
+func configRepositoryKnowledgeExportPath(repo models.ConfigRepository, kind, teamPath, name, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
+	if _, ok := configRepositoryRelativeResourceIdentifier(repo, teamPath); !ok {
+		return "", false
+	}
+	normalizedTeam := strings.Trim(strings.TrimSpace(teamPath), "/")
+	if normalizedTeam == "" {
+		return "", false
+	}
+	relID := strings.Trim(normalizedTeam+"/"+strings.Trim(name, "/"), "/")
+	if relID == "" {
+		return "", false
+	}
+	canonicalPath := filepath.ToSlash(filepath.Join("knowledge", kind, relID+".md"))
+	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		if managedPath, ok := configsync.ManagedSourcePathForCanonical(repo, sourcePath, canonicalPath, configRepositoryDriftPathOptions()); ok {
+			return managedPath, true
+		}
+	}
+	return canonicalPath, true
 }
 
 type configRepositoryKnowledgeDocument struct {

@@ -80,14 +80,17 @@ func gitWebhookSourceExportPath(
 	configRepoIDValid bool,
 	configRepoID int64,
 ) (string, bool) {
-	if managed && configRepoIDValid && configRepoID == repo.ID && strings.TrimSpace(sourcePath) != "" {
-		return configRepositoryManagedSourcePath(repo, sourcePath)
-	}
 	id := externalTriggerGitOpsSlug(source.ID)
 	if id == "" {
 		return "", false
 	}
-	return filepath.ToSlash(filepath.Join(gitWebhookSourcesGitOpsDirectory, id+".yaml")), true
+	canonicalPath := filepath.ToSlash(filepath.Join(gitWebhookSourcesGitOpsDirectory, id+".yaml"))
+	if managed && configRepoIDValid && configRepoID == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		if managedPath, ok := configsync.ManagedSourcePathForCanonical(repo, sourcePath, canonicalPath, configRepositoryDriftPathOptions()); ok {
+			return managedPath, true
+		}
+	}
+	return canonicalPath, true
 }
 
 func effectiveGitWebhookSourceTeamPath(source gitWebhookSourceRecord) string {
