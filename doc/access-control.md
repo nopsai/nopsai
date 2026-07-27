@@ -300,6 +300,11 @@ service-account, advanced-role, policy, and direct advanced-role-binding
 management remains global.
 In a team repo, grant resource IDs are normalized under the bound team, so a
 grant with `resource_type: team` in the `team-1` repo targets `team:team-1`.
+Knowledge access follows the same team-relative rule: in a `team-1` repo,
+`knowledge_context:guideline/go-style` targets
+`knowledge_context:guideline/team-1/go-style`, and
+`knowledge_connection:notion-main` targets
+`knowledge_connection:team-1/notion-main`.
 
 User- and service-account-level `advanced_roles` assignments can reference
 custom roles from the manifest or protected built-in role bundles such as

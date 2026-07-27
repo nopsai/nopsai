@@ -280,3 +280,84 @@ content:
 		t.Fatalf("file name should not define context key when name is declared")
 	}
 }
+
+func TestParseGitOpsKnowledgeContextsTeamRepoAcceptsExplicitTeamDocumentPath(t *testing.T) {
+	files := map[string]string{
+		"knowledge/guideline/team-1/go-style.md": `---
+name: go-style
+kind: guideline
+content: |
+  # Go Style
+
+  Keep helpers small.
+---
+`,
+	}
+
+	contexts, err := parseGitOpsKnowledgeContexts(files, "knowledge", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+	}, "team-1", newAccessSyncPlan())
+	if err != nil {
+		t.Fatalf("parseGitOpsKnowledgeContexts() error = %v", err)
+	}
+
+	context, ok := contexts["guideline/team-1/go-style"]
+	if !ok {
+		t.Fatalf("expected bound-team knowledge context, got %#v", contexts)
+	}
+	if context.team != "team-1" {
+		t.Fatalf("team = %q, want team-1", context.team)
+	}
+	if context.sourcePath != "knowledge/guideline/team-1/go-style.md" {
+		t.Fatalf("sourcePath = %q, want knowledge/guideline/team-1/go-style.md", context.sourcePath)
+	}
+}
+
+func TestParseGitOpsKnowledgeContextsTeamRepoAllowsLegacyBoundTeamDocumentPath(t *testing.T) {
+	files := map[string]string{
+		"knowledge/guideline/go-style.md": `---
+name: go-style
+kind: guideline
+content: |
+  # Go Style
+
+  Keep helpers small.
+---
+`,
+	}
+
+	contexts, err := parseGitOpsKnowledgeContexts(files, "knowledge", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+	}, "team-1", newAccessSyncPlan())
+	if err != nil {
+		t.Fatalf("parseGitOpsKnowledgeContexts() error = %v", err)
+	}
+
+	context, ok := contexts["guideline/team-1/go-style"]
+	if !ok {
+		t.Fatalf("expected bound-team knowledge context, got %#v", contexts)
+	}
+	if context.sourcePath != "knowledge/guideline/go-style.md" {
+		t.Fatalf("sourcePath = %q, want legacy knowledge/guideline/go-style.md", context.sourcePath)
+	}
+}
+
+func TestParseGitOpsKnowledgeContextsSystemRepoRejectsMissingTeamSegment(t *testing.T) {
+	_, err := parseGitOpsKnowledgeContexts(map[string]string{
+		"knowledge/guideline/go-style.md": `name: go-style
+kind: guideline
+content: Keep helpers small.
+`,
+	}, "knowledge", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "", newAccessSyncPlan())
+	if err == nil {
+		t.Fatal("parseGitOpsKnowledgeContexts() error = nil, want missing team path error")
+	}
+	if !strings.Contains(err.Error(), "knowledge document path must use kind/team/document") {
+		t.Fatalf("error = %q, want missing team path error", err)
+	}
+}

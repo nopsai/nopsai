@@ -119,19 +119,17 @@ func (a *App) exportConfigRepositoryTriggers(ctx context.Context, repo models.Co
 }
 
 func configRepositoryTriggerExportPath(repo models.ConfigRepository, repositoryName, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
-	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
-		return configRepositoryManagedSourcePath(repo, sourcePath)
-	}
 	identifier := strings.Trim(strings.TrimSpace(repositoryName), "/")
 	if identifier == "" {
 		return "", false
 	}
-	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
-		if rel, ok := configRepositoryRelativeResourceIdentifier(repo, identifier); ok && rel != "" {
-			identifier = rel
+	canonicalPath := filepath.ToSlash(filepath.Join("triggers", identifier+".yaml"))
+	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		if managedPath, ok := configsync.ManagedSourcePathForCanonical(repo, sourcePath, canonicalPath, configRepositoryDriftPathOptions()); ok {
+			return managedPath, true
 		}
 	}
-	return filepath.ToSlash(filepath.Join("triggers", identifier+".yaml")), true
+	return canonicalPath, true
 }
 
 func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
@@ -207,31 +205,11 @@ func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo m
 }
 
 func configRepositoryIncludesExternalTrigger(repo models.ConfigRepository, trigger externalTriggerRecord, source string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
-	resourceScope := externalTriggerConfigScope(trigger)
-	if configsync.ResourceUnderAnyScope(resourceScope, delegatedScopes) {
-		return false
-	}
-	if managed && configRepoID.Valid {
-		return configRepoID.Int64 == repo.ID
-	}
-	if !strings.EqualFold(strings.TrimSpace(source), "database") {
-		return false
-	}
-	return configsync.ResourceUnderBindingScope(resourceScope, repo)
+	return configRepositoryIncludesResource(repo, externalTriggerConfigScope(trigger), source, configRepoID, managed, delegatedScopes)
 }
 
 func configRepositoryIncludesGitWebhookSource(repo models.ConfigRepository, source gitWebhookSourceRecord, sourceType string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
-	resourceScope := effectiveGitWebhookSourceTeamPath(source)
-	if configsync.ResourceUnderAnyScope(resourceScope, delegatedScopes) {
-		return false
-	}
-	if managed && configRepoID.Valid {
-		return configRepoID.Int64 == repo.ID
-	}
-	if !strings.EqualFold(strings.TrimSpace(sourceType), "database") {
-		return false
-	}
-	return configsync.ResourceUnderBindingScope(resourceScope, repo)
+	return configRepositoryIncludesResource(repo, effectiveGitWebhookSourceTeamPath(source), sourceType, configRepoID, managed, delegatedScopes)
 }
 
 func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {

@@ -157,8 +157,8 @@ func addScopeVariableConfigEntry(
 	}
 
 	parts := strings.Split(trimmedKey, "/")
-	switch len(parts) {
-	case 1:
+	switch {
+	case len(parts) == 1:
 		if err := validateScopeRuntimeName("variable", trimmedKey, trimmedKey, sourcePath); err != nil {
 			return err
 		}
@@ -167,21 +167,10 @@ func addScopeVariableConfigEntry(
 			return fmt.Errorf("duplicate scope variable '%s' for '%s' detected", trimmedKey, scopePath)
 		}
 		generalScopeVars[gKey] = storedScopeVar{value: strValue, sourcePath: sourcePath}
-	case 3:
-		repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
-		varName := strings.TrimSpace(parts[2])
-		if repoName == "" || varName == "" {
-			return fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, sourcePath)
-		}
-		if err := validateScopeRuntimeName("variable", varName, trimmedKey, sourcePath); err != nil {
+	case len(parts) >= 3:
+		repoName, varName, err := parseRepositoryScopeRuntimeKey("variable", trimmedKey, sourcePath, binding, boundTeam)
+		if err != nil {
 			return err
-		}
-		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-			normalizedRepoName, err := configsync.NormalizePathForTeam(boundTeam, repoName)
-			if err != nil {
-				return fmt.Errorf("invalid team-scoped repository variable key '%s' in '%s': %w", trimmedKey, sourcePath, err)
-			}
-			repoName = normalizedRepoName
 		}
 		rKey := repoScopeVarKey{repo: repoName, scopePath: scopePath, name: varName}
 		if _, exists := repoScopeVars[rKey]; exists {
@@ -214,8 +203,8 @@ func (a *App) addScopeSecretConfigEntry(
 	}
 
 	parts := strings.Split(trimmedKey, "/")
-	switch len(parts) {
-	case 1:
+	switch {
+	case len(parts) == 1:
 		if err := validateScopeRuntimeName("secret", trimmedKey, trimmedKey, sourcePath); err != nil {
 			return err
 		}
@@ -224,21 +213,10 @@ func (a *App) addScopeSecretConfigEntry(
 			return fmt.Errorf("duplicate scope secret '%s' for '%s' detected", trimmedKey, scopePath)
 		}
 		generalScopeSecrets[gKey] = storedScopeSecret{encryptedValue: encryptedValue, sourcePath: sourcePath}
-	case 3:
-		repoName := fmt.Sprintf("%s/%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
-		secretName := strings.TrimSpace(parts[2])
-		if repoName == "" || secretName == "" {
-			return fmt.Errorf("invalid repository-scoped secret key '%s' in '%s'", trimmedKey, sourcePath)
-		}
-		if err := validateScopeRuntimeName("secret", secretName, trimmedKey, sourcePath); err != nil {
+	case len(parts) >= 3:
+		repoName, secretName, err := parseRepositoryScopeRuntimeKey("secret", trimmedKey, sourcePath, binding, boundTeam)
+		if err != nil {
 			return err
-		}
-		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-			normalizedRepoName, err := configsync.NormalizePathForTeam(boundTeam, repoName)
-			if err != nil {
-				return fmt.Errorf("invalid team-scoped repository secret key '%s' in '%s': %w", trimmedKey, sourcePath, err)
-			}
-			repoName = normalizedRepoName
 		}
 		rKey := repoScopeSecretKey{repo: repoName, scopePath: scopePath, name: secretName}
 		if _, exists := repoScopeSecrets[rKey]; exists {
@@ -249,6 +227,31 @@ func (a *App) addScopeSecretConfigEntry(
 		return fmt.Errorf("scope secret key '%s' in '%s' has an unsupported format", trimmedKey, sourcePath)
 	}
 	return nil
+}
+
+func parseRepositoryScopeRuntimeKey(kind, rawKey, sourcePath string, binding models.ConfigRepository, boundTeam string) (string, string, error) {
+	parts := strings.Split(rawKey, "/")
+	runtimeName := strings.TrimSpace(parts[len(parts)-1])
+	if runtimeName == "" {
+		return "", "", fmt.Errorf("invalid repository-scoped %s key '%s' in '%s'", kind, rawKey, sourcePath)
+	}
+	if err := validateScopeRuntimeName(kind, runtimeName, rawKey, sourcePath); err != nil {
+		return "", "", err
+	}
+
+	repoSegments, err := configsync.CleanPathSegments(strings.Join(parts[:len(parts)-1], "/"), false)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid repository-scoped %s key '%s' in '%s': %w", kind, rawKey, sourcePath, err)
+	}
+	repoName := strings.Join(repoSegments, "/")
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+		normalizedRepoName, err := configsync.NormalizePathForTeam(boundTeam, repoName)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid team-scoped repository %s key '%s' in '%s': %w", kind, rawKey, sourcePath, err)
+		}
+		repoName = normalizedRepoName
+	}
+	return repoName, runtimeName, nil
 }
 
 func validateScopeRuntimeName(kind, name, rawKey, sourcePath string) error {
