@@ -50,7 +50,7 @@ test("renders user assignments and delegates edit and delete actions", async () 
   expect(onDelete).toHaveBeenCalledWith("user-1");
 });
 
-test("renders externally managed users with friendly identity labels", async () => {
+test("renders externally authenticated users with friendly identity labels", async () => {
   const onEdit = vi.fn();
   const onDelete = vi.fn();
   const user = userEvent.setup();
@@ -86,9 +86,9 @@ test("renders externally managed users with friendly identity labels", async () 
   );
 
   expect(screen.getByText("sso-admin@example.com")).toBeInTheDocument();
-  expect(screen.getByText("Managed by Local Keycloak")).toBeInTheDocument();
+  expect(screen.getByText("Authenticated by Local Keycloak")).toBeInTheDocument();
   expect(screen.getByText(/External subject 7e9b8422/)).toBeInTheDocument();
-  expect(screen.getByText("Keycloak: nopsai-admin")).toBeInTheDocument();
+  expect(screen.getByText("IdP: nopsai-admin")).toBeInTheDocument();
   expect(screen.getByText("NopsAI: sso-admins")).toBeInTheDocument();
   expect(
     screen.queryByText("oidc:nopsai:7e9b8422-a701-4b4a-bf36-60b973fa98c6"),

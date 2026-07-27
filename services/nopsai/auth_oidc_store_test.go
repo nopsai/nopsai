@@ -84,11 +84,11 @@ func TestSyncOIDCAuthTeamMembershipsCreatesAndPrunesProviderTeams(t *testing.T) 
 	if !recordedOIDCExecContains(tx.execs, "auth_team_name <>", "keycloak-admins", "NopsAI Admins") {
 		t.Fatalf("execs missing stale remap prune for admins: %#v", tx.execs)
 	}
-	if !recordedOIDCExecContains(tx.execs, "external_team_name = ANY", "nopsai") {
+	if !recordedOIDCExecContains(tx.execs, "external_group_id, ''), external_team_name) = ANY", "nopsai") {
 		t.Fatalf("execs missing provider-managed stale team prune: %#v", tx.execs)
 	}
-	if !recordedOIDCExecContains(tx.execs, "managed_by_identity_provider = FALSE", userID.String()) {
-		t.Fatalf("execs missing local team membership prune: %#v", tx.execs)
+	if recordedOIDCExecContains(tx.execs, "managed_by_identity_provider = FALSE", userID.String()) {
+		t.Fatalf("execs should not prune local team memberships: %#v", tx.execs)
 	}
 }
 
@@ -101,11 +101,11 @@ func TestSyncOIDCAuthTeamMembershipsPrunesWhenMappingEmpty(t *testing.T) {
 		t.Fatalf("syncOIDCAuthTeamMemberships() error = %v", err)
 	}
 
-	if !recordedOIDCExecContains(tx.execs, "identity_provider_id = $2", "nopsai") {
+	if !recordedOIDCExecContains(tx.execs, "provider_id, ''), identity_provider_id) = $2", "nopsai") {
 		t.Fatalf("execs missing provider-managed team prune: %#v", tx.execs)
 	}
-	if !recordedOIDCExecContains(tx.execs, "managed_by_identity_provider = FALSE", userID.String()) {
-		t.Fatalf("execs missing local team membership prune: %#v", tx.execs)
+	if recordedOIDCExecContains(tx.execs, "managed_by_identity_provider = FALSE", userID.String()) {
+		t.Fatalf("execs should not prune local team memberships: %#v", tx.execs)
 	}
 }
 

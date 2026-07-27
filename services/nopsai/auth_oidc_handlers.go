@@ -97,6 +97,10 @@ func (a *App) handleAuthOIDCStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "provider is disabled", http.StatusNotFound)
 		return
 	}
+	if providerUsesOAuth2(provider) {
+		http.Error(w, "provider uses oauth2", http.StatusBadRequest)
+		return
+	}
 	metadata, err := a.discoverOIDCMetadata(r.Context(), provider)
 	if err != nil {
 		http.Error(w, "failed to discover provider metadata", http.StatusBadGateway)
@@ -180,6 +184,10 @@ func (a *App) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.auditOIDC(r, providerID, "", "auth.oidc.failure", "failure", map[string]any{"reason": "provider_not_found"})
 		http.Error(w, "provider not found", http.StatusNotFound)
+		return
+	}
+	if providerUsesOAuth2(provider) {
+		http.Error(w, "provider uses oauth2", http.StatusBadRequest)
 		return
 	}
 	stateRecord, err := consumeOIDCState(r.Context(), a.db, provider.ID, state)
@@ -342,7 +350,11 @@ func (a *App) handleUpdateAdminIdentityProviderSettings(w http.ResponseWriter, r
 		return
 	}
 	if req.LocalEnabled != nil {
-		current.LocalEnabled = *req.LocalEnabled
+		if !*req.LocalEnabled {
+			http.Error(w, "local authentication cannot be disabled", http.StatusBadRequest)
+			return
+		}
+		current.LocalEnabled = true
 	}
 	if req.OIDCEnabled != nil {
 		current.OIDCEnabled = *req.OIDCEnabled
@@ -400,7 +412,7 @@ func (a *App) handleUpsertAdminIdentityProvider(w http.ResponseWriter, r *http.R
 		UserInfoEndpoint:      strings.TrimSpace(req.UserInfoEndpoint),
 		ClientID:              strings.TrimSpace(req.ClientID),
 		ClientCredentialRef:   strings.TrimSpace(req.ClientCredentialRef),
-		Scopes:                normalizeOIDCScopes(req.Scopes),
+		Scopes:                normalizeExternalProviderScopes(req.Type, req.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(req.AllowedEmailDomains),
 		TeamClaim:             strings.TrimSpace(req.TeamClaim),
 		RoleMapping:           normalizeOIDCRoleMapping(req.RoleMapping),

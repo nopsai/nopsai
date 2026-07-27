@@ -47,8 +47,17 @@ type oidcProviderRecord struct {
 	AllowEmailLinking     *bool                                `json:"allow_email_linking,omitempty"`
 	Enabled               bool                                 `json:"enabled"`
 	ConfigSource          string                               `json:"config_source"`
+	Capabilities          identityProviderCapabilities         `json:"capabilities"`
 	CreatedAt             time.Time                            `json:"created_at"`
 	UpdatedAt             time.Time                            `json:"updated_at"`
+}
+
+type identityProviderCapabilities struct {
+	Authentication bool `json:"authentication"`
+	Provisioning   bool `json:"provisioning"`
+	GroupSync      bool `json:"group_sync"`
+	RoleSync       bool `json:"role_sync"`
+	DirectorySync  bool `json:"directory_sync"`
 }
 
 type oidcPublicProvider struct {
@@ -57,6 +66,7 @@ type oidcPublicProvider struct {
 	DisplayName         string   `json:"display_name"`
 	Scopes              []string `json:"scopes,omitempty"`
 	AllowedEmailDomains []string `json:"allowed_email_domains,omitempty"`
+	AuthURLKind         string   `json:"auth_url_kind"`
 }
 
 type oidcProvidersResponse struct {
@@ -175,6 +185,7 @@ func publicProviderFromRecord(provider oidcProviderRecord) oidcPublicProvider {
 		DisplayName:         provider.DisplayName,
 		Scopes:              append([]string(nil), provider.Scopes...),
 		AllowedEmailDomains: append([]string(nil), provider.AllowedEmailDomains...),
+		AuthURLKind:         authURLKindForProvider(provider),
 	}
 }
 
@@ -200,6 +211,12 @@ func normalizeOIDCProviderType(raw string) string {
 	switch typ {
 	case "", "generic":
 		return "oidc"
+	case "okta":
+		return "okta"
+	case "keycloak":
+		return "keycloak"
+	case "github", "github-oauth", "oauth2-github":
+		return "github"
 	case "entra", "entra-id", "azure", "azure-ad", "microsoft-entra":
 		return "microsoft"
 	case "google-workspace":
@@ -207,6 +224,17 @@ func normalizeOIDCProviderType(raw string) string {
 	default:
 		return typ
 	}
+}
+
+func providerUsesOAuth2(provider oidcProviderRecord) bool {
+	return normalizeOIDCProviderType(provider.Type) == "github"
+}
+
+func authURLKindForProvider(provider oidcProviderRecord) string {
+	if providerUsesOAuth2(provider) {
+		return "oauth2"
+	}
+	return "oidc"
 }
 
 func normalizeOIDCEmailDomain(raw string) string {
@@ -248,6 +276,31 @@ func normalizeOIDCScopes(scopes []string) []string {
 		add("profile")
 	}
 	return out
+}
+
+func normalizeExternalProviderScopes(providerType string, scopes []string) []string {
+	if normalizeOIDCProviderType(providerType) == "github" {
+		seen := map[string]bool{}
+		out := make([]string, 0, len(scopes)+3)
+		add := func(scope string) {
+			scope = strings.TrimSpace(scope)
+			if scope == "" || seen[scope] {
+				return
+			}
+			seen[scope] = true
+			out = append(out, scope)
+		}
+		for _, scope := range scopes {
+			add(scope)
+		}
+		if len(out) == 0 {
+			add("read:user")
+			add("user:email")
+			add("read:org")
+		}
+		return out
+	}
+	return normalizeOIDCScopes(scopes)
 }
 
 func normalizeOIDCRoleMapping(mapping map[string]string) map[string]string {

@@ -78,6 +78,18 @@ var authSchemaStatements = []string{
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS team_mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS basic_role_mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS entitlement_sync JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	`WITH ranked AS (
+		SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC, id ASC) AS rn
+		FROM auth_identity_providers
+		WHERE enabled = TRUE
+	)
+	UPDATE auth_identity_providers p
+	SET enabled = FALSE,
+	    updated_at = NOW()
+	FROM ranked
+	WHERE p.id = ranked.id
+	  AND ranked.rn > 1`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_identity_providers_single_enabled ON auth_identity_providers(enabled) WHERE enabled = TRUE`,
 	`CREATE TABLE IF NOT EXISTS auth_oidc_domain_mappings (
 		domain TEXT PRIMARY KEY,
 		provider_id TEXT NOT NULL REFERENCES auth_identity_providers(id) ON DELETE CASCADE,

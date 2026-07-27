@@ -53,7 +53,7 @@ export const ACCESS_SECTION_CONTENT: Record<
   },
   'identity-providers': {
     title: 'Identity providers',
-    description: 'Configure Google, Microsoft, and generic OIDC providers plus email-domain discovery.',
+    description: 'Configure Okta, Entra ID, Keycloak, Google, GitHub, and generic OIDC providers plus email-domain discovery.',
     searchPlaceholder: 'Search providers, issuers, domains, or client IDs',
     resultsLabel: 'identity providers',
   },

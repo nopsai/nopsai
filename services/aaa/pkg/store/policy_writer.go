@@ -30,6 +30,12 @@ type RoleBinding struct {
 	SubjectID   string
 }
 
+type ExternalBindingMetadata struct {
+	ProviderID      string
+	ExternalGroupID string
+	ExternalRoleID  string
+}
+
 type ResourceACL struct {
 	ResourceType  string
 	ResourceID    string
@@ -157,18 +163,31 @@ func DeleteRolePermission(ctx context.Context, runner PolicyRunner, permission R
 
 func CreateRoleBinding(ctx context.Context, runner PolicyRunner, binding RoleBinding) error {
 	_, err := runner.Exec(ctx, `
-		INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-		VALUES ($1, $2, $3)
+		INSERT INTO auth_role_bindings (role_name, subject_type, subject_id, source)
+		VALUES ($1, $2, $3, 'local')
 	`, binding.RoleName, binding.SubjectType, binding.SubjectID)
 	return err
 }
 
 func EnsureRoleBinding(ctx context.Context, runner PolicyRunner, binding RoleBinding) error {
 	_, err := runner.Exec(ctx, `
-		INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
+		INSERT INTO auth_role_bindings (
+			role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id
+		)
+		VALUES ($1, $2, $3, 'local', '', '', '')
+		ON CONFLICT (role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id) DO NOTHING
 	`, binding.RoleName, binding.SubjectType, binding.SubjectID)
+	return err
+}
+
+func EnsureExternalRoleBinding(ctx context.Context, runner PolicyRunner, binding RoleBinding, metadata ExternalBindingMetadata) error {
+	_, err := runner.Exec(ctx, `
+		INSERT INTO auth_role_bindings (
+			role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id
+		)
+		VALUES ($1, $2, $3, 'idp', $4, $5, $6)
+		ON CONFLICT (role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id) DO NOTHING
+	`, binding.RoleName, binding.SubjectType, binding.SubjectID, metadata.ProviderID, metadata.ExternalGroupID, metadata.ExternalRoleID)
 	return err
 }
 
@@ -176,10 +195,11 @@ func UpsertManagedRoleBinding(ctx context.Context, runner PolicyRunner, binding 
 	_, err := runner.Exec(ctx, `
 		INSERT INTO auth_role_bindings (
 			role_name, subject_type, subject_id,
+			source, provider_id, external_group_id, external_role_id,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-		ON CONFLICT (role_name, subject_type, subject_id) DO UPDATE SET
+		VALUES ($1, $2, $3, 'local', '', '', '', $4, $5, $6, TRUE)
+		ON CONFLICT (role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id) DO UPDATE SET
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
@@ -197,7 +217,21 @@ func DeleteRoleBinding(ctx context.Context, runner PolicyRunner, binding RoleBin
 	return runner.Exec(ctx, `
 		DELETE FROM auth_role_bindings
 		WHERE role_name = $1 AND subject_type = $2 AND subject_id = $3
+		  AND COALESCE(source, 'local') = 'local'
 	`, binding.RoleName, binding.SubjectType, binding.SubjectID)
+}
+
+func DeleteExternalRoleBinding(ctx context.Context, runner PolicyRunner, binding RoleBinding, metadata ExternalBindingMetadata) (pgconn.CommandTag, error) {
+	return runner.Exec(ctx, `
+		DELETE FROM auth_role_bindings
+		WHERE role_name = $1
+		  AND subject_type = $2
+		  AND subject_id = $3
+		  AND source = 'idp'
+		  AND provider_id = $4
+		  AND external_group_id = $5
+		  AND external_role_id = $6
+	`, binding.RoleName, binding.SubjectType, binding.SubjectID, metadata.ProviderID, metadata.ExternalGroupID, metadata.ExternalRoleID)
 }
 
 func DeleteRoleBindingForConfigScope(ctx context.Context, runner PolicyRunner, binding RoleBinding, configRepoID int64) error {
@@ -206,6 +240,7 @@ func DeleteRoleBindingForConfigScope(ctx context.Context, runner PolicyRunner, b
 		WHERE role_name = $1
 		  AND subject_type = $2
 		  AND subject_id = $3
+		  AND COALESCE(source, 'local') = 'local'
 		  AND (managed_by_config_repo = FALSE OR config_repo_id = $4)
 	`, binding.RoleName, binding.SubjectType, binding.SubjectID, configRepoID)
 	return err

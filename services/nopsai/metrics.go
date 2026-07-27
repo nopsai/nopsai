@@ -43,6 +43,18 @@ func (a *App) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	var out strings.Builder
 	appendBuildInfoMetric(&out)
+	writeMetricHelp(&out, "nopsai_identity_providers", "Configured external identity providers by provider, type, enabled state, and authentication flow.")
+	writeMetricType(&out, "nopsai_identity_providers", "gauge")
+	writeMetricHelp(&out, "nopsai_identity_provider_capabilities", "Configured external identity provider capabilities by provider and provider type.")
+	writeMetricType(&out, "nopsai_identity_provider_capabilities", "gauge")
+	if err := a.appendIdentityProviderConfigurationMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_authorization_grants", "Authorization grant records by storage table and ownership source.")
+	writeMetricType(&out, "nopsai_authorization_grants", "gauge")
+	if err := a.appendAuthorizationGrantMetrics(ctx, &out); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_pipeline_runs_total", "Pipeline runs by status, pipeline, team, repository, and trigger source.")
 	writeMetricType(&out, "nopsai_pipeline_runs_total", "counter")
 	if err := a.appendPipelineRunTotals(ctx, &out); err != nil {
@@ -320,6 +332,87 @@ func (a *App) appendSystemLogMetrics(out *strings.Builder) {
 		writeMetricType(out, metric.name, metric.metricType)
 		writeMetricLine(out, metric.name, nil, metric.value)
 	}
+}
+
+func (a *App) appendIdentityProviderConfigurationMetrics(ctx context.Context, out *strings.Builder) error {
+	providers, err := listOIDCProviders(ctx, a.db, false)
+	if err != nil {
+		return err
+	}
+	for _, provider := range providers {
+		appendIdentityProviderConfigurationMetricLines(out, provider)
+	}
+	return nil
+}
+
+func appendIdentityProviderConfigurationMetricLines(out *strings.Builder, provider oidcProviderRecord) {
+	provider.ID = normalizeOIDCProviderID(provider.ID)
+	provider.Type = normalizeOIDCProviderType(provider.Type)
+	if provider.ID == "" {
+		return
+	}
+	writeMetricLine(out, "nopsai_identity_providers", map[string]string{
+		"provider":  normalizeMetricLabel(provider.ID),
+		"type":      normalizeMetricLabel(provider.Type),
+		"enabled":   boolMetricLabel(provider.Enabled),
+		"auth_kind": authURLKindForProvider(provider),
+	}, 1)
+	capabilities := identityProviderCapabilitiesForRecord(provider)
+	appendIdentityProviderCapabilityMetricLine(out, provider, "authentication", capabilities.Authentication)
+	appendIdentityProviderCapabilityMetricLine(out, provider, "provisioning", capabilities.Provisioning)
+	appendIdentityProviderCapabilityMetricLine(out, provider, "group_sync", capabilities.GroupSync)
+	appendIdentityProviderCapabilityMetricLine(out, provider, "role_sync", capabilities.RoleSync)
+	appendIdentityProviderCapabilityMetricLine(out, provider, "directory_sync", capabilities.DirectorySync)
+}
+
+func appendIdentityProviderCapabilityMetricLine(out *strings.Builder, provider oidcProviderRecord, capability string, supported bool) {
+	writeMetricLine(out, "nopsai_identity_provider_capabilities", map[string]string{
+		"provider":   normalizeMetricLabel(provider.ID),
+		"type":       normalizeMetricLabel(provider.Type),
+		"capability": normalizeMetricLabel(capability),
+	}, boolMetricValue(supported))
+}
+
+func (a *App) appendAuthorizationGrantMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT grant_store, grant_source, COUNT(*)::float8
+		FROM (
+			SELECT 'access_grants' AS grant_store, COALESCE(NULLIF(source, ''), 'local') AS grant_source
+			FROM access_grants
+			UNION ALL
+			SELECT 'auth_role_bindings' AS grant_store, COALESCE(NULLIF(source, ''), 'local') AS grant_source
+			FROM auth_role_bindings
+			UNION ALL
+			SELECT 'auth_team_members' AS grant_store, COALESCE(NULLIF(source, ''), 'local') AS grant_source
+			FROM auth_team_members
+		) grants
+		GROUP BY grant_store, grant_source
+		ORDER BY grant_store, grant_source
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var storeName, source string
+		var count float64
+		if err := rows.Scan(&storeName, &source, &count); err != nil {
+			return err
+		}
+		appendAuthorizationGrantMetricLine(out, storeName, source, count)
+	}
+	return rows.Err()
+}
+
+func appendAuthorizationGrantMetricLine(out *strings.Builder, storeName, source string, count float64) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		source = grantSourceLocal
+	}
+	writeMetricLine(out, "nopsai_authorization_grants", map[string]string{
+		"store":  normalizeMetricLabel(storeName),
+		"source": normalizeMetricLabel(source),
+	}, count)
 }
 
 func (a *App) appendPipelineRunTotals(ctx context.Context, out *strings.Builder) error {
@@ -1865,6 +1958,20 @@ func formatPrometheusFloat(value float64) string {
 		return fmt.Sprintf("%.0f", value)
 	}
 	return fmt.Sprintf("%g", value)
+}
+
+func boolMetricLabel(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
+func boolMetricValue(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func cloneMetricLabels(labels map[string]string) map[string]string {

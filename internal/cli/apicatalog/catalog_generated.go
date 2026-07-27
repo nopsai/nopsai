@@ -52,6 +52,8 @@ var generatedRoutes = []Route{
 	newRoute("POST", "/v1/auth/login"),
 	newRoute("POST", "/v1/auth/logout"),
 	newRoute("GET", "/v1/auth/me"),
+	newRoute("GET", "/v1/auth/oauth2/{provider}/callback"),
+	newRoute("GET", "/v1/auth/oauth2/{provider}/start"),
 	newRoute("GET", "/v1/auth/oidc/{provider}/callback"),
 	newRoute("GET", "/v1/auth/oidc/{provider}/start"),
 	newRoute("POST", "/v1/auth/password"),

@@ -144,12 +144,12 @@ export function UsersWorkspace({
                 <div className="access-editor-header">
                   <div>
                     <p className="access-editor-kicker">
-                      {externalManaged ? "External user" : "Edit user"}
+                      {externalManaged ? "External sign-in" : "Edit user"}
                     </p>
                     <h5 className="access-editor-title">{displayName}</h5>
                     <p className="access-editor-text">
                       {externalManaged
-                        ? `This user's role assignments are managed by ${providerLabel}. Change teams in ${providerLabel} to update NopsAI access.`
+                        ? `Authenticated by ${providerLabel}. Local access roles and basic roles can still be managed here.`
                         : "Manage account details, access roles, and team-scoped basic roles."}
                     </p>
                   </div>

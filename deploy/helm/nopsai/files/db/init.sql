@@ -1089,6 +1089,10 @@ CREATE TABLE auth_team_members (
     team_id UUID NOT NULL REFERENCES auth_teams(id) ON DELETE CASCADE,
     subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'idp')),
+    provider_id TEXT NOT NULL DEFAULT '',
+    external_group_id TEXT NOT NULL DEFAULT '',
+    external_role_id TEXT NOT NULL DEFAULT '',
     managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
     identity_provider_id TEXT NOT NULL DEFAULT '',
     external_team_name TEXT NOT NULL DEFAULT '',
@@ -1113,12 +1117,16 @@ CREATE TABLE auth_role_bindings (
     role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
     subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'idp')),
+    provider_id TEXT NOT NULL DEFAULT '',
+    external_group_id TEXT NOT NULL DEFAULT '',
+    external_role_id TEXT NOT NULL DEFAULT '',
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
     managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(role_name, subject_type, subject_id)
+    UNIQUE(role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id)
 );
 
 CREATE TABLE auth_role_permissions (
@@ -1147,6 +1155,13 @@ CREATE TABLE access_grants (
     resource_display TEXT NOT NULL DEFAULT '',
     inherit BOOLEAN NOT NULL DEFAULT TRUE,
     granted_by TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'idp')),
+    provider_id TEXT NOT NULL DEFAULT '',
+    external_group_id TEXT NOT NULL DEFAULT '',
+    external_role_id TEXT NOT NULL DEFAULT '',
+    managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
+    identity_provider_id TEXT NOT NULL DEFAULT '',
+    external_team_name TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(subject_type, subject_id, resource_type, resource_id)
 );
@@ -1315,10 +1330,10 @@ VALUES
     ('dispatcher-internal', 'Internal dispatcher service permissions')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
+INSERT INTO auth_role_bindings (role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id)
 VALUES
-    ('dispatcher-internal', 'internal_service', 'dispatcher')
-ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING;
+    ('dispatcher-internal', 'internal_service', 'dispatcher', 'local', '', '', '')
+ON CONFLICT (role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id) DO NOTHING;
 
 INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)
 VALUES

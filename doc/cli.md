@@ -234,6 +234,8 @@ nopsai api request PUT /v1/pipelines/delivery/release \
 
 # Public endpoint without loading or attaching local credentials
 nopsai api request GET /v1/auth/providers --no-auth
+nopsai api call GET '/v1/auth/oauth2/{provider}/start' \
+  --path provider=github --query return_to=/ --no-auth
 
 # Exact-byte ZIP, PDF, spreadsheet, or backup download
 nopsai api request GET /v1/setup/templates.zip \

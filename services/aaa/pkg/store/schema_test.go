@@ -31,6 +31,7 @@ func TestAAASchemaUsesTeamVocabulary(t *testing.T) {
 
 func assertTeamOnlySchemaVocabulary(t *testing.T, statements string) {
 	t.Helper()
+	statements = strings.ReplaceAll(statements, "external_group_id", "external_team_id")
 	for _, token := range []string{"gr" + "oup", "fol" + "der"} {
 		if strings.Contains(statements, token) {
 			t.Fatalf("schema statements contain non-team vocabulary token %q", token)

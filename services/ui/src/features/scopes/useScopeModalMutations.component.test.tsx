@@ -66,6 +66,15 @@ function renderMutations(overrides: Partial<Parameters<typeof useScopeModalMutat
   );
 }
 
+async function withMutedConsoleError(run: () => Promise<void>) {
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    await run();
+  } finally {
+    errorSpy.mockRestore();
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   checkScopePermissionMock.mockResolvedValue(true);
@@ -283,17 +292,19 @@ test('keeps the variable update modal open with an error when loading the curren
   fetchVariableValueMock.mockRejectedValueOnce(new Error('read denied'));
   const { result } = renderMutations();
 
-  act(() => {
-    result.current.openVariableUpdateModal('team', 'owner/repo/API_URL');
-  });
+  await withMutedConsoleError(async () => {
+    act(() => {
+      result.current.openVariableUpdateModal('team', 'owner/repo/API_URL');
+    });
 
-  await waitFor(() => {
-    expect(result.current.variableModal).toMatchObject({
-      mode: 'update',
-      value: '',
-      valueLoading: false,
-      pending: false,
-      error: 'read denied',
+    await waitFor(() => {
+      expect(result.current.variableModal).toMatchObject({
+        mode: 'update',
+        value: '',
+        valueLoading: false,
+        pending: false,
+        error: 'read denied',
+      });
     });
   });
 });
@@ -332,8 +343,10 @@ test('deletes selected scoped values and keeps failures in the delete modal', as
   act(() => {
     result.current.openDeleteModal('variable', 'team', 'owner/repo/API_URL');
   });
-  await act(async () => {
-    expect(await result.current.confirmDelete()).toBe(false);
+  await withMutedConsoleError(async () => {
+    await act(async () => {
+      expect(await result.current.confirmDelete()).toBe(false);
+    });
   });
   expect(result.current.deleteModal).toMatchObject({
     pending: false,

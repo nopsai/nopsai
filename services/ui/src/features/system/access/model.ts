@@ -50,6 +50,9 @@ export type UserSummary = {
   external_teams?: string[];
   external_auth_teams?: UserAuthTeamSummary[];
   external_roles?: string[];
+  authentication_source?: string;
+  provisioning_source?: string;
+  authorization_sources?: string[];
 };
 
 export type ServiceAccountToken = {
@@ -102,6 +105,13 @@ export type IdentityProviderRecord = {
   default_role?: string;
   allow_email_linking?: boolean;
   enabled: boolean;
+  capabilities?: {
+    authentication?: boolean;
+    provisioning?: boolean;
+    group_sync?: boolean;
+    role_sync?: boolean;
+    directory_sync?: boolean;
+  };
   config_source?: string;
   has_client_credential?: boolean;
 };
@@ -157,6 +167,9 @@ export type AccessGrantRecord = {
   managedByIdentityProvider?: boolean;
   identityProviderID?: string;
   externalTeamName?: string;
+  providerID?: string;
+  externalGroupID?: string;
+  externalRoleID?: string;
   source?: string;
 };
 
@@ -220,17 +233,19 @@ export const isDefaultAdminUser = (user?: Pick<UserSummary, "sub"> | null) =>
 export const isExternallyManagedUser = (
   user?: Pick<
     UserSummary,
-    "provider" | "external_managed" | "external_provider_id"
+    "provider" | "external_managed" | "external_provider_id" | "authentication_source"
   > | null,
 ) =>
   Boolean(
     user?.external_managed ||
+    (user?.authentication_source || "").trim().toLowerCase() === "idp" ||
     (user?.external_provider_id || "").trim() ||
-    (user?.provider || "").trim().toLowerCase().startsWith("oidc:"),
+    (user?.provider || "").trim().toLowerCase().startsWith("oidc:") ||
+    (user?.provider || "").trim().toLowerCase().startsWith("oauth2:"),
   );
 
 export const isUserRoleManagementLocked = (user?: UserSummary | null) =>
-  isDefaultAdminUser(user) || isExternallyManagedUser(user);
+  isDefaultAdminUser(user);
 
 export const userDisplayName = (
   user?: Pick<
@@ -267,7 +282,7 @@ export const userProviderLabel = (
   return (
     user.external_provider_name ||
     user.external_provider_id ||
-    (user.provider || "").replace(/^oidc:/i, "") ||
+    (user.provider || "").replace(/^(oidc|oauth2):/i, "") ||
     "identity provider"
   ).trim();
 };
@@ -283,8 +298,10 @@ export const userSubjectLabel = (
   if (externalSubject) return externalSubject;
   const providerID = (user.external_provider_id || "").trim();
   const sub = (user.sub || "").trim();
-  const prefix = providerID ? `oidc:${providerID}:` : "";
-  if (prefix && sub.startsWith(prefix)) return sub.slice(prefix.length);
+  for (const kind of ["oidc", "oauth2"]) {
+    const prefix = providerID ? `${kind}:${providerID}:` : "";
+    if (prefix && sub.startsWith(prefix)) return sub.slice(prefix.length);
+  }
   return sub;
 };
 
@@ -581,7 +598,7 @@ export function normalizeIdentityProvidersState(
   const mappings = asRecord(record?.domain_mappings);
   return {
     settings: {
-      local_enabled: settings?.local_enabled !== false,
+      local_enabled: true,
       oidc_enabled: Boolean(settings?.oidc_enabled),
       auto_create_users: Boolean(settings?.auto_create_users),
       default_role: readString(settings?.default_role),
@@ -640,8 +657,23 @@ function normalizeIdentityProviderRecord(
         ? record.allow_email_linking
         : undefined,
     enabled: record.enabled !== false,
+    capabilities: normalizeIdentityProviderCapabilities(record.capabilities),
     config_source: readOptionalString(record.config_source),
     has_client_credential: Boolean(record.has_client_credential),
+  };
+}
+
+function normalizeIdentityProviderCapabilities(
+  value: unknown,
+): IdentityProviderRecord["capabilities"] {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  return {
+    authentication: Boolean(record.authentication),
+    provisioning: Boolean(record.provisioning),
+    group_sync: Boolean(record.group_sync),
+    role_sync: Boolean(record.role_sync),
+    directory_sync: Boolean(record.directory_sync),
   };
 }
 
@@ -748,6 +780,9 @@ export function normalizeAccessGrantRecord(
     managedByIdentityProvider: Boolean(record.managed_by_identity_provider),
     identityProviderID: readOptionalString(record.identity_provider_id),
     externalTeamName: readOptionalString(record.external_team_name),
+    providerID: readOptionalString(record.provider_id),
+    externalGroupID: readOptionalString(record.external_group_id),
+    externalRoleID: readOptionalString(record.external_role_id),
     source: readOptionalString(record.source),
   };
 }

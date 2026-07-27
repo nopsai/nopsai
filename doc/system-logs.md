@@ -106,4 +106,4 @@ pod metadata, and a release-scoped label selector. GitOps can still own the same
 
 ## Monitoring
 
-`/metrics` exports active/opened stream counts, provider reconnects/errors, redacted lines, and slow-consumer drops under the `nopsai_system_log_*` namespace. Alert on sustained provider errors or dropped lines, and investigate frequent reconnects alongside container or pod restart boundaries shown in the UI.
+`/metrics` exports identity provider configuration/capability and authorization grant ownership series. It also exports active/opened stream counts, provider reconnects/errors, redacted lines, and slow-consumer drops under the `nopsai_system_log_*` namespace. Alert on sustained provider errors or dropped lines, and investigate frequent reconnects alongside container or pod restart boundaries shown in the UI.
