@@ -20,6 +20,10 @@ var accessGrantSchemaStatements = []string{
 		resource_display TEXT NOT NULL DEFAULT '',
 		inherit BOOLEAN NOT NULL DEFAULT TRUE,
 		granted_by TEXT NOT NULL DEFAULT '',
+		source TEXT NOT NULL DEFAULT 'local',
+		provider_id TEXT NOT NULL DEFAULT '',
+		external_group_id TEXT NOT NULL DEFAULT '',
+		external_role_id TEXT NOT NULL DEFAULT '',
 		managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
 		identity_provider_id TEXT NOT NULL DEFAULT '',
 		external_team_name TEXT NOT NULL DEFAULT '',
@@ -29,6 +33,16 @@ var accessGrantSchemaStatements = []string{
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS external_team_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'local'`,
+	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS provider_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS external_group_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS external_role_id TEXT NOT NULL DEFAULT ''`,
+	`UPDATE access_grants
+	 SET source = 'idp',
+	     provider_id = identity_provider_id,
+	     external_group_id = external_team_name
+	 WHERE managed_by_identity_provider = TRUE
+	   AND source = 'local'`,
 	`DROP INDEX IF EXISTS idx_access_grants_identity_provider`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,

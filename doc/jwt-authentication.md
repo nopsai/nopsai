@@ -50,16 +50,16 @@ Main API JWT settings:
 | `jwt_expiry_minutes` | `JWT_EXPIRY_MINUTES` | Access-token TTL, defaulted to `60` in `services/nopsai/internal/app` |
 | `refresh_token_ttl_minutes` | `REFRESH_TOKEN_TTL_MINUTES` | Refresh-token lifetime; if `0`, login does not issue refresh tokens |
 | `idle_timeout_minutes` | `IDLE_TIMEOUT_MINUTES` | Optional in-memory idle timeout for presented access tokens |
-| `auth_provider_local_enabled` | `AUTH_PROVIDER_LOCAL_ENABLED` | Enables local username/password login |
+| `auth_provider_local_enabled` | `AUTH_PROVIDER_LOCAL_ENABLED` | Legacy compatibility flag; local username/password login is always enabled |
 | `rate_limit_login_per_minute` | `RATE_LIMIT_LOGIN_PER_MINUTE` | Per-identifier login rate limit |
 | `login_lockout_threshold` | `LOGIN_LOCKOUT_THRESHOLD` | Failed password attempts before lockout |
 | `login_lockout_window_minutes` | `LOGIN_LOCKOUT_WINDOW_MINUTES` | Lockout window |
 
 Enterprise SSO is normally managed by the global config repository at
 `setting/system/auth.yaml`. The runtime config loader still accepts the same
-fields under nested `auth` for bootstrap-only or non-GitOps deployments. When
-`auth.local_enabled` is present in runtime config, it takes precedence over the
-flat `auth_provider_local_enabled` flag.
+fields under nested `auth` for bootstrap-only or non-GitOps deployments. Local
+authentication and the protected break-glass administrator cannot be disabled;
+GitOps and admin API writes reject `local_enabled: false`.
 
 Canonical GitOps shape:
 
@@ -96,6 +96,10 @@ oidc:
 For a runnable local IdP with users and teams, use the Keycloak fixture in
 [local-keycloak-sso.md](./local-keycloak-sso.md). It starts behind the Compose
 `sso` profile and seeds admin, operator, and viewer SSO users.
+
+Nopsai supports provider records for Okta, Microsoft Entra ID, Keycloak,
+Google, generic OIDC, and GitHub OAuth2. Only one external provider may be
+enabled in an installation at a time; enabling one provider disables the others.
 
 Service JWT settings for internal REST and dispatcher gRPC:
 
@@ -136,7 +140,7 @@ Login:
 4. The user must be `active` and use provider `local`.
 5. Password is checked with the stored bcrypt hash.
 6. Login rate limit and lockout state are updated.
-7. Roles are fetched from `user_roles`.
+7. Roles are fetched from local `user_roles` plus AAA `auth_role_bindings`.
 8. An HS256 access JWT is minted.
 9. If refresh TTL is configured, an opaque refresh token is generated and its hash is stored in `refresh_tokens`.
 
@@ -157,21 +161,23 @@ Access-token claims include:
 
 The custom `sub` field and the registered JWT `sub` are both populated with the same user subject.
 
-## Enterprise SSO / OIDC Flow
+## Enterprise SSO / External Provider Flow
 
-Enterprise SSO keeps external authentication separate from Nopsai
-authorization. The identity provider proves who the user is; Nopsai then links
-or creates a local `users` row, issues its own access and refresh tokens, and
-continues to authorize through AAA.
+Enterprise SSO keeps external authentication, provisioning, and authorization
+ownership separate. The identity provider proves who the user is; Nopsai then
+links or creates a local `users` row, issues its own access and refresh tokens,
+and continues to authorize through AAA.
 
 Public auth endpoints:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /v1/auth/providers` | Returns enabled local/OIDC login options for the UI |
+| `GET /v1/auth/providers` | Returns enabled local and external login options for the UI |
 | `POST /v1/auth/discover` | Accepts an email address and returns a mapped SSO provider when one exists |
 | `GET /v1/auth/oidc/{provider}/start` | Creates short-lived state, nonce, and PKCE verifier, then redirects to the provider |
 | `GET /v1/auth/oidc/{provider}/callback` | Consumes OIDC state, exchanges the authorization code, verifies the ID token, and creates a one-time Nopsai login code |
+| `GET /v1/auth/oauth2/{provider}/start` | Starts a provider-specific OAuth2 authorization flow such as GitHub |
+| `GET /v1/auth/oauth2/{provider}/callback` | Exchanges an OAuth2 authorization code, resolves provider user info, and creates a one-time Nopsai login code |
 | `POST /v1/auth/session/exchange` | Exchanges the one-time login code for Nopsai access and refresh tokens |
 
 Admin endpoints live under System Access and require the existing `iam.admin`
@@ -180,8 +186,8 @@ AAA decision:
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /v1/admin/identity-providers` | Lists login policy, providers, and domain mappings |
-| `PUT /v1/admin/identity-providers` | Updates local/OIDC login policy and domain mappings |
-| `PUT /v1/admin/identity-providers/{provider}` | Creates or updates one Google, Microsoft, or generic OIDC provider |
+| `PUT /v1/admin/identity-providers` | Updates external login policy and domain mappings; local login stays enabled |
+| `PUT /v1/admin/identity-providers/{provider}` | Creates or updates one Okta, Entra ID, Keycloak, Google, generic OIDC, or GitHub provider |
 | `DELETE /v1/admin/identity-providers/{provider}` | Deletes a provider and its dependent external identity links |
 
 OIDC security behavior:
@@ -198,7 +204,7 @@ OIDC security behavior:
 
 SSO users remain normal Nopsai users:
 
-- `users.provider = "oidc:<provider>"`
+- `users.provider = "oidc:<provider>"` or `"oauth2:<provider>"`
 - `users.password_hash = NULL`
 - `users.must_change_password = false`
 - `auth_external_identities` links provider issuer/subject to `users.id`
@@ -207,14 +213,20 @@ SSO users remain normal Nopsai users:
   stale mapped roles can be pruned on later logins
 - Keycloak entitlement sync can also read direct client roles as global access
   roles and team client roles as provider-managed scoped Basic roles
+- Local administrators can add local roles and team grants to externally
+  authenticated users. Effective access is the union of IdP-owned grants and
+  local grants.
+- Team memberships, role bindings, and access grants record ownership metadata:
+  `source`, `provider_id`, `external_group_id`, and `external_role_id`. Provider
+  sync only prunes rows with `source: idp` for that provider.
 - If `default_role` is empty, NopsAI does not add a baseline global role such as
   `viewer`; roles must come from direct mappings, direct Keycloak client roles,
   or scoped Basic-role grants.
 
 Nopsai does not automatically link a new SSO identity to an existing local
 account unless the provider or global policy allows verified-email linking.
-Otherwise, auto-create creates a separate OIDC-backed user only when the email
-is not already owned by another account.
+Otherwise, auto-create creates a separate external-provider-backed user only
+when the email is not already owned by another account.
 
 Refresh:
 
@@ -256,7 +268,9 @@ Service account tokens:
 Request authentication:
 
 1. Most REST endpoints require `Authorization: Bearer <access-token>`.
-2. Public paths are `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events`.
+2. Public paths include local/session auth endpoints, external provider
+   start/callback endpoints, setup preflight, selected health metadata, and
+   provider webhook ingress.
 3. `authMiddleware` first attempts service-token validation. If that succeeds, the request is normalized as `provider = internal-service` with the service `role`.
 4. If service-token validation fails, Nopsai validates the bearer token as a user/API HS256 JWT with signature, expiration, issuer, and audience checks.
 5. If JWT validation fails and the token starts with `nopat_`, Nopsai hashes the value and looks for a non-revoked, non-expired personal access token.

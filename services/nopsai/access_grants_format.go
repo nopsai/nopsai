@@ -9,12 +9,12 @@ import (
 )
 
 func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse {
-	source := "ui"
-	if record.ManagedByConfig {
-		source = "gitops"
-	} else if record.ManagedByIdentityProvider {
-		source = "sso"
+	ownershipSource := strings.TrimSpace(record.Source)
+	if ownershipSource == "" {
+		ownershipSource = grantSourceLocal
 	}
+	providerID := firstNonEmptyString(record.ProviderID, record.IdentityProviderID)
+	externalGroupID := firstNonEmptyString(record.ExternalGroupID, record.ExternalTeamName)
 	inheritedFromResourceID := externalGrantResourceID(record.InheritedFromResourceType, record.InheritedFromResourceDisplay, record.InheritedFromResourceID)
 	inheritedFromResource := ""
 	if record.InheritedFromResourceType != "" && inheritedFromResourceID != "" {
@@ -34,10 +34,13 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 		ManagedByConfigRepo:       record.ManagedByConfig,
 		ConfigSourcePath:          record.ConfigSourcePath,
 		ConfigSourceCommitSHA:     record.ConfigSourceCommitSHA,
-		ManagedByIdentityProvider: record.ManagedByIdentityProvider,
-		IdentityProviderID:        record.IdentityProviderID,
-		ExternalTeamName:          record.ExternalTeamName,
-		Source:                    source,
+		ManagedByIdentityProvider: record.ManagedByIdentityProvider || ownershipSource == grantSourceIDP,
+		IdentityProviderID:        providerID,
+		ExternalTeamName:          externalGroupID,
+		ProviderID:                providerID,
+		ExternalGroupID:           externalGroupID,
+		ExternalRoleID:            record.ExternalRoleID,
+		Source:                    ownershipSource,
 		InheritedFromResourceType: record.InheritedFromResourceType,
 		InheritedFromResourceID:   inheritedFromResourceID,
 		InheritedFromResource:     inheritedFromResource,

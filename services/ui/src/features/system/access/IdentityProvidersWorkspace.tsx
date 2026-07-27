@@ -64,17 +64,14 @@ export function IdentityProvidersWorkspace({
           <div className="access-editor-grid">
             <label className="access-minimal-label">
               <span>Local login</span>
-              <select
+              <input
                 className="pipelines-input"
-                value={settings.local_enabled ? 'true' : 'false'}
-                onChange={event => onSettingsChange(prev => ({ ...prev, local_enabled: event.target.value === 'true' }))}
-              >
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
+                value="Enabled"
+                readOnly
+              />
             </label>
             <label className="access-minimal-label">
-              <span>OIDC login</span>
+              <span>External login</span>
               <select
                 className="pipelines-input"
                 value={settings.oidc_enabled ? 'true' : 'false'}
@@ -184,8 +181,11 @@ export function IdentityProvidersWorkspace({
                 <span>Type</span>
                 <select className="pipelines-input" value={form.type} onChange={event => onFormChange(prev => ({ ...prev, type: event.target.value }))}>
                   <option value="oidc">Generic OIDC</option>
+                  <option value="okta">Okta</option>
+                  <option value="keycloak">Keycloak</option>
                   <option value="google">Google</option>
                   <option value="microsoft">Microsoft / Entra ID</option>
+                  <option value="github">GitHub OAuth2</option>
                 </select>
               </label>
               <ProviderInput label="Display name" value={form.display_name} onChange={value => onFormChange(prev => ({ ...prev, display_name: value }))} placeholder="Company SSO" />

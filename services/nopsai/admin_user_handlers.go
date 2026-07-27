@@ -38,11 +38,11 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 				) roles
 				), '[]'::json) AS roles,
 			CASE
-				WHEN COALESCE(ext.external_managed, LOWER(u.provider) LIKE 'oidc:%')
+				WHEN COALESCE(ext.external_managed, LOWER(u.provider) LIKE 'oidc:%' OR LOWER(u.provider) LIKE 'oauth2:%')
 					THEN COALESCE(NULLIF(u.email, ''), NULLIF(u.sub, ''), u.id::text)
 				ELSE COALESCE(NULLIF(u.sub, ''), NULLIF(u.email, ''), u.id::text)
 			END AS display_name,
-			COALESCE(ext.external_managed, LOWER(u.provider) LIKE 'oidc:%') AS external_managed,
+			COALESCE(ext.external_managed, LOWER(u.provider) LIKE 'oidc:%' OR LOWER(u.provider) LIKE 'oauth2:%') AS external_managed,
 			COALESCE(ext.provider_id, '') AS external_provider_id,
 				COALESCE(ext.provider_name, '') AS external_provider_name,
 				COALESCE(ext.subject, '') AS external_subject,
@@ -469,14 +469,6 @@ func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
 		return
 	}
-	if locked, err := isExternallyManagedUserSubject(r.Context(), a.db, "user", req.UserID); err != nil {
-		http.Error(w, "failed to validate user ownership", http.StatusInternalServerError)
-		return
-	} else if locked {
-		http.Error(w, errExternallyManagedUserRoleAssignments.Error(), http.StatusBadRequest)
-		return
-	}
-
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
@@ -543,13 +535,6 @@ func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
 		return
 	}
-	if locked, err := isExternallyManagedUserSubject(r.Context(), a.db, "user", req.UserID); err != nil {
-		http.Error(w, "failed to validate user ownership", http.StatusInternalServerError)
-		return
-	} else if locked {
-		http.Error(w, errExternallyManagedUserRoleAssignments.Error(), http.StatusBadRequest)
-		return
-	}
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
@@ -569,6 +554,19 @@ func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
 	legacyTag, err := tx.Exec(r.Context(), `
 		DELETE FROM user_roles
 		WHERE user_id = $1 AND role = $2
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM auth_external_role_assignments
+			WHERE user_id = $1::uuid AND role_name = $2
+		  )
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM auth_role_bindings
+			WHERE subject_type = 'user'
+			  AND subject_id = $1
+			  AND role_name = $2
+			  AND source = 'idp'
+		  )
 	`, req.UserID, req.Role)
 	if err != nil {
 		http.Error(w, "failed to remove role", http.StatusInternalServerError)
@@ -597,24 +595,54 @@ func normalizeUserSummaryIdentity(user *userSummary) {
 	user.ExternalProviderName = strings.TrimSpace(user.ExternalProviderName)
 	user.ExternalSubject = strings.TrimSpace(user.ExternalSubject)
 
-	if strings.HasPrefix(strings.ToLower(user.Provider), "oidc:") {
+	providerLower := strings.ToLower(user.Provider)
+	if strings.HasPrefix(providerLower, "oidc:") || strings.HasPrefix(providerLower, "oauth2:") {
 		user.ExternalManaged = true
 		if user.ExternalProviderID == "" {
-			user.ExternalProviderID = strings.TrimSpace(user.Provider[len("oidc:"):])
+			_, providerID, _ := strings.Cut(user.Provider, ":")
+			user.ExternalProviderID = strings.TrimSpace(providerID)
 		}
 	}
 	if user.ExternalManaged {
+		user.AuthenticationSource = grantSourceIDP
+		if strings.HasPrefix(providerLower, "oidc:") || strings.HasPrefix(providerLower, "oauth2:") {
+			user.ProvisioningSource = grantSourceIDP
+		} else {
+			user.ProvisioningSource = grantSourceLocal
+		}
 		if user.ExternalProviderName == "" {
 			user.ExternalProviderName = user.ExternalProviderID
 		}
 		if user.ExternalSubject == "" && user.ExternalProviderID != "" {
-			prefix := "oidc:" + user.ExternalProviderID + ":"
-			if strings.HasPrefix(user.Sub, prefix) {
-				user.ExternalSubject = strings.TrimSpace(strings.TrimPrefix(user.Sub, prefix))
+			for _, prefix := range []string{"oidc:" + user.ExternalProviderID + ":", "oauth2:" + user.ExternalProviderID + ":"} {
+				if strings.HasPrefix(user.Sub, prefix) {
+					user.ExternalSubject = strings.TrimSpace(strings.TrimPrefix(user.Sub, prefix))
+					break
+				}
 			}
+		}
+		user.AuthorizationSources = appendOwnershipSource(user.AuthorizationSources, grantSourceIDP)
+		if len(user.Roles) > len(user.ExternalRoles) {
+			user.AuthorizationSources = appendOwnershipSource(user.AuthorizationSources, grantSourceLocal)
 		}
 		user.DisplayName = firstNonEmptyString(user.DisplayName, user.Email, user.Sub, user.ID)
 		return
 	}
+	user.AuthenticationSource = grantSourceLocal
+	user.ProvisioningSource = grantSourceLocal
+	user.AuthorizationSources = appendOwnershipSource(user.AuthorizationSources, grantSourceLocal)
 	user.DisplayName = firstNonEmptyString(user.DisplayName, user.Sub, user.Email, user.ID)
+}
+
+func appendOwnershipSource(values []string, source string) []string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return values
+	}
+	for _, existing := range values {
+		if strings.TrimSpace(existing) == source {
+			return values
+		}
+	}
+	return append(values, source)
 }

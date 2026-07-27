@@ -18,6 +18,10 @@ var aaaSchemaStatements = []string{
 		team_id UUID NOT NULL REFERENCES auth_teams(id) ON DELETE CASCADE,
 		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
+		source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'idp')),
+		provider_id TEXT NOT NULL DEFAULT '',
+		external_group_id TEXT NOT NULL DEFAULT '',
+		external_role_id TEXT NOT NULL DEFAULT '',
 		managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
 		identity_provider_id TEXT NOT NULL DEFAULT '',
 		external_team_name TEXT NOT NULL DEFAULT '',
@@ -29,6 +33,16 @@ var aaaSchemaStatements = []string{
 	`ALTER TABLE auth_team_members ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE auth_team_members ADD COLUMN IF NOT EXISTS external_team_name TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE auth_team_members ADD COLUMN IF NOT EXISTS auth_team_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_team_members ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'local'`,
+	`ALTER TABLE auth_team_members ADD COLUMN IF NOT EXISTS provider_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_team_members ADD COLUMN IF NOT EXISTS external_group_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_team_members ADD COLUMN IF NOT EXISTS external_role_id TEXT NOT NULL DEFAULT ''`,
+	`UPDATE auth_team_members
+	 SET source = 'idp',
+	     provider_id = identity_provider_id,
+	     external_group_id = external_team_name
+	 WHERE managed_by_identity_provider = TRUE
+	   AND source = 'local'`,
 	`CREATE TABLE IF NOT EXISTS auth_roles (
 		name TEXT PRIMARY KEY,
 		description TEXT NOT NULL DEFAULT '',
@@ -40,8 +54,12 @@ var aaaSchemaStatements = []string{
 		role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
 		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
+		source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'idp')),
+		provider_id TEXT NOT NULL DEFAULT '',
+		external_group_id TEXT NOT NULL DEFAULT '',
+		external_role_id TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		UNIQUE(role_name, subject_type, subject_id)
+		UNIQUE(role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id)
 	)`,
 	`CREATE TABLE IF NOT EXISTS auth_role_permissions (
 		id BIGSERIAL PRIMARY KEY,
@@ -93,11 +111,24 @@ var aaaSchemaStatements = []string{
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE auth_team_members DROP CONSTRAINT IF EXISTS auth_team_members_subject_type_check`,
 	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_subject_type_check`,
+	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_role_name_subject_type_subject_id_key`,
 	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,
 	`ALTER TABLE resource_acl DROP CONSTRAINT IF EXISTS resource_acl_subject_type_check`,
 	`ALTER TABLE resource_ownership DROP CONSTRAINT IF EXISTS resource_ownership_owner_subject_type_check`,
 	`ALTER TABLE auth_team_members ADD CONSTRAINT auth_team_members_subject_type_check CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE auth_role_bindings ADD CONSTRAINT auth_role_bindings_subject_type_check CHECK (subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'local'`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS provider_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS external_group_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS external_role_id TEXT NOT NULL DEFAULT ''`,
+	`DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'auth_role_bindings_source_key') THEN
+			ALTER TABLE auth_role_bindings
+			ADD CONSTRAINT auth_role_bindings_source_key
+			UNIQUE(role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id);
+		END IF;
+	END $$`,
 	`ALTER TABLE access_grants ADD CONSTRAINT access_grants_subject_type_check CHECK (subject_type IN ('user', 'auth_team', 'team', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE resource_acl ADD CONSTRAINT resource_acl_subject_type_check CHECK (subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE resource_ownership ADD CONSTRAINT resource_ownership_owner_subject_type_check CHECK (owner_subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service'))`,
@@ -132,10 +163,10 @@ var aaaSchemaStatements = []string{
 		('nopsai-admin', 'Default platform administrator'),
 		('dispatcher-internal', 'Internal dispatcher service permissions')
 	ON CONFLICT (name) DO NOTHING`,
-	`INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
+	`INSERT INTO auth_role_bindings (role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id)
 	VALUES
-		('dispatcher-internal', 'internal_service', 'dispatcher')
-	ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING`,
+		('dispatcher-internal', 'internal_service', 'dispatcher', 'local', '', '', '')
+	ON CONFLICT (role_name, subject_type, subject_id, source, provider_id, external_group_id, external_role_id) DO NOTHING`,
 	`INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)
 	VALUES
 		('nopsai-admin', '*', '*', '*', 'allow'),

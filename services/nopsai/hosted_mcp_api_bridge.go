@@ -320,6 +320,7 @@ func hostedMCPAPIRouteAllowed(method, rawPath string) error {
 	case strings.HasPrefix(pathOnly, "/v1/git/webhooks/") || pathOnly == "/v1/git/events":
 		return fmt.Errorf("provider webhook ingress routes are not exposed through hosted MCP")
 	case strings.HasPrefix(pathOnly, "/v1/auth/oidc/") ||
+		strings.HasPrefix(pathOnly, "/v1/auth/oauth2/") ||
 		pathOnly == "/v1/auth/providers" ||
 		pathOnly == "/v1/auth/discover" ||
 		pathOnly == "/v1/auth/session/exchange" ||

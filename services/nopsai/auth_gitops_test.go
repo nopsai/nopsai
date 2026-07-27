@@ -83,18 +83,30 @@ oidc:
 func TestParseGitOpsAuthSettingsFileAcceptsWrappedAuthConfig(t *testing.T) {
 	plan, err := parseGitOpsAuthSettingsFile(`
 auth:
-  local_enabled: false
+  local_enabled: true
   oidc:
     enabled: false
 `, "setting/system/auth.yaml")
 	if err != nil {
 		t.Fatalf("parseGitOpsAuthSettingsFile() error = %v", err)
 	}
-	if plan.settings.LocalEnabled {
-		t.Fatalf("local enabled = true, want wrapped false")
+	if !plan.settings.LocalEnabled {
+		t.Fatalf("local enabled = false, want local auth forced on")
 	}
 	if plan.settings.OIDCEnabled {
 		t.Fatalf("oidc enabled = true, want false")
+	}
+}
+
+func TestParseGitOpsAuthSettingsFileRejectsDisabledLocalAuth(t *testing.T) {
+	_, err := parseGitOpsAuthSettingsFile(`
+auth:
+  local_enabled: false
+  oidc:
+    enabled: false
+`, "setting/system/auth.yaml")
+	if err == nil || !strings.Contains(err.Error(), "cannot disable local authentication") {
+		t.Fatalf("expected disabled local auth error, got %v", err)
 	}
 }
 
@@ -139,6 +151,36 @@ oidc:
 `, "setting/system/auth.yaml")
 	if err == nil || !strings.Contains(err.Error(), "requires issuer and client_id") {
 		t.Fatalf("expected missing client_id error, got %v", err)
+	}
+}
+
+func TestParseGitOpsAuthSettingsFileAcceptsGitHubOAuthProvider(t *testing.T) {
+	plan, err := parseGitOpsAuthSettingsFile(`
+local_enabled: true
+oidc:
+  enabled: true
+  providers:
+    github:
+      type: github
+      display_name: GitHub
+      client_id: github-client
+      enabled: true
+`, "setting/system/auth.yaml")
+	if err != nil {
+		t.Fatalf("parseGitOpsAuthSettingsFile() error = %v", err)
+	}
+	provider := plan.providers["github"]
+	if provider.Type != "github" || provider.Issuer != "" || provider.ClientID != "github-client" {
+		t.Fatalf("github provider = %#v", provider)
+	}
+	scopes := strings.Join(provider.Scopes, ",")
+	for _, want := range []string{"read:user", "user:email", "read:org"} {
+		if !strings.Contains(scopes, want) {
+			t.Fatalf("github scopes = %#v, want %q", provider.Scopes, want)
+		}
+	}
+	if strings.Contains(scopes, "openid") {
+		t.Fatalf("github scopes = %#v, should not include OIDC scope", provider.Scopes)
 	}
 }
 
@@ -202,8 +244,8 @@ func TestBuildAuthSettingsGitOpsFileExportsCredentialReferences(t *testing.T) {
 		},
 		map[string]string{"Example.COM": "NopsAI"},
 	)
-	if doc.LocalEnabled == nil || *doc.LocalEnabled {
-		t.Fatalf("local_enabled = %#v, want explicit false", doc.LocalEnabled)
+	if doc.LocalEnabled == nil || !*doc.LocalEnabled {
+		t.Fatalf("local_enabled = %#v, want explicit true", doc.LocalEnabled)
 	}
 	if doc.OIDC == nil || !doc.OIDC.Enabled || !doc.OIDC.AutoCreateUsers || !doc.OIDC.AllowEmailLinking {
 		t.Fatalf("oidc = %#v, want enabled auto-create/linking", doc.OIDC)

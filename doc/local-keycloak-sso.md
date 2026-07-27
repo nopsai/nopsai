@@ -55,9 +55,11 @@ teams mapper that places Keycloak team names in the OIDC `teams` claim.
 Keycloak's realm JSON field, protocol mapper implementation, and Admin API
 paths use Keycloak's standard `groups` vocabulary while NopsAI exposes those
 assignments as teams.
-Users created or linked through OIDC are externally managed in NopsAI: their
-access-role and basic-role assignments are read-only in System Access and are
-resynced from Keycloak on login and by the OIDC entitlement sync worker.
+Users created or linked through OIDC are externally authenticated and can have
+both Keycloak-owned and local grants. Keycloak-owned access-role and basic-role
+assignments are resynced from Keycloak on login and by the OIDC entitlement
+sync worker; local administrators can still add or remove local grants without
+Keycloak sync pruning them.
 When a user signs out of NopsAI, the UI revokes the NopsAI refresh token and
 redirects through Keycloak's OIDC logout endpoint when available. Keycloak then
 returns to the NopsAI origin, where the hash router sends the browser to login.
@@ -177,12 +179,15 @@ five minutes after that. It prunes those grants when the Keycloak team role
 mapping no longer applies. The scoped grant can be stored before the matching
 NopsAI team exists, so Keycloak and GitOps changes do not have to be applied
 in a strict order.
+Each provider-managed membership or role grant stores `source: idp`, the
+provider ID, and the external group or role ID. The worker prunes only those
+IdP-owned rows and leaves local System Access or GitOps grants intact.
 
 SSO-managed users and their provider-managed grants are runtime identity state,
 not GitOps state. Config repository export and drift skip linked OIDC users,
 their `oidc:*` subjects, and Keycloak-managed role grants; keep those users and
 team mappings in Keycloak, while GitOps owns the provider settings in
-`setting/system/auth.yaml` plus local users and service accounts.
+`setting/system/auth.yaml` plus local users, local grants, and service accounts.
 
 When NopsAI runs directly on the host instead of in Compose, use
 `http://localhost:8088/...` for the token, JWKS, and userinfo endpoints too.
@@ -200,7 +205,7 @@ When NopsAI runs directly on the host instead of in Compose, use
 7. Sign in to Keycloak with one of the seeded users.
 8. Confirm the NopsAI session is created and the mapped role is visible in
    System Access. The user card should show a friendly email label with a
-   `Managed by Local Keycloak` marker instead of the raw `oidc:nopsai:<subject>`
+   `Authenticated by Local Keycloak` marker instead of the raw `oidc:nopsai:<subject>`
    value. For `sso-admin@example.com`, `sso-operator@example.com`, and
    `sso-viewer@example.com`, System Access should show the global access role.
    For `alice@example.com` and `jip@example.com`, System Access should show a

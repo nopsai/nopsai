@@ -48,11 +48,6 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 	} else if locked {
 		return resolvedAccessGrantKey{}, fmt.Errorf("cannot modify default admin role assignments")
 	}
-	if locked, err := isExternallyManagedUserSubject(ctx, tx, subject.Type, subject.ID); err != nil {
-		return resolvedAccessGrantKey{}, err
-	} else if locked {
-		return resolvedAccessGrantKey{}, errExternallyManagedUserRoleAssignments
-	}
 	resource, err := resolveConfigSyncGrantResource(ctx, tx, grant.resourceType, grant.resourceID)
 	if err != nil {
 		return resolvedAccessGrantKey{}, fmt.Errorf("failed to resolve grant resource %s:%s: %w", grant.resourceType, grant.resourceID, err)

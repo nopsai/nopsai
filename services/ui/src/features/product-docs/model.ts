@@ -2730,7 +2730,7 @@ const baseWikiSections: WikiSectionInput[] = [
           {
             key: 'setting/system/auth.yaml',
             area: 'GitOps',
-            description: 'Local login and OIDC provider settings.',
+            description: 'Always-on local login and external identity provider settings.',
             example: 'setting/system/auth.yaml',
           },
           {
@@ -2742,14 +2742,14 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         examples: [
           {
-            title: 'OIDC provider sketch',
+            title: 'Identity provider sketch',
             language: 'yaml',
             code:
               'oidc:\n  enabled: true\n  auto_create_users: true\n  providers:\n    corporate:\n      type: oidc\n      display_name: Company SSO\n      issuer: https://idp.company.com\n      client_id: nopsai\n      client_credential_ref: credential://system/oidc/corporate/client-secret\n      scopes: [openid, email, profile]',
           },
         ],
         relatedDocs: ['doc/access-control.md', 'doc/jwt-authentication.md', 'doc/local-keycloak-sso.md', 'doc/team-resource-ownership-design.md'],
-        runbooks: ['Create least-privilege service account', 'Audit cross-team resource grants', 'Configure corporate OIDC provider'],
+        runbooks: ['Create least-privilege service account', 'Audit cross-team resource grants', 'Configure corporate identity provider'],
         caveats: ['Public pipeline visibility does not grant dependent scopes, secrets, variables, runners, credentials, or knowledge context.'],
       },
     ],
@@ -3180,7 +3180,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Monitoring filters include time range, team, pipeline, repository, run ID, trigger source, status, subject identity, external trigger, schedule, duration, and AI dimensions.',
           'Monitoring responses are filtered through pipeline_run.list so users see only authorized runs.',
           'The API exposes Prometheus metrics at GET /metrics.',
-          'Metrics cover run status, queue duration, final outputs, external triggers, LLM usage, runner utilization, approvals, audit, notifications, System Logs, and build identity.',
+          'Metrics cover identity provider capabilities, authorization grant ownership, run status, queue duration, final outputs, external triggers, LLM usage, runner utilization, approvals, audit, notifications, System Logs, and build identity.',
         ],
         details: [
           'The Helm API Service includes Prometheus scrape annotations by default.',

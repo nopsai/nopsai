@@ -79,6 +79,22 @@ The product roles are templates seeded by `nopsai` startup:
 
 The `admin` role can only be granted on the `platform` resource. Team grants must inherit.
 
+External identity providers can contribute roles and team memberships, but they
+do not own the entire user. Effective access is the union of IdP-owned grants
+and locally managed grants from the UI/API or GitOps. Every team membership,
+advanced role binding, and product access grant can record:
+
+- `source`: `local` or `idp`
+- `provider_id`
+- `external_group_id`
+- `external_role_id`
+
+Login-time claims sync and periodic directory/entitlement sync may insert,
+update, or prune only IdP-owned rows for their provider. They must not remove
+local grants. Local auth and the break-glass administrator remain available even
+when an external provider is configured, and only one external provider can be
+enabled per installation.
+
 ## Subjects And Resources
 
 Supported grant subjects:
@@ -307,6 +323,9 @@ NopsAI reconciles those provider-managed grants on OIDC login, entitlement
 worker startup, and periodic worker runs. SSO-sourced team grants can be
 stored before the team exists, which keeps Keycloak and GitOps rollout order
 flexible.
+GitOps-managed local grants and IdP-owned grants can coexist for the same user.
+Config sync deletes only rows it owns through config metadata, while IdP sync
+deletes only rows with `source: idp` for that provider.
 Use the shorthand subject fields `user:`, `service_account:`, or `service:` for
 editable GitOps manifests. The canonical `subject_type` plus `subject_id` form
 is still accepted for compatibility. Sync resolves users and service accounts to

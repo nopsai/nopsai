@@ -61,6 +61,15 @@ function buildOptions(overrides: Partial<Parameters<typeof useYamlResourceMutati
   };
 }
 
+async function withMutedConsoleError(run: () => Promise<void>) {
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  try {
+    await run();
+  } finally {
+    errorSpy.mockRestore();
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   checkCreatePermission.mockResolvedValue(true);
@@ -275,8 +284,10 @@ test('surfaces persistence and deletion failures without leaving pending state b
       })
     )
   );
-  await act(async () => {
-    expect(await saveFailure.result.current.save()).toBe(false);
+  await withMutedConsoleError(async () => {
+    await act(async () => {
+      expect(await saveFailure.result.current.save()).toBe(false);
+    });
   });
   expect(addToast).toHaveBeenCalledWith('write failed', 'error');
   expect(saveFailure.result.current.saving).toBe(false);
@@ -292,8 +303,10 @@ test('surfaces persistence and deletion failures without leaving pending state b
   act(() => {
     deleteFailure.result.current.openDeleteModal('stored-one', 'stored-one');
   });
-  await act(async () => {
-    expect(await deleteFailure.result.current.confirmDelete()).toBe(false);
+  await withMutedConsoleError(async () => {
+    await act(async () => {
+      expect(await deleteFailure.result.current.confirmDelete()).toBe(false);
+    });
   });
   expect(deleteFailure.result.current.deleteModal).toMatchObject({
     pending: false,

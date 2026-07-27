@@ -351,7 +351,7 @@ Rerun:
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
-   - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider credential references resolved from the encrypted registry
+   - `setting/system/auth.yaml` becomes mandatory local-login settings plus the single enabled external identity provider, only from a system/global config repo, with provider credential references resolved from the encrypted registry
    - `setting/git-apps/github.yaml` becomes GitHub App IDs, credential references, and installation records, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
    - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password plaintext kept out of the mail file

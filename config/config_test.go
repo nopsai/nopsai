@@ -294,17 +294,17 @@ func TestEffectiveServiceJWTConfig(t *testing.T) {
 	}
 }
 
-func TestEffectiveAuthProviderLocalEnabledPrefersNestedAuthConfig(t *testing.T) {
+func TestEffectiveAuthProviderLocalEnabledCannotBeDisabled(t *testing.T) {
 	disabled := false
 	cfg := Config{
-		AuthProviderLocalEnabled: true,
+		AuthProviderLocalEnabled: false,
 		Auth: AuthConfig{
 			LocalEnabled: &disabled,
 		},
 	}
 
-	if cfg.EffectiveAuthProviderLocalEnabled() {
-		t.Fatal("EffectiveAuthProviderLocalEnabled() = true, want nested false to win")
+	if !cfg.EffectiveAuthProviderLocalEnabled() {
+		t.Fatal("EffectiveAuthProviderLocalEnabled() = false, want local auth forced on")
 	}
 }
 

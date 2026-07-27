@@ -323,40 +323,6 @@ func TestResolveAccessGrantServiceAccountCanonicalizesSub(t *testing.T) {
 	}
 }
 
-func TestExternallyManagedUserSubjectLocksRoleAssignments(t *testing.T) {
-	runner := &fakeQueryRunner{
-		row: fakeScanAnyRow{values: []any{1}},
-	}
-
-	locked, err := isExternallyManagedUserSubject(context.Background(), runner, model.SubjectTypeUser, "user-1")
-	if err != nil {
-		t.Fatalf("isExternallyManagedUserSubject() error = %v", err)
-	}
-	if !locked {
-		t.Fatal("isExternallyManagedUserSubject() = false, want true")
-	}
-	if len(runner.queries) != 1 || !strings.Contains(runner.queries[0], "auth_external_identities") {
-		t.Fatalf("ownership query = %#v, want external identity lookup", runner.queries)
-	}
-}
-
-func TestExternallyManagedUserSubjectIgnoresNonUsers(t *testing.T) {
-	runner := &fakeQueryRunner{
-		row: fakeScanAnyRow{values: []any{1}},
-	}
-
-	locked, err := isExternallyManagedUserSubject(context.Background(), runner, model.SubjectTypeServiceAccount, "svc")
-	if err != nil {
-		t.Fatalf("isExternallyManagedUserSubject() error = %v", err)
-	}
-	if locked {
-		t.Fatal("isExternallyManagedUserSubject() = true, want false for service accounts")
-	}
-	if len(runner.queries) != 0 {
-		t.Fatalf("queries = %#v, want no database lookup", runner.queries)
-	}
-}
-
 func TestResolveConfigSyncGrantResourceAllowsFutureGitOpsTargets(t *testing.T) {
 	runner := &fakeQueryRunner{
 		row: fakeScanRow{err: pgx.ErrNoRows},
@@ -499,8 +465,8 @@ func TestAccessGrantResponseIncludesGitOpsSource(t *testing.T) {
 		ConfigSourceCommitSHA: "abc123",
 	})
 
-	if response.Source != "gitops" || !response.ManagedByConfigRepo {
-		t.Fatalf("source = (%q, %v), want gitops managed", response.Source, response.ManagedByConfigRepo)
+	if response.Source != grantSourceLocal || !response.ManagedByConfigRepo {
+		t.Fatalf("source = (%q, %v), want local gitops managed", response.Source, response.ManagedByConfigRepo)
 	}
 	if response.ConfigSourcePath != "pipelines/deploy.yaml" {
 		t.Fatalf("ConfigSourcePath = %q", response.ConfigSourcePath)

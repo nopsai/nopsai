@@ -66,10 +66,13 @@ curl -X POST \
   -d '{"email":"alice@company.com"}' \
   http://localhost:8080/v1/auth/discover
 
-# Browser SSO starts with a redirect to the identity provider
+# Browser OIDC starts with a redirect to the identity provider
 open "http://localhost:8080/v1/auth/oidc/corporate/start?return_to=/pipelineruns/main"
 
-# The OIDC callback creates a one-time code. The UI exchanges it for Nopsai tokens.
+# GitHub uses the OAuth2 start/callback route because it does not issue an OIDC id_token.
+open "http://localhost:8080/v1/auth/oauth2/github/start?return_to=/pipelineruns/main"
+
+# The external callback creates a one-time code. The UI exchanges it for Nopsai tokens.
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"code":"<one-time-session-code>"}' \
@@ -131,6 +134,8 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -d '{"oidc_enabled":true,"local_enabled":true,"auto_create_users":true,"default_role":"","domain_mappings":{"company.com":"corporate"}}' \
   http://localhost:8080/v1/admin/identity-providers
 
+# local_enabled=false is rejected; local sign-in and the break-glass admin stay enabled.
+
 curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"id":"corporate","type":"oidc","display_name":"Company SSO","issuer":"https://idp.company.com","client_id":"client-id","client_credential_ref":"credential://system/oidc/corporate/client-secret","scopes":["openid","email","profile"],"allowed_email_domains":["company.com"],"team_claim":"teams","entitlement_sync":{"mode":"keycloak_team_roles","admin_base_url":"https://keycloak.example.com","realm":"company","admin_client_id":"nopsai-admin","admin_client_credential_ref":"credential://system/oidc/corporate/admin-client-secret","client_id":"nopsai","target_resource_type":"team"},"enabled":true}' \
@@ -142,14 +147,14 @@ For local SSO testing against real users and teams, see
 Keycloak realm, a confidential `nopsai` client, and seeded `admin`, `owner`,
 and `viewer` client-role mappings.
 
-OIDC-created or linked users are marked with `external_managed` in
-`GET /v1/admin/users`. Their `display_name`, external provider, subject,
-external teams, mapped NopsAI auth teams, and externally sourced roles are
-returned for administration views. Local user-role and basic-role mutation
-endpoints reject those users because the identity provider owns their direct
-role assignments. With Keycloak entitlement sync, direct client roles drive
-global access roles and team client roles drive provider-managed scoped Basic
-roles.
+External-provider-created or linked users are marked with `external_managed` in
+`GET /v1/admin/users`. Their `display_name`, authentication/provisioning/
+authorization ownership fields, external provider, subject, external teams,
+mapped NopsAI auth teams, and externally sourced roles are returned for
+administration views. Local user-role and basic-role mutation endpoints can add
+or remove local grants; provider sync owns only IdP-sourced grants. With
+Keycloak entitlement sync, direct client roles drive provider-managed global
+access roles and team client roles drive provider-managed scoped Basic roles.
 Leave `default_role` empty for least-privilege SSO providers; set it only when
 every auto-created SSO user should intentionally receive the same global role.
 
@@ -174,7 +179,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   string values under `extra`.
 - System Agent Profiles and the default agent profile can be managed in the global config repo at `setting/system/agent-profiles.yaml`.
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
-- Local-login and OIDC SSO settings can be managed in the global config repo at `setting/system/auth.yaml`.
+- Mandatory local-login and external identity-provider settings can be managed in the global config repo at `setting/system/auth.yaml`.
 - GitHub App IDs, credential references, and installations can be managed in the global config repo at `setting/git-apps/github.yaml`. The internal git-bot URL remains a system/service setting.
 - Runner defaults, runtime defaults, dispatcher routing, and assistant settings can be managed in the global config repo at `setting/system/runner.yaml`.
 - Scheduled cleanup rules can be managed in the global config repo at `setting/system/data-management.yaml`.
@@ -701,7 +706,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET /v1/internal/runs/{runID}/policy-revision` remains available for diagnostics and audit. It returns `run_start_policy_revision`, `current_policy_revision`, `blocking_context_count`, and the current blocking knowledge snapshots used to calculate the revision. Active agent runs use their pinned scope snapshots as the correctness boundary; emergency policy response cancels the run instead of mutating policy in place.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `teamId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
-- `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, final-output generation duration, run duration, notification, trigger, LLM, runner, approval, Knowledge Context connection/sync, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
+- `GET /metrics` emits Prometheus text format. Metrics include DB-backed identity provider configuration/capability, authorization grant ownership, pipeline, output, final-output generation duration, run duration, notification, trigger, LLM, runner, approval, Knowledge Context connection/sync, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
 - System Logs source discovery is AAA-filtered with `system_log.read` on `system_log:<sourceID>`. Tail and stream endpoints accept registry IDs only. SSE emits `status`, signed-cursor `log`, and `reset` events; stream heartbeats are comments. See [system-logs.md](./system-logs.md).
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
@@ -1813,7 +1818,7 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`.
 - System-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`. Team repos can use root `notifications.yaml` for their bound team.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
-- The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
+- The system/global repo may define mandatory local login and one enabled external identity provider under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
 - The system/global repo may define GitHub App IDs, credential references, and installations under `setting/git-apps/github.yaml`. The legacy `setting/system/github.yaml` file is read for one release to migrate `github_installation_id` into the first installation record, but exports stop writing it.
 - The system/global repo may define runtime runner defaults, dispatcher routing, and `runner_registry_credentials` under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_credential_ref` is synced for credentials.

@@ -144,6 +144,9 @@ type userSummary struct {
 	ExternalTeams        []string              `json:"external_teams,omitempty"`
 	ExternalAuthTeams    []userAuthTeamSummary `json:"external_auth_teams,omitempty"`
 	ExternalRoles        []string              `json:"external_roles,omitempty"`
+	AuthenticationSource string                `json:"authentication_source,omitempty"`
+	ProvisioningSource   string                `json:"provisioning_source,omitempty"`
+	AuthorizationSources []string              `json:"authorization_sources,omitempty"`
 }
 
 type serviceAccountSummary struct {

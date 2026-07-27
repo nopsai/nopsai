@@ -52,6 +52,9 @@ const (
 	platformGrantID = "default"
 	generalGrantID  = model.TeamGeneralID
 	rootGrantID     = "root"
+
+	grantSourceLocal = "local"
+	grantSourceIDP   = "idp"
 )
 
 var (
@@ -82,6 +85,10 @@ type accessGrantRecord struct {
 	ManagedByIdentityProvider    bool
 	IdentityProviderID           string
 	ExternalTeamName             string
+	Source                       string
+	ProviderID                   string
+	ExternalGroupID              string
+	ExternalRoleID               string
 	InheritedFromResourceType    string
 	InheritedFromResourceID      string
 	InheritedFromResourceDisplay string
@@ -123,6 +130,9 @@ type accessGrantResponse struct {
 	ManagedByIdentityProvider bool      `json:"managed_by_identity_provider"`
 	IdentityProviderID        string    `json:"identity_provider_id,omitempty"`
 	ExternalTeamName          string    `json:"external_team_name,omitempty"`
+	ProviderID                string    `json:"provider_id,omitempty"`
+	ExternalGroupID           string    `json:"external_group_id,omitempty"`
+	ExternalRoleID            string    `json:"external_role_id,omitempty"`
 	Source                    string    `json:"source"`
 	InheritedFromResourceType string    `json:"inherited_from_resource_type,omitempty"`
 	InheritedFromResourceID   string    `json:"inherited_from_resource_id,omitempty"`
