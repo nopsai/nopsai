@@ -148,12 +148,15 @@ func externalTriggerConfigScope(trigger externalTriggerRecord) string {
 }
 
 func externalTriggerExportPath(repo models.ConfigRepository, trigger externalTriggerRecord, sourcePath string, managed bool, configRepoIDValid bool, configRepoID int64) (string, bool) {
-	if managed && configRepoIDValid && configRepoID == repo.ID && strings.TrimSpace(sourcePath) != "" {
-		return configRepositoryManagedSourcePath(repo, sourcePath)
-	}
 	id := externalTriggerGitOpsSlug(trigger.ID)
 	if id == "" {
 		return "", false
 	}
-	return filepath.ToSlash(filepath.Join(externalTriggersGitOpsDirectory, id+".yaml")), true
+	canonicalPath := filepath.ToSlash(filepath.Join(externalTriggersGitOpsDirectory, id+".yaml"))
+	if managed && configRepoIDValid && configRepoID == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		if managedPath, ok := configsync.ManagedSourcePathForCanonical(repo, sourcePath, canonicalPath, configRepositoryDriftPathOptions()); ok {
+			return managedPath, true
+		}
+	}
+	return canonicalPath, true
 }

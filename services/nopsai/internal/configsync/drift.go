@@ -20,42 +20,64 @@ func IncludesResource(repo models.ConfigRepository, identifier, source string, c
 	if ResourceUnderAnyScope(identifier, delegatedScopes) {
 		return false
 	}
-	if managed && configRepoID.Valid {
-		return configRepoID.Int64 == repo.ID
+	underBindingScope := ResourceUnderBindingScope(identifier, repo)
+	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
+		_, underBindingScope = RelativeResourceIdentifier(repo, identifier)
 	}
-	if !strings.EqualFold(strings.TrimSpace(source), "database") {
+	if !underBindingScope {
 		return false
 	}
-	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
-		_, ok := RelativeResourceIdentifier(repo, identifier)
-		return ok
+	if managed && configRepoID.Valid {
+		if configRepoID.Int64 == repo.ID {
+			return true
+		}
+		return repo.ScopeType == models.ConfigRepositoryScopeTeam
 	}
-	return repo.ScopeType == models.ConfigRepositoryScopeSystem
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "database", "":
+		return true
+	case "git":
+		return true
+	default:
+		return false
+	}
 }
 
 func ExportPath(repo models.ConfigRepository, identifier, sourcePath, directory, extension string, managed bool, configRepoID sql.NullInt64, options DriftPathOptions) (string, bool) {
-	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
-		return ManagedSourcePath(repo, sourcePath, options)
-	}
 	relID, ok := RelativeResourceIdentifier(repo, identifier)
 	if !ok || relID == "" {
 		return "", false
 	}
-	return filepath.ToSlash(filepath.Join(directory, relID+extension)), true
+	canonicalID := strings.Trim(strings.TrimSpace(strings.ReplaceAll(identifier, "\\", "/")), "/")
+	if canonicalID == "" {
+		return "", false
+	}
+	canonicalPath := filepath.ToSlash(filepath.Join(directory, canonicalID+extension))
+	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		if managedPath, ok := ManagedSourcePathForCanonical(repo, sourcePath, canonicalPath, options); ok {
+			return managedPath, true
+		}
+	}
+	return canonicalPath, true
 }
 
 func ScopeFilePath(repo models.ConfigRepository, scope, sourcePath string, managed bool, configRepoID sql.NullInt64, options DriftPathOptions) (string, bool) {
-	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
-		return ManagedSourcePath(repo, sourcePath, options)
-	}
-	relScope, ok := RelativeResourceIdentifier(repo, RuntimeScopeForDisplay(scope))
+	displayScope := RuntimeScopeForDisplay(scope)
+	_, ok := RelativeResourceIdentifier(repo, displayScope)
 	if !ok {
 		return "", false
 	}
-	if relScope == "" || relScope == "default" {
-		relScope = "default"
+	canonicalScope := strings.Trim(strings.TrimSpace(displayScope), "/")
+	if canonicalScope == "" || canonicalScope == "default" {
+		canonicalScope = "default"
 	}
-	return filepath.ToSlash(filepath.Join("scopes", relScope, "scope.yaml")), true
+	canonicalPath := filepath.ToSlash(filepath.Join("scopes", canonicalScope, "scope.yaml"))
+	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
+		if managedPath, ok := ManagedSourcePathForCanonical(repo, sourcePath, canonicalPath, options); ok {
+			return managedPath, true
+		}
+	}
+	return canonicalPath, true
 }
 
 func ManagedSourcePath(repo models.ConfigRepository, sourcePath string, options DriftPathOptions) (string, bool) {
@@ -70,6 +92,26 @@ func ManagedSourcePath(repo models.ConfigRepository, sourcePath string, options 
 		return cleaned, true
 	}
 	return "", false
+}
+
+func ManagedSourcePathForCanonical(repo models.ConfigRepository, sourcePath, canonicalPath string, options DriftPathOptions) (string, bool) {
+	managedPath, ok := ManagedSourcePath(repo, sourcePath, options)
+	if !ok {
+		return "", false
+	}
+	if !EquivalentExportPath(managedPath, canonicalPath) {
+		return "", false
+	}
+	return managedPath, true
+}
+
+func EquivalentExportPath(path, canonicalPath string) bool {
+	path = strings.Trim(strings.TrimSpace(filepath.ToSlash(path)), "/")
+	canonicalPath = strings.Trim(strings.TrimSpace(filepath.ToSlash(canonicalPath)), "/")
+	if path == "" || canonicalPath == "" {
+		return false
+	}
+	return strings.TrimSuffix(path, filepath.Ext(path)) == strings.TrimSuffix(canonicalPath, filepath.Ext(canonicalPath))
 }
 
 func RelativeResourceIdentifier(repo models.ConfigRepository, identifier string) (string, bool) {

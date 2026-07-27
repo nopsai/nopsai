@@ -777,28 +777,16 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 		return platformGrantID, nil
 	}
 	if resourceType == grantResourceKnowledgeContext {
-		kind, team, name, err := splitKnowledgeContextIdentifier(resourceID)
+		kind, team, name, err := normalizeKnowledgeContextAccessResourceIDForBinding(resourceID, binding, boundTeam)
 		if err != nil {
 			return "", err
-		}
-		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-			team, err = configsync.NormalizePathForTeam(boundTeam, team)
-			if err != nil {
-				return "", err
-			}
 		}
 		return buildKnowledgeContextIdentifier(kind, team, name), nil
 	}
 	if resourceType == grantResourceKnowledgeConnection {
-		team, name, err := splitKnowledgeConnectionIdentifier(resourceID)
+		team, name, err := normalizeKnowledgeConnectionAccessResourceIDForBinding(resourceID, binding, boundTeam)
 		if err != nil {
 			return "", err
-		}
-		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-			team, err = configsync.NormalizePathForTeam(boundTeam, team)
-			if err != nil {
-				return "", err
-			}
 		}
 		return buildKnowledgeConnectionIdentifier(team, name), nil
 	}
@@ -836,6 +824,64 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 		return generalGrantID, nil
 	}
 	return configsync.NormalizePathForTeam(boundTeam, resourceID)
+}
+
+func normalizeKnowledgeContextAccessResourceIDForBinding(resourceID string, binding models.ConfigRepository, boundTeam string) (string, string, string, error) {
+	resourceID = strings.Trim(strings.TrimSpace(strings.ReplaceAll(resourceID, "\\", "/")), "/")
+	parts := strings.Split(resourceID, "/")
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam && len(parts) == 2 {
+		kind, err := normalizeKnowledgeContextKind(parts[0])
+		if err != nil {
+			return "", "", "", err
+		}
+		name, err := normalizeKnowledgeContextName(parts[1])
+		if err != nil {
+			return "", "", "", err
+		}
+		team, err := configsync.NormalizePathForTeam(boundTeam, "")
+		if err != nil {
+			return "", "", "", err
+		}
+		return kind, team, name, nil
+	}
+	kind, team, name, err := splitKnowledgeContextIdentifier(resourceID)
+	if err != nil {
+		return "", "", "", err
+	}
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+		team, err = configsync.NormalizePathForTeam(boundTeam, team)
+		if err != nil {
+			return "", "", "", err
+		}
+	}
+	return kind, team, name, nil
+}
+
+func normalizeKnowledgeConnectionAccessResourceIDForBinding(resourceID string, binding models.ConfigRepository, boundTeam string) (string, string, error) {
+	resourceID = strings.Trim(strings.TrimSpace(strings.ReplaceAll(resourceID, "\\", "/")), "/")
+	parts := strings.Split(resourceID, "/")
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam && len(parts) == 1 {
+		name, err := normalizeKnowledgeConnectionName(parts[0])
+		if err != nil {
+			return "", "", err
+		}
+		team, err := configsync.NormalizePathForTeam(boundTeam, "")
+		if err != nil {
+			return "", "", err
+		}
+		return team, name, nil
+	}
+	team, name, err := splitKnowledgeConnectionIdentifier(resourceID)
+	if err != nil {
+		return "", "", err
+	}
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+		team, err = configsync.NormalizePathForTeam(boundTeam, team)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	return team, name, nil
 }
 
 func validateAccessPlanForBinding(plan accessSyncPlan, binding models.ConfigRepository) error {

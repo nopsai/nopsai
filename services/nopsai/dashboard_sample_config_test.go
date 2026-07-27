@@ -12,9 +12,9 @@ import (
 )
 
 func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
-	pipelineContent := readSampleConfigFile(t, "team-1-repo", "pipelines", "dashboard-sample.yaml")
-	multiOutputPipelineContent := readSampleConfigFile(t, "team-1-repo", "pipelines", "dashboard-multi-output-sample.yaml")
-	dashboardContent := readSampleConfigFile(t, "team-1-repo", "dashboards", "ops-dashboard.yaml")
+	pipelineContent := readSampleConfigFile(t, "team-1-repo", "pipelines", "team-1", "dashboard-sample.yaml")
+	multiOutputPipelineContent := readSampleConfigFile(t, "team-1-repo", "pipelines", "team-1", "dashboard-multi-output-sample.yaml")
+	dashboardContent := readSampleConfigFile(t, "team-1-repo", "dashboards", "team-1", "ops-dashboard.yaml")
 
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal([]byte(pipelineContent), &pipeline); err != nil {
@@ -113,7 +113,7 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 	}
 
 	dashboards, err := parseGitOpsDashboards(
-		map[string]string{"dashboards/ops-dashboard.yaml": dashboardContent},
+		map[string]string{"dashboards/team-1/ops-dashboard.yaml": dashboardContent},
 		"dashboards",
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		"team-1",
@@ -230,9 +230,9 @@ func TestSampleConfigPurposeDashboardPipelinesAreExecutableAndBound(t *testing.T
 		},
 	}
 
-	dashboardContent := readSampleConfigFile(t, "team-1-repo", "dashboards", "ops-dashboard.yaml")
+	dashboardContent := readSampleConfigFile(t, "team-1-repo", "dashboards", "team-1", "ops-dashboard.yaml")
 	dashboards, err := parseGitOpsDashboards(
-		map[string]string{"dashboards/ops-dashboard.yaml": dashboardContent},
+		map[string]string{"dashboards/team-1/ops-dashboard.yaml": dashboardContent},
 		"dashboards",
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		"team-1",
@@ -265,7 +265,7 @@ func TestSampleConfigPurposeDashboardPipelinesAreExecutableAndBound(t *testing.T
 			t.Fatalf("purpose pipeline %q section %q is not declared in ops dashboard", tt.name, tt.section)
 		}
 
-		content := readSampleConfigFile(t, "team-1-repo", "pipelines", tt.file)
+		content := readSampleConfigFile(t, "team-1-repo", "pipelines", "team-1", tt.file)
 		var pipeline models.Pipeline
 		if err := yaml.Unmarshal([]byte(content), &pipeline); err != nil {
 			t.Fatalf("yaml.Unmarshal(%s) error = %v", tt.file, err)

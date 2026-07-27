@@ -188,6 +188,22 @@ func TestValidateMCPDefinitionsAcceptTeamScopedNames(t *testing.T) {
 	}
 }
 
+func TestMCPTeamProfileReferenceNameUsesResolvedTeamPath(t *testing.T) {
+	records := map[int]teamPathRecord{
+		7: {ID: 7, Path: "team-1/dev"},
+	}
+
+	got := mcpTeamProfileReferenceName(records, 7, "review")
+	if got != "team-1/dev/review" {
+		t.Fatalf("mcpTeamProfileReferenceName() = %q, want team-1/dev/review", got)
+	}
+
+	got = mcpTeamProfileReferenceName(records, 9, "review")
+	if got != "9/review" {
+		t.Fatalf("mcpTeamProfileReferenceName() fallback = %q, want 9/review", got)
+	}
+}
+
 func TestValidateMCPProfileDefinitionAllowsWildcardForReadonlyServer(t *testing.T) {
 	err := mcpregistry.ValidateProfileDefinition(
 		models.MCPProfile{

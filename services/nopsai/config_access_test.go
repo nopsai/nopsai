@@ -394,6 +394,64 @@ basic_roles:
 	}
 }
 
+func TestParseAccessSyncPlanTeamRepoNormalizesKnowledgeContextGrant(t *testing.T) {
+	files := map[string]string{
+		"access/grants.yaml": `
+basic_roles:
+  - user: bob
+    role: viewer
+    resource: knowledge_context:guideline/go-style
+`,
+	}
+
+	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+	}, "team-1")
+	if err != nil {
+		t.Fatalf("parseAccessSyncPlan() error = %v", err)
+	}
+
+	key := accessGrantPlanKey{
+		subjectType:  model.SubjectTypeUser,
+		subjectID:    "bob",
+		resourceType: grantResourceKnowledgeContext,
+		resourceID:   "guideline/team-1/go-style",
+	}
+	if _, ok := plan.grants[key]; !ok {
+		t.Fatalf("expected normalized knowledge grant key %#v, got %#v", key, plan.grants)
+	}
+}
+
+func TestParseAccessSyncPlanTeamRepoNormalizesKnowledgeConnectionGrant(t *testing.T) {
+	files := map[string]string{
+		"access/grants.yaml": `
+basic_roles:
+  - user: bob
+    role: viewer
+    resource: knowledge_connection:notion-main
+`,
+	}
+
+	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+	}, "team-1")
+	if err != nil {
+		t.Fatalf("parseAccessSyncPlan() error = %v", err)
+	}
+
+	key := accessGrantPlanKey{
+		subjectType:  model.SubjectTypeUser,
+		subjectID:    "bob",
+		resourceType: grantResourceKnowledgeConnection,
+		resourceID:   "team-1/notion-main",
+	}
+	if _, ok := plan.grants[key]; !ok {
+		t.Fatalf("expected normalized knowledge connection grant key %#v, got %#v", key, plan.grants)
+	}
+}
+
 func TestParseAccessSyncPlanTeamRepoRejectsGlobalIAM(t *testing.T) {
 	files := map[string]string{
 		"access/roles.yaml": `

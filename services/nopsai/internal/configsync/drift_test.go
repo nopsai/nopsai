@@ -66,8 +66,8 @@ func TestIsDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
 func TestExportPathForTeamScope(t *testing.T) {
 	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	got, ok := ExportPath(repo, "team-1/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{}, testDriftOptions())
-	if !ok || got != "pipelines/services/api/deploy.yaml" {
-		t.Fatalf("ExportPath() = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
+	if !ok || got != "pipelines/team-1/services/api/deploy.yaml" {
+		t.Fatalf("ExportPath() = %q, %t; want pipelines/team-1/services/api/deploy.yaml, true", got, ok)
 	}
 	if _, ok := ExportPath(repo, "team-2/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{}, testDriftOptions()); ok {
 		t.Fatal("resource outside team scope was accepted")
@@ -76,13 +76,39 @@ func TestExportPathForTeamScope(t *testing.T) {
 
 func TestExportPathStripsBasePathFromManagedSource(t *testing.T) {
 	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1", BasePath: "configs/team-1"}
-	got, ok := ExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
-	if !ok || got != "pipelines/services/api/deploy.yaml" {
-		t.Fatalf("managed ExportPath() = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
+	got, ok := ExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/team-1/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
+	if !ok || got != "pipelines/team-1/services/api/deploy.yaml" {
+		t.Fatalf("managed ExportPath() = %q, %t; want pipelines/team-1/services/api/deploy.yaml, true", got, ok)
 	}
-	got, ok = ExportPath(repo, "team-1/services/api/deploy", "pipelines/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
-	if !ok || got != "pipelines/services/api/deploy.yaml" {
-		t.Fatalf("relative managed ExportPath() = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
+	got, ok = ExportPath(repo, "team-1/services/api/deploy", "pipelines/team-1/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
+	if !ok || got != "pipelines/team-1/services/api/deploy.yaml" {
+		t.Fatalf("relative managed ExportPath() = %q, %t; want pipelines/team-1/services/api/deploy.yaml, true", got, ok)
+	}
+}
+
+func TestExportPathCanonicalizesStaleManagedSourcePath(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	got, ok := ExportPath(repo, "team-1/services/api/deploy", "pipelines/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
+	if !ok || got != "pipelines/team-1/services/api/deploy.yaml" {
+		t.Fatalf("stale managed ExportPath() = %q, %t; want pipelines/team-1/services/api/deploy.yaml, true", got, ok)
+	}
+
+	got, ok = ExportPath(repo, "team-1/services/api/deploy", "pipelines/team-1/services/api/deploy.yml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
+	if !ok || got != "pipelines/team-1/services/api/deploy.yml" {
+		t.Fatalf("canonical managed ExportPath() = %q, %t; want pipelines/team-1/services/api/deploy.yml, true", got, ok)
+	}
+}
+
+func TestScopeFilePathCanonicalizesStaleManagedSourcePath(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	got, ok := ScopeFilePath(repo, "team-1/dev", "scopes/dev/scope.yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
+	if !ok || got != "scopes/team-1/dev/scope.yaml" {
+		t.Fatalf("stale managed ScopeFilePath() = %q, %t; want scopes/team-1/dev/scope.yaml, true", got, ok)
+	}
+
+	got, ok = ScopeFilePath(repo, "team-1/dev", "scopes/team-1/dev/scope.yml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
+	if !ok || got != "scopes/team-1/dev/scope.yml" {
+		t.Fatalf("canonical managed ScopeFilePath() = %q, %t; want scopes/team-1/dev/scope.yml, true", got, ok)
 	}
 }
 
@@ -101,6 +127,35 @@ func TestIncludesResourceSkipsDelegatedScopes(t *testing.T) {
 	}
 	if !IncludesResource(systemRepo, "platform/test", "database", sql.NullInt64{}, false, delegatedScopes) {
 		t.Fatal("unrelated system resource should remain in system repo")
+	}
+}
+
+func TestIncludesResourceLetsTeamRepoExportParentManagedResource(t *testing.T) {
+	teamRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	parentManaged := sql.NullInt64{Int64: 1, Valid: true}
+
+	if !IncludesResource(teamRepo, "team-1/shared/checkout", "git", parentManaged, true, nil) {
+		t.Fatal("team repo should export its scoped resource even when currently managed by a broader repo")
+	}
+	if IncludesResource(teamRepo, "team-2/shared/checkout", "git", parentManaged, true, nil) {
+		t.Fatal("team repo should not export parent-managed resources outside its scope")
+	}
+	if IncludesResource(teamRepo, "team-1/dev/deploy", "git", parentManaged, true, []string{"team-1/dev"}) {
+		t.Fatal("team repo should not export resources delegated to a child team repo")
+	}
+}
+
+func TestIncludesResourceLetsTeamRepoAdoptOrphanedGitResource(t *testing.T) {
+	teamRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+
+	if !IncludesResource(teamRepo, "team-1/dev", "git", sql.NullInt64{}, false, nil) {
+		t.Fatal("team repo should export scoped git resource without active config repo ownership")
+	}
+	if IncludesResource(teamRepo, "team-2/dev", "git", sql.NullInt64{}, false, nil) {
+		t.Fatal("team repo should not export orphaned git resources outside its scope")
+	}
+	if IncludesResource(teamRepo, "team-1/dev", "draft", sql.NullInt64{}, false, nil) {
+		t.Fatal("team repo should not export unsupported source kinds")
 	}
 }
 

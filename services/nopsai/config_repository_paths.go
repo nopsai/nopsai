@@ -31,17 +31,14 @@ func configRepositoryExportPath(repo models.ConfigRepository, identifier, source
 }
 
 func configRepositoryNotificationRoutePath(repo models.ConfigRepository, teamPath string) (string, bool) {
-	relID, ok := configsync.RelativeResourceIdentifier(repo, teamPath)
-	if !ok {
+	if _, ok := configsync.RelativeResourceIdentifier(repo, teamPath); !ok {
 		return "", false
 	}
-	if repo.ScopeType == models.ConfigRepositoryScopeTeam && relID == "" {
-		return "notifications.yaml", true
-	}
-	if relID == "" {
+	normalizedTeam := strings.Trim(strings.TrimSpace(teamPath), "/")
+	if normalizedTeam == "" {
 		return "", false
 	}
-	return filepath.ToSlash(filepath.Join("config-repositories", "teams", relID, "notifications.yaml")), true
+	return filepath.ToSlash(filepath.Join("config-repositories", "teams", normalizedTeam, "notifications.yaml")), true
 }
 
 func configRepositoryScopeFilePath(repo models.ConfigRepository, scope, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {

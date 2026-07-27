@@ -1055,7 +1055,7 @@ const knowledgeRows: WikiConfigRow[] = [
   {
     key: 'knowledge/',
     area: 'GitOps',
-    description: 'Managed Knowledge Context directory grouped by kind and team.',
+    description: 'Managed Knowledge Context directory grouped by kind and explicit team path. Team config repositories import legacy shorthand but drift exports the explicit team segment.',
     example: 'knowledge/guardrail/security/repo-check.md',
   },
   {
@@ -1087,6 +1087,12 @@ const knowledgeRows: WikiConfigRow[] = [
     area: 'Knowledge GitOps',
     description: 'Managed knowledge document path. GitOps documents must provide reusable text through content.',
     example: 'knowledge/policy/platform/release-evidence.md',
+  },
+  {
+    key: 'knowledge/<kind>/<team>/<name>.md',
+    area: 'Knowledge GitOps',
+    description: 'Team-scoped config repository path for a knowledge document owned by the bound team.',
+    example: 'knowledge/guideline/team-1/go-style.md',
   },
 ];
 
@@ -1409,7 +1415,7 @@ const gitOpsRepositoryRows: WikiConfigRow[] = [
     key: 'external-triggers/',
     area: 'GitOps repository',
     description: 'Authenticated external trigger endpoint definitions with caller allowlists, schemas, mappings, and rate limits.',
-    example: 'external-triggers/deploy-prod.yaml',
+    example: 'external-triggers/team-1-deploy-prod.yaml',
     type: 'directory',
     required: false,
     scope: 'config repository',
@@ -1426,7 +1432,8 @@ const gitOpsRepositoryRows: WikiConfigRow[] = [
   {
     key: 'scopes/',
     area: 'GitOps repository',
-    description: 'Scope variables, GitOps secret keys, runtime defaults, and repository-specific values.',
+    description:
+      'Scope variables, GitOps secret keys, runtime defaults, and repository-specific values; team repos accept local owner/repo/NAME and canonical team/path/owner/repo/NAME keys.',
     example: 'scopes/prod/scope.yaml',
     type: 'directory',
     required: false,
@@ -1445,8 +1452,8 @@ const gitOpsRepositoryRows: WikiConfigRow[] = [
   {
     key: 'config-repositories/',
     area: 'GitOps repository',
-    description: 'Group config repository bindings, group structure, and notification ownership.',
-    example: 'config-repositories/groups/team-1/structure.yaml',
+    description: 'Team config repository bindings, team structure, and notification ownership.',
+    example: 'config-repositories/teams/team-1/structure.yaml',
     type: 'directory',
     required: false,
     scope: 'system config repository',
@@ -2626,12 +2633,15 @@ const baseWikiSections: WikiSectionInput[] = [
           'Bootstrap values include database URL, master key, JWT signing keys, AAA token, dispatcher trust, service addresses, renderer, and System Logs topology.',
           'GitOps can own pipelines, steps, schedules, triggers, external triggers, Git webhook sources, scopes, knowledge, access, config repositories, and setting/system files.',
           'Global configuration sync runs before delegated team repositories.',
+          'The closest enabled team config repository owns resources under its team path, including drift/export for parent-managed or orphaned GitOps-labeled rows.',
           'UI edits to GitOps-managed resources create database overrides until the change is pushed back to Git.',
         ],
         details: [
           'Canonical system files include credentials.yaml, github.yaml, runner.yaml, auth.yaml, mail.yaml, llm_profile.yaml, mcp.yaml, and agent-profiles.yaml.',
-          'Config sync can import, update, prune Git-managed resources, detect drift, generate commit-ready changes, push to a review branch, and adopt database-created resources when matching files exist.',
-          'A system/global repository can own shared platform settings and delegate group-owned repositories. Runtime records stay in PostgreSQL; declarative intent lives in Git.',
+          'Config sync can import, update, prune Git-managed resources, detect drift, generate commit-ready changes, push to a review branch, and adopt database-created, parent-managed, or orphaned GitOps-labeled resources when they fall inside the syncing repository scope.',
+          'Drift/export canonicalizes stale managed source paths, so legacy files with duplicated team prefixes or missing team segments are proposed as file moves.',
+          'Team config repository access manifests normalize team-relative resources, including team:dev, knowledge_context:guideline/go-style, and knowledge_connection:notion-main.',
+          'A system/global repository can own shared platform settings and delegate team-owned repositories. Runtime records stay in PostgreSQL; declarative intent lives in Git.',
           'Write-enabled repositories push generated files to a review branch before merge. Sync should not mutate the protected sync branch directly.',
         ],
         configRows: [

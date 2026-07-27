@@ -190,10 +190,13 @@ func (a *App) findMCPServerReferences(ctx context.Context, name string) ([]strin
 		}
 	}
 
+	teamRecords, err := loadTeamPathRecords(ctx, a.db)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := a.db.Query(ctx, `
-		SELECT COALESCE(NULLIF(t.path, ''), t.name, tm.team_id::text), tm.name, tm.server_refs
+		SELECT tm.team_id, tm.name, tm.server_refs
 		FROM team_mcp_profiles tm
-		JOIN teams t ON t.id = tm.team_id
 	`)
 	if err != nil {
 		return nil, err
@@ -201,12 +204,12 @@ func (a *App) findMCPServerReferences(ctx context.Context, name string) ([]strin
 	defer rows.Close()
 	for rows.Next() {
 		var (
-			teamPath    string
+			teamID      int
 			profileName string
 			refsRaw     []byte
 			serverRefs  []models.MCPProfileServerRef
 		)
-		if err := rows.Scan(&teamPath, &profileName, &refsRaw); err != nil {
+		if err := rows.Scan(&teamID, &profileName, &refsRaw); err != nil {
 			return nil, err
 		}
 		if len(refsRaw) > 0 {
@@ -214,11 +217,7 @@ func (a *App) findMCPServerReferences(ctx context.Context, name string) ([]strin
 		}
 		for _, ref := range serverRefs {
 			if strings.EqualFold(ref.ServerName, name) {
-				referenceName := models.NormalizeMCPProfileName(profileName)
-				if normalizedTeamPath := strings.Trim(strings.TrimSpace(teamPath), "/"); normalizedTeamPath != "" {
-					referenceName = normalizedTeamPath + "/" + referenceName
-				}
-				references[referenceName] = true
+				references[mcpTeamProfileReferenceName(teamRecords, teamID, profileName)] = true
 			}
 		}
 	}
@@ -232,6 +231,19 @@ func (a *App) findMCPServerReferences(ctx context.Context, name string) ([]strin
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func mcpTeamProfileReferenceName(teamRecords map[int]teamPathRecord, teamID int, profileName string) string {
+	referenceName := models.NormalizeMCPProfileName(profileName)
+	if record, ok := teamRecords[teamID]; ok {
+		if teamPath := strings.Trim(strings.TrimSpace(record.Path), "/"); teamPath != "" {
+			return teamPath + "/" + referenceName
+		}
+	}
+	if teamID > 0 {
+		return fmt.Sprintf("%d/%s", teamID, referenceName)
+	}
+	return referenceName
 }
 
 func (a *App) handleTestMCPServer(w http.ResponseWriter, r *http.Request) {

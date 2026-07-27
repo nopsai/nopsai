@@ -129,8 +129,12 @@ knowledge/<kind>/<team>/<file>.md
 
 For team-scoped config repositories, document teams are normalized under the
 bound team in the same way as pipelines, reusable steps, scopes, and triggers.
-When a team has a delegated config repository, manage that team's knowledge
-documents in the delegated repository.
+Team repositories keep the team segment explicit too: `knowledge/guideline/team-1/go-style.md`
+in a `team-1` repo becomes `guideline/team-1/go-style`. When a team has a
+delegated config repository, manage that team's knowledge documents in the
+delegated repository. Legacy shorthand paths such as `knowledge/guideline/go-style.md`
+are still imported for compatibility, but drift/export canonicalizes them to
+`knowledge/guideline/team-1/go-style.md`.
 
 ## GitOps Document Format
 

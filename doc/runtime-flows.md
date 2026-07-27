@@ -342,12 +342,14 @@ Rerun:
    - reusable steps must parse and have matching names
    - triggers must parse as manifests
    - scope files turn `variables:` entries into scoped variables and `secrets:`
-     entries into GitOps secret keys
+     entries into GitOps secret keys; repository-scoped keys may use local
+     `owner/repo/NAME` shorthand or canonical nested
+     `team/path/owner/repo/NAME` IDs in team config repositories
    - knowledge markdown files are turned into `knowledge_contexts`
    - `config-repositories/teams/<team>.yaml` becomes a team config repo binding and team shell
    - `config-repositories/teams/<team>/structure.yaml` places apps under team shells with `name` and `repo_url`, and can define inline team repo `config:` blocks
    - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
-   - `config-repositories/teams/<team>/notifications.yaml` in a system repo, or `notifications.yaml` in a team repo, becomes a pipeline notification policy with one or more named routes for that run team
+   - `config-repositories/teams/<team>/notifications.yaml` in a system or team repo becomes a pipeline notification policy with one or more named routes for that run team
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
@@ -359,8 +361,15 @@ Rerun:
    - `setting/system/credentials.yaml` becomes encrypted system credential envelopes, only from a system/global config repo
 6. System/global repositories are synced before team repositories during sync-all, so newly defined team bindings can be used immediately.
 7. Team-scoped resources are normalized under the bound team before writing.
-8. It adopts matching database-owned resources that are inside the syncing repository scope, then marks them GitOps-managed; resources already managed by an unrelated config repository remain protected by config-repo precedence.
-9. It upserts rows with config-source metadata into Postgres.
+8. It adopts matching database-owned resources, parent-managed team resources,
+   and orphaned GitOps-labeled resources that are inside the syncing repository
+   scope, then marks them GitOps-managed; delegated child team repositories
+   still take precedence.
+9. Drift/export compares each managed row's stored `config_source_path` with the
+   canonical path for the current repo scope. When legacy metadata points at a
+   duplicated team prefix or an older missing-team path, drift emits the
+   canonical file and marks the stale file for deletion.
+10. It upserts rows with config-source metadata into Postgres.
 
 For Git push, `nopsai` loads the same system or team config repository binding,
 validates that `write_enabled` and `write_branch` are set, prefixes requested

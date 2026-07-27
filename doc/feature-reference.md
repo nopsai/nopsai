@@ -536,11 +536,19 @@ Sync behavior:
 - preserve non-Git teams to avoid deleting user-managed structure
 - reject flat top-level variable entries in scope files; scoped variables must
   be nested under `variables:` and runtime variable/secret names must match
-  `^[A-Za-z0-9_.-]+$`
+  `^[A-Za-z0-9_.-]+$`; repository-scoped entries may use `owner/repo/NAME`, and
+  team config repositories also accept canonical nested
+  `team/path/owner/repo/NAME` keys
 - import GitOps secret values only when they decrypt with the current NopsAI
   master key; otherwise keep the secret key with no value
 - sync system/global config repositories before team config repositories, so team bindings defined in Git can be picked up during the same sync-all run
-- team config repositories are authoritative for resources under their team path; parent repos prune their own managed resources in delegated teams
+- team config repositories are authoritative for resources under their team
+  path; parent repos prune their own managed resources in delegated teams, and
+  drift/export can move parent-managed or orphaned GitOps-labeled team resources
+  into the closest enabled team repo
+- drift/export canonicalizes stale managed source paths, so legacy files with a
+  duplicated team prefix or a missing team segment are surfaced as file moves
+  instead of remaining pinned by historical `config_source_path` metadata
 - team-scoped LLM, Agent, and MCP profile rows carry config repository metadata; LLM and Agent Profile pages edit team defaults after a concrete team is selected, include matching slash-scoped catalog LLM/Agent profiles in that team view, Teams shows read-only profile/default summaries, team config repositories import/export root `ai-profiles.yaml`, and run launch merges team profiles over the system catalog while system profile GitOps remains under `setting/system/*`
 - config repository bindings support GitHub, GitLab, Bitbucket Cloud-compatible, and Gitea providers; non-GitHub providers use `credential_ref` bearer-token credentials for sync and write operations
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
@@ -615,10 +623,9 @@ Pipeline notifications include:
   NopsAI footer branding, and bounded redacted error excerpts
 - team-level notification routing under
   `GET|PUT|DELETE /v1/teams/{team}/notifications`
-- GitOps support for global `config-repositories/teams/<team>/notifications.yaml`
-  files and delegated team-repo `notifications.yaml` files at the configured
-  repository base path; review drift from Teams so the repository that owns the
-  team performs the export
+- GitOps support for `config-repositories/teams/<team>/notifications.yaml`
+  files in global and delegated team repositories; review drift from Teams so
+  the repository that owns the team performs the export
 - one or more named routes per team policy, each with same-team recipients,
   explicit users/teams, excludes, event selection, pipeline/repository/branch
   filters, mail channels, and dedupe/max-per-run throttling

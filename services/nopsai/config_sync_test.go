@@ -900,7 +900,50 @@ func TestRepositoryFullNameFromURLUsesGitHubRepoRoot(t *testing.T) {
 	}
 }
 
+func TestDashboardPruneTargetsResolveTeamPaths(t *testing.T) {
+	teamRecords := map[int]teamPathRecord{
+		1: {ID: 1, Path: "team-1"},
+		2: {ID: 2, Path: "team-1/dev"},
+	}
+	dashboards := map[string]storedDashboard{
+		"team-1/ops":         {teamPath: "team-1", slug: "ops"},
+		"team-1/dev/service": {teamPath: "team-1/dev", slug: "service"},
+	}
+
+	teamIDs, slugs, err := dashboardPruneTargetsFromTeamRecords(dashboards, teamRecords)
+	if err != nil {
+		t.Fatalf("dashboardPruneTargetsFromTeamRecords() error = %v", err)
+	}
+	if len(teamIDs) != 2 || len(slugs) != 2 {
+		t.Fatalf("targets lengths = %d, %d; want 2, 2", len(teamIDs), len(slugs))
+	}
+	if teamIDs[0] != 2 || slugs[0] != "service" {
+		t.Fatalf("first target = (%d, %q); want (2, service)", teamIDs[0], slugs[0])
+	}
+	if teamIDs[1] != 1 || slugs[1] != "ops" {
+		t.Fatalf("second target = (%d, %q); want (1, ops)", teamIDs[1], slugs[1])
+	}
+}
+
+func TestDashboardPruneTargetsRejectMissingTeam(t *testing.T) {
+	_, _, err := dashboardPruneTargetsFromTeamRecords(
+		map[string]storedDashboard{
+			"team-1/dev/service": {teamPath: "team-1/dev", slug: "service"},
+		},
+		map[int]teamPathRecord{
+			1: {ID: 1, Path: "team-1"},
+		},
+	)
+	if err == nil {
+		t.Fatal("expected missing dashboard team to be rejected")
+	}
+}
+
 func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T) {
+	steps := map[string]storedStep{
+		"data-team/shared/checkout": {path: "data-team/shared", name: "checkout"},
+		"platform/shared/checkout":  {path: "platform/shared", name: "checkout"},
+	}
 	generalScopeVars := map[generalScopeVarKey]storedScopeVar{
 		{scopePath: "data-team/dev", name: "API_VERSION"}: {},
 		{scopePath: "prod", name: "API_VERSION"}:          {},
@@ -933,7 +976,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	filterDelegatedConfigResources(
 		[]string{"data-team"},
 		map[string]storedPipeline{},
-		map[string]storedStep{},
+		steps,
 		map[string]storedSchedule{},
 		map[string]storedDashboard{},
 		externalTriggers,
@@ -947,6 +990,12 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		triggers,
 	)
 
+	if _, ok := steps["data-team/shared/checkout"]; ok {
+		t.Fatal("expected delegated reusable step to be filtered")
+	}
+	if _, ok := steps["platform/shared/checkout"]; !ok {
+		t.Fatal("expected unrelated reusable step to remain")
+	}
 	if _, ok := generalScopeVars[generalScopeVarKey{scopePath: "data-team/dev", name: "API_VERSION"}]; ok {
 		t.Fatal("expected delegated general scope variable to be filtered")
 	}
@@ -1034,6 +1083,55 @@ variables:
 	}
 	if got := repoScopeVars[repoScopeVarKey{repo: "nopsai/test-app", scopePath: "team-1/dev", name: "IMAGE_NAME"}].value; got != "ghcr.io/team-1/service-api:dev" {
 		t.Fatalf("repo IMAGE_NAME = %q", got)
+	}
+}
+
+func TestTeamScopeConfigAcceptsNestedRepositoryRuntimeKeys(t *testing.T) {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(`
+variables:
+  team-1/hosein-yousefii/test-app/TEST_SCOPE: "enabled"
+  hosein-yousefii/test-app/LOCAL_SCOPE: "local"
+secrets:
+  team-1/hosein-yousefii/test-app/DEPLOY_TOKEN:
+`), &raw); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	generalScopeVars := map[generalScopeVarKey]storedScopeVar{}
+	repoScopeVars := map[repoScopeVarKey]storedScopeVar{}
+	generalScopeSecrets := map[generalScopeSecretKey]storedScopeSecret{}
+	repoScopeSecrets := map[repoScopeSecretKey]storedScopeSecret{}
+	_, err := (&App{}).addScopeConfigEntries(
+		raw,
+		generalScopeVars,
+		repoScopeVars,
+		generalScopeSecrets,
+		repoScopeSecrets,
+		"team-1/dev",
+		"scopes/dev/scope.yaml",
+		models.ConfigRepository{
+			ScopeType: models.ConfigRepositoryScopeTeam,
+			ScopeID:   "team-1",
+		},
+		"team-1",
+	)
+	if err != nil {
+		t.Fatalf("addScopeConfigEntries() error = %v", err)
+	}
+
+	repo := "team-1/hosein-yousefii/test-app"
+	if got := repoScopeVars[repoScopeVarKey{repo: repo, scopePath: "team-1/dev", name: "TEST_SCOPE"}].value; got != "enabled" {
+		t.Fatalf("canonical repo TEST_SCOPE = %q, want enabled", got)
+	}
+	if got := repoScopeVars[repoScopeVarKey{repo: repo, scopePath: "team-1/dev", name: "LOCAL_SCOPE"}].value; got != "local" {
+		t.Fatalf("team-relative repo LOCAL_SCOPE = %q, want local", got)
+	}
+	if got := repoScopeSecrets[repoScopeSecretKey{repo: repo, scopePath: "team-1/dev", name: "DEPLOY_TOKEN"}].encryptedValue; got != nil {
+		t.Fatalf("DEPLOY_TOKEN encrypted value = %#v, want nil placeholder", got)
+	}
+	if len(generalScopeVars) != 0 || len(generalScopeSecrets) != 0 {
+		t.Fatalf("general scope entries = vars %#v secrets %#v, want none", generalScopeVars, generalScopeSecrets)
 	}
 }
 

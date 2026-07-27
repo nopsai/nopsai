@@ -58,6 +58,42 @@ func TestDiffConfigRepositoryFilesIgnoresKnowledgeFrontMatterWrapper(t *testing.
 	}
 }
 
+func TestDiffConfigRepositoryFilesIgnoresTeamRepoKnowledgeFrontMatterWrapper(t *testing.T) {
+	gitContent := "name: go-style\nkind: guideline\ncontent: |\n  # Go Style\n\n  Keep helpers small.\n"
+	desiredContent := "---\nname: go-style\nkind: guideline\ncontent: |\n  # Go Style\n\n  Keep helpers small.\n---\n"
+	items := diffConfigRepositoryFiles(
+		map[string]string{"knowledge/guideline/team-1/go-style.md": normalizeConfigRepositoryFileContent(gitContent)},
+		map[string]string{"knowledge/guideline/team-1/go-style.md": normalizeConfigRepositoryFileContent(desiredContent)},
+	)
+	if got, want := len(items), 1; got != want {
+		t.Fatalf("len(items) = %d, want %d", got, want)
+	}
+	if items[0].Status != "unchanged" {
+		t.Fatalf("team repo knowledge document status = %q, want unchanged", items[0].Status)
+	}
+}
+
+func TestDiffConfigRepositoryFilesMigratesLegacyTeamKnowledgePath(t *testing.T) {
+	content := normalizeConfigRepositoryFileContent("---\nname: go-style\nkind: guideline\ncontent: Keep helpers small.\n---\n")
+	items := diffConfigRepositoryFiles(
+		map[string]string{"knowledge/guideline/go-style.md": content},
+		map[string]string{"knowledge/guideline/team-1/go-style.md": content},
+	)
+	if got, want := len(items), 2; got != want {
+		t.Fatalf("len(items) = %d, want %d", got, want)
+	}
+	statuses := map[string]string{}
+	for _, item := range items {
+		statuses[item.Path] = item.Status
+	}
+	if statuses["knowledge/guideline/go-style.md"] != "deleted" {
+		t.Fatalf("legacy knowledge path status = %q, want deleted", statuses["knowledge/guideline/go-style.md"])
+	}
+	if statuses["knowledge/guideline/team-1/go-style.md"] != "added" {
+		t.Fatalf("canonical knowledge path status = %q, want added", statuses["knowledge/guideline/team-1/go-style.md"])
+	}
+}
+
 func TestDiffConfigRepositoryFilesDetectsKnowledgeContentChange(t *testing.T) {
 	items := diffConfigRepositoryFiles(
 		map[string]string{"knowledge/guardrail/data-team/runtime-output-safety.yaml": "name: runtime-output-safety\nkind: guardrail\ncontent: old\n"},
@@ -155,6 +191,7 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 		"access/grants.yaml",
 		"ai-profiles.yaml",
 		"ai-profiles.yml",
+		"notifications.yaml",
 		"config-repositories/teams/team-1/notifications.yaml",
 		"config-repositories/teams/team-1/structure.yaml",
 		"setting/system/auth.yaml",
@@ -189,15 +226,15 @@ func TestConfigRepositoryNotificationRoutePathUsesColocatedSystemPath(t *testing
 	}
 }
 
-func TestConfigRepositoryNotificationRoutePathUsesRootFileForBoundTeam(t *testing.T) {
+func TestConfigRepositoryNotificationRoutePathUsesExplicitTeamPathForTeamRepo(t *testing.T) {
 	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	got, ok := configRepositoryNotificationRoutePath(repo, "team-1")
-	if !ok || got != "notifications.yaml" {
-		t.Fatalf("notification route path = %q, %t; want team root notifications.yaml", got, ok)
+	if !ok || got != "config-repositories/teams/team-1/notifications.yaml" {
+		t.Fatalf("notification route path = %q, %t; want explicit team path", got, ok)
 	}
 	got, ok = configRepositoryNotificationRoutePath(repo, "team-1/dev")
-	if !ok || got != "config-repositories/teams/dev/notifications.yaml" {
-		t.Fatalf("child notification route path = %q, %t; want colocated child path", got, ok)
+	if !ok || got != "config-repositories/teams/team-1/dev/notifications.yaml" {
+		t.Fatalf("child notification route path = %q, %t; want explicit child path", got, ok)
 	}
 }
 
@@ -209,8 +246,37 @@ func TestConfigRepositoryTriggerExportPathUsesRepositoryPathWithTeamScope(t *tes
 	}
 
 	got, ok = configRepositoryTriggerExportPath(repo, "black/service-api", "", false, sql.NullInt64{})
-	if !ok || got != "triggers/service-api.yaml" {
-		t.Fatalf("trigger export path = %q, %t; want legacy team-relative path", got, ok)
+	if !ok || got != "triggers/black/service-api.yaml" {
+		t.Fatalf("trigger export path = %q, %t; want explicit team path", got, ok)
+	}
+
+	got, ok = configRepositoryTriggerExportPath(repo, "black/service-api", "triggers/service-api.yaml", true, sql.NullInt64{Int64: 7, Valid: true})
+	if !ok || got != "triggers/black/service-api.yaml" {
+		t.Fatalf("stale managed trigger export path = %q, %t; want triggers/black/service-api.yaml", got, ok)
+	}
+}
+
+func TestConfigRepositoryFlatGitOpsExportPathsKeepTeamPrefix(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+
+	got, ok := externalTriggerExportPath(repo, externalTriggerRecord{ID: "team-1-deploy-prod"}, "", false, false, 0)
+	if !ok || got != "external-triggers/team-1-deploy-prod.yaml" {
+		t.Fatalf("external trigger export path = %q, %t; want external-triggers/team-1-deploy-prod.yaml, true", got, ok)
+	}
+
+	got, ok = gitWebhookSourceExportPath(repo, gitWebhookSourceRecord{ID: "team-1-gitlab-main"}, "", false, false, 0)
+	if !ok || got != "git-webhook-sources/team-1-gitlab-main.yaml" {
+		t.Fatalf("git webhook source export path = %q, %t; want git-webhook-sources/team-1-gitlab-main.yaml, true", got, ok)
+	}
+
+	got, ok = externalTriggerExportPath(repo, externalTriggerRecord{ID: "team-1-deploy-prod"}, "external-triggers/deploy-prod.yaml", true, true, 7)
+	if !ok || got != "external-triggers/team-1-deploy-prod.yaml" {
+		t.Fatalf("stale managed external trigger export path = %q, %t; want external-triggers/team-1-deploy-prod.yaml, true", got, ok)
+	}
+
+	got, ok = gitWebhookSourceExportPath(repo, gitWebhookSourceRecord{ID: "team-1-gitlab-main"}, "git-webhook-sources/gitlab-main.yaml", true, true, 7)
+	if !ok || got != "git-webhook-sources/team-1-gitlab-main.yaml" {
+		t.Fatalf("stale managed git webhook source export path = %q, %t; want git-webhook-sources/team-1-gitlab-main.yaml, true", got, ok)
 	}
 }
 
@@ -267,8 +333,8 @@ func TestConfigRepositoryTeamStructureFilesUseScopedPaths(t *testing.T) {
 func TestConfigRepositoryExportPathForTeamScope(t *testing.T) {
 	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "", "pipelines", false, sql.NullInt64{})
-	if !ok || got != "pipelines/services/api/deploy.yaml" {
-		t.Fatalf("export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
+	if !ok || got != "pipelines/team-1/services/api/deploy.yaml" {
+		t.Fatalf("export path = %q, %t; want pipelines/team-1/services/api/deploy.yaml, true", got, ok)
 	}
 	if _, ok := configRepositoryExportPath(repo, "team-2/services/api/deploy", "", "pipelines", false, sql.NullInt64{}); ok {
 		t.Fatal("resource outside team scope was accepted")
@@ -277,13 +343,13 @@ func TestConfigRepositoryExportPathForTeamScope(t *testing.T) {
 
 func TestConfigRepositoryExportPathStripsBasePathFromManagedSource(t *testing.T) {
 	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1", BasePath: "configs/team-1"}
-	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/services/api/deploy.yaml", "pipelines", true, sql.NullInt64{Int64: 7, Valid: true})
-	if !ok || got != "pipelines/services/api/deploy.yaml" {
-		t.Fatalf("managed export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
+	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/team-1/services/api/deploy.yaml", "pipelines", true, sql.NullInt64{Int64: 7, Valid: true})
+	if !ok || got != "pipelines/team-1/services/api/deploy.yaml" {
+		t.Fatalf("managed export path = %q, %t; want pipelines/team-1/services/api/deploy.yaml, true", got, ok)
 	}
-	got, ok = configRepositoryExportPath(repo, "team-1/services/api/deploy", "pipelines/services/api/deploy.yaml", "pipelines", true, sql.NullInt64{Int64: 7, Valid: true})
-	if !ok || got != "pipelines/services/api/deploy.yaml" {
-		t.Fatalf("relative managed export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
+	got, ok = configRepositoryExportPath(repo, "team-1/services/api/deploy", "pipelines/team-1/services/api/deploy.yaml", "pipelines", true, sql.NullInt64{Int64: 7, Valid: true})
+	if !ok || got != "pipelines/team-1/services/api/deploy.yaml" {
+		t.Fatalf("relative managed export path = %q, %t; want pipelines/team-1/services/api/deploy.yaml, true", got, ok)
 	}
 }
 
@@ -314,6 +380,65 @@ func TestConfigRepositoryIncludesResourceSkipsChildDelegatedScopesForTeamRepo(t 
 	}
 	if !configRepositoryIncludesResource(parentRepo, "team-1/deploy", "database", sql.NullInt64{}, false, delegatedScopes) {
 		t.Fatal("parent team repo should still include resources directly under its scope")
+	}
+}
+
+func TestConfigRepositoryIncludesResourceLetsTeamRepoAdoptParentManagedStep(t *testing.T) {
+	teamRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	parentManaged := sql.NullInt64{Int64: 1, Valid: true}
+
+	if !configRepositoryIncludesResource(teamRepo, "team-1/shared/checkout", "git", parentManaged, true, nil) {
+		t.Fatal("team repo should include scoped reusable step currently managed by the global repo")
+	}
+	got, ok := configRepositoryExportPath(teamRepo, "team-1/shared/checkout", "steps/team-1/shared/checkout.yaml", "steps", true, parentManaged)
+	if !ok || got != "steps/team-1/shared/checkout.yaml" {
+		t.Fatalf("team step export path = %q, %t; want steps/team-1/shared/checkout.yaml, true", got, ok)
+	}
+}
+
+func TestConfigRepositoryScopeFilePathLetsTeamRepoAdoptOrphanedGitScope(t *testing.T) {
+	teamRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+
+	if !configRepositoryIncludesResource(teamRepo, "team-1/dev", "git", sql.NullInt64{}, false, nil) {
+		t.Fatal("team repo should include scoped git variable without active config repo ownership")
+	}
+	got, ok := configRepositoryScopeFilePath(teamRepo, "team-1/dev", "", false, sql.NullInt64{})
+	if !ok || got != "scopes/team-1/dev/scope.yaml" {
+		t.Fatalf("team scope file path = %q, %t; want scopes/team-1/dev/scope.yaml, true", got, ok)
+	}
+}
+
+func TestConfigRepositoryIncludesTeamOwnedWebhookResourcesUsesTeamRepoOwnership(t *testing.T) {
+	teamRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	parentManaged := sql.NullInt64{Int64: 1, Valid: true}
+
+	if !configRepositoryIncludesExternalTrigger(teamRepo, externalTriggerRecord{RunTeamPath: "team-1/dev"}, "git", parentManaged, true, nil) {
+		t.Fatal("team repo should include team-owned external trigger currently managed by broader repo")
+	}
+	if !configRepositoryIncludesGitWebhookSource(teamRepo, gitWebhookSourceRecord{TeamPath: "team-1/dev"}, "git", sql.NullInt64{}, false, nil) {
+		t.Fatal("team repo should include team-owned git webhook source without active config repo ownership")
+	}
+	if configRepositoryIncludesGitWebhookSource(teamRepo, gitWebhookSourceRecord{TeamPath: "team-1/dev"}, "git", sql.NullInt64{}, false, []string{"team-1/dev"}) {
+		t.Fatal("team repo should not include git webhook source delegated to child team repo")
+	}
+}
+
+func TestConfigRepositoryKnowledgeExportPathCanonicalizesLegacySourcePaths(t *testing.T) {
+	systemRepo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	got, ok := configRepositoryKnowledgeExportPath(systemRepo, "guideline", "team-1", "go-style", "knowledge/guideline/go-style.md", true, sql.NullInt64{Int64: 7, Valid: true})
+	if !ok || got != "knowledge/guideline/team-1/go-style.md" {
+		t.Fatalf("system knowledge export path = %q, %t; want knowledge/guideline/team-1/go-style.md, true", got, ok)
+	}
+
+	teamRepo := models.ConfigRepository{ID: 8, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	got, ok = configRepositoryKnowledgeExportPath(teamRepo, "guideline", "team-1", "go-style", "knowledge/guideline/go-style.md", true, sql.NullInt64{Int64: 8, Valid: true})
+	if !ok || got != "knowledge/guideline/team-1/go-style.md" {
+		t.Fatalf("team knowledge export path = %q, %t; want knowledge/guideline/team-1/go-style.md, true", got, ok)
+	}
+
+	got, ok = configRepositoryKnowledgeExportPath(systemRepo, "guideline", "team-1", "go-style", "knowledge/guideline/team-1/go-style.yaml", true, sql.NullInt64{Int64: 7, Valid: true})
+	if !ok || got != "knowledge/guideline/team-1/go-style.yaml" {
+		t.Fatalf("canonical YAML knowledge export path = %q, %t; want knowledge/guideline/team-1/go-style.yaml, true", got, ok)
 	}
 }
 

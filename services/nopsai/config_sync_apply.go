@@ -881,12 +881,19 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	// 4. Prune Dashboards
 	{
-		var teams, slugs []string
-		for _, dashboard := range dashboards {
-			teams = append(teams, dashboard.teamPath)
-			slugs = append(slugs, dashboard.slug)
+		var teamIDs []int
+		var slugs []string
+		if len(dashboards) > 0 {
+			teamRecords, err := loadTeamPathRecords(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("failed to resolve dashboard teams for pruning: %w", err)
+			}
+			teamIDs, slugs, err = dashboardPruneTargetsFromTeamRecords(dashboards, teamRecords)
+			if err != nil {
+				return fmt.Errorf("failed to resolve dashboard teams for pruning: %w", err)
+			}
 		}
-		if len(teams) == 0 {
+		if len(teamIDs) == 0 {
 			if _, err := tx.Exec(ctx, "DELETE FROM dashboards WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
 				return fmt.Errorf("failed to prune dashboards: %w", err)
 			}
@@ -897,11 +904,10 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 				  AND d.config_repo_id = $3
 				  AND NOT EXISTS (
 					SELECT 1
-					FROM unnest($1::text[], $2::text[]) AS wanted(team_path, slug)
-					JOIN teams t ON t.path = wanted.team_path
-					WHERE d.team_id = t.id AND d.slug = wanted.slug
+					FROM unnest($1::int[], $2::text[]) AS wanted(team_id, slug)
+					WHERE d.team_id = wanted.team_id AND d.slug = wanted.slug
 				  )
-			`, teams, slugs, binding.ID); err != nil {
+			`, teamIDs, slugs, binding.ID); err != nil {
 				return fmt.Errorf("failed to prune dashboards: %w", err)
 			}
 		}
