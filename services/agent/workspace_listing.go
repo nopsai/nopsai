@@ -121,6 +121,9 @@ func getDirectoryListing(logger *zerolog.Logger, root string, includePatterns, i
 			logger.Error().Err(err).Str("path", path).Msg("Error accessing path")
 			return nil
 		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
 
 		// Check if the path should be ignored by the patterns from the pipeline directive
 		if isIgnored(path, ignoreMatchers, root, info.IsDir()) {

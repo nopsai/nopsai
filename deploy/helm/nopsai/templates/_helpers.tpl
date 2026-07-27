@@ -41,6 +41,34 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 {{- end }}
 
+{{- define "nopsai.runnerWorkloadServiceAccountName" -}}
+{{- $workload := default dict .Values.k8sRunner.workload -}}
+{{- $serviceAccount := default dict (index $workload "serviceAccount") -}}
+{{- $create := default true (index $serviceAccount "create") -}}
+{{- $fallbackName := printf "%s-workload" (include "nopsai.runnerServiceAccountName" .) | trunc 63 | trimSuffix "-" -}}
+{{- if $create -}}
+{{ default $fallbackName (index $serviceAccount "name") }}
+{{- else -}}
+{{ required "k8sRunner.workload.serviceAccount.name is required when workload service-account creation is disabled" (index $serviceAccount "name") }}
+{{- end -}}
+{{- end }}
+
+{{- define "nopsai.runnerServiceID" -}}
+{{- default .Values.k8sRunner.runnerID .Values.k8sRunner.serviceID -}}
+{{- end }}
+
+{{- define "nopsai.imagePullSecretNames" -}}
+{{- $names := list -}}
+{{- range . -}}
+{{- if kindIs "string" . -}}
+{{- $names = append $names . -}}
+{{- else if hasKey . "name" -}}
+{{- $names = append $names .name -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $names -}}
+{{- end }}
+
 {{- define "nopsai.postgresServiceName" -}}
 {{- default "postgres" .Values.postgres.service.name -}}
 {{- end }}

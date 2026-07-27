@@ -559,6 +559,9 @@ Kubernetes runner. PostgreSQL and bootstrap secrets are intentionally external.
 dispatcher endpoint injected into API and Kubernetes runner pods. The same
 topology block also carries the internal NopsAI, AAA, git-bot, and Gotenberg
 service URLs for custom DNS or split-service deployments.
+Kubernetes runner charts use a RBAC-bearing runner ServiceAccount and a separate
+no-RBAC workload ServiceAccount for agent/step pods; private registries continue
+to work through explicit `imagePullSecrets`.
 
 ## Bootstrap Configuration
 
@@ -662,7 +665,9 @@ query parameters.
 Monitoring is authorization-filtered and covers runs, pipelines, steps, tasks,
 triggers, external triggers, runners, LLM usage, reliability, efficiency, and
 security. The API exposes Prometheus metrics at `GET /metrics`, including
-identity provider capability and authorization grant ownership series.
+identity provider capability and authorization grant ownership series. Metrics
+are public by default for compatibility and can require bearer auth with
+`metrics_require_auth`.
 
 Pipeline logs are durable run records. System Logs are live allow-listed
 platform container or pod logs streamed through authenticated SSE. Docker

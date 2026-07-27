@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"nopsai/config"
 	"nopsai/pkg/correlation"
 	"nopsai/pkg/serviceauth"
 	"nopsai/services/nopsai/pkg/audit"
@@ -197,6 +198,55 @@ func TestHealthzEndpointIsPublic(t *testing.T) {
 	}
 	if rec.Header().Get("Cache-Control") == "" {
 		t.Fatal("Cache-Control header is empty, want no-store health response")
+	}
+}
+
+func TestMetricsCanRequireAuthentication(t *testing.T) {
+	serviceAuthenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
+		SigningKey: "shared-signing-key",
+		Issuer:     "service-issuer",
+		Audience:   "service-audience",
+	})
+	if err != nil {
+		t.Fatalf("NewAuthenticator() error = %v", err)
+	}
+	app := &App{
+		cfg:         &config.Config{MetricsRequireAuth: true},
+		serviceAuth: serviceAuthenticator,
+	}
+	handler := app.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("metrics request without auth should not reach handler")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want unauthorized; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCorsMiddlewareAllowsConfiguredOriginsOnly(t *testing.T) {
+	app := &App{cfg: &config.Config{CORSAllowedOrigins: []string{"https://app.example.com"}}}
+	handler := app.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	allowedReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	allowedReq.Header.Set("Origin", "https://app.example.com")
+	allowedRec := httptest.NewRecorder()
+	handler.ServeHTTP(allowedRec, allowedReq)
+	if got := allowedRec.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Fatalf("allowed origin header = %q", got)
+	}
+
+	blockedReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	blockedReq.Header.Set("Origin", "https://evil.example.com")
+	blockedRec := httptest.NewRecorder()
+	handler.ServeHTTP(blockedRec, blockedReq)
+	if got := blockedRec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("blocked origin header = %q, want empty", got)
 	}
 }
 

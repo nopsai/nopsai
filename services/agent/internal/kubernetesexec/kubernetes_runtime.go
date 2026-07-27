@@ -49,23 +49,26 @@ const (
 var kubernetesNameInvalidChars = regexp.MustCompile(`[^a-z0-9-]+`)
 
 type Runtime struct {
-	client          kubernetes.Interface
-	restConfig      *rest.Config
-	namespace       string
-	workspacePVC    string
-	nodeName        string
-	affinityEnabled bool
-	serviceAccount  string
-	imagePullPolicy corev1.PullPolicy
-	storageClass    string
-	workspaceSize   string
-	workspaceMode   string
-	accessMode      corev1.PersistentVolumeAccessMode
-	taskTimeout     time.Duration
-	cleanupPods     bool
-	podLabels       map[string]string
-	podAnnotations  map[string]string
-	runtimePools    map[string]appconfig.RuntimePool
+	client           kubernetes.Interface
+	restConfig       *rest.Config
+	namespace        string
+	workspacePVC     string
+	nodeName         string
+	affinityEnabled  bool
+	serviceAccount   string
+	workloadSA       string
+	workloadSAToken  *bool
+	imagePullSecrets []corev1.LocalObjectReference
+	imagePullPolicy  corev1.PullPolicy
+	storageClass     string
+	workspaceSize    string
+	workspaceMode    string
+	accessMode       corev1.PersistentVolumeAccessMode
+	taskTimeout      time.Duration
+	cleanupPods      bool
+	podLabels        map[string]string
+	podAnnotations   map[string]string
+	runtimePools     map[string]appconfig.RuntimePool
 }
 
 type StepPodRequest struct {
@@ -99,25 +102,30 @@ func NewFromEnv(workspacePVC string, pipelineAffinityEnabled *bool, logger *zero
 		workspaceSize = kubernetesDefaultWorkspaceSize
 	}
 	affinityEnabled := resolveKubernetesAffinityEnabled(os.Getenv("KUBERNETES_AFFINITY_ENABLED"), pipelineAffinityEnabled)
+	serviceAccount := strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_ACCOUNT"))
+	workloadSA := firstNonEmpty(os.Getenv("KUBERNETES_WORKLOAD_SERVICE_ACCOUNT"), serviceAccount)
 
 	runtime := &Runtime{
-		client:          clientset,
-		restConfig:      restConfig,
-		namespace:       namespace,
-		workspacePVC:    strings.TrimSpace(workspacePVC),
-		nodeName:        strings.TrimSpace(os.Getenv("KUBERNETES_NODE_NAME")),
-		affinityEnabled: affinityEnabled,
-		serviceAccount:  strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_ACCOUNT")),
-		imagePullPolicy: imagePullPolicy,
-		storageClass:    strings.TrimSpace(os.Getenv("KUBERNETES_STORAGE_CLASS")),
-		workspaceSize:   workspaceSize,
-		workspaceMode:   normalizeKubernetesWorkspaceMode(os.Getenv("KUBERNETES_WORKSPACE_VOLUME_MODE")),
-		accessMode:      accessMode,
-		taskTimeout:     taskTimeout,
-		cleanupPods:     parseBoolDefault(os.Getenv("KUBERNETES_CLEANUP_FINISHED_PODS"), true),
-		podLabels:       parseStringMapEnv("KUBERNETES_POD_LABELS"),
-		podAnnotations:  parseStringMapEnv("KUBERNETES_POD_ANNOTATIONS"),
-		runtimePools:    parseRuntimePoolsEnv(),
+		client:           clientset,
+		restConfig:       restConfig,
+		namespace:        namespace,
+		workspacePVC:     strings.TrimSpace(workspacePVC),
+		nodeName:         strings.TrimSpace(os.Getenv("KUBERNETES_NODE_NAME")),
+		affinityEnabled:  affinityEnabled,
+		serviceAccount:   serviceAccount,
+		workloadSA:       workloadSA,
+		workloadSAToken:  parseBoolPtrEnv("KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN"),
+		imagePullSecrets: parseImagePullSecretRefsEnv("KUBERNETES_IMAGE_PULL_SECRETS"),
+		imagePullPolicy:  imagePullPolicy,
+		storageClass:     strings.TrimSpace(os.Getenv("KUBERNETES_STORAGE_CLASS")),
+		workspaceSize:    workspaceSize,
+		workspaceMode:    normalizeKubernetesWorkspaceMode(os.Getenv("KUBERNETES_WORKSPACE_VOLUME_MODE")),
+		accessMode:       accessMode,
+		taskTimeout:      taskTimeout,
+		cleanupPods:      parseBoolDefault(os.Getenv("KUBERNETES_CLEANUP_FINISHED_PODS"), true),
+		podLabels:        parseStringMapEnv("KUBERNETES_POD_LABELS"),
+		podAnnotations:   parseStringMapEnv("KUBERNETES_POD_ANNOTATIONS"),
+		runtimePools:     parseRuntimePoolsEnv(),
 	}
 	if runtime.workspacePVC == "" {
 		return nil, fmt.Errorf("SHARED_VOLUME_NAME must be set for kubernetes runtime")
@@ -221,10 +229,12 @@ func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string
 			Annotations: cloneKubernetesStringMap(r.podAnnotations),
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy:      corev1.RestartPolicyNever,
-			NodeSelector:       nodeSelector,
-			ServiceAccountName: r.serviceAccount,
-			Volumes:            volumes,
+			RestartPolicy:                corev1.RestartPolicyNever,
+			NodeSelector:                 nodeSelector,
+			ServiceAccountName:           r.effectiveWorkloadServiceAccount(),
+			AutomountServiceAccountToken: r.workloadSAToken,
+			ImagePullSecrets:             append([]corev1.LocalObjectReference(nil), r.imagePullSecrets...),
+			Volumes:                      volumes,
 			Containers: []corev1.Container{{
 				Name:            kubernetesStepContainerName,
 				Image:           image,
@@ -467,6 +477,13 @@ func (r *Runtime) waitForPodRunning(ctx context.Context, podName string) error {
 	}
 }
 
+func (r *Runtime) effectiveWorkloadServiceAccount() string {
+	if r == nil {
+		return ""
+	}
+	return firstNonEmpty(r.workloadSA, r.serviceAccount)
+}
+
 func (r *Runtime) runtimePoolScheduling(poolName string) (map[string]string, corev1.ResourceRequirements, error) {
 	resources := corev1.ResourceRequirements{}
 	if len(r.runtimePools) == 0 {
@@ -626,6 +643,34 @@ func parseStringMapEnv(name string) map[string]string {
 	return values
 }
 
+func parseImagePullSecretRefsEnv(name string) []corev1.LocalObjectReference {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return nil
+	}
+	names := []string{}
+	if err := yaml.Unmarshal([]byte(raw), &names); err != nil {
+		names = strings.Split(raw, ",")
+	}
+	refs := make([]corev1.LocalObjectReference, 0, len(names))
+	seen := map[string]struct{}{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		refs = append(refs, corev1.LocalObjectReference{Name: name})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return refs
+}
+
 func firstContainerWaitingReason(pod *corev1.Pod) string {
 	if pod == nil {
 		return ""
@@ -680,6 +725,19 @@ func parseBoolDefault(raw string, fallback bool) bool {
 		return fallback
 	}
 	return value
+}
+
+func parseBoolPtrEnv(name string) *bool {
+	raw, ok := os.LookupEnv(name)
+	if !ok {
+		return nil
+	}
+	value, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		log.Warn().Err(err).Str("env", name).Msg("failed to parse bool env")
+		return nil
+	}
+	return &value
 }
 
 func resolveKubernetesAffinityEnabled(defaultRaw string, pipelineAffinityEnabled *bool) bool {

@@ -1,4 +1,7 @@
 dispatcher_grpc_address: dispatcher:9090
+# metrics_require_auth: true
+# cors_allowed_origins:
+#   - https://nopsai.example.com
 
 # Defaults used when generating a new runner install command
 runner_id: runner-general
@@ -60,6 +63,10 @@ runner_registry_credentials:
 # kubernetes:
 #   namespace: nopsai-runs
 #   service_account: nopsai-runner
+#   workload_service_account: nopsai-runner-workload
+#   workload_automount_service_account_token: false
+#   image_pull_secrets:
+#     - regcred
 #   default_image_pull_policy: IfNotPresent
 #   default_workspace_size: 5Gi
 #   default_workspace_access_mode: ReadWriteOnce

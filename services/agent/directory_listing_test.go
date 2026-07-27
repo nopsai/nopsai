@@ -60,6 +60,23 @@ func TestGetDirectoryListingEmptyIncludePreservesIgnoreOnlyBehavior(t *testing.T
 	}
 }
 
+func TestGetDirectoryListingDoesNotFollowSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeTestFile(t, outside, "secret.txt", "external secret")
+	link := filepath.Join(root, "linked-secret.txt")
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	logger := zerolog.Nop()
+	listing := getDirectoryListing(&logger, root, nil, nil)
+
+	if _, ok := listing["linked-secret.txt"]; ok {
+		t.Fatalf("symlink should not be shared in directory listing: %#v", listing)
+	}
+}
+
 func writeTestFile(t *testing.T, root, relPath, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relPath))

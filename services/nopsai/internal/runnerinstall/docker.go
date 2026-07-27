@@ -165,7 +165,7 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 		{serviceauth.EnvSigningKey, serviceJWTSigningKey},
 		{serviceauth.EnvIssuer, cfg.EffectiveServiceJWTIssuer()},
 		{serviceauth.EnvAudience, cfg.EffectiveServiceJWTAudience()},
-		{"RUNNER_SERVICE_ID", cfg.EffectiveRunnerServiceID()},
+		{"RUNNER_SERVICE_ID", runnerServiceIDForInstall(cfg, runnerID)},
 		{servicetls.EnvMode, tlsMode},
 		{servicetls.EnvSecret, tlsSecret},
 		{servicetls.EnvServerName, cfg.EffectiveDispatcherTLSServerName()},

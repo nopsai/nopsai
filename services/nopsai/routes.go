@@ -1,6 +1,10 @@
 package nopsai
 
-import "net/http"
+import (
+	"net/http"
+
+	"nopsai/pkg/httpapi"
+)
 
 func (a *App) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/auth/providers", a.handleAuthProviders)
@@ -434,6 +438,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	handler = recoveryMiddleware(handler)
 	handler = loggingMiddleware(handler)
 	handler = requestIDMiddleware(handler)
-	handler = corsMiddleware(handler)
+	handler = httpapi.LimitRequestBody(handler, httpapi.DefaultMaxRequestBodyBytes)
+	handler = a.corsMiddleware(handler)
 	return handler
 }

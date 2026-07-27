@@ -106,6 +106,9 @@ func (i *Index) Refresh(logger *zerolog.Logger, revision uint64) error {
 			}
 			return nil
 		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
 		if isIgnored(path, i.ignore, root, info.IsDir()) {
 			if info.IsDir() {
 				return filepath.SkipDir
@@ -310,7 +313,7 @@ func (i *Index) ReadFileRange(path string, offset int64, maxBytes int) (ReadFile
 		root = "."
 	}
 	fullPath := filepath.Join(root, filepath.FromSlash(normalized))
-	info, err := os.Stat(fullPath)
+	info, err := os.Lstat(fullPath)
 	if err != nil {
 		return ReadFileResult{}, err
 	}
@@ -376,6 +379,13 @@ func (i *Index) readFileContentWithRange(path string, offset int64, maxBytes int
 		root = "."
 	}
 	fullPath := filepath.Join(root, filepath.FromSlash(normalized))
+	info, err := os.Lstat(fullPath)
+	if err != nil {
+		return "", false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", false, fmt.Errorf("symlink %q is not available in the workspace index", normalized)
+	}
 	file, err := os.Open(fullPath)
 	if err != nil {
 		return "", false, err
@@ -427,6 +437,9 @@ func isTextContent(content []byte) bool {
 }
 
 func scanFileEntry(path, relPath string, info fs.FileInfo, revision uint64) (FileEntry, error) {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return FileEntry{}, fmt.Errorf("symlink %q is not available in the workspace index", relPath)
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return FileEntry{}, err

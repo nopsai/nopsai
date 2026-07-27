@@ -43,7 +43,7 @@ type AAAClient interface {
 func isAuthenticatedOnlyPath(path string) bool {
 	path = strings.TrimSpace(path)
 	switch path {
-	case "/v1/auth/me", "/v1/auth/password", "/v1/auth/email", "/v1/git/events":
+	case "/metrics", "/v1/auth/me", "/v1/auth/password", "/v1/auth/email", "/v1/git/events":
 		return true
 	default:
 		return path == "/v1/auth/personal-tokens" ||
