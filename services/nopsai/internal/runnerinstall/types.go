@@ -58,33 +58,35 @@ type BootstrapCommandResponse struct {
 }
 
 type KubernetesManifestResponse struct {
-	RunnerID            string   `json:"runner_id"`
-	RunnerScopes        string   `json:"runner_scopes"`
-	RunnerCapacity      int      `json:"runner_capacity"`
-	Namespace           string   `json:"namespace"`
-	ServiceAccount      string   `json:"service_account"`
-	DispatcherAddress   string   `json:"dispatcher_grpc_address"`
-	RunnerImage         string   `json:"runner_image"`
-	RegistryCredentials []string `json:"registry_credential_refs,omitempty"`
-	RegistryHosts       []string `json:"registry_hosts,omitempty"`
-	Manifest            string   `json:"manifest"`
-	Command             string   `json:"command"`
-	Warnings            []string `json:"warnings,omitempty"`
+	RunnerID               string   `json:"runner_id"`
+	RunnerScopes           string   `json:"runner_scopes"`
+	RunnerCapacity         int      `json:"runner_capacity"`
+	Namespace              string   `json:"namespace"`
+	ServiceAccount         string   `json:"service_account"`
+	WorkloadServiceAccount string   `json:"workload_service_account,omitempty"`
+	DispatcherAddress      string   `json:"dispatcher_grpc_address"`
+	RunnerImage            string   `json:"runner_image"`
+	RegistryCredentials    []string `json:"registry_credential_refs,omitempty"`
+	RegistryHosts          []string `json:"registry_hosts,omitempty"`
+	Manifest               string   `json:"manifest"`
+	Command                string   `json:"command"`
+	Warnings               []string `json:"warnings,omitempty"`
 }
 
 type KubernetesBootstrapCommandResponse struct {
-	RunnerID            string    `json:"runner_id"`
-	RunnerScopes        string    `json:"runner_scopes"`
-	RunnerCapacity      int       `json:"runner_capacity"`
-	Namespace           string    `json:"namespace"`
-	ServiceAccount      string    `json:"service_account"`
-	DispatcherAddress   string    `json:"dispatcher_grpc_address"`
-	RunnerImage         string    `json:"runner_image"`
-	RegistryCredentials []string  `json:"registry_credential_refs,omitempty"`
-	RegistryHosts       []string  `json:"registry_hosts,omitempty"`
-	BootstrapCommand    string    `json:"bootstrap_command"`
-	ExpiresAt           time.Time `json:"expires_at"`
-	Warnings            []string  `json:"warnings,omitempty"`
+	RunnerID               string    `json:"runner_id"`
+	RunnerScopes           string    `json:"runner_scopes"`
+	RunnerCapacity         int       `json:"runner_capacity"`
+	Namespace              string    `json:"namespace"`
+	ServiceAccount         string    `json:"service_account"`
+	WorkloadServiceAccount string    `json:"workload_service_account,omitempty"`
+	DispatcherAddress      string    `json:"dispatcher_grpc_address"`
+	RunnerImage            string    `json:"runner_image"`
+	RegistryCredentials    []string  `json:"registry_credential_refs,omitempty"`
+	RegistryHosts          []string  `json:"registry_hosts,omitempty"`
+	BootstrapCommand       string    `json:"bootstrap_command"`
+	ExpiresAt              time.Time `json:"expires_at"`
+	Warnings               []string  `json:"warnings,omitempty"`
 }
 
 type BootstrapToken struct {

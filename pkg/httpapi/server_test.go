@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -19,5 +21,18 @@ func TestNewServerAppliesProductionTimeouts(t *testing.T) {
 	}
 	if server.IdleTimeout != DefaultIdleTimeout {
 		t.Fatalf("IdleTimeout = %s, want %s", server.IdleTimeout, DefaultIdleTimeout)
+	}
+}
+
+func TestReadRequestBodyReportsTooLarge(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("abcdef"))
+	rec := httptest.NewRecorder()
+
+	_, err := ReadRequestBody(rec, req, 3)
+	if err == nil {
+		t.Fatal("ReadRequestBody() error = nil, want max body error")
+	}
+	if !IsRequestBodyTooLarge(err) {
+		t.Fatalf("IsRequestBodyTooLarge(%v) = false", err)
 	}
 }

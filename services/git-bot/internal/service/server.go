@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -236,7 +235,7 @@ func (a *GitBotApp) Handler() http.Handler {
 	mux.HandleFunc("/v1/run/status", a.handleRunStatusUpdate)
 	mux.HandleFunc("/v1/task/status", a.handleTaskStatusUpdate)
 	mux.HandleFunc("/v1/checks/create-child", a.handleCreateChildCheckRun)
-	return servicelog.HTTPMiddleware(a.authenticateInternalRoutes(mux))
+	return servicelog.HTTPMiddleware(httpapi.LimitRequestBody(a.authenticateInternalRoutes(mux), httpapi.DefaultMaxRequestBodyBytes))
 }
 
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
@@ -444,8 +443,12 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 }
 
 func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
+	body, err := httpapi.ReadRequestBody(w, r, httpapi.DefaultMaxWebhookBodyBytes)
 	if err != nil {
+		if httpapi.IsRequestBodyTooLarge(err) {
+			http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "Could not read request body", http.StatusInternalServerError)
 		return
 	}

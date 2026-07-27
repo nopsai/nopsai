@@ -452,6 +452,8 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 		sourcePath: "setting/system/runner.yaml",
 		payload: systemConfigPayload{
 			NopsaiAPIURL:              stringPtr(" http://nopsai.example.com "),
+			CORSAllowedOrigins:        []string{" https://nopsai.example.com ", "", "https://nopsai.example.com"},
+			MetricsRequireAuth:        boolPtr(true),
 			DispatcherAddress:         stringPtr(" dispatcher:9090 "),
 			AutoRemovalAgentContainer: boolPtr(false),
 			DefaultPipelineTimeout:    stringPtr(" 45m "),
@@ -491,6 +493,9 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 	if cfg.DispatcherAddress != "dispatcher:9090" {
 		t.Fatalf("DispatcherAddress = %q", cfg.DispatcherAddress)
 	}
+	if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "https://nopsai.example.com" || !cfg.MetricsRequireAuth {
+		t.Fatalf("CORS/metrics settings = %#v/%v", cfg.CORSAllowedOrigins, cfg.MetricsRequireAuth)
+	}
 	if cfg.RuntimeOutputMaxBytes != 131072 {
 		t.Fatalf("RuntimeOutputMaxBytes = %d", cfg.RuntimeOutputMaxBytes)
 	}
@@ -523,6 +528,8 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 	db := &runtimeSettingsFakeQuerier{}
 	cfg := config.Config{
 		NopsaiAPIURL:              "http://nopsai.example.com",
+		CORSAllowedOrigins:        []string{"https://nopsai.example.com"},
+		MetricsRequireAuth:        true,
 		DispatcherAddress:         "dispatcher:9090",
 		AutoRemovalAgentContainer: false,
 		DefaultPipelineTimeout:    "45m",
@@ -571,6 +578,10 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 	}
 	if stored.AutoRemovalAgentContainer == nil || *stored.AutoRemovalAgentContainer {
 		t.Fatalf("auto removal = %#v, want explicit false", stored.AutoRemovalAgentContainer)
+	}
+	if len(stored.CORSAllowedOrigins) != 1 || stored.CORSAllowedOrigins[0] != "https://nopsai.example.com" ||
+		stored.MetricsRequireAuth == nil || !*stored.MetricsRequireAuth {
+		t.Fatalf("stored CORS/metrics settings = %#v/%#v", stored.CORSAllowedOrigins, stored.MetricsRequireAuth)
 	}
 	if got := stored.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
 		t.Fatalf("stored routing = %#v", stored.DispatcherRouting)

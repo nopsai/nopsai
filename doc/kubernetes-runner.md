@@ -62,6 +62,15 @@ the Kubernetes cluster. Docker Compose names such as `http://nopsai:8080` work
 for Docker runners, but Kubernetes runners usually need an externally
 resolvable service DNS name or ingress URL.
 
+The runner uses two Kubernetes identities. `kubernetes.service_account` is the
+runner orchestration identity and owns namespace-scoped RBAC for pods, pod
+logs, pod exec, PVCs, and events. `kubernetes.workload_service_account` is used
+by agent and step pods. New Helm and generated manifests create this workload
+ServiceAccount without NopsAI RBAC and set
+`kubernetes.workload_automount_service_account_token: false` by default. Private
+registry access is preserved through explicit `kubernetes.image_pull_secrets`,
+which are passed to both agent pods and step pods.
+
 The generated runner install commands never expose long-lived secrets directly.
 They download a one-time bootstrap script through the NopsAI HTTP API. When
 the configured `dispatcher_grpc_address` is an internal stack name such as
@@ -140,6 +149,10 @@ runtime: kubernetes
 kubernetes:
   namespace: nopsai-runs
   service_account: nopsai-runner
+  workload_service_account: nopsai-runner-workload
+  workload_automount_service_account_token: false
+  image_pull_secrets:
+    - regcred
   default_image_pull_policy: IfNotPresent
   default_workspace_size: 5Gi
   default_workspace_access_mode: ReadWriteOnce
@@ -229,12 +242,13 @@ The generated manifest includes:
 
 When registry credentials are selected in the install UI, the one-time
 bootstrap command resolves only those credentials, creates a
-`kubernetes.io/dockerconfigjson` Secret, and attaches it to the runner
-ServiceAccount as an `imagePullSecret`. This covers the runner image plus agent
-and step images that Kubernetes pulls in that namespace. The raw manifest
-endpoint below does not include credential material; for GitOps cluster
-manifests, create the imagePullSecret through infrastructure or secret-manager
-automation and attach it to the ServiceAccount.
+`kubernetes.io/dockerconfigjson` Secret, and references it as an
+`imagePullSecret` for the runner Deployment plus the workload ServiceAccount.
+This covers the runner image plus agent and step images that Kubernetes pulls
+in that namespace. The raw manifest endpoint below does not include credential
+material; for GitOps cluster manifests, create the imagePullSecret through
+infrastructure or secret-manager automation and list it in
+`kubernetes.image_pull_secrets`.
 
 Refresh **System > Dispatcher** to confirm the runner is registered. Kubernetes
 runners show their runtime, namespace, service account, scope, capacity, and

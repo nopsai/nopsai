@@ -546,6 +546,8 @@ func TestNormalizeKubernetesRuntimeConfig(t *testing.T) {
 	cfg := NormalizeKubernetesConfig(KubernetesConfig{
 		Namespace:                  " nopsai-runs ",
 		ServiceAccount:             " nopsai-runner ",
+		WorkloadServiceAccount:     " nopsai-workload ",
+		ImagePullSecrets:           []string{" regcred ", "", "regcred", "other-regcred"},
 		DefaultImagePullPolicy:     "if-not-present",
 		DefaultWorkspaceSize:       " 5Gi ",
 		DefaultWorkspaceAccessMode: "rwo",
@@ -558,6 +560,12 @@ func TestNormalizeKubernetesRuntimeConfig(t *testing.T) {
 
 	if cfg.Namespace != "nopsai-runs" || cfg.ServiceAccount != "nopsai-runner" {
 		t.Fatalf("namespace/service account not normalized: %#v", cfg)
+	}
+	if cfg.WorkloadServiceAccount != "nopsai-workload" {
+		t.Fatalf("workload service account = %q, want nopsai-workload", cfg.WorkloadServiceAccount)
+	}
+	if len(cfg.ImagePullSecrets) != 2 || cfg.ImagePullSecrets[0] != "regcred" || cfg.ImagePullSecrets[1] != "other-regcred" {
+		t.Fatalf("image pull secrets not normalized: %#v", cfg.ImagePullSecrets)
 	}
 	if cfg.DefaultImagePullPolicy != "IfNotPresent" || cfg.DefaultWorkspaceAccessMode != "ReadWriteOnce" {
 		t.Fatalf("policy/access mode not normalized: %#v", cfg)

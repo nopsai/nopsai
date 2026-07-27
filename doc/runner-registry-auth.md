@@ -89,12 +89,16 @@ infrastructure process.
 Kubernetes can pull private images through ServiceAccount `imagePullSecrets`.
 When selected registry credentials are present, the one-time Kubernetes
 bootstrap command creates a `kubernetes.io/dockerconfigjson` Secret and attaches
-it to the runner ServiceAccount before applying the runner Deployment.
+it to the runner Deployment and to the workload ServiceAccount used by agent
+and step pods. Helm and generated manifests keep the RBAC-bearing runner
+ServiceAccount separate from the workload ServiceAccount, so changing workload
+identity does not remove private registry access as long as the pull secret is
+listed in `kubernetes.image_pull_secrets` or selected during bootstrap.
 
 The raw manifest preview endpoint is GitOps-friendly and does not include this
 secret material. If you commit raw manifests to a cluster repository, create the
 registry Secret out-of-band through the cluster's normal secret-management
-process, then attach it to the ServiceAccount.
+process, then list it in `kubernetes.image_pull_secrets`.
 
 ## GitOps
 
@@ -121,6 +125,9 @@ database-managed **Credentials** page.
   rotated credentials are honored.
 - Docker runners do not call NopsAI for every image pull. They match the image
   registry host against the local env-carried Docker config.
+- The compatibility registry-auth broker binds runner-specific internal service
+  subjects to the requested `runner_id`. Legacy generic `runner` and `agent`
+  subjects remain accepted during upgrades.
 - Agents filter `NOPSAI_REGISTRY_DOCKER_CONFIG_*` out of pipeline environment
   inheritance so registry auth is used for image pulls, not exposed as a normal
   step variable.

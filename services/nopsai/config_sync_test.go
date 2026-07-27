@@ -375,12 +375,14 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 	if err != nil {
 		t.Fatalf("buildKubernetesRunnerManifestResponse() error = %v", err)
 	}
-	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" {
-		t.Fatalf("namespace/service account = %q/%q", resp.Namespace, resp.ServiceAccount)
+	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" || resp.WorkloadServiceAccount != "nopsai-runner-workload" {
+		t.Fatalf("namespace/service accounts = %q/%q/%q", resp.Namespace, resp.ServiceAccount, resp.WorkloadServiceAccount)
 	}
 	for _, want := range []string{
 		"kind: Deployment",
 		"kind: Role",
+		"name: nopsai-runner-workload",
+		"automountServiceAccountToken: false",
 		"apiGroups:",
 		"apiGroup: rbac.authorization.k8s.io",
 		"resources:",
@@ -388,6 +390,8 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 		"RUNNER_ID: k8s-runner-ams-1",
 		"RUNNER_CAPACITY: \"30\"",
 		"KUBERNETES_NAMESPACE: nopsai-runs",
+		"KUBERNETES_WORKLOAD_SERVICE_ACCOUNT: nopsai-runner-workload",
+		"KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN: \"false\"",
 		"KUBERNETES_STORAGE_CLASS: fast-rwo",
 		"KUBERNETES_AFFINITY_ENABLED: \"true\"",
 		"LIMITS_MAX_CONCURRENT_TASKS: \"200\"",

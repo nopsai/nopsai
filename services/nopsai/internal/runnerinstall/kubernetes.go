@@ -45,6 +45,7 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 	kcfg := config.NormalizeKubernetesConfig(cfg.Kubernetes)
 	namespace := firstNonEmptyString(strings.TrimSpace(query.Get("namespace")), kcfg.Namespace, "nopsai-runs")
 	serviceAccount := firstNonEmptyString(strings.TrimSpace(query.Get("service_account")), kcfg.ServiceAccount, "nopsai-runner")
+	workloadServiceAccount := firstNonEmptyString(strings.TrimSpace(query.Get("workload_service_account")), kcfg.WorkloadServiceAccount, kubernetesManifestName(serviceAccount, "workload"))
 	runnerImage := firstNonEmptyString(strings.TrimSpace(query.Get("runner_image")), DefaultK8sImage())
 	agentImage := firstNonEmptyString(strings.TrimSpace(query.Get("agent_image")), strings.TrimSpace(cfg.AgentImage), "nopsai-agent:latest")
 	imagePullPolicy := firstNonEmptyString(strings.TrimSpace(query.Get("image_pull_policy")), kcfg.DefaultImagePullPolicy, "IfNotPresent")
@@ -55,12 +56,28 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 	storageClass := firstNonEmptyString(strings.TrimSpace(query.Get("storage_class")), kcfg.StorageClass)
 	workspaceMode := firstNonEmptyString(strings.TrimSpace(query.Get("workspace_volume_mode")), kcfg.WorkspaceVolumeMode, "pvc")
 	affinityEnabled := boolPtrValue(kcfg.AffinityEnabled, true)
+	workloadAutomountSAToken := boolPtrValue(kcfg.WorkloadAutomountSAToken, false)
 	if rawAffinity := strings.TrimSpace(query.Get("affinity_enabled")); rawAffinity != "" {
 		parsed, err := strconv.ParseBool(rawAffinity)
 		if err != nil {
 			return KubernetesManifestResponse{}, fmt.Errorf("affinity_enabled must be true or false")
 		}
 		affinityEnabled = parsed
+	}
+	if rawAutomount := strings.TrimSpace(query.Get("workload_automount_service_account_token")); rawAutomount != "" {
+		parsed, err := strconv.ParseBool(rawAutomount)
+		if err != nil {
+			return KubernetesManifestResponse{}, fmt.Errorf("workload_automount_service_account_token must be true or false")
+		}
+		workloadAutomountSAToken = parsed
+	}
+	imagePullSecrets := appendSecretNameList(kcfg.ImagePullSecrets, strings.TrimSpace(query.Get("image_pull_secrets")))
+	if repeated := query["image_pull_secret"]; len(repeated) > 0 {
+		imagePullSecrets = appendSecretNameList(imagePullSecrets, repeated...)
+	}
+	if len(options.RegistryAuth.DockerConfigJSON) > 0 {
+		appName := kubernetesManifestName("nopsai-k8s-runner", runnerID)
+		imagePullSecrets = appendSecretNameList(imagePullSecrets, kubernetesManifestName(appName, "registry-auth"))
 	}
 
 	serviceJWTSigningKey := cfg.EffectiveServiceJWTSigningKey()
@@ -89,31 +106,36 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 	}
 
 	env := map[string]string{
-		"RUNTIME":                                  "kubernetes",
-		"RUNNER_ID":                                runnerID,
-		"RUNNER_SCOPES":                            runnerScopes,
-		"RUNNER_CAPACITY":                          strconv.Itoa(runnerCapacity),
-		"RUNNER_SERVICE_ID":                        cfg.EffectiveRunnerServiceID(),
-		"AGENT_IMAGE":                              agentImage,
-		"DISPATCHER_GRPC_ADDRESS":                  dispatcherAddress,
-		"NOPSAI_API_URL":                           nopsaiAPIURL,
-		serviceauth.EnvIssuer:                      cfg.EffectiveServiceJWTIssuer(),
-		serviceauth.EnvAudience:                    cfg.EffectiveServiceJWTAudience(),
-		servicetls.EnvMode:                         tlsMode,
-		servicetls.EnvServerName:                   cfg.EffectiveDispatcherTLSServerName(),
-		"KUBERNETES_NAMESPACE":                     namespace,
-		"KUBERNETES_SERVICE_ACCOUNT":               serviceAccount,
-		"KUBERNETES_DEFAULT_IMAGE_PULL_POLICY":     imagePullPolicy,
-		"KUBERNETES_DEFAULT_WORKSPACE_SIZE":        workspaceSize,
-		"KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE": workspaceAccessMode,
-		"KUBERNETES_DEFAULT_TASK_TIMEOUT":          taskTimeout,
-		"KUBERNETES_DEFAULT_RUN_TIMEOUT":           runTimeout,
-		"KUBERNETES_WORKSPACE_VOLUME_MODE":         workspaceMode,
-		"KUBERNETES_AFFINITY_ENABLED":              strconv.FormatBool(affinityEnabled),
-		"KUBERNETES_CLEANUP_FINISHED_PODS":         "true",
+		"RUNTIME":                             "kubernetes",
+		"RUNNER_ID":                           runnerID,
+		"RUNNER_SCOPES":                       runnerScopes,
+		"RUNNER_CAPACITY":                     strconv.Itoa(runnerCapacity),
+		"RUNNER_SERVICE_ID":                   runnerServiceIDForInstall(cfg, runnerID),
+		"AGENT_IMAGE":                         agentImage,
+		"DISPATCHER_GRPC_ADDRESS":             dispatcherAddress,
+		"NOPSAI_API_URL":                      nopsaiAPIURL,
+		serviceauth.EnvIssuer:                 cfg.EffectiveServiceJWTIssuer(),
+		serviceauth.EnvAudience:               cfg.EffectiveServiceJWTAudience(),
+		servicetls.EnvMode:                    tlsMode,
+		servicetls.EnvServerName:              cfg.EffectiveDispatcherTLSServerName(),
+		"KUBERNETES_NAMESPACE":                namespace,
+		"KUBERNETES_SERVICE_ACCOUNT":          serviceAccount,
+		"KUBERNETES_WORKLOAD_SERVICE_ACCOUNT": workloadServiceAccount,
+		"KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN": strconv.FormatBool(workloadAutomountSAToken),
+		"KUBERNETES_DEFAULT_IMAGE_PULL_POLICY":                imagePullPolicy,
+		"KUBERNETES_DEFAULT_WORKSPACE_SIZE":                   workspaceSize,
+		"KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE":            workspaceAccessMode,
+		"KUBERNETES_DEFAULT_TASK_TIMEOUT":                     taskTimeout,
+		"KUBERNETES_DEFAULT_RUN_TIMEOUT":                      runTimeout,
+		"KUBERNETES_WORKSPACE_VOLUME_MODE":                    workspaceMode,
+		"KUBERNETES_AFFINITY_ENABLED":                         strconv.FormatBool(affinityEnabled),
+		"KUBERNETES_CLEANUP_FINISHED_PODS":                    "true",
 	}
 	if storageClass != "" {
 		env["KUBERNETES_STORAGE_CLASS"] = storageClass
+	}
+	if len(imagePullSecrets) > 0 {
+		env["KUBERNETES_IMAGE_PULL_SECRETS"] = strings.Join(imagePullSecrets, ",")
 	}
 	if runtimePools := config.NormalizeRuntimePools(cfg.RuntimePools); len(runtimePools) > 0 {
 		if data, err := yaml.Marshal(runtimePools); err == nil {
@@ -137,20 +159,21 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 		serviceauth.EnvSigningKey: serviceJWTSigningKey,
 		servicetls.EnvSecret:      tlsSecret,
 	}
-	manifest := buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage, env, secretEnv, options.RegistryAuth.DockerConfigJSON)
+	manifest := buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, runnerID, runnerImage, &workloadAutomountSAToken, imagePullSecrets, env, secretEnv, options.RegistryAuth.DockerConfigJSON)
 	return KubernetesManifestResponse{
-		RunnerID:            runnerID,
-		RunnerScopes:        runnerScopes,
-		RunnerCapacity:      runnerCapacity,
-		Namespace:           namespace,
-		ServiceAccount:      serviceAccount,
-		DispatcherAddress:   dispatcherAddress,
-		RunnerImage:         runnerImage,
-		RegistryCredentials: append([]string(nil), options.RegistryAuth.CredentialRefs...),
-		RegistryHosts:       append([]string(nil), options.RegistryAuth.RegistryHosts...),
-		Manifest:            manifest,
-		Command:             "kubectl apply -f nopsai-k8s-runner.yaml",
-		Warnings:            warnings,
+		RunnerID:               runnerID,
+		RunnerScopes:           runnerScopes,
+		RunnerCapacity:         runnerCapacity,
+		Namespace:              namespace,
+		ServiceAccount:         serviceAccount,
+		WorkloadServiceAccount: workloadServiceAccount,
+		DispatcherAddress:      dispatcherAddress,
+		RunnerImage:            runnerImage,
+		RegistryCredentials:    append([]string(nil), options.RegistryAuth.CredentialRefs...),
+		RegistryHosts:          append([]string(nil), options.RegistryAuth.RegistryHosts...),
+		Manifest:               manifest,
+		Command:                "kubectl apply -f nopsai-k8s-runner.yaml",
+		Warnings:               warnings,
 	}, nil
 }
 
@@ -172,17 +195,18 @@ func BuildKubernetesBootstrapCommandResponseWithOptions(cfg config.Config, r *ht
 	}
 	bootstrapURL := strings.TrimRight(RequestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap"
 	return KubernetesBootstrapCommandResponse{
-		RunnerID:            manifestResp.RunnerID,
-		RunnerScopes:        manifestResp.RunnerScopes,
-		RunnerCapacity:      manifestResp.RunnerCapacity,
-		Namespace:           manifestResp.Namespace,
-		ServiceAccount:      manifestResp.ServiceAccount,
-		DispatcherAddress:   manifestResp.DispatcherAddress,
-		RunnerImage:         manifestResp.RunnerImage,
-		RegistryCredentials: manifestResp.RegistryCredentials,
-		RegistryHosts:       manifestResp.RegistryHosts,
-		BootstrapCommand:    buildKubernetesBootstrapCommand(bootstrapURL, token),
-		ExpiresAt:           expiresAt,
+		RunnerID:               manifestResp.RunnerID,
+		RunnerScopes:           manifestResp.RunnerScopes,
+		RunnerCapacity:         manifestResp.RunnerCapacity,
+		Namespace:              manifestResp.Namespace,
+		ServiceAccount:         manifestResp.ServiceAccount,
+		WorkloadServiceAccount: manifestResp.WorkloadServiceAccount,
+		DispatcherAddress:      manifestResp.DispatcherAddress,
+		RunnerImage:            manifestResp.RunnerImage,
+		RegistryCredentials:    manifestResp.RegistryCredentials,
+		RegistryHosts:          manifestResp.RegistryHosts,
+		BootstrapCommand:       buildKubernetesBootstrapCommand(bootstrapURL, token),
+		ExpiresAt:              expiresAt,
 		Warnings: append([]string{
 			"This one-time Kubernetes install command expires in 10 minutes and is consumed by the first successful download.",
 			"Run this command from a machine where kubectl targets the destination cluster.",
@@ -243,11 +267,15 @@ func buildKubernetesBootstrapScript(manifest, namespace, appName string) string 
 	return builder.String()
 }
 
-func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage string, env, secretEnv map[string]string, dockerConfigJSON []byte) string {
+func buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, runnerID, runnerImage string, workloadSAToken *bool, imagePullSecrets []string, env, secretEnv map[string]string, dockerConfigJSON []byte) string {
 	appName := kubernetesManifestName("nopsai-k8s-runner", runnerID)
 	configMapName := kubernetesManifestName(appName, "config")
 	secretName := kubernetesManifestName(appName, "secret")
 	registrySecretName := kubernetesManifestName(appName, "registry-auth")
+	if len(dockerConfigJSON) > 0 {
+		imagePullSecrets = appendSecretNameList(imagePullSecrets, registrySecretName)
+	}
+	imagePullSecrets = appendSecretNameList(imagePullSecrets)
 	labels := map[string]string{
 		"app.kubernetes.io/name":      "nopsai-k8s-runner",
 		"app.kubernetes.io/component": "runner",
@@ -265,8 +293,23 @@ func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage st
 			"labels":    labels,
 		},
 	}
-	if len(dockerConfigJSON) > 0 {
-		serviceAccountDoc["imagePullSecrets"] = []map[string]string{{"name": registrySecretName}}
+	if len(imagePullSecrets) > 0 {
+		serviceAccountDoc["imagePullSecrets"] = kubernetesImagePullSecretDocs(imagePullSecrets)
+	}
+	workloadServiceAccountDoc := map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "ServiceAccount",
+		"metadata": map[string]interface{}{
+			"name":      workloadServiceAccount,
+			"namespace": namespace,
+			"labels":    labels,
+		},
+	}
+	if workloadSAToken != nil {
+		workloadServiceAccountDoc["automountServiceAccountToken"] = *workloadSAToken
+	}
+	if len(imagePullSecrets) > 0 {
+		workloadServiceAccountDoc["imagePullSecrets"] = kubernetesImagePullSecretDocs(imagePullSecrets)
 	}
 
 	docs := []interface{}{
@@ -281,6 +324,7 @@ func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage st
 			},
 		},
 		serviceAccountDoc,
+		workloadServiceAccountDoc,
 		map[string]interface{}{
 			"apiVersion": "rbac.authorization.k8s.io/v1",
 			"kind":       "Role",
@@ -351,6 +395,21 @@ func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage st
 			"stringData": map[string]string{".dockerconfigjson": string(dockerConfigJSON)},
 		})
 	}
+	deploymentPodSpec := map[string]interface{}{
+		"serviceAccountName": serviceAccount,
+		"containers": []map[string]interface{}{{
+			"name":            "runner",
+			"image":           runnerImage,
+			"imagePullPolicy": firstNonEmptyString(env["KUBERNETES_DEFAULT_IMAGE_PULL_POLICY"], "IfNotPresent"),
+			"envFrom": []map[string]interface{}{
+				{"configMapRef": map[string]string{"name": configMapName}},
+				{"secretRef": map[string]string{"name": secretName}},
+			},
+		}},
+	}
+	if len(imagePullSecrets) > 0 {
+		deploymentPodSpec["imagePullSecrets"] = kubernetesImagePullSecretDocs(imagePullSecrets)
+	}
 	docs = append(docs, map[string]interface{}{
 		"apiVersion": "apps/v1",
 		"kind":       "Deployment",
@@ -368,18 +427,7 @@ func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage st
 				"metadata": map[string]interface{}{
 					"labels": podLabels,
 				},
-				"spec": map[string]interface{}{
-					"serviceAccountName": serviceAccount,
-					"containers": []map[string]interface{}{{
-						"name":            "runner",
-						"image":           runnerImage,
-						"imagePullPolicy": firstNonEmptyString(env["KUBERNETES_DEFAULT_IMAGE_PULL_POLICY"], "IfNotPresent"),
-						"envFrom": []map[string]interface{}{
-							{"configMapRef": map[string]string{"name": configMapName}},
-							{"secretRef": map[string]string{"name": secretName}},
-						},
-					}},
-				},
+				"spec": deploymentPodSpec,
 			},
 		},
 	})
@@ -429,6 +477,47 @@ func cloneStringMap(values map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func appendSecretNameList(base []string, rawValues ...string) []string {
+	names := append([]string(nil), base...)
+	for _, raw := range rawValues {
+		for _, name := range strings.Split(raw, ",") {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func kubernetesImagePullSecretDocs(names []string) []map[string]string {
+	names = appendSecretNameList(names)
+	docs := make([]map[string]string, 0, len(names))
+	for _, name := range names {
+		docs = append(docs, map[string]string{"name": name})
+	}
+	return docs
 }
 
 func boolPtrValue(value *bool, fallback bool) bool {

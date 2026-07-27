@@ -66,6 +66,68 @@ func TestWorkspaceVolumeSourceUsesExistingPVCWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestCreateAgentPodUsesWorkloadServiceAccountAndPullSecrets(t *testing.T) {
+	automount := false
+	client := fake.NewSimpleClientset()
+	r := &kubernetesRunner{
+		id:               "k8s-runner-1",
+		client:           client,
+		namespace:        "runs",
+		serviceAccount:   "nopsai-runner",
+		workloadSA:       "nopsai-runner-workload",
+		workloadSAToken:  &automount,
+		imagePullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}, {Name: "agent-regcred"}},
+		imagePullPolicy:  corev1.PullIfNotPresent,
+		workspaceMode:    kubernetesWorkspaceExistingPVC,
+	}
+
+	pod, err := r.createAgentPod(context.Background(), "agent-run-123", "agent:private", "workspace-pvc", nil, &proto.JobRequest{
+		RunId:        "run-123",
+		PipelineName: "deploy",
+	})
+	if err != nil {
+		t.Fatalf("createAgentPod() error = %v", err)
+	}
+	if pod.Spec.ServiceAccountName != "nopsai-runner-workload" {
+		t.Fatalf("service account = %q, want workload account", pod.Spec.ServiceAccountName)
+	}
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
+		t.Fatalf("automount token = %#v, want false", pod.Spec.AutomountServiceAccountToken)
+	}
+	if len(pod.Spec.ImagePullSecrets) != 2 || pod.Spec.ImagePullSecrets[0].Name != "regcred" || pod.Spec.ImagePullSecrets[1].Name != "agent-regcred" {
+		t.Fatalf("image pull secrets = %#v", pod.Spec.ImagePullSecrets)
+	}
+}
+
+func TestAgentRuntimeVarsCarryWorkloadKubernetesSettings(t *testing.T) {
+	automount := false
+	r := &kubernetesRunner{
+		id:               "k8s-runner-1",
+		namespace:        "runs",
+		serviceAccount:   "nopsai-runner",
+		workloadSA:       "nopsai-runner-workload",
+		workloadSAToken:  &automount,
+		imagePullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}, {Name: "agent-regcred"}},
+		imagePullPolicy:  corev1.PullIfNotPresent,
+		workspaceSize:    "5Gi",
+		workspaceAccess:  corev1.ReadWriteOnce,
+		workspaceMode:    kubernetesWorkspaceVolumePVC,
+		taskTimeout:      time.Minute,
+		cleanupPods:      true,
+	}
+
+	vars := runtimeVarMap(r.agentRuntimeVars(&proto.JobRequest{}, "workspace-pvc"))
+	if vars["KUBERNETES_WORKLOAD_SERVICE_ACCOUNT"] != "nopsai-runner-workload" {
+		t.Fatalf("workload service account env = %q", vars["KUBERNETES_WORKLOAD_SERVICE_ACCOUNT"])
+	}
+	if vars["KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN"] != "false" {
+		t.Fatalf("automount env = %q", vars["KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN"])
+	}
+	if vars["KUBERNETES_IMAGE_PULL_SECRETS"] != "regcred,agent-regcred" {
+		t.Fatalf("pull secrets env = %q", vars["KUBERNETES_IMAGE_PULL_SECRETS"])
+	}
+}
+
 func TestEmitRunLogSendsDiagnosticToDispatcher(t *testing.T) {
 	dispatcher := &recordingDispatcherClient{}
 	r := &kubernetesRunner{}
@@ -82,6 +144,17 @@ func TestEmitRunLogSendsDiagnosticToDispatcher(t *testing.T) {
 	if len(got.Lines) != 1 || got.Lines[0] != "Kubernetes runner diagnostic" {
 		t.Fatalf("lines = %#v, want diagnostic line", got.Lines)
 	}
+}
+
+func runtimeVarMap(entries []string) map[string]string {
+	out := map[string]string{}
+	for _, entry := range entries {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func TestStreamPodLogsReattachesWhenFollowStreamEndsBeforePodCompletes(t *testing.T) {

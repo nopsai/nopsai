@@ -21,8 +21,24 @@ import (
 )
 
 func corsMiddleware(next http.Handler) http.Handler {
+	return corsMiddlewareWithOrigins(next, nil)
+}
+
+func (a *App) corsMiddleware(next http.Handler) http.Handler {
+	return corsMiddlewareWithOrigins(next, a.corsAllowedOrigins())
+}
+
+func corsMiddlewareWithOrigins(next http.Handler, allowedOrigins []string) http.Handler {
+	allowedOrigins = normalizeAllowedOrigins(allowedOrigins)
+	wildcard := len(allowedOrigins) == 0 || containsFold(allowedOrigins, "*")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin for simplicity in POC
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if wildcard {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if originAllowed(origin, allowedOrigins) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Add("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Traceparent")
 
@@ -33,6 +49,33 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func normalizeAllowedOrigins(origins []string) []string {
+	if len(origins) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			out = append(out, origin)
+		}
+	}
+	return out
+}
+
+func originAllowed(origin string, allowedOrigins []string) bool {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return false
+	}
+	for _, allowed := range allowedOrigins {
+		if strings.EqualFold(origin, allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 type requestContextKey string
@@ -50,6 +93,37 @@ func isPublicPath(path string) bool {
 			strings.HasPrefix(path, "/v1/auth/oauth2/") ||
 			strings.HasPrefix(path, "/v1/git/webhooks/")
 	}
+}
+
+func (a *App) isPublicPath(path string) bool {
+	if strings.TrimSpace(path) == "/metrics" && a.metricsRequireAuth() {
+		return false
+	}
+	return isPublicPath(path)
+}
+
+func (a *App) metricsRequireAuth() bool {
+	if a == nil {
+		return false
+	}
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	if a.cfg == nil {
+		return false
+	}
+	return a.cfg.MetricsRequireAuth
+}
+
+func (a *App) corsAllowedOrigins() []string {
+	if a == nil {
+		return nil
+	}
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	if a.cfg == nil {
+		return nil
+	}
+	return append([]string(nil), a.cfg.CORSAllowedOrigins...)
 }
 
 func isPasswordChangeAllowedPath(path string) bool {
@@ -182,7 +256,7 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if isPublicPath(r.URL.Path) {
+		if a.isPublicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -323,7 +397,7 @@ func (a *App) authzMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if isPublicPath(r.URL.Path) {
+		if a.isPublicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -120,8 +120,9 @@ directory.
 7. A Kubernetes runner starts an agent pod with:
    - `NOPSAI_RUNTIME=kubernetes`
    - the shared workspace mounted at `/workspace`
-   - Kubernetes namespace, service account, storage, affinity, and runtime pool settings
-   - ServiceAccount imagePullSecrets when the runner was bootstrapped with
+   - Kubernetes namespace, runner service account, workload service account,
+     storage, affinity, and runtime pool settings
+   - explicit imagePullSecrets when the runner was bootstrapped with
      selected `docker_config_json` credentials or when infra attaches them
      separately
 8. The runner starts two background loops:

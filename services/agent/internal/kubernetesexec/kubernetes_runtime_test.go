@@ -1,9 +1,14 @@
 package kubernetesexec
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestSameNodeAffinityTargetsAgentNodeThroughScheduler(t *testing.T) {
@@ -60,5 +65,45 @@ func TestKubernetesWorkspaceVolumeMountsUsePipelineWorkingDirectory(t *testing.T
 	}
 	if mounts[0].Name != "workspace" || mounts[0].MountPath != "/tmp/test" {
 		t.Fatalf("workspace mount = %#v, want workspace at /tmp/test", mounts[0])
+	}
+}
+
+func TestCreateStepPodUsesWorkloadServiceAccountAndPullSecrets(t *testing.T) {
+	automount := false
+	runtime := &Runtime{
+		client:           fake.NewSimpleClientset(),
+		namespace:        "runs",
+		workspacePVC:     "workspace-pvc",
+		serviceAccount:   "nopsai-runner",
+		workloadSA:       "nopsai-runner-workload",
+		workloadSAToken:  &automount,
+		imagePullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}, {Name: "step-regcred"}},
+		imagePullPolicy:  corev1.PullIfNotPresent,
+		taskTimeout:      time.Millisecond,
+	}
+
+	_, err := runtime.CreateStepPod(context.Background(), StepPodRequest{
+		RunID:            "run-123",
+		PipelineName:     "deploy",
+		StepName:         "build",
+		Image:            "alpine:private",
+		WorkingDirectory: "/workspace",
+	})
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting for pod") {
+		t.Fatalf("CreateStepPod() error = %v, want wait timeout after pod creation", err)
+	}
+	podName := kubernetesObjectName("nopsai-step", "run-123", "build")
+	pod, getErr := runtime.client.CoreV1().Pods("runs").Get(context.Background(), podName, metav1.GetOptions{})
+	if getErr != nil {
+		t.Fatalf("created pod get error = %v", getErr)
+	}
+	if pod.Spec.ServiceAccountName != "nopsai-runner-workload" {
+		t.Fatalf("service account = %q, want workload account", pod.Spec.ServiceAccountName)
+	}
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
+		t.Fatalf("automount token = %#v, want false", pod.Spec.AutomountServiceAccountToken)
+	}
+	if len(pod.Spec.ImagePullSecrets) != 2 || pod.Spec.ImagePullSecrets[0].Name != "regcred" || pod.Spec.ImagePullSecrets[1].Name != "step-regcred" {
+		t.Fatalf("image pull secrets = %#v", pod.Spec.ImagePullSecrets)
 	}
 }

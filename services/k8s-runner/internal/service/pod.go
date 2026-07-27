@@ -45,9 +45,11 @@ func (r *kubernetesRunner) createAgentPod(ctx context.Context, podName, image, w
 			Annotations: cloneMap(r.podAnnotations),
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy:      corev1.RestartPolicyNever,
-			ServiceAccountName: r.serviceAccount,
-			NodeSelector:       nodeSelector,
+			RestartPolicy:                corev1.RestartPolicyNever,
+			ServiceAccountName:           r.effectiveWorkloadServiceAccount(),
+			AutomountServiceAccountToken: r.workloadSAToken,
+			ImagePullSecrets:             append([]corev1.LocalObjectReference(nil), r.imagePullSecrets...),
+			NodeSelector:                 nodeSelector,
 			Volumes: []corev1.Volume{{
 				Name:         "workspace",
 				VolumeSource: workspaceVolumeSource,

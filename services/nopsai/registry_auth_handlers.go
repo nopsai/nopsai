@@ -46,6 +46,10 @@ func (a *App) handleDockerRegistryAuth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "runner_id is required", http.StatusBadRequest)
 		return
 	}
+	if !registryAuthCallerBoundToRunner(claims, request.RunnerID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	response, err := a.resolveDockerRegistryAuth(r.Context(), request, claims)
 	if err != nil {
 		if errors.Is(err, credentials.ErrNotFound) {
@@ -76,6 +80,44 @@ func requireRegistryAuthServiceCaller(w http.ResponseWriter, r *http.Request) (*
 	}
 	http.Error(w, "forbidden", http.StatusForbidden)
 	return nil, false
+}
+
+func registryAuthCallerBoundToRunner(claims *auth.Claims, runnerID string) bool {
+	if claims == nil {
+		return false
+	}
+	subject := strings.TrimSpace(claims.Sub)
+	runnerID = strings.TrimSpace(runnerID)
+	if subject == "" || runnerID == "" {
+		return false
+	}
+	if subject == runnerID {
+		return true
+	}
+	if legacyGenericRegistryAuthSubject(claims, subject) {
+		return true
+	}
+	subjectLower := strings.ToLower(subject)
+	if strings.HasPrefix(subjectLower, serviceauth.RoleRunner+":") || strings.HasPrefix(subjectLower, serviceauth.RoleRunner+"/") {
+		return strings.TrimLeft(subject[len(serviceauth.RoleRunner):], ":/") == runnerID
+	}
+	if strings.HasPrefix(subjectLower, serviceauth.RoleAgent+":") || strings.HasPrefix(subjectLower, serviceauth.RoleAgent+"/") {
+		parts := strings.FieldsFunc(subject, func(r rune) bool { return r == ':' || r == '/' })
+		return len(parts) >= 2 && parts[len(parts)-1] == runnerID
+	}
+	return false
+}
+
+func legacyGenericRegistryAuthSubject(claims *auth.Claims, subject string) bool {
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	switch subject {
+	case serviceauth.RoleRunner:
+		return containsFold(claims.Roles, serviceauth.RoleRunner)
+	case serviceauth.RoleAgent:
+		return containsFold(claims.Roles, serviceauth.RoleAgent)
+	default:
+		return false
+	}
 }
 
 func (a *App) resolveDockerRegistryAuth(

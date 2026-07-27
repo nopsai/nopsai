@@ -43,6 +43,13 @@ Additional service binaries also call the shared startup gates directly:
 - `runner` and `k8s-runner` require dispatcher address, production-grade
   service JWT isolation, and dispatcher TLS.
 
+Docker runners should run on isolated local or remote runner hosts that contain
+only the workloads they are allowed to control. For production, prefer a remote
+runner instance per trust boundary, or rootless Docker with a narrowly scoped
+socket/proxy policy where host constraints allow it. Mounting a shared host
+Docker socket into a runner remains a compatibility path and should be treated
+as host-admin equivalent access.
+
 ## HTTP Server Hardening
 
 NopsAI, setup preflight mode, AAA, and git-bot HTTP servers use shared
@@ -52,6 +59,13 @@ production timeout defaults from `pkg/httpapi`:
 - read timeout: 15 seconds
 - write timeout: 60 seconds
 - idle timeout: 120 seconds
+- default request body cap: 64 MiB
+- public git-bot webhook body cap: 5 MiB
+
+`cors_allowed_origins` or `CORS_ALLOWED_ORIGINS` can restrict browser origins.
+When unset, wildcard CORS is preserved for compatibility. `metrics_require_auth`
+or `METRICS_REQUIRE_AUTH=true` makes `/metrics` require a bearer token; metrics
+remain public by default for existing Prometheus scrapes.
 
 ## Local Gate Runner
 
