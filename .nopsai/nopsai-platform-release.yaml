@@ -265,12 +265,33 @@ steps:
         exit 0
       fi
 
+      run_ui_gate() {
+        local label="$1"
+        shift
+        local started_at finished_at status duration
+        started_at="$(date -u +%s)"
+        printf '\n==> [ui-gates] %s started_at=%s\n' "$label" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        set +e
+        "$@"
+        status=$?
+        set -e
+        finished_at="$(date -u +%s)"
+        duration=$((finished_at - started_at))
+        if [[ "$status" -eq 0 ]]; then
+          printf '==> [ui-gates] %s completed duration_seconds=%s finished_at=%s\n' "$label" "$duration" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        else
+          printf '==> [ui-gates] %s failed status=%s duration_seconds=%s finished_at=%s\n' "$label" "$status" "$duration" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >&2
+        fi
+        return "$status"
+      }
+
+      export CI=1
       cd services/ui
-      npm ci
-      npm run lint
-      npm run check:ui-boundaries
-      npm run test
-      npm run build
+      run_ui_gate npm-ci npm ci
+      run_ui_gate lint npm run lint
+      run_ui_gate ui-boundaries npm run check:ui-boundaries
+      run_ui_gate tests npm run test
+      run_ui_gate build npm run build
       BASH
 
   - name: publish-base-image

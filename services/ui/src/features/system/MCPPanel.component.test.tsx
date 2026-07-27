@@ -5,7 +5,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import MCPPanel from './MCPPanel';
 
 const apiMocks = vi.hoisted(() => {
-  const registry = {
+  const createRegistry = () => ({
     servers: [
       {
         name: 'platform/ml/github',
@@ -44,12 +44,13 @@ const apiMocks = vi.hoisted(() => {
         allowed_scopes: ['prod'],
       },
     ],
-  };
+  });
   return {
+    createRegistry,
     deleteMCPProfile: vi.fn(),
     deleteMCPServer: vi.fn(),
     discoverMCPServer: vi.fn(async () => undefined),
-    fetchMCPRegistry: vi.fn(async () => registry),
+    fetchMCPRegistry: vi.fn(async () => createRegistry()),
     saveMCPProfile: vi.fn(),
     saveMCPServer: vi.fn(),
     testMCPProfile: vi.fn(async () => 'ok'),
@@ -79,6 +80,36 @@ vi.mock('../../lib/resourceTeams', () => teamMocks);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  apiMocks.deleteMCPProfile.mockReset();
+  apiMocks.deleteMCPProfile.mockResolvedValue(undefined);
+  apiMocks.deleteMCPServer.mockReset();
+  apiMocks.deleteMCPServer.mockResolvedValue(undefined);
+  apiMocks.discoverMCPServer.mockReset();
+  apiMocks.discoverMCPServer.mockResolvedValue(undefined);
+  apiMocks.fetchMCPRegistry.mockReset();
+  apiMocks.fetchMCPRegistry.mockImplementation(async () => apiMocks.createRegistry());
+  apiMocks.saveMCPProfile.mockReset();
+  apiMocks.saveMCPServer.mockReset();
+  apiMocks.testMCPProfile.mockReset();
+  apiMocks.testMCPProfile.mockResolvedValue('ok');
+  teamMocks.fetchResourceTeamPaths.mockReset();
+  teamMocks.fetchResourceTeamPaths.mockResolvedValue(['platform/ml']);
+  teamProfileMocks.deleteTeamMCPProfile.mockReset();
+  teamProfileMocks.deleteTeamMCPProfile.mockResolvedValue(undefined);
+  teamProfileMocks.fetchTeamMCPProfiles.mockReset();
+  teamProfileMocks.fetchTeamMCPProfiles.mockImplementation(async (teamPath: string) => ({
+    team_id: 7,
+    team_path: teamPath,
+    profiles: [],
+  }));
+  teamProfileMocks.requestTeamsJson.mockReset();
+  teamProfileMocks.requestTeamsJson.mockResolvedValue({ allowed: true });
+  teamProfileMocks.upsertTeamMCPProfile.mockReset();
+  teamProfileMocks.upsertTeamMCPProfile.mockImplementation(async (teamPath: string, profileName: string, payload: Record<string, unknown>) => ({
+    team_id: 7,
+    team_path: teamPath,
+    profiles: [{ ...payload, name: profileName }],
+  }));
 });
 
 test('renders MCP servers and profiles in the split detail workspace', async () => {
@@ -95,14 +126,14 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(document.getElementById('system-mcp-section')).toHaveClass('ai-resource-page');
   expect(screen.getByLabelText('MCP server workspace')).toHaveClass('ai-resource-workspace-card');
   expect(screen.getByLabelText('MCP server tree')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Select MCP server GitHub MCP' })).toBeVisible();
+  expect(await screen.findByRole('button', { name: 'Select MCP server GitHub MCP' })).toBeVisible();
   expect(screen.queryByLabelText('MCP server detail')).not.toBeInTheDocument();
   expect(screen.getAllByText('Servers')[0]).toBeVisible();
   expect(screen.getByText('Discovered tools')).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
   expect(screen.queryByRole('columnheader', { name: 'Transport' })).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole('button', { name: 'Select MCP server GitHub MCP' }));
+  await user.click(await screen.findByRole('button', { name: 'Select MCP server GitHub MCP' }));
   expect(screen.getByLabelText('MCP server detail')).toHaveClass('ai-resource-detail-fullscreen-main');
   expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
   expect(screen.getByText('https://api.githubcopilot.com/mcp/x/all/readonly')).toBeVisible();
@@ -127,12 +158,13 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   await user.click(screen.getByRole('tab', { name: 'Profiles' }));
   expect(screen.getByLabelText('MCP profile workspace')).toHaveClass('ai-resource-workspace-card');
   expect(screen.getByLabelText('MCP profile tree')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
+  const profileTable = await screen.findByLabelText('MCP profiles');
+  expect(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
   expect(screen.queryByLabelText('MCP profile detail')).not.toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveClass('ai-resource-view-switch__item');
   expect(screen.getByText('Approved tools')).toBeVisible();
 
-  await user.click(screen.getByRole('button', { name: 'Select MCP profile pr-review' }));
+  await user.click(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' }));
   expect(screen.getByLabelText('MCP profile detail')).toHaveClass('ai-resource-detail-fullscreen-main');
   expect(await screen.findByText('Review pull requests.')).toBeVisible();
   expect(screen.getByText('issues_list')).toBeVisible();
@@ -193,7 +225,7 @@ test('moves an edited MCP server to the global catalog when no profiles referenc
   );
 
   const serverTable = await screen.findByLabelText('MCP servers');
-  await user.click(within(serverTable).getByRole('button', { name: 'Select MCP server GitHub MCP' }));
+  await user.click(await within(serverTable).findByRole('button', { name: 'Select MCP server GitHub MCP' }));
   await user.click(screen.getByRole('button', { name: /edit server/i }));
 
   expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
@@ -241,13 +273,13 @@ test('moves an edited team MCP profile to the global catalog', async () => {
   );
 
   const profileTable = await screen.findByLabelText('MCP profiles');
-  await user.click(within(profileTable).getByRole('button', { name: 'Select MCP profile pr-review' }));
+  await user.click(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' }));
   await user.click(screen.getByRole('button', { name: /edit profile/i }));
 
   expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
   expect(screen.getByLabelText('Name')).toHaveValue('pr-review');
   await user.selectOptions(screen.getByLabelText('Team placement'), '');
-  expect(screen.getByText('pr-review')).toBeVisible();
+  expect(screen.getByLabelText('Name')).toHaveValue('pr-review');
   await user.click(screen.getByRole('button', { name: 'Save profile' }));
 
   await waitFor(() => expect(apiMocks.saveMCPProfile).toHaveBeenCalledWith(
@@ -266,7 +298,8 @@ test('applies the team filter and profiles view from the route query', async () 
 
   expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
   await waitFor(() => expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute('aria-selected', 'true'));
-  expect(screen.getByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
+  const profileTable = await screen.findByLabelText('MCP profiles');
+  expect(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
   expect(screen.queryByText('Review pull requests.')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('MCP profile detail')).not.toBeInTheDocument();
