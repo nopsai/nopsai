@@ -255,7 +255,7 @@ test('moves an edited team agent profile to the global catalog', async () => {
   expect(screen.getByLabelText('Team placement')).toHaveValue('platform/ml');
   expect(screen.getByLabelText('ID')).toHaveValue('security-reviewer');
   await user.selectOptions(screen.getByLabelText('Team placement'), '');
-  expect(screen.getByText('security-reviewer')).toBeVisible();
+  expect(screen.getByLabelText('ID')).toHaveValue('security-reviewer');
   await user.click(screen.getByRole('button', { name: 'Save profile' }));
 
   await waitFor(() => expect(apiMocks.saveAgentProfile).toHaveBeenCalledWith(expect.objectContaining({ id: 'security-reviewer' })));

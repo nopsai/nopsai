@@ -28,6 +28,13 @@ export function teamScopedDefaultID(teamPath: string, defaultProfile: string) {
   return localName ? teamScopedResourceID(teamPath, localName) : '';
 }
 
+export function teamDefaultProfileAPIValue(teamPath: string, selectedProfileID: string, teamOwnedProfileIDs: string[]) {
+  if (!selectedProfileID) return '';
+  const localID = teamLocalResourceID(selectedProfileID);
+  const ownedLocalIDs = new Set(teamOwnedProfileIDs.map(teamLocalResourceID));
+  return normalizeAIResourceTeamPath(teamPath) && ownedLocalIDs.has(localID) ? localID : selectedProfileID;
+}
+
 export function teamLLMProfileRecords(payload: TeamLLMProfilesResponse | null): LLMProfileRecord[] {
   if (!payload) return [];
   return payload.profiles.map(profile => teamLLMProfileRecord(payload.team_path, profile)).sort((a, b) => a.name.localeCompare(b.name));

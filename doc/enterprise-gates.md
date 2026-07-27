@@ -113,6 +113,12 @@ beyond the current baseline. It also prints a report-only summary of large route
 and feature-shell files plus browser `window.*` usage so release reviews can
 track extraction debt before a branch is cut.
 
+The release pipeline `ui-gates` step prints UTC start, finish, and duration
+lines for `npm ci`, lint, UI boundary checks, tests, and build. Platform log
+timestamps may be rendered in the operator's local timezone while Vitest reports
+the Node container timezone, so compare the explicit `duration_seconds` fields
+when checking whether the UI gate is slow or looping.
+
 For workflow UI changes that introduce dialogs, empty states, alerts, icon-only
 commands, toast/live-region feedback, editor autocomplete, graph controls, or
 log dialogs, keep the shared primitives in `services/ui/src/components` as the

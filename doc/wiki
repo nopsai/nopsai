@@ -91,7 +91,9 @@ completion generation, guide topics, help, and exit. Keep the in-app wiki,
 `doc/cli.md`, and `internal/cli/command/interactive_*.go` aligned when this
 surface changes. Repository-owned platform release automation lives in
 `.nopsai/nopsai-platform-release.yaml`; keep release pipeline docs and tests on
-that GitOps path. The live terminal layout uses centered Contextual Zen screens
+that GitOps path. UI release gates should print UTC start/finish timestamps and
+durations for each npm stage so local-time log rendering cannot masquerade as a
+loop. The live terminal layout uses centered Contextual Zen screens
 with fixed home-style header/footer chrome, breadcrumb text above nested menus,
 a fixed 20-row menu viewport, a pinned guide/details section beneath it, and
 inline `Parameters` progress lists for every live form and wizard. Feature
