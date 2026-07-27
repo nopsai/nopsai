@@ -47,6 +47,30 @@ func TestIndexListsSearchesAndReadsWorkspaceFiles(t *testing.T) {
 	}
 }
 
+func TestIndexDoesNotFollowSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeFile(t, root, "README.md", "hello workspace\n")
+	writeFile(t, outside, "secret.txt", "external secret\n")
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(root, "linked-secret.txt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	logger := zerolog.Nop()
+	index := NewIndex(root, nil, nil)
+	if err := index.Refresh(&logger, 8); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	for _, entry := range index.ListFiles(10) {
+		if entry.Path == "linked-secret.txt" {
+			t.Fatalf("symlink should not be indexed: %#v", entry)
+		}
+	}
+	if _, err := index.ReadFile("linked-secret.txt", 100); err == nil {
+		t.Fatal("ReadFile() error = nil for symlink")
+	}
+}
+
 func TestWorkspaceToolsReturnBoundedJSON(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "README.md", "hello workspace\n")

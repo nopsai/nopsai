@@ -1,4 +1,5 @@
 {{- if .Values.k8sRunner.enabled }}
+{{- $workloadImagePullSecrets := default .Values.global.imagePullSecrets .Values.k8sRunner.workload.imagePullSecrets }}
 {{- if .Values.k8sRunner.serviceAccount.create }}
 apiVersion: v1
 kind: ServiceAccount
@@ -12,6 +13,25 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+{{- end }}
+{{- if .Values.k8sRunner.workload.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "nopsai.runnerWorkloadServiceAccountName" . }}
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pipeline-workload
+  {{- with .Values.k8sRunner.workload.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: {{ .Values.k8sRunner.workload.serviceAccount.automountServiceAccountToken }}
+{{- with $workloadImagePullSecrets }}
 imagePullSecrets:
   {{- toYaml . | nindent 2 }}
 {{- end }}
@@ -95,11 +115,17 @@ spec:
             - {name: RUNNER_ID, value: {{ .Values.k8sRunner.runnerID | quote }}}
             - {name: RUNNER_SCOPES, value: {{ .Values.k8sRunner.scopes | quote }}}
             - {name: RUNNER_CAPACITY, value: {{ .Values.k8sRunner.capacity | quote }}}
-            - {name: RUNNER_SERVICE_ID, value: {{ .Values.k8sRunner.serviceID | quote }}}
+            - {name: RUNNER_SERVICE_ID, value: {{ include "nopsai.runnerServiceID" . | quote }}}
             - {name: AGENT_IMAGE, value: {{ include "nopsai.image" .Values.agent.image | quote }}}
             - {name: DISPATCHER_GRPC_ADDRESS, value: {{ include "nopsai.topology.dispatcherGRPCAddress" . | quote }}}
             - {name: KUBERNETES_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
             - {name: KUBERNETES_SERVICE_ACCOUNT, value: {{ include "nopsai.runnerServiceAccountName" . | quote }}}
+            - {name: KUBERNETES_WORKLOAD_SERVICE_ACCOUNT, value: {{ include "nopsai.runnerWorkloadServiceAccountName" . | quote }}}
+            - {name: KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN, value: {{ .Values.k8sRunner.workload.serviceAccount.automountServiceAccountToken | quote }}}
+            {{- $workloadImagePullSecretNames := include "nopsai.imagePullSecretNames" $workloadImagePullSecrets }}
+            {{- if $workloadImagePullSecretNames }}
+            - {name: KUBERNETES_IMAGE_PULL_SECRETS, value: {{ $workloadImagePullSecretNames | quote }}}
+            {{- end }}
             - {name: KUBERNETES_DEFAULT_IMAGE_PULL_POLICY, value: {{ .Values.k8sRunner.imagePullPolicy | quote }}}
             - {name: KUBERNETES_DEFAULT_WORKSPACE_SIZE, value: {{ .Values.k8sRunner.workspace.size | quote }}}
             - {name: KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE, value: {{ .Values.k8sRunner.workspace.accessMode | quote }}}

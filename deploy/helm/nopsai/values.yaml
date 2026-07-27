@@ -111,11 +111,18 @@ k8sRunner:
   runnerID: k8s-runner-1
   scopes: ""
   capacity: 10
-  serviceID: runner
+  serviceID: ""
   serviceAccount:
     create: true
     name: nopsai-runner
     annotations: {}
+  workload:
+    serviceAccount:
+      create: true
+      name: nopsai-runner-workload
+      annotations: {}
+      automountServiceAccountToken: false
+    imagePullSecrets: []
   rbac:
     create: true
   workspace:

@@ -84,6 +84,8 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		LogFormat:                     file.LogFormat,
 		Environment:                   file.Environment,
 		PublicURL:                     file.PublicURL,
+		CORSAllowedOrigins:            file.CORSAllowedOrigins,
+		MetricsRequireAuth:            file.MetricsRequireAuth,
 		NotificationMailLogoURL:       file.NotificationMailLogoURL,
 		NotificationMailWebsiteURL:    file.NotificationMailWebsiteURL,
 		NotificationMailSupportURL:    file.NotificationMailSupportURL,
@@ -136,6 +138,29 @@ func firstPresentStringPtr(values ...*string) *string {
 	return nil
 }
 
+func normalizeRuntimeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) (config.Config, error) {
 	if cfg == nil {
 		return config.Config{}, fmt.Errorf("config is required")
@@ -164,6 +189,12 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	}
 	if payload.PublicURL != nil {
 		cfg.PublicURL = strings.TrimSpace(*payload.PublicURL)
+	}
+	if payload.CORSAllowedOrigins != nil {
+		cfg.CORSAllowedOrigins = normalizeRuntimeStringSlice(payload.CORSAllowedOrigins)
+	}
+	if payload.MetricsRequireAuth != nil {
+		cfg.MetricsRequireAuth = *payload.MetricsRequireAuth
 	}
 	if payload.NotificationMailLogoURL != nil {
 		cfg.NotificationMailLogoURL = strings.TrimSpace(*payload.NotificationMailLogoURL)

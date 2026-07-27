@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"nopsai/pkg/correlation"
+	"nopsai/pkg/httpapi"
 	"nopsai/pkg/servicelog"
 	"nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/model"
@@ -36,7 +37,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/v1/authz/batch-check", s.requireInternalToken(http.HandlerFunc(s.handleBatchCheck)))
 	mux.Handle("/v1/authz/filter", s.requireInternalToken(http.HandlerFunc(s.handleFilter)))
 	mux.Handle("/v1/audit/record", s.requireInternalToken(http.HandlerFunc(s.handleRecordAudit)))
-	return servicelog.HTTPMiddleware(s.requestIDMiddleware(mux))
+	return servicelog.HTTPMiddleware(httpapi.LimitRequestBody(s.requestIDMiddleware(mux), httpapi.DefaultMaxRequestBodyBytes))
 }
 
 func (s *Server) requestIDMiddleware(next http.Handler) http.Handler {

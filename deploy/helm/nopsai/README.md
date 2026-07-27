@@ -91,9 +91,11 @@ They remain separate from runner registry credentials managed inside NopsAI.
 For additional runners created from **System > Dispatcher > Runner Installs**,
 administrators can select active `docker_config_json` credentials. Kubernetes
 bootstrap commands turn those selected configs into a temporary
-`kubernetes.io/dockerconfigjson` Secret for the runner ServiceAccount; Docker
-bootstrap commands use a temporary Docker CLI config for the initial runner
-image pull, then pass the selected config to the Docker runner as
+`kubernetes.io/dockerconfigjson` Secret for the runner and workload
+ServiceAccounts. The chart creates `k8sRunner.workload.serviceAccount` without
+runner RBAC and passes global or workload-specific `imagePullSecrets` to agent
+and step pods. Docker bootstrap commands use a temporary Docker CLI config for
+the initial runner image pull, then pass the selected config to the Docker runner as
 `NOPSAI_REGISTRY_DOCKER_CONFIG_B64`. Docker runner and agent image pulls match
 registry hosts locally and pass per-image `RegistryAuth` to the Docker Engine
 API without calling NopsAI for every pull. Do not put registry passwords in Helm

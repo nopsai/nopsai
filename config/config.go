@@ -71,6 +71,9 @@ type LLMFeatureConfig struct {
 type KubernetesConfig struct {
 	Namespace                  string            `yaml:"namespace" json:"namespace,omitempty"`
 	ServiceAccount             string            `yaml:"service_account" json:"service_account,omitempty"`
+	WorkloadServiceAccount     string            `yaml:"workload_service_account" json:"workload_service_account,omitempty"`
+	WorkloadAutomountSAToken   *bool             `yaml:"workload_automount_service_account_token" json:"workload_automount_service_account_token,omitempty"`
+	ImagePullSecrets           []string          `yaml:"image_pull_secrets" json:"image_pull_secrets,omitempty"`
 	DefaultImagePullPolicy     string            `yaml:"default_image_pull_policy" json:"default_image_pull_policy,omitempty"`
 	DefaultWorkspaceSize       string            `yaml:"default_workspace_size" json:"default_workspace_size,omitempty"`
 	DefaultWorkspaceAccessMode string            `yaml:"default_workspace_access_mode" json:"default_workspace_access_mode,omitempty"`
@@ -241,6 +244,9 @@ type Config struct {
 	LogFormat   string `yaml:"log_format" env:"LOG_FORMAT"`
 	Environment string `yaml:"environment" env:"NOPSAI_ENVIRONMENT"`
 	PublicURL   string `yaml:"public_url" env:"NOPSAI_PUBLIC_URL"`
+
+	CORSAllowedOrigins []string `yaml:"cors_allowed_origins" env:"-"`
+	MetricsRequireAuth bool     `yaml:"metrics_require_auth" env:"METRICS_REQUIRE_AUTH"`
 
 	NotificationMailLogoURL       string `yaml:"notification_mail_logo_url" env:"NOPSAI_MAIL_LOGO_URL"`
 	NotificationMailWebsiteURL    string `yaml:"notification_mail_website_url" env:"NOPSAI_MAIL_WEBSITE_URL"`
@@ -495,6 +501,7 @@ func LoadConfig(path string) (*Config, error) {
 	config.BootstrapAdmin = NormalizeBootstrapAdminConfig(config.BootstrapAdmin)
 	config.Auth = NormalizeAuthConfig(config.Auth)
 	config.Assistant = NormalizeAssistantConfig(config.Assistant)
+	config.CORSAllowedOrigins = normalizeStringSlice(config.CORSAllowedOrigins)
 	config.Runtime = NormalizeRuntime(config.Runtime)
 	if config.RuntimeOutputMaxBytes <= 0 {
 		config.RuntimeOutputMaxBytes = 64 * 1024
@@ -547,8 +554,29 @@ func applyNestedEnvOverrides(config *Config) {
 			}
 		}
 	}
+	setStringSliceEnv := func(name string, target *[]string) {
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			return
+		}
+		parsed := []string{}
+		if err := yaml.Unmarshal([]byte(value), &parsed); err == nil {
+			*target = parsed
+			return
+		}
+		for _, part := range strings.Split(value, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				parsed = append(parsed, part)
+			}
+		}
+		*target = parsed
+	}
 	setStringEnv("KUBERNETES_NAMESPACE", &config.Kubernetes.Namespace)
 	setStringEnv("KUBERNETES_SERVICE_ACCOUNT", &config.Kubernetes.ServiceAccount)
+	setStringEnv("KUBERNETES_WORKLOAD_SERVICE_ACCOUNT", &config.Kubernetes.WorkloadServiceAccount)
+	setBoolPtrEnv("KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN", &config.Kubernetes.WorkloadAutomountSAToken)
+	setStringSliceEnv("KUBERNETES_IMAGE_PULL_SECRETS", &config.Kubernetes.ImagePullSecrets)
 	setStringEnv("KUBERNETES_DEFAULT_IMAGE_PULL_POLICY", &config.Kubernetes.DefaultImagePullPolicy)
 	setStringEnv("KUBERNETES_DEFAULT_WORKSPACE_SIZE", &config.Kubernetes.DefaultWorkspaceSize)
 	setStringEnv("KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE", &config.Kubernetes.DefaultWorkspaceAccessMode)
@@ -577,6 +605,7 @@ func applyNestedEnvOverrides(config *Config) {
 	setStringEnv("NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE", &config.BootstrapAdmin.PasswordFile)
 	setBoolEnv("NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD", &config.BootstrapAdmin.AllowDefaultPassword)
 	setBoolPtrEnv("NOPSAI_BOOTSTRAP_ADMIN_MUST_CHANGE_PASSWORD", &config.BootstrapAdmin.MustChangePassword)
+	setStringSliceEnv("CORS_ALLOWED_ORIGINS", &config.CORSAllowedOrigins)
 }
 
 func (c *Config) NormalizeServiceTopology() {
@@ -933,6 +962,8 @@ func normalizeEmailDomain(raw string) string {
 func NormalizeKubernetesConfig(k KubernetesConfig) KubernetesConfig {
 	k.Namespace = strings.TrimSpace(k.Namespace)
 	k.ServiceAccount = strings.TrimSpace(k.ServiceAccount)
+	k.WorkloadServiceAccount = strings.TrimSpace(k.WorkloadServiceAccount)
+	k.ImagePullSecrets = normalizeStringSlice(k.ImagePullSecrets)
 	k.DefaultImagePullPolicy = normalizeImagePullPolicy(k.DefaultImagePullPolicy)
 	k.DefaultWorkspaceSize = strings.TrimSpace(k.DefaultWorkspaceSize)
 	k.DefaultWorkspaceAccessMode = normalizePVCAccessMode(k.DefaultWorkspaceAccessMode)
@@ -1050,6 +1081,29 @@ func normalizeStringMap(values map[string]string) map[string]string {
 			continue
 		}
 		normalized[key] = strings.TrimSpace(value)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
 	}
 	if len(normalized) == 0 {
 		return nil

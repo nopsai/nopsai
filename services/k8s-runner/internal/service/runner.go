@@ -74,6 +74,9 @@ type kubernetesRunner struct {
 	client           kubernetes.Interface
 	namespace        string
 	serviceAccount   string
+	workloadSA       string
+	workloadSAToken  *bool
+	imagePullSecrets []corev1.LocalObjectReference
 	active           atomic.Int32
 	stopMu           sync.Mutex
 	stoppedRuns      map[string]struct{}
@@ -103,6 +106,8 @@ func NewKubernetesRunner(options RunnerOptions) Runner {
 	}
 	kcfg := config.NormalizeKubernetesConfig(cfg.Kubernetes)
 	namespace := firstNonEmpty(kcfg.Namespace, readServiceAccountNamespace(), defaultRunnerNamespace)
+	serviceAccount := strings.TrimSpace(kcfg.ServiceAccount)
+	workloadSA := firstNonEmpty(kcfg.WorkloadServiceAccount, serviceAccount)
 	workspaceSize := firstNonEmpty(kcfg.DefaultWorkspaceSize, defaultWorkspaceSize)
 	workspaceMode := firstNonEmpty(kcfg.WorkspaceVolumeMode, kubernetesWorkspaceVolumePVC)
 	runtimePoolsYAML := encodeRuntimePoolsYAML(cfg.RuntimePools)
@@ -121,7 +126,10 @@ func NewKubernetesRunner(options RunnerOptions) Runner {
 		transportCreds:   options.TransportCreds,
 		client:           options.Client,
 		namespace:        namespace,
-		serviceAccount:   strings.TrimSpace(kcfg.ServiceAccount),
+		serviceAccount:   serviceAccount,
+		workloadSA:       workloadSA,
+		workloadSAToken:  cloneBoolPtr(kcfg.WorkloadAutomountSAToken),
+		imagePullSecrets: imagePullSecretRefs(kcfg.ImagePullSecrets),
 		stoppedRuns:      make(map[string]struct{}),
 		affinityEnabled:  boolPtrValue(kcfg.AffinityEnabled, defaultKubernetesAffinity),
 		imagePullPolicy:  imagePullPolicy(kcfg.DefaultImagePullPolicy),
@@ -374,6 +382,13 @@ func (r *kubernetesRunner) agentRuntimeVars(job *proto.JobRequest, workspacePVC 
 	runtimeVars = upsertRuntimeVar(runtimeVars, "SHARED_VOLUME_NAME", workspacePVC)
 	runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_NAMESPACE", r.namespace)
 	runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_SERVICE_ACCOUNT", r.serviceAccount)
+	runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_WORKLOAD_SERVICE_ACCOUNT", r.effectiveWorkloadServiceAccount())
+	if r.workloadSAToken != nil {
+		runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN", strconv.FormatBool(*r.workloadSAToken))
+	}
+	if secrets := imagePullSecretNames(r.imagePullSecrets); len(secrets) > 0 {
+		runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_IMAGE_PULL_SECRETS", strings.Join(secrets, ","))
+	}
 	runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_DEFAULT_IMAGE_PULL_POLICY", string(r.imagePullPolicy))
 	runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_DEFAULT_WORKSPACE_SIZE", r.workspaceSize)
 	runtimeVars = upsertRuntimeVar(runtimeVars, "KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE", string(r.workspaceAccess))
@@ -407,6 +422,13 @@ func waitForPodLogDrain(done <-chan struct{}, cancel context.CancelFunc, runID, 
 		}
 		return false
 	}
+}
+
+func (r *kubernetesRunner) effectiveWorkloadServiceAccount() string {
+	if r == nil {
+		return ""
+	}
+	return firstNonEmpty(r.workloadSA, r.serviceAccount)
 }
 
 func stopPodLogForwarder(done <-chan struct{}, cancel context.CancelFunc, runID, podName string) {
@@ -642,6 +664,48 @@ func cloneMap(values map[string]string) map[string]string {
 		out[key] = strings.TrimSpace(value)
 	}
 	return out
+}
+
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
+}
+
+func imagePullSecretRefs(names []string) []corev1.LocalObjectReference {
+	if len(names) == 0 {
+		return nil
+	}
+	refs := make([]corev1.LocalObjectReference, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			refs = append(refs, corev1.LocalObjectReference{Name: name})
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return refs
+}
+
+func imagePullSecretNames(refs []corev1.LocalObjectReference) []string {
+	if len(refs) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		name := strings.TrimSpace(ref.Name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
 }
 
 func mergeMaps(maps ...map[string]string) map[string]string {
