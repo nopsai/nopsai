@@ -8,14 +8,16 @@ const allTriggers = [
   { slug: 'platform/api', source: 'gitops', scopes: ['prod'], teamPath: 'platform' },
   { slug: 'platform/web', source: 'database', scopes: ['default'], teamPath: 'platform' },
   { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'], teamPath: 'platform/apps' },
+  { slug: 'external/service', source: 'database', scopes: ['prod'], teamPath: 'platform' },
 ];
 const treeRoot = buildTriggerTree(allTriggers);
-const activeOwnerNode = findTriggerTreeNode(treeRoot, 'platform');
+const activeTreeNode = findTriggerTreeNode(treeRoot, 'external', 'platform');
 
 test('renders trigger metrics, subtree table rows, and tree navigation', async () => {
   const user = userEvent.setup();
   const onSelectTrigger = vi.fn();
   const onOpenOwner = vi.fn();
+  const onOpenTeam = vi.fn();
   const onDeleteTrigger = vi.fn();
 
   render(
@@ -24,19 +26,19 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
       listError={null}
       allTriggers={allTriggers}
       visibleTriggers={[
-        { slug: 'platform/api', source: 'gitops', scopes: ['prod'], teamPath: 'platform' },
-        { slug: 'platform/web', source: 'database', scopes: ['default'], teamPath: 'platform' },
-        { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'], teamPath: 'platform/apps' },
+        { slug: 'external/service', source: 'database', scopes: ['prod'], teamPath: 'platform' },
       ]}
       treeRoot={treeRoot}
-      activeOwnerNode={activeOwnerNode}
-      activeOwner="platform"
+      activeTreeNode={activeTreeNode}
+      activeOwnerPath="external"
+      activeTeamPath="platform"
       searchTerm=""
-      selectedSlug="platform/api"
+      selectedSlug="external/service"
       canCreateTriggerHere
       canDeleteTriggers
       onSelectTrigger={onSelectTrigger}
       onOpenOwner={onOpenOwner}
+      onOpenTeam={onOpenTeam}
       onDeleteTrigger={onDeleteTrigger}
     />
   );
@@ -47,18 +49,23 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
   expect(screen.getByText('Triggers')).toBeVisible();
   expect(screen.getByText('GitOps')).toBeVisible();
   expect(screen.getByText('Owners')).toBeVisible();
-  expect(screen.getByText('platform/api').closest('tr')).toHaveClass('selected');
-  expect(screen.getByText('platform/apps/checkout')).toBeVisible();
+  expect(screen.getByText('Teams')).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'external / platform' })).toBeVisible();
+  expect(screen.getByText('external/service').closest('tr')).toHaveClass('selected');
+  expect(screen.queryByText('platform/api')).not.toBeInTheDocument();
   expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
   expect(screen.getByText('prod')).toBeVisible();
 
-  await user.click(screen.getByText('platform/web'));
+  await user.click(screen.getByText('external/service'));
   expect(onSelectTrigger).toHaveBeenCalledTimes(1);
-  expect(onSelectTrigger).toHaveBeenCalledWith('platform/web');
+  expect(onSelectTrigger).toHaveBeenCalledWith('external/service');
 
-  await user.click(screen.getByRole('button', { name: 'Delete api' }));
-  expect(onDeleteTrigger).toHaveBeenCalledWith('platform/api');
+  await user.click(screen.getByRole('button', { name: 'Delete service' }));
+  expect(onDeleteTrigger).toHaveBeenCalledWith('external/service');
 
-  await user.click(screen.getByRole('button', { name: 'Open owner platform/apps' }));
-  expect(onOpenOwner).toHaveBeenCalledWith('platform/apps');
+  await user.click(screen.getByRole('button', { name: 'Open owner platform' }));
+  expect(onOpenOwner).toHaveBeenCalledWith('platform');
+
+  await user.click(screen.getByRole('button', { name: 'Open team platform under owner external' }));
+  expect(onOpenTeam).toHaveBeenCalledWith('external', 'platform');
 });

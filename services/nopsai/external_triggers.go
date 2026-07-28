@@ -170,7 +170,7 @@ func (a *App) handleCreateExternalTrigger(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !a.requireAAADecision(w, r, "external_trigger.create", routeauthz.ExternalTriggerResource(trigger.ID)) {
+	if !a.requireTeamOwnedCreateDecision(w, r, "external_trigger.create", routeauthz.ExternalTriggerResource(trigger.ID), trigger.RunTeamPath) {
 		return
 	}
 	if err := a.validateExternalTriggerPipeline(r.Context(), trigger.Pipeline); err != nil {

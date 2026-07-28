@@ -28,14 +28,16 @@ function LocationRecorder({ onChange }: { onChange: (location: string) => void }
 }
 
 const triggerList: TriggerListItem[] = [
-  { slug: 'platform/checkout', source: 'gitops' },
-  { slug: 'platform/billing', source: 'database' },
+  { slug: 'platform/checkout', source: 'gitops', teamPath: 'platform' },
+  { slug: 'external/billing', source: 'database', teamPath: 'platform' },
 ];
 
 const triggerDetail: TriggerDetail = {
   slug: 'platform/checkout',
   source: 'gitops',
+  teamPath: 'platform',
   rawYaml: [
+    'team_path: platform',
     'triggers:',
     '  - on: push',
     '    branches:',
@@ -90,7 +92,7 @@ test('renders selected triggers as a fullscreen route with persistent tree navig
   });
 });
 
-test('uses repository owners for trigger browsing and migrates legacy team routes', async () => {
+test('uses repository owners with NopsAI teams and migrates legacy team routes', async () => {
   const locations: string[] = [];
   const recordLocation = (location: string) => locations.push(location);
 
@@ -111,11 +113,12 @@ test('uses repository owners for trigger browsing and migrates legacy team route
   );
 
   await waitFor(() => {
-    expect(locations[locations.length - 1]).toBe('/triggers?owner=platform');
+    expect(locations[locations.length - 1]).toBe('/triggers?team=platform');
   });
   expect(await screen.findByRole('button', { name: /All owners/ })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'platform' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'All owners / platform' })).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'Trigger' })).toBeVisible();
+  expect(screen.getByText('external/billing')).toBeVisible();
   expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument();
   expect(screen.queryByText('All teams')).not.toBeInTheDocument();
 });

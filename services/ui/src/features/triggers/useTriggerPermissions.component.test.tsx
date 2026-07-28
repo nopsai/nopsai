@@ -26,13 +26,26 @@ test('coordinates owner and selected trigger permissions', async () => {
   });
   expect(checkPermissionMock).toHaveBeenCalledWith(
     'trigger.update',
-    'acme/__nopsai_permission_probe__'
+    'acme/__nopsai_permission_probe__',
+    ''
   );
 
   rerender({ owner: '', slug: null });
   await waitFor(() => expect(result.current.canCreateTriggerHere).toBe(false));
   expect(result.current.canUpdateSelectedTrigger).toBe(false);
-  expect(checkPermissionMock).toHaveBeenCalledWith('trigger.update', '__nopsai_permission_probe__');
+  expect(checkPermissionMock).toHaveBeenCalledWith('trigger.update', '__nopsai_permission_probe__', '');
+});
+
+test('uses team path when probing trigger create permission', async () => {
+  checkPermissionMock.mockResolvedValue(true);
+  const { result } = renderHook(() => useTriggerPermissions('acme', null, 'platform'));
+
+  await waitFor(() => expect(result.current.canCreateTriggerHere).toBe(true));
+  expect(checkPermissionMock).toHaveBeenCalledWith(
+    'trigger.update',
+    'acme/__nopsai_permission_probe__',
+    'platform'
+  );
 });
 
 test('fails closed when trigger permission checks reject', async () => {

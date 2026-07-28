@@ -848,6 +848,25 @@ func TestMapRequestDefersStepPutAuthorizationToHandler(t *testing.T) {
 	}
 }
 
+func TestMapRequestDefersTriggerOverridePutAuthorizationToHandler(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPut, "/v1/overrides/acme/widgets", nil)
+	req.SetPathValue("repoOwner", "acme")
+	req.SetPathValue("repoName", "widgets")
+	action, resource, requiresFilter, err := MapRequest(req)
+	if err != nil {
+		t.Fatalf("MapRequest() error = %v", err)
+	}
+	if action != "" {
+		t.Fatalf("action = %q, want empty", action)
+	}
+	if resource.Type != "trigger" || resource.ID != "acme/widgets" {
+		t.Fatalf("resource = %#v, want trigger:acme/widgets", resource)
+	}
+	if requiresFilter {
+		t.Fatal("requiresFilter = true, want false")
+	}
+}
+
 func TestMapRequestDefersKnowledgeContextPutAuthorizationToHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/v1/knowledge-contexts/guardrail/team-1/repo-check", nil)
 	req.SetPathValue("knowledgeID", "guardrail/team-1/repo-check")

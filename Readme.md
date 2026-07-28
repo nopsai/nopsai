@@ -381,6 +381,14 @@ parent team policy. Schedules and external triggers can set `run_team_path`
 from the Teams hierarchy when the runtime notification team should
 differ from the target pipeline's team.
 
+Team-owned create flows authorize against the explicit team scope before the
+resource exists. The UI surfaces empty teams from `/v1/access/teams` for
+pipelines, steps, and scopes, and trigger/external-trigger/webhook-source
+preflight checks can pass `team_path` or `run_team_path` to
+`/v1/access/effective-permissions` so an inherited team owner can create the
+first resource in that team without requiring a seed pipeline, trigger, or
+scope.
+
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are
 not supported. Put secret keys under `secrets:` and use either an encrypted value

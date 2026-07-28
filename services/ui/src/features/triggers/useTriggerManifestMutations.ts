@@ -311,7 +311,7 @@ export function useTriggerManifestMutations({
     }
 
     const normalizedSlug = `${owner}/${repo}`;
-    const allowed = await checkTriggerPermission('trigger.update', normalizedSlug);
+    const allowed = await checkTriggerPermission('trigger.update', normalizedSlug, createModal.details.teamPath);
     if (!allowed) {
       setCreateModal(current =>
         current
@@ -360,7 +360,7 @@ export function useTriggerManifestMutations({
     }
 
     const normalizedSlug = `${owner}/${repo}`;
-    const allowed = await checkTriggerPermission('trigger.update', normalizedSlug);
+    const allowed = await checkTriggerPermission('trigger.update', normalizedSlug, cloneModal.details.teamPath);
     if (!allowed) {
       setCloneModal(current =>
         current

@@ -361,6 +361,9 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !a.requireTriggerOverrideWriteDecision(w, r, triggerRecord) {
+		return
+	}
 	if err := validateRepositoryTriggerWebhookSource(r.Context(), a.db, triggerRecord); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -425,6 +428,43 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) requireTriggerOverrideWriteDecision(w http.ResponseWriter, r *http.Request, next repositoryTriggerRecord) bool {
+	existing, found, err := a.getRepositoryTriggerRecord(r.Context(), next.RepositoryName)
+	if err != nil {
+		http.Error(w, "Failed to validate trigger authorization", http.StatusInternalServerError)
+		return false
+	}
+
+	nextResource, err := triggerOverrideWriteResource(next)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid team path: %v", err), http.StatusBadRequest)
+		return false
+	}
+	if !found {
+		return a.requireAAADecision(w, r, "trigger.update", nextResource)
+	}
+
+	existingResource, err := triggerOverrideWriteResource(existing)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid existing trigger team path: %v", err), http.StatusInternalServerError)
+		return false
+	}
+	if !a.requireAAADecision(w, r, "trigger.update", existingResource) {
+		return false
+	}
+	if resourceKey(existingResource) == resourceKey(nextResource) {
+		return true
+	}
+	return a.requireAAADecision(w, r, "trigger.update", nextResource)
+}
+
+func triggerOverrideWriteResource(record repositoryTriggerRecord) (model.ResourceRef, error) {
+	return teamOwnedAuthorizationResource(
+		record.TeamPath,
+		routeauthz.BuildTriggerResource("", record.RepositoryName),
+	)
 }
 
 func (a *App) handleDeleteTriggerOverride(w http.ResponseWriter, r *http.Request) {
