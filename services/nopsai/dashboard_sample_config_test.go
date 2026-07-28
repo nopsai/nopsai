@@ -351,7 +351,7 @@ func TestSampleConfigPurposeDashboardPipelinesAreExecutableAndBound(t *testing.T
 
 func readSampleConfigFile(t *testing.T, parts ...string) string {
 	t.Helper()
-	pathParts := append([]string{"..", "..", "doc", "sample-config-repo"}, parts...)
+	pathParts := append([]string{"..", "..", "examples", "sample-config-repo"}, parts...)
 	content, err := os.ReadFile(filepath.Join(pathParts...))
 	if err != nil {
 		t.Fatalf("read sample config file %v: %v", parts, err)

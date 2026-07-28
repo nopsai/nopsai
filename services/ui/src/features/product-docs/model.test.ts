@@ -10,6 +10,7 @@ import {
   summarizeWiki,
   unsupportedClaims,
   wikiArticlePath,
+  wikiMetadata,
   wikiSections,
 } from './model.js';
 
@@ -80,6 +81,20 @@ test('documents private registry runner auth as an installed capability', () => 
   assert.ok(filterWikiSections(wikiSections, 'imagePullSecrets').some(section => section.id === 'installation'));
 });
 
+test('documents SSO examples and the GitOps identity-provider boundary', () => {
+  const article = findWikiArticle(wikiSections, 'auth-aaa-teams-scopes');
+
+  assert.ok(article);
+  assert.ok(article.keyFacts.some(fact => fact.includes('examples/sso/keycloak')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('setting/system/auth.yaml')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('runtime state')));
+  assert.ok(article.configRows.some(row => row.key === 'examples/sso/idp-test-pack'));
+  assert.ok(article.relatedDocs.includes('examples/sso/README.md'));
+  assert.ok(article.sourceLinks.some(source => source.repositoryPath === 'examples/sso/keycloak/docker-compose.yaml'));
+  assert.ok(article.sourceLinks.some(source => source.repositoryPath === 'examples/sso/idp-test-pack/test-matrix.yaml'));
+  assert.ok(filterWikiSections(wikiSections, 'idp-test-pack').some(section => section.id === 'platform-admin'));
+});
+
 test('documents read-only analysis reviewers in the product wiki', () => {
   const article = findWikiArticle(wikiSections, 'analysis-reviewers');
 
@@ -122,6 +137,15 @@ test('documents step-level LLM profile directives', () => {
   assert.ok(article.keyFacts.some(fact => fact.includes('steps[].llm_profile')));
   assert.ok(article.configRows.some(row => row.key === 'steps[].llm_profile' && row.description.includes('provider/model') && row.path === 'steps[].llm_profile'));
   assert.ok(article.configRows.some(row => row.key === 'tasks[].llm_profile' && row.required === 'conditional'));
+});
+
+test('documents examples as runnable source evidence', () => {
+  assert.ok(wikiMetadata.sourceOrder.some(source => source.includes('examples/')));
+
+  const knowledgeArticle = findWikiArticle(wikiSections, 'knowledge-context');
+  assert.ok(knowledgeArticle);
+  assert.ok(knowledgeArticle.relatedDocs.includes('examples/sample-config-repo/README.md'));
+  assert.ok(filterWikiSections(wikiSections, 'examples/sample-config-repo').some(section => section.id === 'ai-mcp-knowledge'));
 });
 
 test('models getting-started tutorials as route-backed procedural documentation', () => {
