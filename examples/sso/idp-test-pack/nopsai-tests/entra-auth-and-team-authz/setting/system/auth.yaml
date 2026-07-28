@@ -1,0 +1,40 @@
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: ''
+  allow_email_linking: true
+  domain_mapping:
+    example.com: entra
+  providers:
+    entra:
+      type: entra
+      display_name: Mock Microsoft Entra ID
+      issuer: http://host.docker.internal:8090/entra
+      client_id: nopsai-entra-test
+      scopes:
+      - openid
+      - email
+      - profile
+      allowed_email_domains:
+      - example.com
+      team_claim: groups
+      allow_email_linking: true
+      team_mapping:
+        22222222-2222-2222-2222-222222222222: SSO Team 1 Viewers
+        33333333-3333-3333-3333-333333333333: SSO Team 1 Developers
+        44444444-4444-4444-4444-444444444444: SSO Data Team Owners
+      basic_role_mapping:
+        22222222-2222-2222-2222-222222222222:
+          role: viewer
+          resource: team:team-1
+        33333333-3333-3333-3333-333333333333:
+          role: developer
+          resource: team:team-1
+        44444444-4444-4444-4444-444444444444:
+          role: owner
+          resource: team:data-team
+      authorization_endpoint: http://host.docker.internal:8090/entra/authorize
+      token_endpoint: http://host.docker.internal:8090/entra/token
+      jwks_uri: http://host.docker.internal:8090/entra/jwks
+      userinfo_endpoint: http://host.docker.internal:8090/entra/userinfo

@@ -1,0 +1,40 @@
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: ''
+  allow_email_linking: true
+  domain_mapping:
+    example.com: google
+  providers:
+    google:
+      type: google-workspace
+      display_name: Mock Google Workspace
+      issuer: http://host.docker.internal:8090/google
+      client_id: nopsai-google-test
+      scopes:
+      - openid
+      - email
+      - profile
+      allowed_email_domains:
+      - example.com
+      team_claim: groups
+      allow_email_linking: true
+      team_mapping:
+        nopsai-team-1-viewers@example.com: SSO Team 1 Viewers
+        nopsai-team-1-developers@example.com: SSO Team 1 Developers
+        nopsai-data-team-owners@example.com: SSO Data Team Owners
+      basic_role_mapping:
+        nopsai-team-1-viewers@example.com:
+          role: viewer
+          resource: team:team-1
+        nopsai-team-1-developers@example.com:
+          role: developer
+          resource: team:team-1
+        nopsai-data-team-owners@example.com:
+          role: owner
+          resource: team:data-team
+      authorization_endpoint: http://host.docker.internal:8090/google/authorize
+      token_endpoint: http://host.docker.internal:8090/google/token
+      jwks_uri: http://host.docker.internal:8090/google/jwks
+      userinfo_endpoint: http://host.docker.internal:8090/google/userinfo

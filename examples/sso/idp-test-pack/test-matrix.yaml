@@ -1,0 +1,24 @@
+scenarios:
+  auth-only:
+    config_pattern: nopsai-tests/<provider>-auth-only/setting/system/auth.yaml
+    expectation: All six valid example.com identities can authenticate and be auto-created.
+      No auth_team_members or IdP-managed access_grants should be created.
+  auth-and-team-authz:
+    config_pattern: nopsai-tests/<provider>-auth-and-team-authz/setting/system/auth.yaml
+    expectations:
+      alice: Authenticated; no auth-team membership; no scoped grant.
+      bob: Authenticated; external auth-only group recorded; no mapped auth-team membership
+        or scoped grant.
+      carol: Auth-team SSO Team 1 Viewers; viewer on team:team-1.
+      dave: Auth-teams SSO Team 1 Viewers and SSO Team 1 Developers; developer on
+        team:team-1 (stronger than viewer).
+      erin: Auth-team SSO Data Team Owners; owner on team:data-team.
+      frank: Auth-teams SSO Team 1 Viewers and SSO Data Team Owners; viewer on team:team-1
+        and owner on team:data-team.
+negative_tests:
+- 'Remove a mapped group and log in again: only IdP-managed membership/grants for
+  that provider should be pruned.'
+- 'Add a local grant to the same user: an IdP resync must not remove the local grant.'
+- 'Use an email outside example.com: login must fail domain validation.'
+- 'Entra overage token without groups: current NopsAI code sees no groups; verify
+  provider-managed grants are pruned, then decide whether this behaviour is acceptable.'
