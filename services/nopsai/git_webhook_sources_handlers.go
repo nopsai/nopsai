@@ -81,7 +81,7 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !a.requireAAADecision(w, r, "git_webhook_source.create", routeauthz.GitWebhookSourceResource(source.ID)) {
+	if !a.requireTeamOwnedCreateDecision(w, r, "git_webhook_source.create", routeauthz.GitWebhookSourceResource(source.ID), source.TeamPath) {
 		return
 	}
 	if err := a.ensureGitWebhookCredentialAllowed(r, subject, source); err != nil {

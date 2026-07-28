@@ -36,7 +36,7 @@ import {
   sourceLabel,
   splitTriggerSlug,
   triggerDetailsFormFromYaml,
-  triggerBelongsToOwner,
+  triggerBelongsToOwnerTeam,
   validateTriggerYaml,
   type TriggerDetailsFormState,
   type PipelineMeta,
@@ -57,12 +57,16 @@ const RUNS_CACHE_TTL = 60 * 1000;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 const LEGACY_TRIGGER_TEAM_ROUTE_SEGMENT = 'team';
 
-function normalizeTriggerOwnerPath(value?: string | null) {
+function normalizeTriggerOwnerRoutePath(value?: string | null) {
   return (value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
 }
 
-function decodeTriggerOwnerSegments(segments: string[]) {
-  return normalizeTriggerOwnerPath(
+function normalizeTriggerTeamRoutePath(value?: string | null) {
+  return (value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+}
+
+function decodeTriggerTeamSegments(segments: string[]) {
+  return normalizeTriggerTeamRoutePath(
     segments
       .filter(Boolean)
       .map(segment => {
@@ -76,10 +80,13 @@ function decodeTriggerOwnerSegments(segments: string[]) {
   );
 }
 
-function ownerScopedTriggerRoute(ownerPath?: string | null) {
-  const owner = normalizeTriggerOwnerPath(ownerPath);
-  if (!owner) return '/triggers';
-  const params = new URLSearchParams({ owner });
+function triggerCollectionRoute(ownerPath?: string | null, teamPath?: string | null) {
+  const owner = normalizeTriggerOwnerRoutePath(ownerPath);
+  const team = normalizeTriggerTeamRoutePath(teamPath);
+  if (!owner && !team) return '/triggers';
+  const params = new URLSearchParams();
+  if (owner) params.set('owner', owner);
+  if (team) params.set('team', team);
   return `/triggers?${params.toString()}`;
 }
 
@@ -97,7 +104,8 @@ function TriggersPage({
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  const [activeOwner, setActiveOwner] = useState('');
+  const [activeOwnerPath, setActiveOwnerPath] = useState('');
+  const [activeTeamPath, setActiveTeamPath] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState<TriggerSourceFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -489,18 +497,29 @@ function TriggersPage({
     [loadMoreRuns, recentRuns.length],
   );
 
-  const ownerForSlug = (slug: string) => {
+  const repositoryOwnerForSlug = (slug: string) => {
     const parts = slug.split('/').filter(Boolean);
     parts.pop();
     return parts.join('/');
   };
 
-  const openOwner = (path: string) => {
-    const cleaned = normalizeTriggerOwnerPath(path);
-    setActiveOwner(cleaned);
+  const openOwnerPath = (path: string) => {
+    const cleaned = normalizeTriggerOwnerRoutePath(path);
+    setActiveOwnerPath(cleaned);
+    setActiveTeamPath('');
     setSelectedSlug(null);
     selectedSlugRef.current = null;
-    navigate(ownerScopedTriggerRoute(cleaned));
+    navigate(triggerCollectionRoute(cleaned, ''));
+  };
+
+  const openOwnerTeamPath = (ownerPath: string, teamPath: string) => {
+    const cleanedOwner = normalizeTriggerOwnerRoutePath(ownerPath);
+    const cleanedTeam = normalizeTriggerTeamRoutePath(teamPath);
+    setActiveOwnerPath(cleanedOwner);
+    setActiveTeamPath(cleanedTeam);
+    setSelectedSlug(null);
+    selectedSlugRef.current = null;
+    navigate(triggerCollectionRoute(cleanedOwner, cleanedTeam));
   };
 
   const handleSelectSlug = useCallback((slug: string) => {
@@ -514,7 +533,7 @@ function TriggersPage({
       navigate('/triggers');
       return;
     }
-    openOwner(ownerForSlug(detail.slug));
+    openOwnerTeamPath(repositoryOwnerForSlug(detail.slug), normalizeTriggerTeamPath(detail.teamPath));
   };
 
   const openEditModal = useCallback(() => {
@@ -524,15 +543,31 @@ function TriggersPage({
     setIsEditing(true);
   }, [detail]);
 
-  const permissionOwner = selectedSlug ? ownerForSlug(selectedSlug) : activeOwner;
+  const permissionOwner = selectedSlug ? repositoryOwnerForSlug(selectedSlug) : activeOwnerPath;
   const selectedListItem = selectedSlug ? serverTriggers.find(item => item.slug === selectedSlug) : undefined;
-  const workspaceTeamPath = selectedSlug
+  const triggerTeamPaths = useMemo(() => {
+    const paths = teamPathOptions.map(path => normalizeTriggerTeamPath(path)).filter(Boolean);
+    return Array.from(new Set(['root', ...paths])).sort((left, right) => {
+      if (left === 'root') return -1;
+      if (right === 'root') return 1;
+      return left.localeCompare(right);
+    });
+  }, [teamPathOptions]);
+  const activeOwnerForTree = selectedSlug ? repositoryOwnerForSlug(selectedSlug) : activeOwnerPath;
+  const activeTeamForTree = selectedSlug
     ? normalizeTriggerTeamPath(selectedListItem?.teamPath || detail?.teamPath)
-    : 'root';
+    : activeTeamPath;
+  const workspaceTeamPath = selectedSlug
+    ? activeTeamForTree
+    : normalizeTriggerTeamPath(activeTeamPath);
   const {
     canCreateTriggerHere,
     canUpdateSelectedTrigger,
-  } = useTriggerPermissions(permissionOwner, selectedSlug);
+  } = useTriggerPermissions(permissionOwner, selectedSlug, workspaceTeamPath);
+  const defaultCreateTeamPath = useMemo(() => {
+    if (selectedSlug || canCreateTriggerHere || workspaceTeamPath !== 'root') return workspaceTeamPath;
+    return triggerTeamPaths.find(path => path !== 'root') || 'root';
+  }, [canCreateTriggerHere, selectedSlug, triggerTeamPaths, workspaceTeamPath]);
 
   const handleTriggerSaved = useCallback((updated: TriggerDetail) => {
     setDetail(updated);
@@ -589,7 +624,7 @@ function TriggersPage({
     editorValue,
     validationErrorCount: validation.errors.length,
     serverTriggers,
-    defaultTeamPath: workspaceTeamPath,
+    defaultTeamPath: defaultCreateTeamPath,
     addToast,
     loadTriggers,
     loadRecentRuns,
@@ -673,11 +708,13 @@ function TriggersPage({
     }
 
     const params = new URLSearchParams(location.search);
-    const routeOwner = isLegacyTeamRoute ? decodeTriggerOwnerSegments(segments.slice(2)) : '';
-    const owner = normalizeTriggerOwnerPath(routeOwner || params.get('owner') || params.get('team') || '');
-    setActiveOwner(owner);
-    if (isLegacyTeamRoute || (segments.length === 1 && params.get('team'))) {
-      navigate(ownerScopedTriggerRoute(owner), { replace: true });
+    const routeTeam = isLegacyTeamRoute ? decodeTriggerTeamSegments(segments.slice(2)) : '';
+    const owner = isLegacyTeamRoute ? '' : normalizeTriggerOwnerRoutePath(params.get('owner') || '');
+    const team = normalizeTriggerTeamRoutePath(routeTeam || params.get('team') || '');
+    setActiveOwnerPath(owner);
+    setActiveTeamPath(team);
+    if (isLegacyTeamRoute) {
+      navigate(triggerCollectionRoute('', team), { replace: true });
     }
   }, [location.pathname, location.search, navigate]);
 
@@ -748,16 +785,6 @@ function TriggersPage({
     return filterTriggerListItems(serverTriggers, { query: searchTerm, source: sourceFilter });
   }, [serverTriggers, searchTerm, sourceFilter]);
 
-  const triggerTeamPaths = useMemo(() => {
-    const paths = teamPathOptions.map(path => normalizeTriggerTeamPath(path)).filter(Boolean);
-    return Array.from(new Set(['root', ...paths])).sort((left, right) => {
-      if (left === 'root') return -1;
-      if (right === 'root') return 1;
-      return left.localeCompare(right);
-    });
-  }, [teamPathOptions]);
-
-  const workspaceOwner = selectedSlug ? ownerForSlug(selectedSlug) : activeOwner;
   const triggerDetails = useMemo(
     () => triggerDetailsFormFromYaml(editorValue || detail?.rawYaml || '', detail),
     [detail, editorValue]
@@ -766,17 +793,17 @@ function TriggersPage({
   const visibleTriggers = useMemo(() => {
     const list = searchTerm.trim()
       ? filteredTriggers
-      : filteredTriggers.filter(item => triggerBelongsToOwner(item.slug, workspaceOwner));
+      : filteredTriggers.filter(item => triggerBelongsToOwnerTeam(item, activeOwnerPath, activeTeamPath));
     return [...list].sort((a, b) => a.slug.localeCompare(b.slug, undefined, { sensitivity: 'base' }));
-  }, [filteredTriggers, searchTerm, workspaceOwner]);
+  }, [activeOwnerPath, activeTeamPath, filteredTriggers, searchTerm]);
 
   const buildTree = useMemo(() => {
     return buildTriggerTree(serverTriggers);
   }, [serverTriggers]);
 
-  const activeOwnerNode = useMemo(() => {
-    return findTriggerTreeNode(buildTree, workspaceOwner);
-  }, [workspaceOwner, buildTree]);
+  const activeTreeNode = useMemo(() => {
+    return findTriggerTreeNode(buildTree, activeOwnerForTree, activeTeamForTree);
+  }, [activeOwnerForTree, activeTeamForTree, buildTree]);
 
   const handleIndentTab = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget;
@@ -850,9 +877,11 @@ function TriggersPage({
             <TriggerExplorerTree
               rootNode={buildTree}
               allTriggers={serverTriggers}
-              activeOwner={workspaceOwner}
+              activeOwnerPath={activeOwnerForTree}
+              activeTeamPath={activeTeamForTree}
               selectedSlug={selectedSlug}
-              onOpenOwner={openOwner}
+              onOpenOwner={openOwnerPath}
+              onOpenTeam={openOwnerTeamPath}
               onSelectTrigger={handleSelectSlug}
             />
             <TreeColumnResizeHandle {...treeResize} label="Resize trigger tree" />
@@ -923,14 +952,16 @@ function TriggersPage({
               allTriggers={serverTriggers}
               visibleTriggers={visibleTriggers}
               treeRoot={buildTree}
-              activeOwnerNode={activeOwnerNode}
-              activeOwner={workspaceOwner}
+              activeTreeNode={activeTreeNode}
+              activeOwnerPath={activeOwnerPath}
+              activeTeamPath={activeTeamPath}
               searchTerm={searchTerm}
               selectedSlug={selectedSlug}
               canCreateTriggerHere={canCreateTriggerHere}
               canDeleteTriggers={canDeleteTriggers}
               onSelectTrigger={handleSelectSlug}
-              onOpenOwner={openOwner}
+              onOpenOwner={openOwnerPath}
+              onOpenTeam={openOwnerTeamPath}
               onDeleteTrigger={openDeleteModal}
             />
           </div>

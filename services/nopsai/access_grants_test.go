@@ -3,6 +3,7 @@ package nopsai
 import (
 	"context"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -1142,6 +1143,102 @@ func grantMatches(policyValue, requestValue string) bool {
 
 func grantResourceKey(resource model.ResourceRef) string {
 	return fmt.Sprintf("%s|%s", resource.Type, resource.ID)
+}
+
+func TestTeamGrantResourceForPathNormalizesRootAndTeamPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawPath string
+		wantOK  bool
+		wantID  string
+	}{
+		{name: "empty path does not override fallback", rawPath: "", wantOK: false},
+		{name: "root maps to general team grant", rawPath: "root", wantOK: true, wantID: generalGrantID},
+		{name: "nested team trims slashes", rawPath: "/platform/prod/", wantOK: true, wantID: "platform/prod"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resource, ok, err := teamGrantResourceForPath(tt.rawPath)
+			if err != nil {
+				t.Fatalf("teamGrantResourceForPath() error = %v", err)
+			}
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %t, want %t", ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if resource.Type != grantResourceTeam || resource.ID != tt.wantID {
+				t.Fatalf("resource = %#v, want team:%s", resource, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestTeamOwnedEffectivePermissionResourceSupportsCreateScopes(t *testing.T) {
+	tests := []struct {
+		name         string
+		action       string
+		resourceType string
+		wantOK       bool
+	}{
+		{name: "pipeline create", action: "pipeline.create", resourceType: grantResourcePipeline, wantOK: true},
+		{name: "schedule create", action: "pipeline_schedule.create", resourceType: grantResourceSchedule, wantOK: true},
+		{name: "trigger write create equivalent", action: "trigger.update", resourceType: grantResourceTrigger, wantOK: true},
+		{name: "external trigger create", action: "external_trigger.create", resourceType: grantResourceExternalTrigger, wantOK: true},
+		{name: "git webhook source create", action: "git_webhook_source.create", resourceType: grantResourceGitWebhookSource, wantOK: true},
+		{name: "scope update create equivalent", action: "scope.update", resourceType: grantResourceScope, wantOK: true},
+		{name: "step create", action: "step.create", resourceType: grantResourceStep, wantOK: true},
+		{name: "pipeline update stays resource scoped", action: "pipeline.update", resourceType: grantResourcePipeline, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resource, ok, err := teamOwnedEffectivePermissionResource(tt.action, accessGrantResource{Type: tt.resourceType, ID: "probe"}, "platform")
+			if err != nil {
+				t.Fatalf("teamOwnedEffectivePermissionResource() error = %v", err)
+			}
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %t, want %t", ok, tt.wantOK)
+			}
+			if tt.wantOK && (resource.Type != grantResourceTeam || resource.ID != "platform") {
+				t.Fatalf("resource = %#v, want team:platform", resource)
+			}
+		})
+	}
+}
+
+func TestRequireTeamOwnedCreateDecisionChecksPayloadTeam(t *testing.T) {
+	var checkedResource model.ResourceRef
+	app := &App{
+		aaaLocal: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, _ model.Subject, action string, resource model.ResourceRef, _ map[string]any) (model.Decision, error) {
+				if action != "external_trigger.create" {
+					t.Fatalf("action = %q, want external_trigger.create", action)
+				}
+				checkedResource = resource
+				return model.Decision{Allowed: true}, nil
+			},
+		},
+	}
+	req := httptest.NewRequest("POST", "/v1/external-triggers", nil)
+	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, Sub: "alice"}))
+	w := httptest.NewRecorder()
+
+	ok := app.requireTeamOwnedCreateDecision(
+		w,
+		req,
+		"external_trigger.create",
+		model.ResourceRef{Type: grantResourceExternalTrigger, ID: "deploy-prod"},
+		"platform/prod",
+	)
+	if !ok {
+		t.Fatalf("requireTeamOwnedCreateDecision() denied with status %d", w.Code)
+	}
+	if checkedResource.Type != grantResourceTeam || checkedResource.ID != "platform/prod" {
+		t.Fatalf("checked resource = %#v, want team:platform/prod", checkedResource)
+	}
 }
 
 type ownerGuardQueryRunner struct {

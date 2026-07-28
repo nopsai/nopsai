@@ -345,6 +345,10 @@ the API/UI; encrypted versions can be synced in
 `setting/system/credentials.yaml`.
 Only one external identity provider can be enabled at a time; IdP sync owns only
 IdP-sourced grants and leaves local UI/API/GitOps grants intact.
+Runnable SSO examples live under `examples/sso`: `keycloak/` for a real local
+Keycloak realm and `idp-test-pack/` for mock Entra ID, Okta, Google, Keycloak,
+and GitHub scenario configs that can be copied into `setting/system/auth.yaml`
+for a test run.
 
 Mail notification settings live under **System > Config** and can be
 declared in the global config repository at `setting/system/mail.yaml`. GitOps
@@ -381,6 +385,14 @@ parent team policy. Schedules and external triggers can set `run_team_path`
 from the Teams hierarchy when the runtime notification team should
 differ from the target pipeline's team.
 
+Team-owned create flows authorize against the explicit team scope before the
+resource exists. The UI surfaces empty teams from `/v1/access/teams` for
+pipelines, steps, and scopes, and trigger/external-trigger/webhook-source
+preflight checks can pass `team_path` or `run_team_path` to
+`/v1/access/effective-permissions` so an inherited team owner can create the
+first resource in that team without requiring a seed pipeline, trigger, or
+scope.
+
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are
 not supported. Put secret keys under `secrets:` and use either an encrypted value
@@ -401,7 +413,7 @@ secrets:
 Use the scope page GitOps encryption dialog or
 `POST /v1/secrets/encrypt` to encrypt a value before committing it to GitOps.
 
-See [doc/sample-config-repo/README.md](doc/sample-config-repo/README.md) for a
+See [examples/sample-config-repo/README.md](examples/sample-config-repo/README.md) for a
 working GitOps layout.
 
 ## Pipeline Example
@@ -439,7 +451,7 @@ steps:
 ```
 
 See [doc/feature-reference.md](doc/feature-reference.md) and
-[doc/sample-pipeline](doc/sample-pipeline) for broader examples.
+[examples/sample-pipeline](examples/sample-pipeline) for broader examples.
 
 ## Security And Governance
 

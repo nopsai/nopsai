@@ -1,0 +1,37 @@
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: ''
+  allow_email_linking: true
+  providers:
+    github:
+      type: github
+      display_name: GitHub
+      issuer: https://github.com
+      authorization_endpoint: https://github.com/login/oauth/authorize
+      token_endpoint: https://github.com/login/oauth/access_token
+      userinfo_endpoint: https://api.github.com/user
+      client_id: REPLACE_WITH_GITHUB_OAUTH_APP_CLIENT_ID
+      client_credential_ref: credential://system/oauth2/github/client-secret
+      scopes:
+        - read:user
+        - user:email
+        - read:org
+      allowed_email_domains:
+        - example.com
+      team_mapping:
+        your-github-org/nopsai-auth-only: GitHub Authenticated
+        your-github-org/nopsai-team-1-viewers: GitHub Team 1 Viewers
+        your-github-org/nopsai-team-1-developers: GitHub Team 1 Developers
+        your-github-org/nopsai-data-team-owners: GitHub Data Team Owners
+      basic_role_mapping:
+        your-github-org/nopsai-team-1-viewers:
+          role: viewer
+          resource: team:team-1
+        your-github-org/nopsai-team-1-developers:
+          role: developer
+          resource: team:team-1
+        your-github-org/nopsai-data-team-owners:
+          role: owner
+          resource: team:data-team

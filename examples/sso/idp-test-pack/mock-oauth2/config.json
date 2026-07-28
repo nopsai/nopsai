@@ -1,0 +1,455 @@
+{
+  "interactiveLogin": true,
+  "tokenCallbacks": [
+    {
+      "issuerId": "entra",
+      "tokenExpiry": 900,
+      "requestMappings": [
+        {
+          "requestParam": "subject",
+          "match": "^(?:alice|alice@example\\.com)$",
+          "claims": {
+            "sub": "entra-alice-subject",
+            "aud": [
+              "nopsai-entra-test"
+            ],
+            "email": "alice@example.com",
+            "email_verified": true,
+            "name": "Alice Test User",
+            "preferred_username": "alice@example.com",
+            "oid": "00000000-0000-0000-0000-000000000001",
+            "tid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "groups": []
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:bob|bob@example\\.com)$",
+          "claims": {
+            "sub": "entra-bob-subject",
+            "aud": [
+              "nopsai-entra-test"
+            ],
+            "email": "bob@example.com",
+            "email_verified": true,
+            "name": "Bob Test User",
+            "preferred_username": "bob@example.com",
+            "oid": "00000000-0000-0000-0000-000000000002",
+            "tid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "groups": [
+              "11111111-1111-1111-1111-111111111111"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:carol|carol@example\\.com)$",
+          "claims": {
+            "sub": "entra-carol-subject",
+            "aud": [
+              "nopsai-entra-test"
+            ],
+            "email": "carol@example.com",
+            "email_verified": true,
+            "name": "Carol Test User",
+            "preferred_username": "carol@example.com",
+            "oid": "00000000-0000-0000-0000-000000000003",
+            "tid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "groups": [
+              "22222222-2222-2222-2222-222222222222"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:dave|dave@example\\.com)$",
+          "claims": {
+            "sub": "entra-dave-subject",
+            "aud": [
+              "nopsai-entra-test"
+            ],
+            "email": "dave@example.com",
+            "email_verified": true,
+            "name": "Dave Test User",
+            "preferred_username": "dave@example.com",
+            "oid": "00000000-0000-0000-0000-000000000004",
+            "tid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "groups": [
+              "22222222-2222-2222-2222-222222222222",
+              "33333333-3333-3333-3333-333333333333"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:erin|erin@example\\.com)$",
+          "claims": {
+            "sub": "entra-erin-subject",
+            "aud": [
+              "nopsai-entra-test"
+            ],
+            "email": "erin@example.com",
+            "email_verified": true,
+            "name": "Erin Test User",
+            "preferred_username": "erin@example.com",
+            "oid": "00000000-0000-0000-0000-000000000005",
+            "tid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "groups": [
+              "44444444-4444-4444-4444-444444444444"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:frank|frank@example\\.com)$",
+          "claims": {
+            "sub": "entra-frank-subject",
+            "aud": [
+              "nopsai-entra-test"
+            ],
+            "email": "frank@example.com",
+            "email_verified": true,
+            "name": "Frank Test User",
+            "preferred_username": "frank@example.com",
+            "oid": "00000000-0000-0000-0000-000000000006",
+            "tid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "groups": [
+              "22222222-2222-2222-2222-222222222222",
+              "44444444-4444-4444-4444-444444444444"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "issuerId": "google",
+      "tokenExpiry": 900,
+      "requestMappings": [
+        {
+          "requestParam": "subject",
+          "match": "^(?:alice|alice@example\\.com)$",
+          "claims": {
+            "sub": "google-alice-subject",
+            "aud": [
+              "nopsai-google-test"
+            ],
+            "email": "alice@example.com",
+            "email_verified": true,
+            "name": "Alice Test User",
+            "preferred_username": "alice@example.com",
+            "hd": "example.com",
+            "groups": []
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:bob|bob@example\\.com)$",
+          "claims": {
+            "sub": "google-bob-subject",
+            "aud": [
+              "nopsai-google-test"
+            ],
+            "email": "bob@example.com",
+            "email_verified": true,
+            "name": "Bob Test User",
+            "preferred_username": "bob@example.com",
+            "hd": "example.com",
+            "groups": [
+              "nopsai-auth-only@example.com"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:carol|carol@example\\.com)$",
+          "claims": {
+            "sub": "google-carol-subject",
+            "aud": [
+              "nopsai-google-test"
+            ],
+            "email": "carol@example.com",
+            "email_verified": true,
+            "name": "Carol Test User",
+            "preferred_username": "carol@example.com",
+            "hd": "example.com",
+            "groups": [
+              "nopsai-team-1-viewers@example.com"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:dave|dave@example\\.com)$",
+          "claims": {
+            "sub": "google-dave-subject",
+            "aud": [
+              "nopsai-google-test"
+            ],
+            "email": "dave@example.com",
+            "email_verified": true,
+            "name": "Dave Test User",
+            "preferred_username": "dave@example.com",
+            "hd": "example.com",
+            "groups": [
+              "nopsai-team-1-viewers@example.com",
+              "nopsai-team-1-developers@example.com"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:erin|erin@example\\.com)$",
+          "claims": {
+            "sub": "google-erin-subject",
+            "aud": [
+              "nopsai-google-test"
+            ],
+            "email": "erin@example.com",
+            "email_verified": true,
+            "name": "Erin Test User",
+            "preferred_username": "erin@example.com",
+            "hd": "example.com",
+            "groups": [
+              "nopsai-data-team-owners@example.com"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:frank|frank@example\\.com)$",
+          "claims": {
+            "sub": "google-frank-subject",
+            "aud": [
+              "nopsai-google-test"
+            ],
+            "email": "frank@example.com",
+            "email_verified": true,
+            "name": "Frank Test User",
+            "preferred_username": "frank@example.com",
+            "hd": "example.com",
+            "groups": [
+              "nopsai-team-1-viewers@example.com",
+              "nopsai-data-team-owners@example.com"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "issuerId": "okta",
+      "tokenExpiry": 900,
+      "requestMappings": [
+        {
+          "requestParam": "subject",
+          "match": "^(?:alice|alice@example\\.com)$",
+          "claims": {
+            "sub": "okta-alice-subject",
+            "aud": [
+              "nopsai-okta-test"
+            ],
+            "email": "alice@example.com",
+            "email_verified": true,
+            "name": "Alice Test User",
+            "preferred_username": "alice@example.com",
+            "groups": []
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:bob|bob@example\\.com)$",
+          "claims": {
+            "sub": "okta-bob-subject",
+            "aud": [
+              "nopsai-okta-test"
+            ],
+            "email": "bob@example.com",
+            "email_verified": true,
+            "name": "Bob Test User",
+            "preferred_username": "bob@example.com",
+            "groups": [
+              "nopsai-auth-only"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:carol|carol@example\\.com)$",
+          "claims": {
+            "sub": "okta-carol-subject",
+            "aud": [
+              "nopsai-okta-test"
+            ],
+            "email": "carol@example.com",
+            "email_verified": true,
+            "name": "Carol Test User",
+            "preferred_username": "carol@example.com",
+            "groups": [
+              "nopsai-team-1-viewers"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:dave|dave@example\\.com)$",
+          "claims": {
+            "sub": "okta-dave-subject",
+            "aud": [
+              "nopsai-okta-test"
+            ],
+            "email": "dave@example.com",
+            "email_verified": true,
+            "name": "Dave Test User",
+            "preferred_username": "dave@example.com",
+            "groups": [
+              "nopsai-team-1-viewers",
+              "nopsai-team-1-developers"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:erin|erin@example\\.com)$",
+          "claims": {
+            "sub": "okta-erin-subject",
+            "aud": [
+              "nopsai-okta-test"
+            ],
+            "email": "erin@example.com",
+            "email_verified": true,
+            "name": "Erin Test User",
+            "preferred_username": "erin@example.com",
+            "groups": [
+              "nopsai-data-team-owners"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:frank|frank@example\\.com)$",
+          "claims": {
+            "sub": "okta-frank-subject",
+            "aud": [
+              "nopsai-okta-test"
+            ],
+            "email": "frank@example.com",
+            "email_verified": true,
+            "name": "Frank Test User",
+            "preferred_username": "frank@example.com",
+            "groups": [
+              "nopsai-team-1-viewers",
+              "nopsai-data-team-owners"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "issuerId": "keycloak",
+      "tokenExpiry": 900,
+      "requestMappings": [
+        {
+          "requestParam": "subject",
+          "match": "^(?:alice|alice@example\\.com)$",
+          "claims": {
+            "sub": "keycloak-alice-subject",
+            "aud": [
+              "nopsai-keycloak-test"
+            ],
+            "email": "alice@example.com",
+            "email_verified": true,
+            "name": "Alice Test User",
+            "preferred_username": "alice@example.com",
+            "groups": []
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:bob|bob@example\\.com)$",
+          "claims": {
+            "sub": "keycloak-bob-subject",
+            "aud": [
+              "nopsai-keycloak-test"
+            ],
+            "email": "bob@example.com",
+            "email_verified": true,
+            "name": "Bob Test User",
+            "preferred_username": "bob@example.com",
+            "groups": [
+              "/nopsai-auth-only"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:carol|carol@example\\.com)$",
+          "claims": {
+            "sub": "keycloak-carol-subject",
+            "aud": [
+              "nopsai-keycloak-test"
+            ],
+            "email": "carol@example.com",
+            "email_verified": true,
+            "name": "Carol Test User",
+            "preferred_username": "carol@example.com",
+            "groups": [
+              "/nopsai-team-1-viewers"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:dave|dave@example\\.com)$",
+          "claims": {
+            "sub": "keycloak-dave-subject",
+            "aud": [
+              "nopsai-keycloak-test"
+            ],
+            "email": "dave@example.com",
+            "email_verified": true,
+            "name": "Dave Test User",
+            "preferred_username": "dave@example.com",
+            "groups": [
+              "/nopsai-team-1-viewers",
+              "/nopsai-team-1-viewers/nopsai-team-1-developers"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:erin|erin@example\\.com)$",
+          "claims": {
+            "sub": "keycloak-erin-subject",
+            "aud": [
+              "nopsai-keycloak-test"
+            ],
+            "email": "erin@example.com",
+            "email_verified": true,
+            "name": "Erin Test User",
+            "preferred_username": "erin@example.com",
+            "groups": [
+              "/nopsai-data-team-owners"
+            ]
+          }
+        },
+        {
+          "requestParam": "subject",
+          "match": "^(?:frank|frank@example\\.com)$",
+          "claims": {
+            "sub": "keycloak-frank-subject",
+            "aud": [
+              "nopsai-keycloak-test"
+            ],
+            "email": "frank@example.com",
+            "email_verified": true,
+            "name": "Frank Test User",
+            "preferred_username": "frank@example.com",
+            "groups": [
+              "/nopsai-team-1-viewers",
+              "/nopsai-data-team-owners"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
