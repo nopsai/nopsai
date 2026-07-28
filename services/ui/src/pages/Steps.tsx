@@ -39,6 +39,7 @@ import {
 import { useStepPermissions } from '../features/steps/useStepPermissions';
 import { StepCollectionList } from '../features/steps/StepCollectionList';
 import { StepDetailView } from '../features/steps/StepDetailView';
+import { fetchResourceTeamPaths, insertTeamPath } from '../lib/resourceTeams';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
@@ -71,6 +72,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const location = useLocation();
 
   const [serverSteps, setServerSteps] = useState<StepListItem[]>([]);
+  const [resourceTeamPaths, setResourceTeamPaths] = useState<string[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -519,6 +521,20 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   }, [loadSteps]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceTeamPaths()
+      .then(paths => {
+        if (!cancelled) setResourceTeamPaths(paths);
+      })
+      .catch(() => {
+        if (!cancelled) setResourceTeamPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (listLoading || listError) return;
     const activeId = selectedIdRef.current;
     if (!activeId) return;
@@ -621,6 +637,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], stepIds: [] };
+    resourceTeamPaths.forEach(path => {
+      insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
+    });
     steps.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const leafName = parts.pop();
@@ -641,7 +660,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       current.stepIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [steps]);
+  }, [resourceTeamPaths, steps]);
 
   const activeTeamNode = useMemo(() => {
     if (!activeTeam) return buildTree;

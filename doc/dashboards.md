@@ -254,7 +254,7 @@ model; structured summaries such as JSON are still recommended for richer or
 nested facts.
 
 The team sample config repo includes five immediately runnable dashboard
-pipelines under `doc/sample-config-repo/team-1-repo/pipelines/`: two technical
+pipelines under `examples/sample-config-repo/team-1-repo/pipelines/`: two technical
 checks (`technical-api-readiness` and `technical-slo-burn-rate`) and three
 business-facing workflows (`customer-onboarding-pulse`,
 `finance-close-snapshot`, and `people-capacity-plan`). They use only

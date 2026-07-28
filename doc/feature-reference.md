@@ -74,7 +74,7 @@ Supported pipeline features:
 
 Example coverage:
 
-- `sample-pipeline/5-pipeline.yaml` demonstrates LLM goals, scripts, secret usage, volumes, conditions, child pipelines, reusable-step inclusion, and knowledge context.
+- `examples/sample-pipeline/5-pipeline.yaml` demonstrates LLM goals, scripts, secret usage, volumes, conditions, child pipelines, reusable-step inclusion, and knowledge context.
 
 Final output example:
 

@@ -3,19 +3,27 @@
 This repo includes a development-only Keycloak realm so Enterprise SSO can be
 tested with real OIDC redirects, users, and teams.
 
+The runnable fixture lives in `examples/sso/keycloak`. It is an example
+identity-provider environment, not production deployment config; production SSO
+settings should stay in the global config repository at `setting/system/auth.yaml`
+with secrets referenced through the credential registry.
+
 ## Start Keycloak
 
 ```bash
-docker compose up -d keycloak
+docker compose -f examples/sso/keycloak/docker-compose.yaml up -d keycloak
 ```
 
-This local fixture is configured for LAN testing at `http://192.168.1.143:8088`.
-Use that browser-visible URL for login redirects so Keycloak's issuer matches
-NopsAI's configured provider.
+The fixture compose file uses the `nopsai` compose project name so it joins the
+same `nopsai-net` network as the local platform stack.
+
+This local fixture is configured for browser testing with the Keycloak issuer
+`http://keycloak.nopsai.orb.local:8088`. Use that browser-visible URL for login
+redirects so Keycloak's issuer matches NopsAI's configured provider.
 
 Admin console:
 
-- URL: `http://192.168.1.143:8088/admin`
+- URL: `http://keycloak.nopsai.orb.local:8088/admin`
 - Username: `admin`
 - Password: `admin`
 
@@ -25,12 +33,12 @@ Seeded realm:
 - Client ID: `nopsai`
 - Client secret: `dev-nopsai-secret`
 - Redirect URIs:
-  - `http://192.168.1.143/` for post-logout return to the LAN UI
-  - `http://192.168.1.143:8080/` for post-logout return through the direct backend LAN URL
-  - `http://192.168.1.143/v1/auth/oidc/nopsai/callback` for LAN access with provider ID `nopsai`
-  - `http://192.168.1.143:8080/v1/auth/oidc/nopsai/callback` for direct backend LAN access with provider ID `nopsai`
-  - `http://192.168.1.143/v1/auth/oidc/keycloak/callback` for LAN access with provider ID `keycloak`
-  - `http://192.168.1.143:8080/v1/auth/oidc/keycloak/callback` for direct backend LAN access with provider ID `keycloak`
+  - `http://nopsai-ui.nopsai.orb.local/` for post-logout return to the local UI
+  - `http://nopsai-ui.nopsai.orb.local:8080/` for post-logout return through the direct backend URL
+  - `http://nopsai-ui.nopsai.orb.local/v1/auth/oidc/nopsai/callback` for local access with provider ID `nopsai`
+  - `http://nopsai-ui.nopsai.orb.local:8080/v1/auth/oidc/nopsai/callback` for direct backend access with provider ID `nopsai`
+  - `http://nopsai-ui.nopsai.orb.local/v1/auth/oidc/keycloak/callback` for local access with provider ID `keycloak`
+  - `http://nopsai-ui.nopsai.orb.local:8080/v1/auth/oidc/keycloak/callback` for direct backend access with provider ID `keycloak`
 
 Seeded users:
 
@@ -50,7 +58,7 @@ NopsAI may show parent team shells such as `/team-1` so scoped users can
 navigate to their allowed child teams; those shells do not grant parent-team
 operations or unrelated sibling visibility.
 
-The realm fixture lives at `dev/keycloak/nopsai-realm.json`. It includes a
+The realm fixture lives at `examples/sso/keycloak/nopsai-realm.json`. It includes a
 teams mapper that places Keycloak team names in the OIDC `teams` claim.
 Keycloak's realm JSON field, protocol mapper implementation, and Admin API
 paths use Keycloak's standard `groups` vocabulary while NopsAI exposes those
@@ -106,8 +114,8 @@ oidc:
     nopsai:
       type: oidc
       display_name: Local Keycloak
-      issuer: http://192.168.1.143:8088/realms/nopsai
-      authorization_endpoint: http://192.168.1.143:8088/realms/nopsai/protocol/openid-connect/auth
+      issuer: http://keycloak.nopsai.orb.local:8088/realms/nopsai
+      authorization_endpoint: http://keycloak.nopsai.orb.local:8088/realms/nopsai/protocol/openid-connect/auth
       token_endpoint: http://keycloak:8080/realms/nopsai/protocol/openid-connect/token
       jwks_uri: http://keycloak:8080/realms/nopsai/protocol/openid-connect/certs
       userinfo_endpoint: http://keycloak:8080/realms/nopsai/protocol/openid-connect/userinfo
@@ -189,8 +197,14 @@ their `oidc:*` subjects, and Keycloak-managed role grants; keep those users and
 team mappings in Keycloak, while GitOps owns the provider settings in
 `setting/system/auth.yaml` plus local users, local grants, and service accounts.
 
-When NopsAI runs directly on the host instead of in Compose, use
-`http://localhost:8088/...` for the token, JWKS, and userinfo endpoints too.
+If you do not use the checked-in `*.nopsai.orb.local` hostnames, update
+`KC_HOSTNAME`, the realm redirect URIs, `public_url`, and the provider issuer
+together. The issuer must be identical in Keycloak discovery, the ID token
+`iss` claim, and NopsAI's provider configuration.
+
+For deterministic multi-provider SSO scenarios against mock Entra ID, Okta,
+Google, Keycloak claim mappings, and a production-shaped GitHub OAuth2 example,
+see `examples/sso/idp-test-pack`.
 
 ## Test Flow
 
@@ -214,8 +228,8 @@ When NopsAI runs directly on the host instead of in Compose, use
 If Keycloak was already started before the realm file changed, recreate it:
 
 ```bash
-docker compose rm -sf keycloak
-docker compose up -d keycloak
+docker compose -f examples/sso/keycloak/docker-compose.yaml rm -sf keycloak
+docker compose -f examples/sso/keycloak/docker-compose.yaml up -d keycloak
 ```
 
 ## Troubleshooting
@@ -236,7 +250,7 @@ means the stored provider issuer does not exactly match the Keycloak realm
 issuer. For this fixture the issuer must include the realm:
 
 ```text
-http://192.168.1.143:8088/realms/nopsai
+http://keycloak.nopsai.orb.local:8088/realms/nopsai
 ```
 
 `invalid oidc state` after refreshing or retrying a callback URL is expected

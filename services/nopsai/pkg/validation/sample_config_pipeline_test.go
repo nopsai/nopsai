@@ -157,9 +157,9 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 
 func TestSampleVariableFeatureExerciseValidates(t *testing.T) {
 	repoRoot := filepath.Join("..", "..", "..", "..")
-	parentPath := filepath.Join(repoRoot, "doc", "sample-config-repo", "team-1-repo", "pipelines", "team-1", "variable-feature-exercise.yaml")
-	childPath := filepath.Join(repoRoot, "doc", "sample-config-repo", "team-1-repo", "pipelines", "team-1", "variable-feature-child.yaml")
-	reusableStepPath := filepath.Join(repoRoot, "doc", "sample-config-repo", "team-1-repo", "steps", "team-1", "shared", "variable-defaults.yaml")
+	parentPath := filepath.Join(repoRoot, "examples", "sample-config-repo", "team-1-repo", "pipelines", "team-1", "variable-feature-exercise.yaml")
+	childPath := filepath.Join(repoRoot, "examples", "sample-config-repo", "team-1-repo", "pipelines", "team-1", "variable-feature-child.yaml")
+	reusableStepPath := filepath.Join(repoRoot, "examples", "sample-config-repo", "team-1-repo", "steps", "team-1", "shared", "variable-defaults.yaml")
 
 	parent := readSamplePipeline(t, parentPath)
 	if err := ValidatePipeline(&parent); err != nil {

@@ -52,8 +52,12 @@ Enterprise SSO is separated into:
 - Moved System Access provider admin API calls into
   `services/ui/src/features/system/access/api.ts` while shared login/session
   behavior remains in `services/ui/src/lib/api.ts`.
-- Added a Compose Keycloak fixture with a seeded realm, users, teams, role
-  mappings, and auth-team mappings for local end-to-end SSO testing.
+- Added `examples/sso/keycloak`, a Compose Keycloak fixture with a seeded realm,
+  users, teams, role mappings, and auth-team mappings for local end-to-end SSO
+  testing.
+- Added `examples/sso/idp-test-pack`, a multi-provider SSO scenario pack with
+  GitOps `setting/system/auth.yaml` examples for mock Entra ID, Okta, Google,
+  Keycloak claim mappings, and a production-shaped GitHub OAuth2 example.
 - Implemented the single encrypted credential registry, management API/UI,
   AAA actions, versioning, audit/access records, and deletion safeguards.
 - Migrated OIDC, mail, LLM, MCP, and GitHub integrations to stable credential

@@ -336,7 +336,7 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case http.MethodGet:
 			return "trigger.read", resource, false, nil
 		case http.MethodPut:
-			return "trigger.update", resource, false, nil
+			return "", resource, false, nil
 		case http.MethodDelete:
 			return "trigger.delete", resource, false, nil
 		}

@@ -44,6 +44,7 @@ import {
   type PipelineListItem,
 } from '../features/pipelines/model';
 import { usePipelinePermissions } from '../features/pipelines/usePipelinePermissions';
+import { fetchResourceTeamPaths, insertTeamPath } from '../lib/resourceTeams';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 const MAX_RECENT_RUNS = 5;
@@ -81,6 +82,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const location = useLocation();
 
   const [serverPipelines, setServerPipelines] = useState<PipelineListItem[]>([]);
+  const [resourceTeamPaths, setResourceTeamPaths] = useState<string[]>([]);
   const [listLoading, setListLoading] = useState<boolean>(true);
   const [listError, setListError] = useState<string | null>(null);
   const [activeTeam, setActiveTeam] = useState('');
@@ -446,6 +448,20 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   }, [loadPipelines]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceTeamPaths()
+      .then(paths => {
+        if (!cancelled) setResourceTeamPaths(paths);
+      })
+      .catch(() => {
+        if (!cancelled) setResourceTeamPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (listLoading || listError) return;
     const activeId = selectedIdRef.current;
     if (!activeId) return;
@@ -551,6 +567,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
+    resourceTeamPaths.forEach(path => {
+      insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
+    });
     pipelines.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const pipelineName = parts.pop();
@@ -571,7 +590,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       current.pipelineIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [pipelines]);
+  }, [pipelines, resourceTeamPaths]);
 
   const activeTeamNode = useMemo(() => {
     if (!activeTeam) return buildTree;
