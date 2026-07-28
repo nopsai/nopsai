@@ -42,6 +42,7 @@ import {
   type ScopePipelineMeta,
   type ScopeTriggerDescriptor,
 } from '../features/scopes/model';
+import { fetchResourceTeamPaths } from '../lib/resourceTeams';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 function ScopesPage({
@@ -53,6 +54,7 @@ function ScopesPage({
   const location = useLocation();
 
   const [scopes, setScopes] = useState<ScopeEntry[]>([]);
+  const [resourceTeamPaths, setResourceTeamPaths] = useState<string[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -396,6 +398,20 @@ function ScopesPage({
   }, [loadScopes]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchResourceTeamPaths()
+      .then(paths => {
+        if (!cancelled) setResourceTeamPaths(paths);
+      })
+      .catch(() => {
+        if (!cancelled) setResourceTeamPaths([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!scopes.length) return;
     const tasks: Array<() => Promise<void>> = [];
     scopes.forEach(scope => {
@@ -541,7 +557,7 @@ function ScopesPage({
     return entries;
   }, [scopeDataByScope]);
 
-  const scopeTree = useMemo(() => buildScopeTree(scopes, []), [scopes]);
+  const scopeTree = useMemo(() => buildScopeTree(scopes, resourceTeamPaths), [resourceTeamPaths, scopes]);
 
   const filteredScopes = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();

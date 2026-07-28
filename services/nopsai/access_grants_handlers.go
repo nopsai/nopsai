@@ -311,7 +311,19 @@ func (a *App) handleGetEffectivePermissions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	decision, err := a.aaaCheck(r.Context(), subject, action, model.ResourceRef{Type: resource.Type, ID: resource.ID}, a.aaaRequestContext(r))
+	checkResource := model.ResourceRef{Type: resource.Type, ID: resource.ID}
+	if teamPath := firstNonEmptyString(r.URL.Query().Get("team_path"), r.URL.Query().Get("run_team_path")); teamPath != "" {
+		teamResource, ok, err := teamOwnedEffectivePermissionResource(action, resource, teamPath)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("invalid team path: %v", err), http.StatusBadRequest)
+			return
+		}
+		if ok {
+			checkResource = teamResource
+		}
+	}
+
+	decision, err := a.aaaCheck(r.Context(), subject, action, checkResource, a.aaaRequestContext(r))
 	if err != nil {
 		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return

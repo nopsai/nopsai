@@ -1093,6 +1093,7 @@ const knowledgeRows: WikiConfigRow[] = [
     area: 'Knowledge GitOps',
     description: 'Team-scoped config repository path for a knowledge document owned by the bound team.',
     example: 'knowledge/guideline/team-1/go-style.md',
+    path: 'team-config/knowledge/<kind>/<team>/<name>.md',
   },
 ];
 

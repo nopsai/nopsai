@@ -93,6 +93,12 @@ test('creates trigger manifests with repository templates and action-time author
 
   act(() => {
     result.current.updateCreateRepository('owner/new-repo');
+    result.current.updateCreateDetails({
+      provider: 'github',
+      teamPath: 'platform',
+      management: 'nopsai',
+      webhookSourceID: '',
+    });
   });
   expect(result.current.createModal?.yamlPreview).toContain('pipelines/new-repo.yaml');
 
@@ -100,7 +106,7 @@ test('creates trigger manifests with repository templates and action-time author
     expect(await result.current.submitCreateModal()).toBe(true);
   });
 
-  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', 'owner/new-repo');
+  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', 'owner/new-repo', 'platform');
   expect(saveTriggerMock).toHaveBeenCalledWith(
     'owner/new-repo',
     expect.stringContaining('pipelines/new-repo.yaml')
@@ -180,7 +186,7 @@ test('clones trigger manifests from the target-aware YAML preview', async () => 
     expect(await result.current.submitCloneModal()).toBe(true);
   });
 
-  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', 'owner/repo-copy');
+  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', 'owner/repo-copy', 'root');
   expect(saveTriggerMock).toHaveBeenCalledWith(
     'owner/repo-copy',
     expect.stringContaining('provider: github')
