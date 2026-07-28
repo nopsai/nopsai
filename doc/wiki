@@ -40,8 +40,9 @@ Use this order when updating product documentation:
 1. Runtime code, schemas, and route behavior.
 2. Docker Compose and Helm deployment files.
 3. Focused markdown under `doc/`.
-4. Root README examples.
-5. UI help text only when it agrees with implementation.
+4. Runnable and copyable artifacts under `examples/`.
+5. Root README examples.
+6. UI help text only when it agrees with implementation.
 
 ## Documentation Model
 
@@ -123,6 +124,10 @@ while local UI/API/GitOps grants remain editable. First-install setup
 must not force an env-file write for dispatcher TLS when a valid effective
 service JWT fallback is already configured, and setup apply errors must include
 the actionable write/configuration reason.
+Identity-provider documentation must also link the runnable examples in
+`examples/sso/keycloak` and `examples/sso/idp-test-pack`, clearly mark them as
+test fixtures, and keep production authority on `setting/system/auth.yaml`,
+credential references, AAA ownership, and runtime IdP-managed identity state.
 
 ## Wiki Sections
 
@@ -158,7 +163,7 @@ Platform Administration
 ├── Storage and persistence
 ├── Configuration authority and GitOps
 ├── Credentials, secrets, and variables
-└── Authentication, AAA, teams, and scopes
+└── Authentication, AAA, teams, scopes, and SSO fixtures
 
 Automation Authoring
 ├── Pipeline YAML schema
@@ -607,6 +612,14 @@ source of truth. GitOps can manage:
 - `config-repositories/`
 - `setting/git-apps/`
 - `setting/system/`
+
+Team-scoped create authorization must work before a resource row exists. Empty
+teams are exposed through `/v1/access/teams` so the UI can select them for
+pipelines, steps, and scopes. Create preflight checks that depend on manifest
+ownership can pass `team_path` or `run_team_path` to
+`/v1/access/effective-permissions`, allowing inherited team owners to create the
+first schedule, trigger, external trigger, Git webhook source, or scope under
+their team without a seed resource.
 
 Canonical system files include:
 

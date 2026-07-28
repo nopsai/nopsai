@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Database, Folder, GitBranch, Trash2, Zap } from 'lucide-react';
+import { Database, Folder, GitBranch, Trash2, UsersRound, Zap } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
@@ -21,14 +21,16 @@ type TriggerCollectionListProps = {
   allTriggers: TriggerListItem[];
   visibleTriggers: TriggerListItem[];
   treeRoot: TriggerTreeNode;
-  activeOwnerNode: TriggerTreeNode;
-  activeOwner: string;
+  activeTreeNode: TriggerTreeNode;
+  activeOwnerPath: string;
+  activeTeamPath: string;
   searchTerm: string;
   selectedSlug: string | null;
   canCreateTriggerHere: boolean;
   canDeleteTriggers: boolean;
   onSelectTrigger: (slug: string) => void;
-  onOpenOwner: (path: string) => void;
+  onOpenOwner: (ownerPath: string) => void;
+  onOpenTeam: (ownerPath: string, teamPath: string) => void;
   onDeleteTrigger: (slug: string) => void;
 };
 
@@ -38,18 +40,20 @@ export function TriggerCollectionList({
   allTriggers,
   visibleTriggers,
   treeRoot,
-  activeOwnerNode,
-  activeOwner,
+  activeTreeNode,
+  activeOwnerPath,
+  activeTeamPath,
   searchTerm,
   selectedSlug,
   canCreateTriggerHere,
   canDeleteTriggers,
   onSelectTrigger,
   onOpenOwner,
+  onOpenTeam,
   onDeleteTrigger,
 }: TriggerCollectionListProps) {
-  const metrics = buildTriggerCollectionMetrics(allTriggers, activeOwner);
-  const activeOwnerLabel = activeOwner ? activeOwner : 'All owners';
+  const metrics = buildTriggerCollectionMetrics(allTriggers, activeOwnerPath, activeTeamPath);
+  const activeScopeLabel = triggerCollectionScopeLabel(activeOwnerPath, activeTeamPath);
   const treeResize = useResizableTreeColumn({
     storageKey: 'triggers',
     defaultWidth: 280,
@@ -62,9 +66,11 @@ export function TriggerCollectionList({
       <TriggerExplorerTree
         rootNode={treeRoot}
         allTriggers={allTriggers}
-        activeOwner={activeOwner}
+        activeOwnerPath={activeOwnerPath}
+        activeTeamPath={activeTeamPath}
         selectedSlug={selectedSlug}
         onOpenOwner={onOpenOwner}
+        onOpenTeam={onOpenTeam}
         onSelectTrigger={onSelectTrigger}
       />
       <TreeColumnResizeHandle {...treeResize} label="Resize trigger tree" />
@@ -79,15 +85,15 @@ export function TriggerCollectionList({
             <>
               <div className="triggers-collection-head">
                 <div>
-                  <h3>{searchTerm.trim() ? 'Search results' : activeOwnerLabel}</h3>
+                  <h3>{searchTerm.trim() ? 'Search results' : activeScopeLabel}</h3>
                   <p>
                     {visibleTriggers.length} trigger{visibleTriggers.length === 1 ? '' : 's'}
                     {searchTerm.trim() ? ` matching "${searchTerm.trim()}"` : ''}
                   </p>
                 </div>
-                {!searchTerm.trim() && activeOwnerNode.children.length ? (
+                {!searchTerm.trim() && activeTreeNode.children.length ? (
                   <span className="triggers-badge triggers-badge--neutral">
-                    {activeOwnerNode.children.length} nested owner{activeOwnerNode.children.length === 1 ? '' : 's'}
+                    {activeTreeNode.children.length} nested item{activeTreeNode.children.length === 1 ? '' : 's'}
                   </span>
                 ) : null}
               </div>
@@ -123,8 +129,8 @@ export function TriggerCollectionList({
                     <span className="triggers-empty-icon" aria-hidden="true">
                       <ObjectIcon type="trigger" />
                     </span>
-                    <strong>{searchTerm.trim() ? 'No matching triggers' : 'No triggers for this owner'}</strong>
-                    <span>{canCreateTriggerHere ? 'Create a trigger or adjust your filters.' : 'Adjust your filters or browse another owner.'}</span>
+                    <strong>{searchTerm.trim() ? 'No matching triggers' : 'No triggers for this owner/team scope'}</strong>
+                    <span>{canCreateTriggerHere ? 'Create a trigger or adjust your filters.' : 'Adjust your filters or browse another owner or team.'}</span>
                   </div>
                 )}
               </div>
@@ -142,9 +148,20 @@ function TriggerMetricGrid({ metrics }: { metrics: ReturnType<typeof buildTrigge
       <TriggerMetric icon={<Zap className="h-4 w-4" aria-hidden="true" />} label="Triggers" value={metrics.total} />
       <TriggerMetric icon={<GitBranch className="h-4 w-4" aria-hidden="true" />} label="GitOps" value={metrics.gitManaged} />
       <TriggerMetric icon={<Database className="h-4 w-4" aria-hidden="true" />} label="Overrides" value={metrics.databaseManaged} />
-      <TriggerMetric icon={<Folder className="h-4 w-4" aria-hidden="true" />} label="Owners" value={metrics.ownerCount} />
+      <TriggerMetric icon={<UsersRound className="h-4 w-4" aria-hidden="true" />} label="Owners" value={metrics.ownerCount} />
+      <TriggerMetric icon={<Folder className="h-4 w-4" aria-hidden="true" />} label="Teams" value={metrics.teamCount} />
     </div>
   );
+}
+
+function triggerCollectionScopeLabel(ownerPath: string, teamPath: string) {
+  const owner = ownerPath.trim();
+  const team = teamPath.trim();
+  if (!owner && !team) return 'All owners';
+  const teamLabel = team === 'root' ? 'Workspace' : team;
+  if (owner && team) return `${owner} / ${teamLabel}`;
+  if (owner) return owner;
+  return `All owners / ${teamLabel}`;
 }
 
 function TriggerMetric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {

@@ -10,6 +10,8 @@ import {
   parseTriggerOverrideList,
   triggerAllowlistStatusLabel,
   triggerBelongsToOwner,
+  triggerBelongsToOwnerTeam,
+  triggerBelongsToTeam,
   triggerIngressLabel,
   triggerManagementLabel,
   triggerScopesLabel,
@@ -95,21 +97,32 @@ test('edits trigger root details through structured YAML helpers', () => {
   assert.equal(parseTriggerYaml(updated).webhook_source, undefined);
 });
 
-test('builds owner-scoped trigger collection metrics', () => {
+test('builds owner and team-scoped trigger collection metrics', () => {
   const triggers = [
-    { slug: 'platform/api', source: 'gitops' },
-    { slug: 'platform/web', source: 'database' },
-    { slug: 'platform/apps/checkout', source: 'git' },
-    { slug: 'security/audit', source: 'database' },
+    { slug: 'external/api', source: 'gitops', teamPath: 'platform' },
+    { slug: 'platform/web', source: 'database', teamPath: 'platform' },
+    { slug: 'security/checkout', source: 'git', teamPath: 'platform/apps' },
+    { slug: 'security/audit', source: 'database', teamPath: 'security' },
   ];
 
-  assert.equal(triggerBelongsToOwner('platform/apps/checkout', 'platform'), true);
-  assert.equal(triggerBelongsToOwner('security/audit', 'platform'), false);
-  assert.deepEqual(buildTriggerCollectionMetrics(triggers, 'platform'), {
+  assert.equal(triggerBelongsToTeam({ teamPath: 'platform/apps' }, 'platform'), true);
+  assert.equal(triggerBelongsToTeam({ teamPath: 'security' }, 'platform'), false);
+  assert.equal(triggerBelongsToOwner('security/checkout', 'security'), true);
+  assert.equal(triggerBelongsToOwner('external/api', 'security'), false);
+  assert.equal(triggerBelongsToOwnerTeam({ slug: 'security/checkout', teamPath: 'platform/apps' }, 'security', 'platform'), true);
+  assert.deepEqual(buildTriggerCollectionMetrics(triggers, '', 'platform'), {
     total: 3,
     gitManaged: 2,
     databaseManaged: 1,
-    ownerCount: 2,
+    ownerCount: 3,
+    teamCount: 2,
+  });
+  assert.deepEqual(buildTriggerCollectionMetrics(triggers, 'security', 'platform'), {
+    total: 1,
+    gitManaged: 1,
+    databaseManaged: 0,
+    ownerCount: 1,
+    teamCount: 1,
   });
 });
 

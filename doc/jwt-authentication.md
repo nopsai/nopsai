@@ -93,9 +93,11 @@ oidc:
         target_resource_type: team
 ```
 
-For a runnable local IdP with users and teams, use the Keycloak fixture in
-[local-keycloak-sso.md](./local-keycloak-sso.md). It starts behind the Compose
-`sso` profile and seeds admin, operator, and viewer SSO users.
+For runnable local IdP coverage with users and teams, use the Keycloak fixture
+in [local-keycloak-sso.md](./local-keycloak-sso.md) and
+`examples/sso/keycloak`. For deterministic claim-mapping scenarios across Entra
+ID, Okta, Google, Keycloak, and GitHub OAuth2 config examples, use
+`examples/sso/idp-test-pack`.
 
 Nopsai supports provider records for Okta, Microsoft Entra ID, Keycloak,
 Google, generic OIDC, and GitHub OAuth2. Only one external provider may be

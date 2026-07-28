@@ -6,39 +6,42 @@ import { buildTriggerTree } from './treeModel';
 import type { TriggerListItem } from './model';
 
 const triggers: TriggerListItem[] = [
-  { slug: 'platform/api', source: 'gitops' },
-  { slug: 'platform/apps/checkout', source: 'database' },
+  { slug: 'external/api', source: 'gitops', teamPath: 'platform' },
+  { slug: 'security/checkout', source: 'database', teamPath: 'platform/apps' },
 ];
 
-test('keeps owner branches collapsed by default and opens them on demand', async () => {
+test('keeps owner and team branches collapsed by default and opens them on demand', async () => {
   const user = userEvent.setup();
   const onOpenOwner = vi.fn();
+  const onOpenTeam = vi.fn();
   const onSelectTrigger = vi.fn();
 
   render(
     <TriggerExplorerTree
       rootNode={buildTriggerTree(triggers)}
       allTriggers={triggers}
-      activeOwner=""
+      activeOwnerPath=""
+      activeTeamPath=""
       selectedSlug={null}
       onOpenOwner={onOpenOwner}
+      onOpenTeam={onOpenTeam}
       onSelectTrigger={onSelectTrigger}
     />
   );
 
-  expect(screen.getByRole('button', { name: 'Expand platform' })).toHaveAttribute('aria-expanded', 'false');
-  expect(screen.queryByRole('button', { name: 'Select trigger platform/api' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Open owner platform/apps' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Expand external' })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('button', { name: 'Open team platform under owner external' })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: 'Expand external' }));
+
+  expect(screen.getByRole('button', { name: 'Open team platform under owner external' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Select trigger external/api' })).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'Expand platform' }));
 
-  expect(screen.getByRole('button', { name: 'Open team Workspace under owner platform' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Open owner platform/apps' })).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Select trigger platform/api' })).not.toBeInTheDocument();
-
-  await user.click(screen.getByRole('button', { name: 'Expand Workspace' }));
-
-  expect(screen.getByRole('button', { name: 'Select trigger platform/api' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select trigger external/api' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Open team platform under owner external' }));
+  expect(onOpenTeam).toHaveBeenCalledWith('external', 'platform');
 });
 
 test('opens selected trigger ancestry so deep-linked details remain visible', () => {
@@ -46,13 +49,16 @@ test('opens selected trigger ancestry so deep-linked details remain visible', ()
     <TriggerExplorerTree
       rootNode={buildTriggerTree(triggers)}
       allTriggers={triggers}
-      activeOwner="platform"
-      selectedSlug="platform/api"
+      activeOwnerPath="external"
+      activeTeamPath="platform"
+      selectedSlug="external/api"
       onOpenOwner={vi.fn()}
+      onOpenTeam={vi.fn()}
       onSelectTrigger={vi.fn()}
     />
   );
 
+  expect(screen.getByRole('button', { name: 'Collapse external' })).toHaveAttribute('aria-expanded', 'true');
   expect(screen.getByRole('button', { name: 'Collapse platform' })).toHaveAttribute('aria-expanded', 'true');
-  expect(screen.getByRole('button', { name: 'Select trigger platform/api' })).toHaveClass('active');
+  expect(screen.getByRole('button', { name: 'Select trigger external/api' })).toHaveClass('active');
 });

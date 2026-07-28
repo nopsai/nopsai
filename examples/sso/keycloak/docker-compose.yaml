@@ -1,8 +1,10 @@
+name: nopsai
+
 networks:
   nopsai-net:
     driver: bridge
     name: nopsai-net
-services:  
+services:
   keycloak:
     container_name: nopsai-keycloak
     image: quay.io/keycloak/keycloak:26.6.3
@@ -19,6 +21,6 @@ services:
     ports:
       - "8088:8080"
     volumes:
-      - ./dev/keycloak/nopsai-realm.json:/opt/keycloak/data/import/nopsai-realm.json:ro
+      - ./nopsai-realm.json:/opt/keycloak/data/import/nopsai-realm.json:ro
     networks:
       - nopsai-net

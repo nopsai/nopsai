@@ -1,0 +1,26 @@
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: ''
+  allow_email_linking: true
+  domain_mapping:
+    example.com: keycloak
+  providers:
+    keycloak:
+      type: keycloak
+      display_name: Mock Keycloak
+      issuer: http://host.docker.internal:8090/keycloak
+      client_id: nopsai-keycloak-test
+      scopes:
+        - openid
+        - email
+        - profile
+      allowed_email_domains:
+        - example.com
+      team_claim: groups
+      allow_email_linking: true
+      authorization_endpoint: http://host.docker.internal:8090/keycloak/authorize
+      token_endpoint: http://host.docker.internal:8090/keycloak/token
+      jwks_uri: http://host.docker.internal:8090/keycloak/jwks
+      userinfo_endpoint: http://host.docker.internal:8090/keycloak/userinfo

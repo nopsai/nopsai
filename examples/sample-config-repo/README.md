@@ -2,6 +2,9 @@
 
 These examples show the Git layout consumed by Nopsai config sync.
 
+This sample lives under `examples/sample-config-repo` so it can be copied,
+tested, and referenced independently from the explanatory docs in `doc/`.
+
 The first-install wizard can preview a smaller starter version of this layout
 from **System > Setup**. Production installs should commit the generated starter
 files to the global config repository and import them through config sync instead

@@ -143,9 +143,12 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ```
 
 For local SSO testing against real users and teams, see
-[local-keycloak-sso.md](./local-keycloak-sso.md). The fixture provides a
-Keycloak realm, a confidential `nopsai` client, and seeded `admin`, `owner`,
-and `viewer` client-role mappings.
+[local-keycloak-sso.md](./local-keycloak-sso.md) and
+`examples/sso/keycloak`. The fixture provides a Keycloak realm, a confidential
+`nopsai` client, and seeded `admin`, `owner`, and `viewer` client-role
+mappings. Multi-provider scenario configs for mock Entra ID, Okta, Google,
+Keycloak claim mapping, and GitHub OAuth2 live under
+`examples/sso/idp-test-pack`.
 
 External-provider-created or linked users are marked with `external_managed` in
 `GET /v1/admin/users`. Their `display_name`, authentication/provisioning/
@@ -1875,7 +1878,7 @@ GitOps-managed in `setting/system/credentials.yaml`. GitHub App installation
 records are served to git-bot through `GET /v1/internal/git-bot/installations`
 using the git-bot internal service identity.
 - Only owners of the target team, including inherited parent owners, can sync that team repo.
-- Complete examples live under `doc/sample-config-repo`.
+- Complete examples live under `examples/sample-config-repo`.
 
 ---
 

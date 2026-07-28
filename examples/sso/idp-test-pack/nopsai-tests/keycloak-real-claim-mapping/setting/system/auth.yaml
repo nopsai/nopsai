@@ -1,0 +1,42 @@
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: ''
+  allow_email_linking: true
+  domain_mapping:
+    example.com: keycloak
+  providers:
+    keycloak:
+      type: keycloak
+      display_name: Keycloak
+      issuer: https://sso.example.com/realms/nopsai
+      authorization_endpoint: https://sso.example.com/realms/nopsai/protocol/openid-connect/auth
+      token_endpoint: https://sso.example.com/realms/nopsai/protocol/openid-connect/token
+      jwks_uri: https://sso.example.com/realms/nopsai/protocol/openid-connect/certs
+      userinfo_endpoint: https://sso.example.com/realms/nopsai/protocol/openid-connect/userinfo
+      client_id: nopsai
+      client_credential_ref: credential://system/oidc/keycloak/client-secret
+      scopes:
+        - openid
+        - email
+        - profile
+      allowed_email_domains:
+        - example.com
+      team_claim: groups
+      team_mapping:
+        /nopsai-auth-only: SSO Authenticated
+        /nopsai-team-1-viewers: SSO Team 1 Viewers
+        /nopsai-team-1-viewers/nopsai-team-1-developers: SSO Team 1 Developers
+        /nopsai-data-team-owners: SSO Data Team Owners
+      basic_role_mapping:
+        /nopsai-team-1-viewers:
+          role: viewer
+          resource: team:team-1
+        /nopsai-team-1-viewers/nopsai-team-1-developers:
+          role: developer
+          resource: team:team-1
+        /nopsai-data-team-owners:
+          role: owner
+          resource: team:data-team
+      allow_email_linking: true
