@@ -150,6 +150,7 @@ export const wikiMetadata = {
     'Runtime code, schemas, and route behavior',
     'Docker Compose and Helm deployment files',
     'Focused markdown under doc/',
+    'Runnable and copyable artifacts under examples/',
     'Root README examples',
     'UI help text only when it agrees with implementation',
   ],
@@ -2722,7 +2723,7 @@ const baseWikiSections: WikiSectionInput[] = [
       },
       {
         id: 'auth-aaa-teams-scopes',
-        title: 'Authentication, AAA, Teams, and Scopes',
+        title: 'Authentication, AAA, SSO, Teams, and Scopes',
         level: 'Security',
         audience: 'Security administrators and enterprise platform owners',
         summary:
@@ -2731,11 +2732,16 @@ const baseWikiSections: WikiSectionInput[] = [
           'Supported auth paths include local access JWTs, refresh tokens, personal tokens, service-account tokens, internal service JWTs, dispatcher service JWTs, and OIDC login with PKCE.',
           'AAA handles Check, BatchCheck, Filter, ACL expansion, inheritance, and decision auditing, with a short-outage in-process fallback in the API.',
           'Product roles are viewer, developer, owner, and platform admin; admin is granted only on the platform resource.',
+          'Only one external identity provider can be enabled per installation; local login and the protected break-glass administrator remain available.',
+          'GitOps owns identity-provider settings through setting/system/auth.yaml and credential references; provider users and IdP-managed grants are runtime state.',
+          'Runnable SSO examples live under examples/sso/keycloak and examples/sso/idp-test-pack; they are test fixtures, not production config.',
           'Scopes are runtime context such as dev, test, production, or platform/prod. They are not run-navigation parents.',
         ],
         details: [
           'Teams form hierarchical product boundaries for ownership, access, run navigation, config repository delegation, notifications, team AI overlays, and repository-to-application matching.',
           'Cross-team execution requires access to every concrete resource used by the run, not only the pipeline.',
+          'The Keycloak example exercises keycloak_team_roles so direct client roles become global access roles and Keycloak team client roles become scoped Basic roles.',
+          'The IdP test pack provides mock OAuth2 scenarios for Entra ID, Okta, Google, and Keycloak claim mapping plus a production-shaped GitHub OAuth2 configuration example.',
         ],
         configRows: [
           {
@@ -2750,6 +2756,18 @@ const baseWikiSections: WikiSectionInput[] = [
             description: 'Credential reference for OIDC client secret.',
             example: 'credential://system/oidc/corporate/client-secret',
           },
+          {
+            key: 'examples/sso/keycloak',
+            area: 'Example',
+            description: 'Local Keycloak compose fixture with seeded users, teams, and role mappings.',
+            example: 'docker compose -f examples/sso/keycloak/docker-compose.yaml up -d keycloak',
+          },
+          {
+            key: 'examples/sso/idp-test-pack',
+            area: 'Example',
+            description: 'Multi-provider IdP scenario pack with GitOps auth.yaml examples.',
+            example: 'examples/sso/idp-test-pack/nopsai-tests/<provider>-auth-only/setting/system/auth.yaml',
+          },
         ],
         examples: [
           {
@@ -2758,8 +2776,56 @@ const baseWikiSections: WikiSectionInput[] = [
             code:
               'oidc:\n  enabled: true\n  auto_create_users: true\n  providers:\n    corporate:\n      type: oidc\n      display_name: Company SSO\n      issuer: https://idp.company.com\n      client_id: nopsai\n      client_credential_ref: credential://system/oidc/corporate/client-secret\n      scopes: [openid, email, profile]',
           },
+          {
+            title: 'Run local SSO examples',
+            language: 'bash',
+            code:
+              'docker compose -f examples/sso/keycloak/docker-compose.yaml up -d keycloak\npython3 examples/sso/idp-test-pack/scripts/validate-fixtures.py',
+          },
         ],
-        relatedDocs: ['doc/access-control.md', 'doc/jwt-authentication.md', 'doc/local-keycloak-sso.md', 'doc/team-resource-ownership-design.md'],
+        relatedDocs: ['doc/access-control.md', 'doc/jwt-authentication.md', 'doc/local-keycloak-sso.md', 'examples/sso/README.md', 'examples/sso/idp-test-pack/README.md', 'doc/team-resource-ownership-design.md'],
+        sourceLinks: [
+          {
+            title: 'Access control reference',
+            repositoryPath: 'doc/access-control.md',
+            purpose: 'Documents AAA ownership, product roles, grant lifecycle, and IdP-owned grant pruning.',
+          },
+          {
+            title: 'JWT and SSO flow reference',
+            repositoryPath: 'doc/jwt-authentication.md',
+            purpose: 'Documents OIDC login, session exchange, provider admin APIs, and SSO security behavior.',
+          },
+          {
+            title: 'Local Keycloak SSO guide',
+            repositoryPath: 'doc/local-keycloak-sso.md',
+            purpose: 'Operator guide for the real Keycloak fixture and GitOps auth.yaml setup.',
+          },
+          {
+            title: 'SSO examples index',
+            repositoryPath: 'examples/sso/README.md',
+            purpose: 'Lists the runnable SSO examples and their enterprise GitOps boundary.',
+          },
+          {
+            title: 'Keycloak compose fixture',
+            repositoryPath: 'examples/sso/keycloak/docker-compose.yaml',
+            purpose: 'Starts the local Keycloak container on the shared nopsai-net network.',
+          },
+          {
+            title: 'Keycloak realm fixture',
+            repositoryPath: 'examples/sso/keycloak/nopsai-realm.json',
+            purpose: 'Seeds the local realm, users, teams, client roles, redirect URIs, and OIDC mapper.',
+          },
+          {
+            title: 'IdP test pack guide',
+            repositoryPath: 'examples/sso/idp-test-pack/README.md',
+            purpose: 'Documents mock provider scenarios, expected users, mappings, and known provider realism gaps.',
+          },
+          {
+            title: 'IdP test matrix',
+            repositoryPath: 'examples/sso/idp-test-pack/test-matrix.yaml',
+            purpose: 'Captures expected authentication, auth-team membership, scoped-role, and pruning assertions.',
+          },
+        ],
         runbooks: ['Create least-privilege service account', 'Audit cross-team resource grants', 'Configure corporate identity provider'],
         caveats: ['Public pipeline visibility does not grant dependent scopes, secrets, variables, runners, credentials, or knowledge context.'],
       },
@@ -3127,7 +3193,7 @@ const baseWikiSections: WikiSectionInput[] = [
               'knowledge_context:\n  - kind: guardrail\n    ref: security/repository-policy\n    required: true\n  - kind: architecture\n    path: .nopsai/docs/backend.md\n    required: true',
           },
         ],
-        relatedDocs: ['doc/knowledge-context.md', 'doc/sample-config-repo/README.md'],
+        relatedDocs: ['doc/knowledge-context.md', 'examples/sample-config-repo/README.md'],
         runbooks: ['Publish release knowledge context', 'Investigate required knowledge resolution failure', 'Review policy and guardrail changes'],
         caveats: ['Repo-local paths must be safe relative paths and cannot include path traversal.'],
       },

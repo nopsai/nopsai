@@ -1,0 +1,74 @@
+source_repository:
+  repository: nopsai/nopsai
+  commit: 23782a6075f39088baf800bbed83515ff4e1b598
+  checked_on: '2026-07-27'
+product_teams:
+- team-1
+- data-team
+groups:
+- logical_id: auth-only
+  description: Unmapped group. Members authenticate but receive no NopsAI team authorization.
+  parent: null
+  entra_claim: 11111111-1111-1111-1111-111111111111
+  okta_claim: nopsai-auth-only
+  google_synthetic_claim: nopsai-auth-only@example.com
+- logical_id: team-1-viewers
+  description: Viewer access to team:team-1.
+  parent: null
+  entra_claim: 22222222-2222-2222-2222-222222222222
+  okta_claim: nopsai-team-1-viewers
+  google_synthetic_claim: nopsai-team-1-viewers@example.com
+- logical_id: team-1-developers
+  description: Logical subgroup of team-1-viewers; developer access wins over viewer
+    for the same resource.
+  parent: team-1-viewers
+  entra_claim: 33333333-3333-3333-3333-333333333333
+  okta_claim: nopsai-team-1-developers
+  google_synthetic_claim: nopsai-team-1-developers@example.com
+- logical_id: data-team-owners
+  description: Owner access to team:data-team.
+  parent: null
+  entra_claim: 44444444-4444-4444-4444-444444444444
+  okta_claim: nopsai-data-team-owners
+  google_synthetic_claim: nopsai-data-team-owners@example.com
+users:
+- username: alice
+  email: alice@example.com
+  groups: []
+  expected: Authentication only; no IdP-managed authorization.
+- username: bob
+  email: bob@example.com
+  groups:
+  - auth-only
+  expected: Authentication only; auth-only group is intentionally unmapped.
+- username: carol
+  email: carol@example.com
+  groups:
+  - team-1-viewers
+  expected: viewer on team:team-1.
+- username: dave
+  email: dave@example.com
+  groups:
+  - team-1-viewers
+  - team-1-developers
+  expected: developer on team:team-1; also two auth-team memberships.
+- username: erin
+  email: erin@example.com
+  groups:
+  - data-team-owners
+  expected: owner on team:data-team.
+- username: frank
+  email: frank@example.com
+  groups:
+  - team-1-viewers
+  - data-team-owners
+  expected: viewer on team:team-1 and owner on team:data-team.
+important_semantics:
+- NopsAI does not use group membership as a login allowlist. The auth-only group is
+  merely unmapped.
+- team_mapping creates AAA auth-team membership; it does not itself grant product-resource
+  access.
+- basic_role_mapping creates scoped viewer/developer/owner grants.
+- When multiple mapped groups target the same resource, NopsAI keeps the strongest
+  product role.
+- Only one external identity provider can be enabled per installation.

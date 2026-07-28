@@ -345,6 +345,10 @@ the API/UI; encrypted versions can be synced in
 `setting/system/credentials.yaml`.
 Only one external identity provider can be enabled at a time; IdP sync owns only
 IdP-sourced grants and leaves local UI/API/GitOps grants intact.
+Runnable SSO examples live under `examples/sso`: `keycloak/` for a real local
+Keycloak realm and `idp-test-pack/` for mock Entra ID, Okta, Google, Keycloak,
+and GitHub scenario configs that can be copied into `setting/system/auth.yaml`
+for a test run.
 
 Mail notification settings live under **System > Config** and can be
 declared in the global config repository at `setting/system/mail.yaml`. GitOps
@@ -409,7 +413,7 @@ secrets:
 Use the scope page GitOps encryption dialog or
 `POST /v1/secrets/encrypt` to encrypt a value before committing it to GitOps.
 
-See [doc/sample-config-repo/README.md](doc/sample-config-repo/README.md) for a
+See [examples/sample-config-repo/README.md](examples/sample-config-repo/README.md) for a
 working GitOps layout.
 
 ## Pipeline Example
@@ -447,7 +451,7 @@ steps:
 ```
 
 See [doc/feature-reference.md](doc/feature-reference.md) and
-[doc/sample-pipeline](doc/sample-pipeline) for broader examples.
+[examples/sample-pipeline](examples/sample-pipeline) for broader examples.
 
 ## Security And Governance
 

@@ -1,0 +1,27 @@
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: ''
+  allow_email_linking: true
+  domain_mapping:
+    example.com: okta
+  providers:
+    okta:
+      type: okta
+      display_name: Mock Okta
+      issuer: http://host.docker.internal:8090/okta
+      client_id: nopsai-okta-test
+      scopes:
+      - openid
+      - email
+      - profile
+      - groups
+      allowed_email_domains:
+      - example.com
+      team_claim: groups
+      allow_email_linking: true
+      authorization_endpoint: http://host.docker.internal:8090/okta/authorize
+      token_endpoint: http://host.docker.internal:8090/okta/token
+      jwks_uri: http://host.docker.internal:8090/okta/jwks
+      userinfo_endpoint: http://host.docker.internal:8090/okta/userinfo

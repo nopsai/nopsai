@@ -6,6 +6,7 @@ Start here when you want to understand the system from different angles:
 
 - [architecture-overview.md](./architecture-overview.md): The big picture, main components, core data model, and deployment shape.
 - [service-reference.md](./service-reference.md): What each service owns, how it talks to the others, and the main source files to read.
+- [../examples/README.md](../examples/README.md): Runnable and copyable examples, including GitOps sample repos, sample pipelines, and SSO fixtures.
 - [cli.md](./cli.md): Operator CLI contexts, credentials, interactive REST access, completion files, one-command installs, platform diagnostics, GitOps deployment, and binary separation.
 - [release-bundles.md](./release-bundles.md): Shared build identity, versioned release assets, CLI-generated Compose/Kubernetes install files, Helm chart publication, and GitOps release locks.
 - [runtime-flows.md](./runtime-flows.md): Step-by-step execution flows for request authorization, webhooks, manual runs, dispatching, agent execution, child pipelines, cancellation, and config sync.
@@ -25,7 +26,7 @@ Start here when you want to understand the system from different angles:
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.
 - [jwt-authentication.md](./jwt-authentication.md): Local auth, Enterprise SSO/OIDC, User/API JWTs, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.
-- [local-keycloak-sso.md](./local-keycloak-sso.md): Local Keycloak fixture with seeded users, teams, and OIDC settings for SSO testing.
+- [local-keycloak-sso.md](./local-keycloak-sso.md): Local Keycloak fixture under `examples/sso/keycloak` with seeded users, teams, and OIDC settings for SSO testing.
 - [knowledge-context.md](./knowledge-context.md): Project knowledge documents for LLM-backed pipeline steps, GitOps layout, runtime snapshots, and access checks.
 - [agent-profiles.md](./agent-profiles.md): AI role/persona selection for pipelines and steps, GitOps management, AAA, and runtime prompt behavior.
 - [final-output-rendering.md](./final-output-rendering.md): Final-output generation contracts, retry/audit behavior, current renderers, and the structured-document rendering roadmap.
@@ -38,6 +39,9 @@ Existing focused docs:
 - [triggering.md](./triggering.md): Local GitHub and generic Git webhook simulation.
 - [git-webhook-sources.md](./git-webhook-sources.md): GitLab, Bitbucket, Gitea, and generic source configuration, security, GitOps, payload normalization, path filters, and operations.
 - [git-apps.md](./git-apps.md): GitHub App multi-installation management, GitOps schema, git-bot routing, AAA, monitoring, and MCP boundaries.
+- [../examples/sso/README.md](../examples/sso/README.md): Runnable SSO example fixtures for local Keycloak and multi-provider IdP scenario testing.
+- [../examples/sample-config-repo/README.md](../examples/sample-config-repo/README.md): Full GitOps sample config repository layout.
+- [../examples/sample-pipeline/README.md](../examples/sample-pipeline/README.md): Standalone pipeline and trigger YAML examples.
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.
 - [mcp-pipeline-integration.md](./mcp-pipeline-integration.md): MCP integration details.
 - [mcp-feature-coverage.md](./mcp-feature-coverage.md): Hosted MCP feature coverage, user-scoped permissions, and enterprise automation boundaries.

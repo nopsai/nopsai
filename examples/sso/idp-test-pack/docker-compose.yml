@@ -1,0 +1,10 @@
+services:
+  mock-oauth2:
+    image: ghcr.io/navikt/mock-oauth2-server:${MOCK_OAUTH2_SERVER_VERSION:-5.0.2}
+    hostname: host.docker.internal
+    ports:
+      - "8090:8080"
+    environment:
+      JSON_CONFIG_PATH: /config/config.json
+    volumes:
+      - ./mock-oauth2/config.json:/config/config.json:ro
