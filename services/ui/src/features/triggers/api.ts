@@ -14,8 +14,9 @@ async function responseError(response: Response, fallback: string) {
   return text || fallback;
 }
 
-export async function checkTriggerPermission(action: string, resourceID: string): Promise<boolean> {
+export async function checkTriggerPermission(action: string, resourceID: string, teamPath = ''): Promise<boolean> {
   const params = new URLSearchParams({ action, resource_type: 'trigger', resource_id: resourceID });
+  if (teamPath.trim()) params.set('team_path', teamPath.trim());
   const response = await apiClient.fetch(`/v1/access/effective-permissions?${params.toString()}`);
   return response.ok ? Boolean((await response.json())?.allowed) : false;
 }

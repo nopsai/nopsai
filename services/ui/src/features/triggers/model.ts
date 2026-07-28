@@ -36,6 +36,7 @@ export type TriggerCollectionMetrics = {
   gitManaged: number;
   databaseManaged: number;
   ownerCount: number;
+  teamCount: number;
 };
 
 export type PipelineRef = {
@@ -488,19 +489,38 @@ export function triggerSlugLabel(slug: string): { name: string; path: string } {
   return { name, path: parts.join('/') || 'root' };
 }
 
+export function triggerBelongsToTeam(item: Pick<TriggerListItem, 'teamPath'>, teamPath: string): boolean {
+  const rawTeamPath = String(teamPath || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!rawTeamPath) return true;
+  const activeTeam = normalizeTriggerTeamPath(rawTeamPath);
+  const itemTeam = normalizeTriggerTeamPath(item.teamPath);
+  if (activeTeam === 'root') return itemTeam === 'root';
+  return itemTeam === activeTeam || itemTeam.startsWith(`${activeTeam}/`);
+}
+
 export function triggerBelongsToOwner(slug: string, ownerPath: string): boolean {
-  const normalizedOwner = ownerPath.trim().replace(/^\/+|\/+$/g, '');
+  const normalizedOwner = ownerPath.trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
   if (!normalizedOwner) return true;
   const path = triggerSlugLabel(slug).path;
   return path === normalizedOwner || path.startsWith(`${normalizedOwner}/`);
 }
 
+export function triggerBelongsToOwnerTeam(
+  item: Pick<TriggerListItem, 'slug' | 'teamPath'>,
+  ownerPath: string,
+  teamPath: string
+): boolean {
+  return triggerBelongsToOwner(item.slug, ownerPath) && triggerBelongsToTeam(item, teamPath);
+}
+
 export function buildTriggerCollectionMetrics(
   items: readonly TriggerListItem[],
-  ownerPath: string
+  ownerPath: string,
+  teamPath: string
 ): TriggerCollectionMetrics {
-  const scopedItems = items.filter(item => triggerBelongsToOwner(item.slug, ownerPath));
+  const scopedItems = items.filter(item => triggerBelongsToOwnerTeam(item, ownerPath, teamPath));
   const ownerPaths = new Set<string>();
+  const teamPaths = new Set<string>();
   let gitManaged = 0;
   let databaseManaged = 0;
 
@@ -509,8 +529,9 @@ export function buildTriggerCollectionMetrics(
     if (sourceKey === 'git') gitManaged += 1;
     else databaseManaged += 1;
 
-    const path = triggerSlugLabel(item.slug).path;
-    if (path !== 'root') ownerPaths.add(path);
+    const owner = triggerSlugLabel(item.slug).path;
+    if (owner !== 'root') ownerPaths.add(owner);
+    teamPaths.add(normalizeTriggerTeamPath(item.teamPath));
   });
 
   return {
@@ -518,6 +539,7 @@ export function buildTriggerCollectionMetrics(
     gitManaged,
     databaseManaged,
     ownerCount: ownerPaths.size,
+    teamCount: teamPaths.size,
   };
 }
 

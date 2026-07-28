@@ -7,18 +7,22 @@ import { countTriggerTreeSlugs, triggerTreeAncestorIDs, type TriggerTreeNode } f
 type TriggerExplorerTreeProps = {
   rootNode: TriggerTreeNode;
   allTriggers: TriggerListItem[];
-  activeOwner: string;
+  activeOwnerPath: string;
+  activeTeamPath: string;
   selectedSlug: string | null;
-  onOpenOwner: (path: string) => void;
+  onOpenOwner: (ownerPath: string) => void;
+  onOpenTeam: (ownerPath: string, teamPath: string) => void;
   onSelectTrigger: (slug: string) => void;
 };
 
 export function TriggerExplorerTree({
   rootNode,
   allTriggers,
-  activeOwner,
+  activeOwnerPath,
+  activeTeamPath,
   selectedSlug,
   onOpenOwner,
+  onOpenTeam,
   onSelectTrigger,
 }: TriggerExplorerTreeProps) {
   const sourceBySlug = useMemo(() => {
@@ -31,14 +35,13 @@ export function TriggerExplorerTree({
 
   const forcedOpenNodeIDs = useMemo(() => {
     const ids = new Set<string>(['__root__']);
-    triggerTreeAncestorIDs(activeOwner).forEach(id => ids.add(id));
+    triggerTreeAncestorIDs(activeOwnerPath, activeTeamPath).forEach(id => ids.add(id));
     if (selectedSlug) {
-      const ownerPath = triggerSlugLabel(selectedSlug).path;
-      triggerTreeAncestorIDs(ownerPath).forEach(id => ids.add(id));
-      ids.add(`${ownerPath || 'root'}::team::${normalizeTreeTeamPath(itemBySlug.get(selectedSlug)?.teamPath)}`);
+      const selectedOwnerPath = triggerSlugLabel(selectedSlug).path;
+      triggerTreeAncestorIDs(selectedOwnerPath === 'root' ? '' : selectedOwnerPath, normalizeTreeTeamPath(itemBySlug.get(selectedSlug)?.teamPath)).forEach(id => ids.add(id));
     }
     return ids;
-  }, [activeOwner, itemBySlug, selectedSlug]);
+  }, [activeOwnerPath, activeTeamPath, itemBySlug, selectedSlug]);
 
   const openNodeIDs = useMemo(() => {
     const ids = new Set(forcedOpenNodeIDs);
@@ -72,7 +75,7 @@ export function TriggerExplorerTree({
 
       <button
         type="button"
-        className={`triggers-explorer-root ${!activeOwner && !selectedSlug ? 'active' : ''}`}
+        className={`triggers-explorer-root ${!activeOwnerPath && !activeTeamPath && !selectedSlug ? 'active' : ''}`}
         onClick={() => onOpenOwner('')}
       >
         <span className="triggers-explorer-folder" aria-hidden="true">
@@ -89,10 +92,12 @@ export function TriggerExplorerTree({
             node={child}
             openNodeIDs={openNodeIDs}
             sourceBySlug={sourceBySlug}
-            activeOwner={activeOwner}
+            activeOwnerPath={activeOwnerPath}
+            activeTeamPath={activeTeamPath}
             selectedSlug={selectedSlug}
             onToggleNode={toggleNode}
             onOpenOwner={onOpenOwner}
+            onOpenTeam={onOpenTeam}
             onSelectTrigger={onSelectTrigger}
           />
         ))}
@@ -114,23 +119,31 @@ function TriggerExplorerNode({
   node,
   openNodeIDs,
   sourceBySlug,
-  activeOwner,
+  activeOwnerPath,
+  activeTeamPath,
   selectedSlug,
   onToggleNode,
   onOpenOwner,
+  onOpenTeam,
   onSelectTrigger,
 }: {
   node: TriggerTreeNode;
   openNodeIDs: Set<string>;
   sourceBySlug: Map<string, string | undefined>;
-  activeOwner: string;
+  activeOwnerPath: string;
+  activeTeamPath: string;
   selectedSlug: string | null;
   onToggleNode: (id: string) => void;
-  onOpenOwner: (path: string) => void;
+  onOpenOwner: (ownerPath: string) => void;
+  onOpenTeam: (ownerPath: string, teamPath: string) => void;
   onSelectTrigger: (slug: string) => void;
 }) {
   const open = openNodeIDs.has(node.id);
-  const active = node.kind === 'owner' && activeOwner === node.fullPath && !selectedSlug;
+  const active = !selectedSlug && (
+    node.kind === 'owner'
+      ? activeOwnerPath === node.fullPath && !activeTeamPath
+      : activeOwnerPath === node.ownerPath && activeTeamPath === node.teamPath
+  );
   const total = countTriggerTreeSlugs(node);
   const isTeam = node.kind === 'team';
 
@@ -149,8 +162,11 @@ function TriggerExplorerNode({
         <button
           type="button"
           className={`triggers-explorer-owner ${active ? 'active' : ''}`}
-          aria-label={isTeam ? `Open team ${node.name} under owner ${node.ownerPath}` : `Open owner ${node.fullPath}`}
-          onClick={() => onOpenOwner(isTeam ? node.ownerPath : node.fullPath)}
+          aria-label={isTeam ? `Open team ${node.name} under owner ${node.ownerPath || 'root'}` : `Open owner ${node.fullPath}`}
+          onClick={() => {
+            if (isTeam) onOpenTeam(node.ownerPath, node.teamPath);
+            else onOpenOwner(node.fullPath);
+          }}
         >
           <span className="triggers-explorer-folder" aria-hidden="true">
             <ObjectIcon type={isTeam ? 'team' : 'repository-owner'} />
@@ -168,10 +184,12 @@ function TriggerExplorerNode({
               node={child}
               openNodeIDs={openNodeIDs}
               sourceBySlug={sourceBySlug}
-              activeOwner={activeOwner}
+              activeOwnerPath={activeOwnerPath}
+              activeTeamPath={activeTeamPath}
               selectedSlug={selectedSlug}
               onToggleNode={onToggleNode}
               onOpenOwner={onOpenOwner}
+              onOpenTeam={onOpenTeam}
               onSelectTrigger={onSelectTrigger}
             />
           ))}
