@@ -664,8 +664,16 @@ already loads:
   **Analyse** action scoped to that resource.
 - **Analyse Pipeline** in pipeline detail reviews the saved pipeline YAML,
   dependency graph, trigger metadata, included dependencies, and optionally the
-  last 30 visible runs. Modes cover complete review, security, reliability,
-  monitoring, performance, maintainability, and pre-execution readiness.
+  last 30 visible runs. The redesigned pipeline detail page renders the full
+  reviewer inside the Health tab; selecting **Analyse Pipeline** switches to
+  that tab and starts AI Evaluation for the visible snapshot when available.
+  Trigger rules, runs, and dependencies use full-width row tables on their
+  dedicated tabs so operators can scan all loaded objects without card limits.
+  Pipeline detail actions for clone, edit, access, YAML copy, and YAML download
+  live beside Execute; editing a pipeline can update YAML, pipeline name, and
+  team path in one save flow.
+  Modes cover complete review, security, reliability, monitoring, performance,
+  maintainability, and pre-execution readiness.
 - **Analyse Run** in run detail reviews run metadata, steps/tasks, approvals,
   child runs, final-output state, and visible peer runs. It identifies the first
   failed execution point, classifies likely failure domain, compares against the
@@ -678,7 +686,7 @@ Shared behavior:
 - all reviewers use one finding model with category, severity, evidence,
   affected resources, recommendations, confidence, generated timestamp, and
   snapshot revision
-- health and category scores are explained in the modal and copied reports:
+- health and category scores are explained in the reviewer surface and copied reports:
   scoring starts at 100, subtracts weighted visible findings (critical x 25,
   high x 15, medium x 8, low x 3, opportunity x 1), and clamps between 0 and
   100; category scores use the same weights filtered to the relevant category
@@ -742,7 +750,8 @@ Current implementation ownership:
   `services/ui/src/features/analysis/evaluationCache.ts`
 - hook orchestration and automatic run AI evaluation:
   `services/ui/src/features/analysis/useAnalysisAiEvaluation.ts`
-- analysis rendering: `services/ui/src/features/analysis/AnalysisModal.tsx`
+- analysis rendering, shared between modal and inline workspace:
+  `services/ui/src/features/analysis/AnalysisModal.tsx`
 - run-specific AI prompt evidence:
   `services/ui/src/features/pipeline-runs/runAnalysisEvidence.ts`
 - pipeline-specific AI prompt evidence:
@@ -753,6 +762,10 @@ Current implementation ownership:
   `services/ui/src/features/teams/TeamsWorkspace.tsx`
 - pipeline detail action and mode controls:
   `services/ui/src/features/pipelines/PipelineDetailView.tsx`
+- pipeline detail tab section rendering:
+  `services/ui/src/features/pipelines/PipelineDetailSections.tsx`
+- pipeline detail metric/source/run/health presentation:
+  `services/ui/src/features/pipelines/pipelineDetailPresentation.ts`
 - run detail action and safe follow-ups:
   `services/ui/src/features/pipeline-runs/RunDetailPanel.tsx`
 
@@ -887,7 +900,9 @@ Pages present in the current UI:
 
 - `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
-- `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
+- `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail
+  with KPI summary, dependency graphing, definition side summary, trigger/run/dependency
+  panels, read-only health findings, and Execute handoff to Lab
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Monitoring`: tabbed operational analytics with `/monitoring/<tab>` links and query-backed filters for time, team, status, comparison, and run drilldowns
 - `Dashboards`: dashboard detail routes under `/dashboards/<dashboard-ref>` with section tabs as URL view state

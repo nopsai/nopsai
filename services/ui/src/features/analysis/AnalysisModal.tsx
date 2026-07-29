@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -37,6 +37,56 @@ export type AnalysisAction = {
   to?: string;
 };
 
+type AnalysisWorkspaceProps = {
+  result: AnalysisResult;
+  controls?: ReactNode;
+  actions?: AnalysisAction[];
+  loadAiPromptContext?: () => Promise<AnalysisAiPromptContext | null | undefined>;
+  autoRequestKey?: number | string;
+};
+
+type AnalysisWorkspaceState = ReturnType<typeof useAnalysisWorkspaceState>;
+
+export function AnalysisWorkspace({
+  result,
+  controls,
+  actions = [],
+  loadAiPromptContext,
+  autoRequestKey,
+}: AnalysisWorkspaceProps) {
+  const workspace = useAnalysisWorkspaceState({ result, loadAiPromptContext, autoRequestKey });
+
+  return (
+    <section className="space-y-5" aria-labelledby="analysis-workspace-title">
+      <header className="flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[var(--border-primary)] bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[var(--text-secondary)]">
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+            <span>Read-only analysis</span>
+            <span className="font-mono normal-case">{result.snapshotRevision}</span>
+          </div>
+          <h3 id="analysis-workspace-title" className="mt-2 text-xl font-bold text-[var(--text-primary)]">
+            {result.title}
+          </h3>
+          <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">
+            {result.subjectLabel} · {result.summary}
+          </p>
+        </div>
+        <button type="button" className="glass-button-ghost" onClick={() => void workspace.copyReport()}>
+          <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
+          {workspace.copyState === 'copied' ? 'Copied' : workspace.copyState === 'error' ? 'Copy failed' : 'Copy'}
+        </button>
+      </header>
+      <AnalysisWorkspaceContent
+        result={result}
+        controls={controls}
+        actions={actions}
+        workspace={workspace}
+      />
+    </section>
+  );
+}
+
 export function AnalysisModal({
   result,
   controls,
@@ -50,6 +100,58 @@ export function AnalysisModal({
   loadAiPromptContext?: () => Promise<AnalysisAiPromptContext | null | undefined>;
   onClose: () => void;
 }) {
+  const workspace = useAnalysisWorkspaceState({ result, loadAiPromptContext });
+  return (
+    <div className="fixed inset-0 z-[90] bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation">
+      <section
+        className="mx-auto flex h-full max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-2xl dark:border-white/10 dark:bg-slate-950"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="analysis-modal-title"
+      >
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-4 dark:border-white/10">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[var(--text-secondary)]">
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+              <span>Read-only analysis</span>
+              <span className="font-mono normal-case">{result.snapshotRevision}</span>
+            </div>
+            <h2 id="analysis-modal-title" className="mt-2 text-2xl font-bold text-[var(--text-primary)]">
+              {result.title}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">
+              {result.subjectLabel} · {result.summary}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" className="glass-button-ghost" onClick={() => void workspace.copyReport()}>
+              <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
+              {workspace.copyState === 'copied' ? 'Copied' : workspace.copyState === 'error' ? 'Copy failed' : 'Copy'}
+            </button>
+            <button type="button" className="pipelines-icon-only" onClick={onClose} aria-label="Close analysis">
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <AnalysisWorkspaceContent
+            result={result}
+            controls={controls}
+            actions={actions}
+            workspace={workspace}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function useAnalysisWorkspaceState({
+  result,
+  loadAiPromptContext,
+  autoRequestKey,
+}: Pick<AnalysisWorkspaceProps, 'result' | 'loadAiPromptContext' | 'autoRequestKey'>) {
   const defaultTab = result.tabs[0]?.id || 'overview';
   const [tabState, setTabState] = useState({ snapshotRevision: result.snapshotRevision, activeTab: defaultTab });
   const [dismissedState, setDismissedState] = useState<{ snapshotRevision: string; ids: Set<string> }>({
@@ -57,7 +159,10 @@ export function AnalysisModal({
     ids: new Set(),
   });
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const autoRequestRef = useRef<number | string | null>(null);
   const aiEvaluation = useAnalysisAiEvaluation(result, { loadPromptContext: loadAiPromptContext });
+  const requestAiEvaluation = aiEvaluation.requestEvaluation;
+  const aiEvaluationStatus = aiEvaluation.state.status;
   const readyAiEvaluation = aiEvaluation.state.status === 'ready' ? aiEvaluation.state.evaluation : null;
   const scoreView = useMemo(
     () => buildAnalysisScoreView(result, readyAiEvaluation),
@@ -88,50 +193,51 @@ export function AnalysisModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[90] bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation">
-      <section
-        className="mx-auto flex h-full max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-2xl dark:border-white/10 dark:bg-slate-950"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="analysis-modal-title"
-      >
-        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-4 dark:border-white/10">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[var(--text-secondary)]">
-              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              <span>Read-only analysis</span>
-              <span className="font-mono normal-case">{result.snapshotRevision}</span>
-            </div>
-            <h2 id="analysis-modal-title" className="mt-2 text-2xl font-bold text-[var(--text-primary)]">
-              {result.title}
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">
-              {result.subjectLabel} · {result.summary}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button type="button" className="glass-button-ghost" onClick={() => void copyReport()}>
-              <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
-              {copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy'}
-            </button>
-            <button type="button" className="pipelines-icon-only" onClick={onClose} aria-label="Close analysis">
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
-        </header>
+  useEffect(() => {
+    if (autoRequestKey == null) return;
+    if (autoRequestRef.current === autoRequestKey) return;
+    autoRequestRef.current = autoRequestKey;
+    if (aiEvaluationStatus === 'loading') return;
+    void requestAiEvaluation();
+  }, [aiEvaluationStatus, autoRequestKey, requestAiEvaluation]);
 
-        <div className="flex-1 overflow-y-auto p-5">
+  return {
+    activeTab,
+    activeTabLabel,
+    aiEvaluation,
+    copyReport,
+    copyState,
+    dismissedFindings,
+    primaryFinding,
+    scoreView,
+    setDismissedState,
+    setTabState,
+    visibleFindings,
+  };
+}
+
+function AnalysisWorkspaceContent({
+  result,
+  controls,
+  actions,
+  workspace,
+}: {
+  result: AnalysisResult;
+  controls?: ReactNode;
+  actions: AnalysisAction[];
+  workspace: AnalysisWorkspaceState;
+}) {
+  return (
           <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
             <aside className="space-y-4 lg:sticky lg:top-0 lg:self-start">
-              <HealthScorePanel result={result} scoreView={scoreView} />
-              <MetricScoresPanel scores={scoreView.scores} source={scoreView.source} />
-              <FindingSummaryPanel counts={scoreView.counts} source={scoreView.source} />
+              <HealthScorePanel result={result} scoreView={workspace.scoreView} />
+              <MetricScoresPanel scores={workspace.scoreView.scores} source={workspace.scoreView.source} />
+              <FindingSummaryPanel counts={workspace.scoreView.counts} source={workspace.scoreView.source} />
               <SafeguardsPanel safeguards={result.safeguards} />
             </aside>
 
             <div className="min-w-0 space-y-5">
-              <PrimaryAssessment result={result} finding={primaryFinding} scoreView={scoreView} actions={actions} />
+              <PrimaryAssessment result={result} finding={workspace.primaryFinding} scoreView={workspace.scoreView} actions={actions} />
 
               {controls ? (
                 <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 dark:border-white/10 dark:bg-white/5">
@@ -140,10 +246,10 @@ export function AnalysisModal({
               ) : null}
 
               <AiEvaluationPanel
-                state={aiEvaluation.state}
-                autoEvaluates={aiEvaluation.autoEvaluates}
-                historyCount={aiEvaluation.history.length}
-                onRequest={() => void aiEvaluation.requestEvaluation()}
+                state={workspace.aiEvaluation.state}
+                autoEvaluates={workspace.aiEvaluation.autoEvaluates}
+                historyCount={workspace.aiEvaluation.history.length}
+                onRequest={() => void workspace.aiEvaluation.requestEvaluation()}
               />
 
               {result.comparison?.length ? (
@@ -176,9 +282,9 @@ export function AnalysisModal({
                       <button
                         key={tab.id}
                         type="button"
-                        className={`pipeline-runs-segment ${activeTab === tab.id ? 'pipeline-runs-segment--active' : ''}`}
-                        aria-pressed={activeTab === tab.id}
-                        onClick={() => setTabState({ snapshotRevision: result.snapshotRevision, activeTab: tab.id })}
+                        className={`pipeline-runs-segment ${workspace.activeTab === tab.id ? 'pipeline-runs-segment--active' : ''}`}
+                        aria-pressed={workspace.activeTab === tab.id}
+                        onClick={() => workspace.setTabState({ snapshotRevision: result.snapshotRevision, activeTab: tab.id })}
                       >
                         {tab.label}
                         <span className="ml-1 font-mono text-[10px]">{count}</span>
@@ -187,18 +293,18 @@ export function AnalysisModal({
                   })}
                 </nav>
 
-                <div className="space-y-3" aria-label={`${activeTabLabel} findings`}>
-                  {visibleFindings.length === 0 ? (
+                <div className="space-y-3" aria-label={`${workspace.activeTabLabel} findings`}>
+                  {workspace.visibleFindings.length === 0 ? (
                     <div className="rounded-lg border border-[var(--border-primary)] bg-white p-5 text-sm text-[var(--text-secondary)] shadow-sm dark:border-white/10 dark:bg-slate-900">
-                      No findings in {activeTabLabel.toLowerCase()} for this snapshot.
+                      No findings in {workspace.activeTabLabel.toLowerCase()} for this snapshot.
                     </div>
                   ) : (
-                    visibleFindings.map(finding => (
+                    workspace.visibleFindings.map(finding => (
                       <FindingCard
                         key={finding.id}
                         finding={finding}
                         onDismiss={() => {
-                          setDismissedState(current => {
+                          workspace.setDismissedState(current => {
                             const currentIds = current.snapshotRevision === result.snapshotRevision ? current.ids : new Set<string>();
                             const next = new Set(currentIds);
                             next.add(finding.id);
@@ -212,9 +318,6 @@ export function AnalysisModal({
               </section>
             </div>
           </div>
-        </div>
-      </section>
-    </div>
   );
 }
 

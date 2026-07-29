@@ -59,9 +59,18 @@ truth; this file is the source-adjacent placement guide.
 
 - Keep YAML drafts, collection navigation, validation, autocomplete, workflow
   create/clone/delete dialogs, and shared editor affordances under
-  `features/editor`.
+  `features/editor`. Resource identity moves that save to a new path/name and
+  remove the old resource should stay in the shared YAML mutation hook so AAA,
+  GitOps warnings, reloads, and toast behavior remain consistent.
 - Pipeline- and step-specific API, model, usage, activity, and permission logic
   stays under `features/pipelines` and `features/steps`.
+- Pipeline detail rendering stays under `features/pipelines/PipelineDetailView.tsx`.
+  Tab section rendering lives in `features/pipelines/PipelineDetailSections.tsx`.
+  Pure display derivation for the redesigned detail metrics, source state, run
+  summary, and health score helpers lives in
+  `features/pipelines/pipelineDetailPresentation.ts`; route selection, editor
+  orchestration, drafts, identity edit state, and Lab execute handoff remain owned by
+  `pages/Pipelines.tsx`.
 - Permission checks must be keyed to the active resource path/name and must fail
   closed when navigation changes.
 - Git-managed workflow resources can be edited in the UI when AAA permits; those
@@ -297,10 +306,10 @@ truth; this file is the source-adjacent placement guide.
 - `features/analysis/useAnalysisAiEvaluation.ts` owns loading, retry, stale
   snapshot protection, cached-review hydration, and automatic run-analysis AI
   evaluation.
-- `features/analysis/AnalysisModal.tsx` owns rendering only: left-rail health
-  basis, hoverable metric scores, structured AI Evaluation state, focused
-  findings, evidence expansion, recommendations, and safe navigation/copy
-  actions.
+- `features/analysis/AnalysisModal.tsx` owns shared analysis rendering for both
+  modal and inline workspace use: left-rail health basis, hoverable metric
+  scores, structured AI Evaluation state, focused findings, evidence expansion,
+  recommendations, and safe navigation/copy actions.
 - `features/pipelines/pipelineAnalysisEvidence.ts` owns pipeline-only prompt
   context: bounded redacted YAML, validation errors, parsed step/task graph,
   trigger bindings, dependencies, and recent-run summaries for AI Evaluation.

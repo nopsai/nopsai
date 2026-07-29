@@ -13,7 +13,7 @@ import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
-import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
+import { updateYamlResourceName, useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
 import { PipelineCollectionList } from '../features/pipelines/PipelineCollectionList';
 import { PipelineDetailView } from '../features/pipelines/PipelineDetailView';
 import {
@@ -50,6 +50,7 @@ import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '..
 
 const MAX_RECENT_RUNS = 5;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
+const PIPELINE_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 
 type TreeNode = {
   id: string;
@@ -78,6 +79,16 @@ function buildPipelineTemplateYaml(name: string) {
   ].join('\n');
 }
 
+function pipelineIdentityFromIdentifier(id: string) {
+  return splitIdentifier(id);
+}
+
+function buildPipelineIdentifier(path: string, name: string) {
+  const normalizedPath = normalizeRootPath(path);
+  const trimmedName = name.trim();
+  return trimmedName ? (normalizedPath ? `${normalizedPath}/${trimmedName}` : trimmedName) : '';
+}
+
 function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -104,6 +115,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
+  const [editableIdentity, setEditableIdentity] = useState({ path: '', name: '' });
   const {
     permissionTeam,
     canCreatePipelineHere,
@@ -277,6 +289,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
     setEditorSuggestion(null);
     setEditorValue(resetYaml);
+    setEditableIdentity(pipelineIdentityFromIdentifier(detail.id));
     if (normalizeSource(detail.source) === 'draft' && draftScope) {
       upsertPipelineDraftState({ id: detail.id, yaml: resetYaml });
     }
@@ -418,6 +431,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           const parsed = parsePipelineYaml(draft.yaml, pipelineId, 'draft', draft.updatedAt);
           setDetail(parsed);
           setEditorValue(draft.yaml);
+          setEditableIdentity(pipelineIdentityFromIdentifier(pipelineId));
           setIsEditing(true);
           return;
         }
@@ -426,6 +440,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         const parsed = parsePipelineYaml(rawYaml, pipelineId, normalizedSource, updatedAt);
         setDetail(parsed);
         setEditorValue(rawYaml);
+        setEditableIdentity(pipelineIdentityFromIdentifier(pipelineId));
         setIsEditing(false);
       } catch (error) {
         console.error('Failed to fetch pipeline', error);
@@ -503,6 +518,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     if (!selectedId) {
       setDetail(null);
       setEditorValue('');
+      setEditableIdentity({ path: '', name: '' });
       setIsEditing(false);
       return;
     }
@@ -594,8 +610,15 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const handlePipelineSaved = useCallback((updated: PipelineDetail) => {
     setDetail(updated);
     setEditorValue(updated.rawYaml);
+    setEditableIdentity(pipelineIdentityFromIdentifier(updated.id));
     setIsEditing(false);
   }, []);
+
+  const handleStartEdit = useCallback(() => {
+    if (!detail) return;
+    setEditableIdentity(pipelineIdentityFromIdentifier(detail.id));
+    setIsEditing(true);
+  }, [detail]);
 
   const handlePipelineDeleted = useCallback(() => {
     setSelectedId(null);
@@ -612,7 +635,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     openCloneModal,
     openCreateModal,
     openDeleteModal,
-    save: handleSave,
+    save: savePipelineResource,
     saving,
     submitFormModal,
     updateFormModal,
@@ -629,7 +652,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     canUpdate: canUpdateSelectedPipeline,
     canDelete: canDeletePipelines,
     canUseDrafts: canUsePipelineDrafts,
-    namePattern: /^[a-zA-Z0-9_.-]+$/,
+    namePattern: PIPELINE_NAME_PATTERN,
     normalizePath: normalizeRootPath,
     normalizeSource,
     checkCreatePermission: checkPipelinePermission,
@@ -645,6 +668,27 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     onDeleted: handlePipelineDeleted,
     buildTemplate: buildPipelineTemplateYaml,
   });
+
+  const handleSavePipeline = useCallback(async () => {
+    if (!detail) return;
+    const name = editableIdentity.name.trim();
+    const path = normalizeRootPath(editableIdentity.path);
+    const nextID = buildPipelineIdentifier(path, name);
+    if (!name) {
+      addToast('Pipeline name is required.', 'error');
+      return;
+    }
+    if (!PIPELINE_NAME_PATTERN.test(name)) {
+      addToast('Pipeline name can only contain letters, numbers, dots, underscores, and hyphens.', 'error');
+      return;
+    }
+    const nextYaml = updateYamlResourceName(editorValue, name);
+    const saved = await savePipelineResource({ resourceID: nextID, rawYaml: nextYaml });
+    if (saved) {
+      setEditorValue(nextYaml);
+      setEditableIdentity({ path, name });
+    }
+  }, [addToast, detail, editableIdentity.name, editableIdentity.path, editorValue, savePipelineResource]);
 
   const handleBackToList = () => {
     setSelectedId(null);
@@ -746,6 +790,8 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
               canCreatePipelineHere={canCreatePipelineHere}
               canExecuteSelectedPipeline={canExecuteSelectedPipeline}
               saving={saving}
+              editablePipelineName={editableIdentity.name}
+              editablePipelineTeam={editableIdentity.path}
               triggers={triggers}
               triggersLoading={triggersLoading}
               triggersError={triggersError}
@@ -756,10 +802,12 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
               onExecute={handleExecute}
               onCopy={() => void handleCopy()}
               onDownload={handleDownload}
-              onEdit={() => setIsEditing(true)}
+              onEdit={handleStartEdit}
               onClone={openCloneModal}
               onDiscard={discardEditorChanges}
-              onSave={() => void handleSave()}
+              onSave={() => void handleSavePipeline()}
+              onEditablePipelineNameChange={value => setEditableIdentity(current => ({ ...current, name: value }))}
+              onEditablePipelineTeamChange={value => setEditableIdentity(current => ({ ...current, path: value }))}
               onSelectGraphStep={setSelectedGraphStep}
               onOpenTrigger={repoSlug => navigate(`/triggers/${encodeId(repoSlug)}`)}
               onOpenDependency={handleSelect}

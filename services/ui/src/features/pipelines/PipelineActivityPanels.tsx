@@ -13,6 +13,8 @@ import {
 
 const MAX_VISIBLE_CARDS = 5;
 
+type PipelineActivitySection = 'triggers' | 'dependencies' | 'runs';
+
 type PipelineActivityPanelsProps = {
   pipelineLabel: string;
   triggers: PipelineTrigger[];
@@ -26,6 +28,8 @@ type PipelineActivityPanelsProps = {
   onOpenDependency: (identifier: string) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
   onOpenRun: (runID: string) => void;
+  sections?: PipelineActivitySection[];
+  variant?: 'cards' | 'rows';
 };
 
 export function PipelineActivityPanels({
@@ -41,13 +45,18 @@ export function PipelineActivityPanels({
   onOpenDependency,
   onCopyDependency,
   onOpenRun,
+  sections,
+  variant = 'cards',
 }: PipelineActivityPanelsProps) {
   const normalizedDependencies = Array.from(new Set(dependencies))
     .map(parsePipelineDependencyReference)
     .sort((a, b) => a.raw.localeCompare(b.raw));
+  const visibleSections = new Set(sections || ['triggers', 'dependencies', 'runs']);
+  const rowMode = variant === 'rows';
 
   return (
-    <aside className="min-w-0 space-y-4">
+    <aside className="pipeline-activity-panels min-w-0 space-y-4">
+      {visibleSections.has('triggers') ? (
       <section className="glass-card overflow-hidden">
         <header className="p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>
           <h3 className="text-lg font-semibold text-[var(--text-primary)]">Trigger Rules</h3>
@@ -58,6 +67,38 @@ export function PipelineActivityPanels({
           ) : triggersError ? (
             <p className="text-sm text-red-500">Failed to load triggers: {triggersError}</p>
           ) : triggers.length ? (
+            rowMode ? (
+              <div className="pipeline-detail-object-table pipeline-detail-object-table--triggers" role="table" aria-label="Trigger rules">
+                <div className="pipeline-detail-object-row pipeline-detail-object-row--head" role="row" aria-hidden="true">
+                  <span>Repository</span>
+                  <span>Event</span>
+                  <span>Branch</span>
+                  <span>Scope</span>
+                  <span>Source</span>
+                </div>
+                <ul className="pipeline-detail-object-list">
+                  {triggers.map((item, index) => {
+                    const branchField = formatPipelineTriggerBranchField(item.trigger);
+                    return (
+                      <li key={`${item.repoSlug}-${index}`}>
+                        <button
+                          type="button"
+                          className="pipeline-detail-object-row pipeline-detail-object-row--button"
+                          title={`Open trigger ${item.repoSlug}`}
+                          onClick={() => onOpenTrigger(item.repoSlug)}
+                        >
+                          <span className="pipeline-detail-object-primary">{item.repoSlug}</span>
+                          <span>{formatPipelineTriggerEvent(item.trigger.on)}</span>
+                          <span title={branchField.label}>{branchField.value}</span>
+                          <span>{formatPipelineTriggerScope(item.trigger)}</span>
+                          <span>{(item.source || 'database').trim() || 'database'}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : (
             <ul className={`triggers-pipeline-list ${triggers.length > MAX_VISIBLE_CARDS ? 'triggers-list-scroll' : ''}`}>
               {triggers.map((item, index) => {
                 const branchField = formatPipelineTriggerBranchField(item.trigger);
@@ -85,18 +126,50 @@ export function PipelineActivityPanels({
                 );
               })}
             </ul>
+            )
           ) : (
             <p className="text-sm text-[var(--text-secondary)]">No trigger manifests reference this pipeline.</p>
           )}
         </div>
       </section>
+      ) : null}
 
+      {visibleSections.has('dependencies') ? (
       <section className="glass-card overflow-hidden">
         <header className="p-4 border-b border-[var(--border-primary)]">
           <h3 className="text-lg font-semibold text-[var(--text-primary)]">Included Dependencies</h3>
         </header>
         <div className="p-4">
           {normalizedDependencies.length ? (
+            rowMode ? (
+              <div className="pipeline-detail-object-table pipeline-detail-object-table--dependencies" role="table" aria-label="Included dependencies">
+                <div className="pipeline-detail-object-row pipeline-detail-object-row--head" role="row" aria-hidden="true">
+                  <span>Identifier</span>
+                  <span>Type</span>
+                  <span>Action</span>
+                </div>
+                <ul className="pipeline-detail-object-list">
+                  {normalizedDependencies.map(dependency => (
+                    <li key={dependency.raw}>
+                      <button
+                        type="button"
+                        className="pipeline-detail-object-row pipeline-detail-object-row--button"
+                        title={`${dependency.actionLabel} ${dependency.identifier}`}
+                        onClick={() =>
+                          dependency.navigable
+                            ? onOpenDependency(dependency.identifier)
+                            : void onCopyDependency(dependency.identifier || dependency.raw)
+                        }
+                      >
+                        <span className="pipeline-detail-object-primary">{dependency.identifier || dependency.raw}</span>
+                        <span>{dependency.typeLabel}</span>
+                        <span>{dependency.actionLabel}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
             <ul className={`triggers-pipeline-list ${normalizedDependencies.length > MAX_VISIBLE_CARDS ? 'triggers-list-scroll' : ''}`}>
               {normalizedDependencies.map(dependency => (
                 <li key={dependency.raw} className="triggers-pipeline-item">
@@ -121,12 +194,15 @@ export function PipelineActivityPanels({
                 </li>
               ))}
             </ul>
+            )
           ) : (
             <p className="text-sm text-[var(--text-secondary)]">No includes detected for this pipeline.</p>
           )}
         </div>
       </section>
+      ) : null}
 
+      {visibleSections.has('runs') ? (
       <section className="glass-card overflow-hidden" id="pipeline-recent-runs">
         <header className="p-4 border-b border-[var(--border-primary)]">
           <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent Pipeline Runs</h3>
@@ -137,6 +213,50 @@ export function PipelineActivityPanels({
           ) : runsError ? (
             <p className="text-sm text-red-500">Failed to load runs: {runsError}</p>
           ) : runs.length ? (
+            rowMode ? (
+              <div className="pipeline-detail-object-table pipeline-detail-object-table--runs" role="table" aria-label="Recent pipeline runs">
+                <div className="pipeline-detail-object-row pipeline-detail-object-row--head" role="row" aria-hidden="true">
+                  <span>Pipeline</span>
+                  <span>Status</span>
+                  <span>Branch</span>
+                  <span>Run ID</span>
+                  <span>Trigger</span>
+                  <span>Outputs</span>
+                  <span>Started</span>
+                </div>
+                <ul className="pipeline-detail-object-list">
+                  {runs.map(run => {
+                    const runID = run.run_id || '';
+                    const triggerID = typeof run.trigger_event_id === 'string' ? run.trigger_event_id : '';
+                    const outputStatus = runFinalOutputStatusPresentation(run.final_output_status);
+                    return (
+                      <li key={runID || `${run.pipeline_name}-${run.started_at}`}>
+                        <button
+                          type="button"
+                          className="pipeline-detail-object-row pipeline-detail-object-row--button"
+                          title={runID ? `Open run ${runID}` : 'Open pipeline runs'}
+                          onClick={() => onOpenRun(runID)}
+                        >
+                          <span className="pipeline-detail-object-primary">{pipelineLabel}</span>
+                          <span><span className={`runner-pill ${pipelineRunStatusClass(run.status)}`}>{pipelineRunStatusLabel(run.status)}</span></span>
+                          <span>{formatPipelineGitRef(run.git_ref)}</span>
+                          <span className="font-mono">{runID ? runID.slice(0, 8) : '-'}</span>
+                          <span className="font-mono">{triggerID ? triggerID.slice(0, 8) : '-'}</span>
+                          <span>
+                            {outputStatus ? (
+                              <span className={`runner-pill ${outputStatus.className}`} title={outputStatus.title}>
+                                {outputStatus.label}
+                              </span>
+                            ) : '-'}
+                          </span>
+                          <span>{formatPipelineRelativeTime(run.started_at)}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : (
             <ul className="triggers-pipeline-list">
               {runs.map(run => {
                 const runID = run.run_id || '';
@@ -180,11 +300,13 @@ export function PipelineActivityPanels({
                 );
               })}
             </ul>
+            )
           ) : (
             <p className="text-sm text-[var(--text-secondary)]">No recent runs for this pipeline.</p>
           )}
         </div>
       </section>
+      ) : null}
     </aside>
   );
 }
