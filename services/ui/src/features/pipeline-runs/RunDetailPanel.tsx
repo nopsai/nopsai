@@ -5,8 +5,7 @@ import { AnalysisModal } from '../analysis/AnalysisModal';
 import { buildRunAnalysis } from '../analysis/model';
 import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
 import { BranchIcon, CommitIcon, RunIdIcon, StatusBadge, ZapIcon } from './PipelineRunCards';
-import { RunFinalOutputs } from './RunFinalOutputs';
-import { StepsGraph } from './RunGraph';
+import { RunDetailWorkspaceTabs } from './RunDetailWorkspaceTabs';
 import { buildRunAnalysisPromptContext } from './runAnalysisEvidence';
 import {
   buildPipelineLink,
@@ -86,7 +85,7 @@ export function RunDetailView({
   onOpenLogs: () => void;
   onOpenStepLogs: (stepName: string) => void;
   onOpenTaskLogs: (stepName: string, taskName: string) => void;
-  onOpenStepDetail: (stepName: string) => void;
+  onOpenStepDetail: (stepName: string, taskName?: string) => void;
   onOpenRun: (id: string) => void;
   onShowDefinition: () => void;
   onApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject') => void;
@@ -390,10 +389,17 @@ export function RunDetailView({
         </div>
       )}
 
-      <RunFinalOutputs
+      <RunDetailWorkspaceTabs
         runID={run.run_id}
-        outputs={detail.final_outputs}
+        steps={detail.steps}
+        selectedStep={selectedStep}
+        onSelectStep={onSelectStep}
+        onOpenStepLogs={onOpenStepLogs}
+        onOpenTaskLogs={onOpenTaskLogs}
+        onOpenStepDetail={onOpenStepDetail}
+        childRuns={detail.child_runs}
         pipelineDefinition={detail.pipeline_definition}
+        outputs={detail.final_outputs}
         onCancelOutput={onCancelOutput}
       />
 
@@ -458,21 +464,6 @@ export function RunDetailView({
           </div>
         </div>
       )}
-
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-[var(--border-primary)] bg-white dark:bg-slate-950 shadow-[0_16px_44px_rgba(15,23,42,0.07)] p-2">
-          <StepsGraph
-            steps={detail.steps}
-            selectedStep={selectedStep}
-            onSelectStep={onSelectStep}
-            onOpenStepLogs={onOpenStepLogs}
-            onOpenTaskLogs={onOpenTaskLogs}
-            onOpenStepDetail={onOpenStepDetail}
-            childRuns={detail.child_runs}
-            pipelineDefinition={detail.pipeline_definition}
-          />
-        </div>
-      </div>
 
       {detail.child_runs?.length > 0 && (
         <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-2 shadow-sm">

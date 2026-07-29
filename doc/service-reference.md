@@ -633,7 +633,9 @@ Primary role:
 Responsibilities:
 
 - Login and session refresh
-- Pipeline runs view with main, recent, and events views
+- Pipeline runs view with main, recent, and events views, including run-detail
+  Graph/Outputs tabs, step/task graph inspection, logs, analysis, approvals,
+  final outputs, and monitoring links
 - Pipeline editor and pipeline drafts
 - Trigger override editor
 - Knowledge Context browser, markdown editor/preview, source metadata, access settings, and usage inspection

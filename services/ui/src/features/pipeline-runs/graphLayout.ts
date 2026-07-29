@@ -2,6 +2,7 @@ import type {
   GraphLayout,
   GraphLayoutEdge,
   GraphLayoutNode,
+  GraphPoint,
   GraphSize,
   GraphStatus,
 } from './contracts.js';
@@ -213,6 +214,82 @@ export function calculateGraphLayout<T extends { id: string; dependsOn?: string[
   });
 
   return { nodes, edges, width: totalWidth, height: totalHeight };
+}
+
+export type GraphRegion = GraphPoint & GraphSize;
+
+export type FittedGraphLayout<T> = GraphLayout<T> & {
+  scale: number;
+  offset: GraphPoint;
+};
+
+export function fitGraphLayoutToRegion<T>(
+  layout: GraphLayout<T>,
+  region: GraphRegion,
+  maxScale = 1
+): FittedGraphLayout<T> {
+  if (!layout.nodes.length) {
+    return {
+      nodes: [],
+      edges: [],
+      width: region.width,
+      height: region.height,
+      scale: 1,
+      offset: { x: region.x, y: region.y },
+    };
+  }
+
+  const bounds = getGraphLayoutBounds(layout);
+  const scale = Math.min(
+    maxScale,
+    Math.max(0.1, Math.min(region.width / bounds.width, region.height / bounds.height))
+  );
+  const scaledWidth = bounds.width * scale;
+  const scaledHeight = bounds.height * scale;
+  const offset = {
+    x: region.x + (region.width - scaledWidth) / 2 - bounds.x * scale,
+    y: region.y + (region.height - scaledHeight) / 2 - bounds.y * scale,
+  };
+
+  return {
+    nodes: layout.nodes.map(node => ({
+      ...node,
+      x: node.x * scale + offset.x,
+      y: node.y * scale + offset.y,
+      width: node.width * scale,
+      height: node.height * scale,
+    })),
+    edges: layout.edges.map(edge => ({
+      ...edge,
+      points: edge.points.map(point => ({
+        x: point.x * scale + offset.x,
+        y: point.y * scale + offset.y,
+      })),
+    })),
+    width: region.width,
+    height: region.height,
+    scale,
+    offset,
+  };
+}
+
+export function getGraphLayoutBounds<T>(layout: GraphLayout<T>): GraphRegion {
+  if (!layout.nodes.length) {
+    return { x: 0, y: 0, width: Math.max(1, layout.width), height: Math.max(1, layout.height) };
+  }
+  const edgePoints = layout.edges.flatMap(edge => edge.points);
+  const xs = layout.nodes.flatMap(node => [node.x, node.x + node.width]).concat(edgePoints.map(point => point.x));
+  const ys = layout.nodes.flatMap(node => [node.y, node.y + node.height]).concat(edgePoints.map(point => point.y));
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
 }
 
 function getRanks(items: Array<{ id: string; dependsOn?: string[] }>): Record<string, number> {

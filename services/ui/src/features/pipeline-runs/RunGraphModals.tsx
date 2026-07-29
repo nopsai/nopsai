@@ -18,18 +18,36 @@ const EMPTY_TASK_DEFINITIONS: TaskDefinition[] = [];
 
 export function StepDetailModal({
   step,
+  initialTaskName = null,
   onClose,
   onViewLogs,
   pipelineDefinition,
 }: {
   step: StepDetail | null;
+  initialTaskName?: string | null;
   onClose: () => void;
-  onViewLogs: () => void;
+  onViewLogs: (taskName?: string | null) => void;
   pipelineDefinition?: PipelineDefinition;
 }) {
   const config = step?.configuration;
   const taskDefs = useMemo(() => config?.tasks ?? [], [config?.tasks]);
-  const [activeTaskName, setActiveTaskName] = useState<string | null>(null);
+  const stepName = step?.name || '';
+  const [activeTaskState, setActiveTaskState] = useState<{
+    stepName: string;
+    initialTaskName: string | null;
+    taskName: string | null;
+  }>({
+    stepName,
+    initialTaskName,
+    taskName: initialTaskName,
+  });
+  const activeTaskName =
+    activeTaskState.stepName === stepName && activeTaskState.initialTaskName === initialTaskName
+      ? activeTaskState.taskName
+      : initialTaskName;
+  const setActiveTaskName = (taskName: string | null) => {
+    setActiveTaskState({ stepName, initialTaskName, taskName });
+  };
 
   const taskLayout = useMemo<TaskGraphLayout | null>(() => {
     if (!step) return null;
@@ -261,7 +279,7 @@ export function StepDetailModal({
             <span className="runner-pill runner-pill--muted text-xs">LLM: {formatTokenCount(step.ai_usage?.total_tokens)}</span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="runner-pill runner-pill--ghost" type="button" onClick={onViewLogs}>
+            <button className="runner-pill runner-pill--ghost" type="button" onClick={() => onViewLogs(activeTaskName)}>
               View Logs
             </button>
             <button className="runner-pill runner-pill--ghost" type="button" onClick={onClose}>
