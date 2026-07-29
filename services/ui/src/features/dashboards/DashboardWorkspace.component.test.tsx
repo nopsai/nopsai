@@ -249,7 +249,6 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
         onSelectDashboard={onSelectDashboard}
         onSelectSection={setActiveSectionKey}
         sectionTabHref={sectionTabHref}
-        onReloadDashboards={vi.fn()}
         onCreateDashboard={vi.fn()}
         onEditDashboard={vi.fn()}
         onDeleteDashboard={onDeleteDashboard}
@@ -393,7 +392,6 @@ test('dashboard cards can be resized, reordered, and remembered per section tab'
           onSelectDashboard={vi.fn()}
           onSelectSection={vi.fn()}
           sectionTabHref={sectionTabHref}
-          onReloadDashboards={vi.fn()}
           onCreateDashboard={vi.fn()}
           onEditDashboard={vi.fn()}
           onDeleteDashboard={vi.fn()}
@@ -491,7 +489,6 @@ test('dashboard details include failed latest run attempts even without a public
         onSelectDashboard={vi.fn()}
         onSelectSection={vi.fn()}
         sectionTabHref={sectionTabHref}
-        onReloadDashboards={vi.fn()}
         onCreateDashboard={vi.fn()}
         onEditDashboard={vi.fn()}
         onDeleteDashboard={vi.fn()}
@@ -563,7 +560,6 @@ test('dashboard workspace shows generating dashboard outputs inside their sectio
         onSelectDashboard={vi.fn()}
         onSelectSection={vi.fn()}
         sectionTabHref={sectionTabHref}
-        onReloadDashboards={vi.fn()}
         onCreateDashboard={vi.fn()}
         onEditDashboard={vi.fn()}
         onDeleteDashboard={vi.fn()}
@@ -625,7 +621,6 @@ test('dashboard title attention explains cancelled refreshes without raw cancell
         onSelectDashboard={vi.fn()}
         onSelectSection={vi.fn()}
         sectionTabHref={sectionTabHref}
-        onReloadDashboards={vi.fn()}
         onCreateDashboard={vi.fn()}
         onEditDashboard={vi.fn()}
         onDeleteDashboard={vi.fn()}

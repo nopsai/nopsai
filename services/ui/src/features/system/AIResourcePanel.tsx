@@ -50,6 +50,7 @@ export function AIResourceTableHeader({
   searchValue,
   onSearchChange,
   filters,
+  actions,
   className,
 }: {
   title?: string;
@@ -60,6 +61,7 @@ export function AIResourceTableHeader({
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   filters?: ReactNode;
+  actions?: ReactNode;
   className?: string;
 }) {
   const hasCount = count !== undefined && count !== null && count !== false;
@@ -72,7 +74,7 @@ export function AIResourceTableHeader({
       onChange={onSearchChange}
     />
   ) : null;
-  const hasControls = Boolean(filters || searchControl);
+  const hasControls = Boolean(filters || searchControl || actions);
   const headerClassName = [
     'ai-resource-table-head',
     !hasTitle ? 'ai-resource-table-head--controls-only' : '',
@@ -92,6 +94,7 @@ export function AIResourceTableHeader({
         <div className="ai-resource-table-controls">
           {filters}
           {searchControl}
+          {actions}
         </div>
       ) : null}
     </div>

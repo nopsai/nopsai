@@ -55,9 +55,6 @@ export function GitWebhookSourcesView({
         showCreateWhenDisabled
         onSearchTermChange={setSearchTerm}
         onCreate={controller.startCreate}
-        onRefresh={() => void controller.loadSources()}
-        refreshLabel="Refresh Git webhook sources"
-        refreshDisabled={controller.loading || controller.saving}
         filters={!canWrite ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
         summary={<GitWebhookSourceMetricGrid metrics={metrics} />}
       />

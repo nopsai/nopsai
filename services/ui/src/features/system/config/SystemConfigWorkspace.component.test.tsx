@@ -17,7 +17,6 @@ import {
 function renderWorkspace(overrides: Partial<ComponentProps<typeof SystemConfigWorkspace>> = {}) {
   const actions = {
     onChange: vi.fn(),
-    onReload: vi.fn(async () => undefined),
     onSave: vi.fn(async () => undefined),
     onSaveMailSettings: vi.fn(async () => undefined),
     onTestMailSettings: vi.fn(async () => undefined),
@@ -112,7 +111,6 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof SystemConfigWo
           actions.onChange(next);
           setConfig(next);
         }}
-        onReload={actions.onReload}
         onSave={actions.onSave}
         onMailSettingsChange={setMailSettingsForm}
         onSaveMailSettings={actions.onSaveMailSettings}

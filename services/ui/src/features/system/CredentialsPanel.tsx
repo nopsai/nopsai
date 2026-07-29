@@ -183,12 +183,8 @@ function CredentialsPanelBody({
         <CredentialDashboard
           canManage={canManage}
           canCreate={canCreateCredentials}
-          loading={controller.loading}
-          query={query}
           saving={controller.saving}
           summary={summary}
-          onQueryChange={setQuery}
-          onReload={() => void controller.loadCredentials()}
           onStartCreate={onStartCreate}
         />
 
@@ -200,10 +196,12 @@ function CredentialsPanelBody({
           groups={groups}
           scopeTabs={scopeTabs}
           selectedID={visibleSelected?.id}
+          query={query}
           scope={scope}
           grouped={grouped}
           loading={controller.loading}
           teamPaths={teamPaths}
+          onQueryChange={setQuery}
           onScopeChange={value => setScopeOverride(value)}
           onGroupedChange={setGrouped}
           onSelect={onSelectCredential}

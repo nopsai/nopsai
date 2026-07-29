@@ -46,7 +46,7 @@ export function StepCollectionList({
   if (listLoading) {
     return (
       <StepWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
-        <ResourcePanel title="Reusable steps" countLabel="Loading"><div className="pipeline-runs-empty-state">Loading steps...</div></ResourcePanel>
+        <ResourcePanel title="Reusable steps" countLabel="Loading" showHeader={false}><div className="pipeline-runs-empty-state">Loading steps...</div></ResourcePanel>
       </StepWorkspace>
     );
   }
@@ -54,7 +54,7 @@ export function StepCollectionList({
   if (listError) {
     return (
       <StepWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
-        <ResourcePanel title="Reusable steps" countLabel="Error"><div className="pipeline-runs-empty-state text-red-500">Failed to load steps: {listError}</div></ResourcePanel>
+        <ResourcePanel title="Reusable steps" countLabel="Error" showHeader={false}><div className="pipeline-runs-empty-state text-red-500">Failed to load steps: {listError}</div></ResourcePanel>
       </StepWorkspace>
     );
   }
@@ -62,7 +62,7 @@ export function StepCollectionList({
   return (
     <StepWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
       <div id="steps-list-view" className="pipelines-view pipeline-runs-content-grid">
-        <ResourcePanel title="Reusable steps" countLabel={`${visibleSteps.length} visible`}>
+        <ResourcePanel title="Reusable steps" countLabel={`${visibleSteps.length} visible`} showHeader={false}>
           {visibleSteps.length ? (
             <StepTable
               steps={visibleSteps}
@@ -116,21 +116,29 @@ function StepWorkspace({
 function ResourcePanel({
   title,
   countLabel,
+  showHeader = true,
   children,
 }: {
   title: string;
   countLabel: string;
+  showHeader?: boolean;
   children: ReactNode;
 }) {
   const titleID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-title`;
   return (
-    <section className="pipeline-runs-panel resource-collection-panel" aria-labelledby={titleID}>
-      <header className="pipeline-runs-panel-head">
-        <div className="pipeline-runs-panel-title">
-          <h2 id={titleID}>{title}</h2>
-          <span>{countLabel}</span>
-        </div>
-      </header>
+    <section
+      className="pipeline-runs-panel resource-collection-panel"
+      aria-labelledby={showHeader ? titleID : undefined}
+      aria-label={showHeader ? undefined : title}
+    >
+      {showHeader ? (
+        <header className="pipeline-runs-panel-head">
+          <div className="pipeline-runs-panel-title">
+            <h2 id={titleID}>{title}</h2>
+            <span>{countLabel}</span>
+          </div>
+        </header>
+      ) : null}
       {children}
     </section>
   );
@@ -208,7 +216,6 @@ function StepRow({
       <td>
         <button type="button" className="pipeline-runs-table-title" onClick={() => onSelectStep(item.id)}>
           <span title={displayName}>{displayName}</span>
-          <small>Reusable workflow step</small>
         </button>
       </td>
       <td>

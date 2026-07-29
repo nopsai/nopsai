@@ -930,7 +930,10 @@ Pages present in the current UI:
   Larger display type, deeper shadows, and 16px+ radii are reserved for Login,
   authored documentation, or framed previews rather than normal tables, cards,
   trees, modals, and split panes. Summary and metric cards align icon, label,
-  and value on one row when they fit, with secondary hints below.
+  and value on one row when they fit, with secondary hints below. Compact
+  magnifier searches keep the icon anchored and expand left without pushing
+  toolbar controls onto another row, and page create actions use consistent
+  36px blue icon-only plus buttons with accessible labels.
 - `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail
@@ -940,16 +943,16 @@ Pages present in the current UI:
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Monitoring`: tabbed operational analytics with `/monitoring/<tab>` links and query-backed filters for time, team, status, comparison, and run drilldowns
 - `Dashboards`: dashboard detail routes under `/dashboards/<dashboard-ref>` with section tabs as URL view state
-- `Schedules`: LLM-profile-style schedule workspace with run-team path tree, left-aligned counted state filters, compact header search, registry table, detail panel, pipeline-filtered view, enable/disable, run now, latest-run link, and GitOps markers
-- `Triggers`: trigger override browser/editor with top-toolbar metrics, owner/team tree navigation, and list scopes derived from trigger manifests
+- `Schedules`: LLM-profile-style schedule workspace with run-team path tree, left-aligned counted state filters, compact header search, registry table, detail panel, pipeline-filtered view without a Schedule view card, enable/disable, run now, latest-run link, and GitOps markers
+- `Triggers`: trigger override browser/editor with top-toolbar metrics, borderless owner/team tree and list navigation, and list scopes derived from trigger manifests
 - `External API` and `Git webhooks`: event automation resource workspaces with top-toolbar metrics and nested detail routes for selected triggers and webhook sources
 - `Scopes`: steps-style team tree and table browsing for scopes, plus a selected-scope detail workspace with summary metrics, combined variable/secret search and type filters, selected-item value inspection, usage relationships, scope use-access controls, GitOps encryption entry points, and collapsible registered runner assignments for the selected scope
 - `Teams`: team/application hierarchy, team-owned resources, config repository controls, and registered runner assignments for the team scope and subgroup scopes
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
-- `Knowledge Context`: kind/team/document browser, top-toolbar document/connection metrics, magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management, compact Credentials registry with top-toolbar metrics/search, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts and no header metric boxes, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
+- `Knowledge Context`: kind/team/document browser, top-toolbar document/connection metrics aligned with actions, compact magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
+- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 

@@ -77,13 +77,12 @@ export function TriggerCollectionToolbar({
           <button
             id="triggers-new-btn"
             type="button"
-            className="glass-button-primary"
+            className="glass-button-primary triggers-create-button"
             aria-label="Create new trigger"
             title={canCreateTriggerHere ? 'New Trigger' : 'Create trigger override'}
             onClick={onCreate}
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
-            <span>New trigger</span>
           </button>
         </div>
       </div>

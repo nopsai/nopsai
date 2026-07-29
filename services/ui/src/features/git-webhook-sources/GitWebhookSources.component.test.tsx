@@ -161,7 +161,7 @@ test('creates a source through the feature-owned form and API', async () => {
 
   await screen.findByText('No webhook sources found');
   expect(screen.getByRole('button', { name: 'Search webhook sources' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Refresh Git webhook sources' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Refresh Git webhook sources' })).not.toBeInTheDocument();
   expect(screen.queryByText('Event automation')).not.toBeInTheDocument();
   expect(screen.queryByText('Git webhook sources')).not.toBeInTheDocument();
   expect(screen.queryByText('Connect trusted Git providers, restrict repositories, and monitor webhook deliveries.')).not.toBeInTheDocument();

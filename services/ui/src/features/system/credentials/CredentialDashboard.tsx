@@ -1,34 +1,22 @@
-import { useRef, useState } from 'react';
-import { AlertTriangle, Database, Plus, RefreshCw, Search, ShieldCheck, ShieldOff, X } from 'lucide-react';
+import { AlertTriangle, Database, Plus, ShieldCheck, ShieldOff } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { CredentialSummary } from './model';
 
 type CredentialDashboardProps = {
   canCreate: boolean;
   canManage: boolean;
-  loading: boolean;
-  query: string;
   saving: boolean;
   summary: CredentialSummary;
-  onQueryChange: (value: string) => void;
-  onReload: () => void;
   onStartCreate: () => void;
 };
 
 export function CredentialDashboard({
   canCreate,
   canManage,
-  loading,
-  query,
   saving,
   summary,
-  onQueryChange,
-  onReload,
   onStartCreate,
 }: CredentialDashboardProps) {
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchActive = searchOpen || Boolean(query.trim());
   const metrics: Array<{
     label: string;
     value: number;
@@ -90,69 +78,14 @@ export function CredentialDashboard({
             {!canManage && <span className="credential-registry__pill">Read-only</span>}
             <button
               type="button"
-              className="credential-registry__button credential-registry__button--ghost"
-              onClick={onReload}
-              disabled={loading || saving}
-              aria-label="Reload credentials"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
-              Reload
-            </button>
-            <button
-              type="button"
-              className="credential-registry__button credential-registry__button--primary"
+              className="credential-registry__button credential-registry__button--primary credential-registry__button--create"
+              aria-label="New credential"
               onClick={onStartCreate}
               disabled={saving || !canCreate}
-              title={canCreate ? undefined : canManage ? 'Team access is required to create credentials' : 'Read-only access'}
+              title={canCreate ? 'New credential' : canManage ? 'Team access is required to create credentials' : 'Read-only access'}
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New credential
             </button>
-          </div>
-          <div className={`pipelines-search-shell credential-registry__search-shell ${searchActive ? 'open' : ''}`}>
-            <button
-              type="button"
-              className="pipelines-search-toggle"
-              aria-label="Search credentials"
-              title="Search credentials"
-              onClick={() => {
-                setSearchOpen(true);
-                requestAnimationFrame(() => searchInputRef.current?.focus());
-              }}
-            >
-              <Search className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <input
-              ref={searchInputRef}
-              type="search"
-              className="pipelines-search-input"
-              aria-label="Search credentials query"
-              placeholder="Search credentials"
-              value={query}
-              onFocus={() => setSearchOpen(true)}
-              onChange={event => {
-                onQueryChange(event.target.value);
-                if (event.target.value && !searchOpen) setSearchOpen(true);
-              }}
-              onBlur={() => {
-                if (!query.trim()) setSearchOpen(false);
-              }}
-            />
-            {query || searchOpen ? (
-              <button
-                type="button"
-                className="pipelines-search-clear"
-                aria-label="Clear search"
-                onMouseDown={event => event.preventDefault()}
-                onClick={() => {
-                  onQueryChange('');
-                  setSearchOpen(false);
-                  searchInputRef.current?.blur();
-                }}
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ) : null}
           </div>
         </div>
       </div>

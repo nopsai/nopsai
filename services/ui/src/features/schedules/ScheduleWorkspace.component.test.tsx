@@ -52,7 +52,6 @@ function callbacks() {
     onClearPipelineFilter: vi.fn(),
     onSelectedScheduleIDChange: vi.fn(),
     onCreate: vi.fn(),
-    onRefresh: vi.fn(),
     onEdit: vi.fn(),
     onEnable: vi.fn(),
     onRun: vi.fn(),

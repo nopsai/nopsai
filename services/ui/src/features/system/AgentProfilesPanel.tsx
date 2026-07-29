@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Activity, Bot, Copy, Edit3, FileText, Plus, Power, RefreshCw, Trash2, X } from 'lucide-react';
+import { Activity, Bot, Copy, Edit3, FileText, Plus, Power, Trash2, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   agentProfileSourceLabel,
@@ -13,7 +13,6 @@ import {
 import { useTeamProfileWriteAccess } from './useTeamProfileWriteAccess';
 import {
   AIResourceEmptyState,
-  AIResourceExpandableSearch,
   AIResourceIconAction,
   AIResourceTeamBadge,
   AIResourceTeamPlacementField,
@@ -34,7 +33,7 @@ import {
   formatAIResourceTeamLabel,
   normalizeAIResourceTeamPath,
 } from './aiResourceTeams';
-import { formatFilteredCount, matchesAIResourceSearch } from './aiResourcePresentation';
+import { matchesAIResourceSearch } from './aiResourcePresentation';
 import { aiResourceTreeFilterForResource } from './aiResourceTree';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import { ObjectIcon } from '../../components/ObjectIcon';
@@ -89,7 +88,6 @@ function AgentProfilesPanel({
     setDeleteBlocker,
     panelMode,
     setPanelMode,
-    loadProfiles,
     loadTeamProfiles,
     loadTeamProfilesForTree,
     openUsage,
@@ -212,7 +210,6 @@ function AgentProfilesPanel({
   );
   const showForm = panelMode === 'create' || panelMode === 'edit';
   const detailProfile = (panelMode ? selectedProfile : null) ?? selectedListProfile;
-  const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
   const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
     () => workspaceProfiles.map(profile => ({
       id: profile.id,
@@ -267,11 +264,6 @@ function AgentProfilesPanel({
   const setCreateScopedID = (localID: string) => {
     setForm(prev => ({ ...prev, id: buildAIResourceScopedID(createTeamPath, localID) }));
   };
-  const reloadProfiles = () => {
-    void loadProfiles();
-    if (selectedTeamPath) void loadTeamProfiles(selectedTeamPath);
-  };
-
   return (
     <div id="system-agent-profiles-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
       <div className="ai-resource-page-header ai-resource-page-header--toolbar ai-resource-overview-bar">
@@ -297,29 +289,6 @@ function AgentProfilesPanel({
             <strong>{defaultProfileRecord?.display_name || activeDefaultProfile || (selectedTeamPath ? 'No default' : '-')}</strong>
           )}
         </div>
-        <div className="ai-resource-page-actions ai-resource-page-actions--stacked">
-          <div className="ai-resource-page-action-row">
-            {!canManageCurrentScope && <span className="runner-pill runner-pill--muted">Read-only</span>}
-            {!detailOpen && (
-              <AIResourceExpandableSearch
-                label="Search agent profiles"
-                placeholder="Search agent profiles..."
-                value={searchTerm}
-                onChange={setSearchTerm}
-                className="ai-resource-header-search"
-              />
-            )}
-            <button type="button" className="ai-resource-icon-button" onClick={reloadProfiles} disabled={defaultControlLoading} aria-label="Reload">
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            </button>
-            {canManageCurrentScope && (
-              <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                New profile
-              </button>
-            )}
-          </div>
-        </div>
       </div>
 
       {error && <div className="ai-resource-alert ai-resource-alert--error">{error}</div>}
@@ -343,9 +312,25 @@ function AgentProfilesPanel({
         detailLabel="Agent profile detail"
         listHeader={(
           <AIResourceTableHeader
-            title="Profiles"
-            count={formatFilteredCount(visibleProfiles.length, sourceProfiles.length, filteredCountToken)}
             loading={listLoading}
+            searchLabel="Search agent profiles"
+            searchPlaceholder="Search agent profiles..."
+            searchValue={searchTerm}
+            onSearchChange={setSearchTerm}
+            filters={!canManageCurrentScope ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+            actions={canManageCurrentScope ? (
+              <button
+                type="button"
+                className="ai-resource-primary-button ai-resource-create-button"
+                aria-label="New profile"
+                title="New profile"
+                onClick={openCreate}
+                disabled={saving}
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : null}
+            className="ai-resource-table-head--list-actions"
           />
         )}
         list={(

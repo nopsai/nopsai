@@ -45,7 +45,7 @@ export function PipelineCollectionList({
   if (listLoading) {
     return (
       <PipelineWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
-        <ResourcePanel title="Pipeline definitions" countLabel="Loading"><div className="pipeline-runs-empty-state">Loading pipelines...</div></ResourcePanel>
+        <ResourcePanel title="Pipeline definitions" countLabel="Loading" showHeader={false}><div className="pipeline-runs-empty-state">Loading pipelines...</div></ResourcePanel>
       </PipelineWorkspace>
     );
   }
@@ -53,7 +53,7 @@ export function PipelineCollectionList({
   if (listError) {
     return (
       <PipelineWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
-        <ResourcePanel title="Pipeline definitions" countLabel="Error"><div className="pipeline-runs-empty-state text-red-500">Failed to load pipelines: {listError}</div></ResourcePanel>
+        <ResourcePanel title="Pipeline definitions" countLabel="Error" showHeader={false}><div className="pipeline-runs-empty-state text-red-500">Failed to load pipelines: {listError}</div></ResourcePanel>
       </PipelineWorkspace>
     );
   }
@@ -61,7 +61,7 @@ export function PipelineCollectionList({
   return (
     <PipelineWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
       <div id="pipelines-list-view" className="pipelines-view pipeline-runs-content-grid">
-        <ResourcePanel title="Pipeline definitions" countLabel={`${visiblePipelines.length} visible`}>
+        <ResourcePanel title="Pipeline definitions" countLabel={`${visiblePipelines.length} visible`} showHeader={false}>
           {visiblePipelines.length ? (
             <PipelineTable
               pipelines={visiblePipelines}
@@ -115,21 +115,29 @@ function PipelineWorkspace({
 function ResourcePanel({
   title,
   countLabel,
+  showHeader = true,
   children,
 }: {
   title: string;
   countLabel: string;
+  showHeader?: boolean;
   children: ReactNode;
 }) {
   const titleID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-title`;
   return (
-    <section className="pipeline-runs-panel resource-collection-panel" aria-labelledby={titleID}>
-      <header className="pipeline-runs-panel-head">
-        <div className="pipeline-runs-panel-title">
-          <h2 id={titleID}>{title}</h2>
-          <span>{countLabel}</span>
-        </div>
-      </header>
+    <section
+      className="pipeline-runs-panel resource-collection-panel"
+      aria-labelledby={showHeader ? titleID : undefined}
+      aria-label={showHeader ? undefined : title}
+    >
+      {showHeader ? (
+        <header className="pipeline-runs-panel-head">
+          <div className="pipeline-runs-panel-title">
+            <h2 id={titleID}>{title}</h2>
+            <span>{countLabel}</span>
+          </div>
+        </header>
+      ) : null}
       {children}
     </section>
   );

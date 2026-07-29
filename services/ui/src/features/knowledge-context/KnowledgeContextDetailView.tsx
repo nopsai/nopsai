@@ -115,9 +115,14 @@ export function KnowledgeContextDetailView({
           <strong>{detailError ? 'Unable to load knowledge context' : 'Select a knowledge context'}</strong>
           <span>{detailError || 'Choose a document from the browser to inspect content, access, and usage.'}</span>
           {canWriteKnowledge && onCreateDocument ? (
-            <button type="button" className="kc-demo-primary-btn" onClick={onCreateDocument}>
+            <button
+              type="button"
+              className="kc-demo-primary-btn kc-demo-create-btn"
+              aria-label="New context"
+              title="New context"
+              onClick={onCreateDocument}
+            >
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New context
             </button>
           ) : null}
         </div>

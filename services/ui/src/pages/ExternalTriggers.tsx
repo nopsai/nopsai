@@ -482,9 +482,6 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
         showCreateWhenDisabled
         onSearchTermChange={setSearchTerm}
         onCreate={openCreate}
-        onRefresh={() => void loadTriggers()}
-        refreshLabel="Refresh External API triggers"
-        refreshDisabled={loading || saving}
         filters={!canWriteExternalTriggers ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
         summary={<ExternalTriggerMetricGrid metrics={metrics} />}
       />

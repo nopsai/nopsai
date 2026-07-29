@@ -553,25 +553,29 @@ truth; this file is the source-adjacent placement guide.
   the compact scale by default. Summary and metric cards should align icon,
   label, and value on one row whenever they fit, with secondary hints below.
 - Collection routes should reuse `ResourceCollectionToolbar` for compact
-  magnifier-first search, refresh, create, summaries, and feature-owned filters
+  magnifier-first search, create, summaries, and feature-owned filters
   unless a documented route-specific workspace shell is a better fit. Keep
-  create/refresh/search actions right-aligned and place scan-first filters on the left.
+  create/search actions right-aligned, anchor the magnifier in place, and expand
+  search inputs to the left so toolbars do not reflow. Page-level create actions
+  use consistent 36px blue icon-only plus buttons with accessible labels. Place scan-first filters on the left.
   Create controls remain
   visible but disabled when AAA grants read-only access. Secondary detail panes
   should mount only after a resource is selected or deep-linked.
 - Event automation pages should keep metrics in the top toolbar when there is
   room. LLM, Agent, and MCP pages do not use header metric boxes: keep the
-  default profile or MCP tab control on the left and refresh/create plus
-  magnifier-first search on the right, with the magnifier immediately before
-  Reload. Team scope filtering for LLM, Agent, and MCP resources is tree-owned;
+  default profile or MCP tab control on the left and place create plus
+  magnifier-first search in the list header on the right. Team scope filtering for LLM, Agent, and MCP resources is tree-owned;
   avoid duplicating it with an `All teams` dropdown in the list header.
 - Schedules use the state filter tabs as their count surface instead of separate
   summary boxes: keep All/Enabled/Disabled/GitOps/One-time left aligned above
-  the tree, and keep the magnifier immediately before Refresh/New.
+  the tree, remove the Schedule view card, and keep the magnifier in the right
+  action group before New.
 - Knowledge Context and Credentials use the same compact toolbar treatment:
   summary boxes stay inline with primary tabs or actions, source/status dropdowns
-  are avoided when a tree or tab scope already owns the filter, and search opens
-  from a magnifier button at the right edge.
+  are avoided when a tree or tab scope already owns the filter, search opens
+  from a compact magnifier button without changing rows, Knowledge Context keeps
+  search immediately before the plus action, and Credentials places search
+  immediately before the Flat list/Group by scope toggle.
 - Form dialogs share the Pipeline themed surface and independently scrollable
   body; collection card effects such as `glass-card` are not dialog shells.
 - New validation feedback should use `WorkflowInlineAlert` or an equivalent

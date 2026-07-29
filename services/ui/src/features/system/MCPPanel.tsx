@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
-import { Boxes, Cable, CheckCircle2, Edit3, ExternalLink, Plus, RefreshCw, Trash2, Wrench, X } from 'lucide-react';
+import { Boxes, Cable, CheckCircle2, Edit3, ExternalLink, Plus, Trash2, Wrench, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useMCPRegistry } from './mcp/useMCPRegistry';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
@@ -7,7 +7,6 @@ import { teamMCPProfileRecords } from './teamProfileAdapters';
 import { useTeamProfileWriteAccess } from './useTeamProfileWriteAccess';
 import {
   AIResourceEmptyState,
-  AIResourceExpandableSearch,
   AIResourceIconAction,
   AIResourceTeamBadge,
   AIResourceTeamPlacementField,
@@ -30,7 +29,7 @@ import {
   normalizeAIResourceTeamPath,
   selectableAIResourceTeamPath,
 } from './aiResourceTeams';
-import { formatFilteredCount, matchesAIResourceSearch } from './aiResourcePresentation';
+import { matchesAIResourceSearch } from './aiResourcePresentation';
 import { aiResourceTreeFilterForResource } from './aiResourceTree';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import { MCPDetailSection } from './MCPDetailSection';
@@ -120,7 +119,6 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     editingProfile,
     panelMode,
     setPanelMode,
-    loadMCP,
     loadTeamProfiles,
     loadTeamProfilesForTree,
     startServerCreate,
@@ -274,8 +272,6 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     if (innerTab === 'profiles') loadTeamProfilesForTree(teamFilterOptions);
   }, [innerTab, loadTeamProfilesForTree, teamFilterOptions]);
-  const filteredCountToken = (innerTab === 'servers' ? serverSearchTerm : profileSearchTerm) ||
-    (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
   const serverWorkspaceResources = useMemo<AIResourceWorkspaceItem[]>(
     () => servers.map(server => ({
       id: server.name,
@@ -296,11 +292,6 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   const selectedWorkspaceProfileName = showProfileForm ? null : selectedProfile?.name ?? null;
   const serverDetailOpen = showServerForm || Boolean(selectedWorkspaceServerName);
   const profileDetailOpen = showProfileForm || Boolean(selectedWorkspaceProfileName);
-  const activeDetailOpen = innerTab === 'servers' ? serverDetailOpen : profileDetailOpen;
-  const activeSearchLabel = innerTab === 'servers' ? 'Search MCP servers' : 'Search MCP profiles';
-  const activeSearchPlaceholder = innerTab === 'servers' ? 'Search servers...' : 'Search MCP profiles...';
-  const activeSearchTerm = innerTab === 'servers' ? serverSearchTerm : profileSearchTerm;
-  const setActiveSearchTerm = innerTab === 'servers' ? setServerSearchTerm : setProfileSearchTerm;
   const openMCPView = (view: 'servers' | 'profiles') => {
     setInnerTab(view);
     setSelectedServerName(null);
@@ -369,10 +360,6 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     ));
     startProfileEdit(profile);
   };
-  const reloadMCP = () => {
-    void loadMCP();
-    if (selectedTeamPath) void loadTeamProfiles(selectedTeamPath);
-  };
   const setCreateServerTeam = (teamPath: string) => {
     setCreateServerTeamPath(teamPath);
     setServerForm(prev => ({ ...prev, name: buildAIResourceScopedID(teamPath, aiResourceLocalName(prev.name)) }));
@@ -394,35 +381,6 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
         <div>
           <h2 className="sr-only">MCP</h2>
           <MCPViewSwitch activeView={innerTab} onChange={openMCPView} />
-        </div>
-        <div className="ai-resource-page-actions ai-resource-page-actions--stacked">
-          <div className="ai-resource-page-action-row">
-            {!canManageCurrentTab && <span className="runner-pill runner-pill--muted">Read-only</span>}
-            {!activeDetailOpen && (
-              <AIResourceExpandableSearch
-                label={activeSearchLabel}
-                placeholder={activeSearchPlaceholder}
-                value={activeSearchTerm}
-                onChange={setActiveSearchTerm}
-                className="ai-resource-header-search"
-              />
-            )}
-            <button type="button" className="ai-resource-icon-button" onClick={reloadMCP} disabled={loading || saving || (innerTab === 'profiles' && teamProfilesLoading)} aria-label="Reload">
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            </button>
-            {canManage && innerTab === 'servers' && (
-              <button type="button" className="ai-resource-primary-button" onClick={openServerCreate} disabled={saving}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                New server
-              </button>
-            )}
-            {canManageCurrentProfileScope && innerTab === 'profiles' && (
-              <button type="button" className="ai-resource-primary-button" onClick={openProfileCreate} disabled={saving}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                New profile
-              </button>
-            )}
-          </div>
         </div>
       </div>
 
@@ -450,9 +408,25 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
             detailLabel="MCP server detail"
             listHeader={(
               <AIResourceTableHeader
-                title="Servers"
-                count={formatFilteredCount(visibleServers.length, servers.length, filteredCountToken)}
                 loading={loading}
+                searchLabel="Search MCP servers"
+                searchPlaceholder="Search servers..."
+                searchValue={serverSearchTerm}
+                onSearchChange={setServerSearchTerm}
+                filters={!canManageCurrentTab ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+                actions={canManage ? (
+                  <button
+                    type="button"
+                    className="ai-resource-primary-button ai-resource-create-button"
+                    aria-label="New server"
+                    title="New server"
+                    onClick={openServerCreate}
+                    disabled={saving}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ) : null}
+                className="ai-resource-table-head--list-actions"
               />
             )}
             list={(
@@ -518,9 +492,25 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
             detailLabel="MCP profile detail"
             listHeader={(
               <AIResourceTableHeader
-                title="Profiles"
-                count={formatFilteredCount(visibleProfiles.length, sourceProfiles.length, filteredCountToken)}
                 loading={profileListLoading}
+                searchLabel="Search MCP profiles"
+                searchPlaceholder="Search MCP profiles..."
+                searchValue={profileSearchTerm}
+                onSearchChange={setProfileSearchTerm}
+                filters={!canManageCurrentTab ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+                actions={canManageCurrentProfileScope ? (
+                  <button
+                    type="button"
+                    className="ai-resource-primary-button ai-resource-create-button"
+                    aria-label="New profile"
+                    title="New profile"
+                    onClick={openProfileCreate}
+                    disabled={saving}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                ) : null}
+                className="ai-resource-table-head--list-actions"
               />
             )}
             list={(

@@ -9,12 +9,12 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  RefreshCw,
   Search,
   Trash2,
   UsersRound,
 } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
+import { AIResourceExpandableSearch } from '../system/AIResourcePanel';
 import type { ObjectIconType } from '../../components/objectIconRegistry';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
@@ -70,10 +70,8 @@ export function TeamsWorkspace({
   activeTeam,
   activeTeamPath,
   searchTerm,
-  teamsLoading,
   onSearchTermChange,
   onSelectTeam,
-  onRefresh,
   onCreate,
   onEditTeam,
   onDeleteTeam,
@@ -89,10 +87,8 @@ export function TeamsWorkspace({
   activeTeam: Team | null;
   activeTeamPath: Team[];
   searchTerm: string;
-  teamsLoading: boolean;
   onSearchTermChange: (value: string) => void;
   onSelectTeam: (id: number | null) => void;
-  onRefresh: () => void;
   onCreate: () => void;
   onEditTeam: (team: Team) => void;
   onDeleteTeam: (team: Team) => void;
@@ -150,21 +146,15 @@ export function TeamsWorkspace({
           <TeamBreadcrumb path={activeTeamPath} activeTeamID={activeTeamID} onSelectTeam={onSelectTeam} />
         </div>
         <div className="teams-toolbar-actions">
-          <label className="teams-search" htmlFor="teams-global-search">
-            <Search className="h-4 w-4" aria-hidden="true" />
-            <input
-              id="teams-global-search"
-              value={searchTerm}
-              onChange={event => onSearchTermChange(event.target.value)}
-              placeholder="Search teams, apps, repositories"
-            />
-          </label>
-          <button type="button" className="teams-icon-btn" title="Refresh teams" aria-label="Refresh teams" onClick={onRefresh}>
-            <RefreshCw className={`h-4 w-4 ${teamsLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
-          </button>
-          <button type="button" className="teams-primary-btn" onClick={onCreate}>
+          <AIResourceExpandableSearch
+            label="Search teams"
+            placeholder="Search teams, apps, repositories"
+            value={searchTerm}
+            onChange={onSearchTermChange}
+            className="teams-search"
+          />
+          <button type="button" className="teams-primary-btn teams-create-btn" aria-label="New" title="New" onClick={onCreate}>
             <Plus className="h-4 w-4" aria-hidden="true" />
-            New
           </button>
         </div>
       </header>

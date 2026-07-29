@@ -10,7 +10,6 @@ import {
   ChevronRight,
   Clock3,
   GitBranch,
-  Search,
   UsersRound,
 } from 'lucide-react';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
@@ -64,7 +63,6 @@ export function PipelineRunsOverview({
   onOpenRun,
   onSelectRun,
 }: PipelineRunsOverviewProps) {
-  const [teamSearch, setTeamSearch] = useState('');
   const [expandedTeamIds, setExpandedTeamIds] = useState<Set<number>>(new Set());
   const [collapsedTeamIds, setCollapsedTeamIds] = useState<Set<number>>(new Set());
   const [branchSelection, setBranchSelection] = useState<{ teamId: number | null; key: string }>({
@@ -89,8 +87,8 @@ export function PipelineRunsOverview({
   const metrics = useMemo(() => buildPipelineRunOverviewMetrics(branchFilteredRuns), [branchFilteredRuns]);
   const rows = useMemo(() => buildPipelineRunTableRows(branchFilteredRuns), [branchFilteredRuns]);
   const navigationItems = useMemo(
-    () => buildPipelineRunNavigationItems(teams, activeTeamId, teamSearch, expandedTeamIds, collapsedTeamIds),
-    [activeTeamId, collapsedTeamIds, expandedTeamIds, teamSearch, teams]
+    () => buildPipelineRunNavigationItems(teams, activeTeamId, '', expandedTeamIds, collapsedTeamIds),
+    [activeTeamId, collapsedTeamIds, expandedTeamIds, teams]
   );
   const recentHref = useMemo(
     () => buildRecentRunsHref(activeTeamURLValue, searchTerm, sourceFilter, statusFilter),
@@ -135,8 +133,6 @@ export function PipelineRunsOverview({
         navigationItems={navigationItems}
         teamsLoading={teamsLoading}
         teamsError={teamsError}
-        teamSearch={teamSearch}
-        onTeamSearchChange={setTeamSearch}
         onSelectTeam={onSelectTeam}
         onToggleTeam={handleToggleTeam}
       />
@@ -190,8 +186,6 @@ function PipelineRunTeamRail({
   navigationItems,
   teamsLoading,
   teamsError,
-  teamSearch,
-  onTeamSearchChange,
   onSelectTeam,
   onToggleTeam,
 }: {
@@ -199,8 +193,6 @@ function PipelineRunTeamRail({
   navigationItems: ReturnType<typeof buildPipelineRunNavigationItems>;
   teamsLoading: boolean;
   teamsError: string | null;
-  teamSearch: string;
-  onTeamSearchChange: (value: string) => void;
   onSelectTeam: (teamId: number | null) => void;
   onToggleTeam: (item: ReturnType<typeof buildPipelineRunNavigationItems>[number]) => void;
 }) {
@@ -209,15 +201,6 @@ function PipelineRunTeamRail({
       <div className="pipeline-runs-scope-head">
         <h2>Teams and applications</h2>
       </div>
-      <label className="pipeline-runs-scope-search">
-        <Search className="h-4 w-4" aria-hidden="true" />
-        <span className="sr-only">Search pipeline run teams and applications</span>
-        <input
-          value={teamSearch}
-          onChange={event => onTeamSearchChange(event.target.value)}
-          placeholder="Find team or app"
-        />
-      </label>
       <div className="pipeline-runs-scope-list">
         <button
           type="button"

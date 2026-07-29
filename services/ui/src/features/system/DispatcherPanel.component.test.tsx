@@ -60,7 +60,6 @@ test('loads runner scopes and generates an install command through the dispatche
         status={null}
         pendingActions={new Set()}
         pendingEjections={new Set()}
-        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={async () => undefined}
         canManageDispatcher
@@ -111,7 +110,6 @@ test('edits dispatcher routing from the dispatcher panel and saves runtime confi
         status={{ queuedJobs: 0, runners: [], routing: {}, effectiveRouting: {}, fetchedAt: Date.now() }}
         pendingActions={new Set()}
         pendingEjections={new Set()}
-        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={async () => undefined}
         canManageDispatcher
@@ -174,7 +172,6 @@ test('shows previously registered unreachable runners with a warning', () => {
         }}
         pendingActions={new Set()}
         pendingEjections={new Set()}
-        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={async () => undefined}
         canManageDispatcher
@@ -231,7 +228,6 @@ test('offers a permanent runner eject action from runner cards', async () => {
         }}
         pendingActions={new Set()}
         pendingEjections={new Set()}
-        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={onEjectRunner}
         canManageDispatcher
