@@ -252,17 +252,6 @@ export function KnowledgeContextWorkspace({
           <KnowledgeWorkspaceMetricGrid metrics={metrics} />
         )}
         <div className="kc-demo-top-actions">
-          <button
-            type="button"
-            className="kc-demo-primary-btn"
-            onClick={() => {
-              if (activeTab === 'connections') onAddConnection(connectionActionTeam);
-              else onCreateDocument();
-            }}
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            {actionLabel}
-          </button>
           <div className={`pipelines-search-shell kc-demo-global-search-shell ${searchActive ? 'open' : ''}`}>
             <button
               type="button"
@@ -308,6 +297,18 @@ export function KnowledgeContextWorkspace({
               </button>
             ) : null}
           </div>
+          <button
+            type="button"
+            className="kc-demo-primary-btn kc-demo-create-btn"
+            aria-label={actionLabel}
+            title={actionLabel}
+            onClick={() => {
+              if (activeTab === 'connections') onAddConnection(connectionActionTeam);
+              else onCreateDocument();
+            }}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
       </header>
 

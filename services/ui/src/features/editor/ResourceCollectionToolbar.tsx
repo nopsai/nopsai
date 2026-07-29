@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { ChevronLeft, Plus, Search, X } from 'lucide-react';
 
 type ResourceCollectionToolbarProps = {
   resourceLabel: string;
@@ -12,8 +12,6 @@ type ResourceCollectionToolbarProps = {
   createLabel?: string;
   createDisabledReason?: string;
   showCreateWhenDisabled?: boolean;
-  onRefresh?: () => void;
-  refreshDisabled?: boolean;
   summary?: ReactNode;
   filters?: ReactNode;
 };
@@ -29,8 +27,6 @@ export function ResourceCollectionToolbar({
   createLabel,
   createDisabledReason,
   showCreateWhenDisabled = false,
-  onRefresh,
-  refreshDisabled = false,
   summary,
   filters,
 }: ResourceCollectionToolbarProps) {
@@ -107,23 +103,11 @@ export function ResourceCollectionToolbar({
               </button>
             ) : null}
           </div>
-          {onRefresh ? (
-            <button
-              type="button"
-              className="resource-collection-icon-button"
-              aria-label={`Refresh ${plural}`}
-              title={`Refresh ${plural}`}
-              onClick={onRefresh}
-              disabled={refreshDisabled}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            </button>
-          ) : null}
           {canCreate || showCreateWhenDisabled ? (
             <button
               id={`${plural.replace(/\s+/g, '-')}-new-btn`}
               type="button"
-              className="resource-collection-icon-button"
+              className="resource-collection-icon-button resource-collection-create-button"
               aria-label={createButtonLabel}
               title={canCreate ? createLabel || `New ${title}` : createDisabledReason}
               onClick={onCreate}

@@ -64,7 +64,6 @@ type SystemConfigPanelProps = {
   mailSettingsTesting: boolean;
   mailSettingsError: string | null;
   onChange: Dispatch<SetStateAction<ConfigFormState>>;
-  onReload: () => Promise<void>;
   onSave: () => Promise<void>;
   onMailSettingsChange: Dispatch<SetStateAction<NotificationMailSettingsFormState>>;
   onSaveMailSettings: () => Promise<void>;
@@ -437,11 +436,6 @@ export function useSystemConfig({
     return () => window.clearInterval(handle);
   }, [globalConfigRepo?.last_sync_status, globalConfigRepoEnabled, loadGlobalConfigRepository]);
 
-  const reloadConfigTab = useCallback(async () => {
-    if (!runtimeConfigEnabled) return;
-    await Promise.all([loadSystemConfig(), loadMailSettings()]);
-  }, [loadMailSettings, loadSystemConfig, runtimeConfigEnabled]);
-
   return {
     config,
     globalConfigRepoDriftOpen,
@@ -466,7 +460,6 @@ export function useSystemConfig({
       mailSettingsTesting,
       mailSettingsError,
       onChange: setConfig,
-      onReload: reloadConfigTab,
       onSave: saveConfig,
       onMailSettingsChange: setMailSettingsForm,
       onSaveMailSettings: saveMail,

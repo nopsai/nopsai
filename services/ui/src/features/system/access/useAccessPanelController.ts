@@ -114,8 +114,6 @@ export type AccessPanelProps = {
     e: FormEvent<HTMLFormElement>,
     options?: { basicGrants?: BasicGrantInput[] },
   ) => Promise<ServiceAccountToken | null>;
-  onReloadUsers: () => void;
-  onReloadServiceAccounts: () => void;
   onCreatePermission: (e: FormEvent<HTMLFormElement>) => Promise<void>;
   newPermission: { name: string; obj: string; act: string };
   onChangePermission: (next: {
@@ -161,15 +159,12 @@ export type AccessPanelProps = {
     inherit?: boolean;
   }) => Promise<void>;
   onDeleteAccessGrant: (grantID: string) => Promise<void>;
-  onReloadAccessGrants: () => void;
-  onReloadIdentityProviders: () => void;
   onSaveIdentityProviderSettings: (
     settings: IdentityProviderSettings,
     mappings: Record<string, string>,
   ) => Promise<void>;
   onSaveIdentityProvider: (form: IdentityProviderFormState) => Promise<void>;
   onDeleteIdentityProvider: (providerID: string) => Promise<void>;
-  onReloadPolicies: () => void;
   onUpdateUser: (
     userId: string,
     input: { email?: string; status?: string; password?: string },
@@ -233,8 +228,6 @@ export function useAccessPanelController({
   onCreateUser,
   onChangeServiceAccount,
   onCreateServiceAccount,
-  onReloadUsers,
-  onReloadServiceAccounts,
   onCreatePermission,
   newPermission,
   onChangePermission,
@@ -249,12 +242,9 @@ export function useAccessPanelController({
   onCreateAccessGrant,
   onCreateServiceAccountAccessGrant,
   onDeleteAccessGrant,
-  onReloadAccessGrants,
-  onReloadIdentityProviders,
   onSaveIdentityProviderSettings,
   onSaveIdentityProvider,
   onDeleteIdentityProvider,
-  onReloadPolicies,
   onUpdateUser,
   onUpdateServiceAccount,
   onLoadServiceAccountTokens,
@@ -1277,45 +1267,6 @@ export function useAccessPanelController({
     }
   };
 
-  const handleRefresh = useCallback(() => {
-    if (accessMode === "basic") {
-      void onReloadUsers();
-      void onReloadAccessGrants();
-      return;
-    }
-    if (activeSection === "users") {
-      void onReloadUsers();
-      void onReloadAccessGrants();
-      return;
-    }
-    if (activeSection === "service-accounts") {
-      void onReloadServiceAccounts();
-      void onReloadAccessGrants();
-      return;
-    }
-    if (activeSection === "policies") {
-      void onReloadPolicies();
-      return;
-    }
-    if (activeSection === "identity-providers") {
-      void onReloadIdentityProviders();
-      return;
-    }
-    void onReloadUsers();
-    void onReloadServiceAccounts();
-    if (activeSection === "roles") {
-      void onReloadPolicies();
-    }
-  }, [
-    accessMode,
-    activeSection,
-    onReloadAccessGrants,
-    onReloadIdentityProviders,
-    onReloadPolicies,
-    onReloadServiceAccounts,
-    onReloadUsers,
-  ]);
-
   const handleStageBasicGrant = (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
     const creatingUser = showUserModal && !userAccessEditor;
@@ -1716,7 +1667,6 @@ export function useAccessPanelController({
     confirmDeletePolicy,
     confirmDeleteIdentityProvider,
     handleConfirmDialog,
-    handleRefresh,
     handleSaveIdentityProviderSettings,
     handleSaveIdentityProvider,
     handleStageBasicGrant,

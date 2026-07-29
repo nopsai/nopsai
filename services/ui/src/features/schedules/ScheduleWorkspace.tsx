@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import {
-  CalendarClock,
   CheckCircle2,
   Edit3,
   ExternalLink,
   PauseCircle,
   Play,
-  RefreshCw,
+  Plus,
   Trash2,
   X,
 } from 'lucide-react';
@@ -62,7 +61,6 @@ export type ScheduleWorkspaceProps = {
   onClearPipelineFilter: () => void;
   onSelectedScheduleIDChange: (scheduleID: string) => void;
   onCreate: () => void;
-  onRefresh: () => void;
   onEdit: (schedule: PipelineSchedule) => void;
   onEnable: (schedule: PipelineSchedule, enabled: boolean) => void;
   onRun: (schedule: PipelineSchedule) => void;
@@ -86,7 +84,6 @@ export function ScheduleWorkspace({
   onClearPipelineFilter,
   onSelectedScheduleIDChange,
   onCreate,
-  onRefresh,
   onEdit,
   onEnable,
   onRun,
@@ -151,16 +148,13 @@ export function ScheduleWorkspace({
               counts={stateCounts}
               onChange={setStateFilter}
             />
-            <div className="ai-resource-default-control schedule-workspace__scope-card">
-              <span>{pipelineFilter ? 'Pipeline filter' : 'Schedule view'}</span>
-              <strong>{pipelineFilter || 'All pipelines'}</strong>
-              {pipelineFilter ? (
-                <button type="button" onClick={onClearPipelineFilter} aria-label="Clear pipeline filter">
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  Clear
-                </button>
-              ) : null}
-            </div>
+            {pipelineFilter ? (
+              <button type="button" className="schedule-workspace__filter-pill" onClick={onClearPipelineFilter} aria-label="Clear pipeline filter">
+                <span>Pipeline</span>
+                <strong>{pipelineFilter}</strong>
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
           <div className="ai-resource-page-actions schedule-workspace__header-actions">
             <div className="schedule-workspace__header-action-row">
@@ -172,18 +166,26 @@ export function ScheduleWorkspace({
                 onChange={onSearchTermChange}
                 className="schedule-workspace__header-search"
               />
-              <button type="button" className="ai-resource-icon-button" onClick={onRefresh} disabled={loading || saving} aria-label="Reload schedules">
-                <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              </button>
               {canWriteSchedules ? (
-                <button type="button" className="ai-resource-primary-button" onClick={onCreate} disabled={saving}>
-                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
-                  New schedule
+                <button
+                  type="button"
+                  className="ai-resource-primary-button ai-resource-create-button"
+                  aria-label="New schedule"
+                  title="New schedule"
+                  onClick={onCreate}
+                  disabled={saving}
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
                 </button>
               ) : (
-                <button type="button" className="ai-resource-primary-button" disabled title="You have read-only access to schedules">
-                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
-                  New schedule
+                <button
+                  type="button"
+                  className="ai-resource-primary-button ai-resource-create-button"
+                  aria-label="New schedule"
+                  disabled
+                  title="You have read-only access to schedules"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
                 </button>
               )}
             </div>

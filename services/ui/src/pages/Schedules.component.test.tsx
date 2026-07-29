@@ -72,7 +72,8 @@ describe('SchedulesPage modal flows', () => {
     expect(screen.getByRole('region', { name: 'Pipeline schedule workspace' })).toBeVisible();
     expect(screen.getByRole('table', { name: 'Pipeline schedules' })).toBeVisible();
     expect(screen.getByLabelText('Search schedules')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Reload schedules' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Reload schedules' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Schedule view')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Filter by schedule path')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Enabled' })).toBeVisible();
     const opener = screen.getByRole('button', { name: 'New schedule' });

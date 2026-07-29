@@ -104,10 +104,11 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   expect(screen.getByRole('button', { name: 'Select LLM profile hosted' })).toBeVisible();
   expect(screen.queryByLabelText('LLM profile detail')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Resource summary')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Search LLM profiles' }).closest('.ai-resource-page-action-row')).toBe(
-    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
+  expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Search LLM profiles' }).closest('.ai-resource-table-controls')).toBe(
+    screen.getByRole('button', { name: /new profile/i }).closest('.ai-resource-table-controls')
   );
-  expect(screen.getAllByText('Profiles')[0]).toBeVisible();
+  expect(screen.queryByText(/^Profiles$/)).not.toBeInTheDocument();
   expect(screen.queryByText('Credentials')).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'Select LLM profile hosted' }));

@@ -98,13 +98,12 @@ html.dark .teams-page-description {
 
 .teams-toolbar-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
 }
 
-.teams-search,
 .teams-tree-search {
   display: inline-flex;
   min-width: 260px;
@@ -119,12 +118,10 @@ html.dark .teams-page-description {
   box-shadow: none;
 }
 
-html.dark .teams-search,
 html.dark .teams-tree-search {
   border-color: var(--teams-line);
 }
 
-.teams-search input,
 .teams-tree-search input {
   min-width: 0;
   width: 100%;
@@ -135,9 +132,28 @@ html.dark .teams-tree-search {
   font-size: 12px;
 }
 
-.teams-search input::placeholder,
 .teams-tree-search input::placeholder {
   color: var(--teams-muted);
+}
+
+.teams-toolbar-actions .teams-search.ai-resource-search {
+  height: 36px;
+  max-width: min(100%, 220px);
+}
+
+.teams-toolbar-actions .teams-search.ai-resource-search--open {
+  min-width: min(100%, 190px);
+  border-color: #d8e0e8;
+  background: var(--teams-input);
+}
+
+html.dark .teams-toolbar-actions .teams-search.ai-resource-search--open {
+  border-color: var(--teams-line);
+}
+
+.teams-toolbar-actions .teams-search.ai-resource-search input {
+  color: var(--teams-text);
+  font-size: 12px;
 }
 
 .teams-primary-btn,
@@ -163,8 +179,29 @@ html.dark .teams-tree-search {
   box-shadow: none;
 }
 
+.teams-primary-btn.teams-create-btn {
+  width: 36px;
+  height: 36px;
+  border-color: #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.18);
+  padding: 0;
+}
+
 .teams-primary-btn:hover {
   background: var(--teams-primary-hover);
+}
+
+.teams-primary-btn.teams-create-btn:hover {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+}
+
+.teams-primary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .teams-secondary-btn {
@@ -200,6 +237,7 @@ html.dark .teams-icon-btn {
 .teams-primary-btn:focus-visible,
 .teams-secondary-btn:focus-visible,
 .teams-icon-btn:focus-visible,
+.teams-toolbar-actions .teams-search.ai-resource-search:focus-within,
 .teams-breadcrumb__item:focus-visible,
 .teams-tabs button:focus-visible,
 .teams-tree-row:focus-visible,
@@ -1330,13 +1368,12 @@ html.dark .teams-table-resource strong {
     gap: 16px;
   }
 
-  .teams-toolbar-actions,
-  .teams-search {
+  .teams-toolbar-actions {
     width: 100%;
   }
 
-  .teams-search {
-    min-width: 0;
+  .teams-toolbar-actions {
+    justify-content: flex-end;
   }
 
   .teams-stat-grid,

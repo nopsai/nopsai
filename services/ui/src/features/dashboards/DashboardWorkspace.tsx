@@ -64,7 +64,6 @@ type DashboardWorkspaceProps = {
   onSelectDashboard: (id: string) => void;
   onSelectSection: (sectionKey: string) => void;
   sectionTabHref: (sectionKey: string) => string;
-  onReloadDashboards: () => void;
   onCreateDashboard: () => void;
   onEditDashboard: (dashboard: DashboardSummary) => void;
   onDeleteDashboard: (dashboard: DashboardSummary) => void;
@@ -117,7 +116,6 @@ export function DashboardWorkspace({
   onSelectDashboard,
   onSelectSection,
   sectionTabHref,
-  onReloadDashboards,
   onCreateDashboard,
   onEditDashboard,
   onDeleteDashboard,
@@ -210,7 +208,6 @@ export function DashboardWorkspace({
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <ToolbarButton label="Reload dashboards" icon={<RefreshCw className="h-4 w-4" />} onClick={onReloadDashboards} disabled={loading} />
             {canWriteDashboards ? (
               <ToolbarButton label="New dashboard" icon={<Plus className="h-4 w-4" />} onClick={onCreateDashboard} accent />
             ) : null}
@@ -856,12 +853,13 @@ function ScheduleList({
       {canWriteDashboards && onCreateSchedule ? (
         <button
           type="button"
-          className="inline-flex min-h-9 items-center gap-2 rounded-md bg-[var(--accent)] px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="app-create-button"
+          aria-label="New schedule"
+          title="New schedule"
           onClick={onCreateSchedule}
           disabled={saving}
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
-          New schedule
         </button>
       ) : null}
       {schedules.length === 0 ? <EmptyDetail label="No schedules." /> : null}

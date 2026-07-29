@@ -310,10 +310,8 @@ export default function TeamsPage() {
           activeTeam={activeTeam}
           activeTeamPath={activeTeamPath}
           searchTerm={searchTerm}
-          teamsLoading={teamsLoading}
           onSearchTermChange={setSearchTerm}
           onSelectTeam={selectTeam}
-          onRefresh={() => void loadTeams()}
           onCreate={openCreateModal}
           onEditTeam={openEditModal}
           onDeleteTeam={team => void deleteTeamItem(team)}

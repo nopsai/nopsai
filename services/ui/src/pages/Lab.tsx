@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
-import { Check, RefreshCw } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeRuntimePoolNames } from '../features/editor/autocomplete';
 import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
@@ -650,18 +650,6 @@ function LabPage() {
               Pick a stored pipeline, lock in a scope, and launch it with temporary variables to validate behavior quickly.
             </p>
             {pipelinesError && <p className="text-sm text-red-500 mt-2">Failed to load pipelines: {pipelinesError}</p>}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              id="lab-refresh-pipelines"
-              type="button"
-              className="glass-button-ghost"
-              onClick={() => void Promise.all([loadPipelines(), loadAutocomplete(true), loadScopes()])}
-              disabled={pipelinesLoading}
-            >
-              <RefreshCw className={`h-4 w-4 ${pipelinesLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
-              <span>{pipelinesLoading ? 'Refreshing…' : 'Refresh pipelines'}</span>
-            </button>
           </div>
         </div>
       </div>

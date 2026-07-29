@@ -280,7 +280,6 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
         onClearPipelineFilter={clearPipelineFilter}
         onSelectedScheduleIDChange={setSelectedScheduleID}
         onCreate={openCreate}
-        onRefresh={() => void loadSchedules()}
         onEdit={openEdit}
         onEnable={setScheduleEnabled}
         onRun={runNow}

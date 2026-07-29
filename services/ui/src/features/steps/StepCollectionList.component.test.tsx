@@ -62,6 +62,9 @@ test('renders steps in Pipeline Runs style panels and tables', async () => {
   expect(screen.getByRole('complementary', { name: 'Teams' })).toHaveClass('pipeline-runs-scope-rail');
   expect(screen.getByRole('button', { name: /All teams/ })).toHaveClass('pipeline-runs-scope-item--active');
   expect(screen.getByRole('region', { name: 'Reusable steps' })).toHaveClass('pipeline-runs-panel');
+  expect(screen.queryByRole('heading', { name: 'Reusable steps' })).not.toBeInTheDocument();
+  expect(screen.queryByText('2 visible')).not.toBeInTheDocument();
+  expect(screen.queryByText('Reusable workflow step')).not.toBeInTheDocument();
   expect(screen.getByTestId('steps-resource-table')).toHaveClass('pipeline-runs-table', 'resource-collection-table');
   expect(screen.queryByTestId('steps-resource-grid')).not.toBeInTheDocument();
   expect(screen.queryByRole('article')).not.toBeInTheDocument();

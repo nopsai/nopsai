@@ -189,7 +189,7 @@ export function PipelineRunsPageView({
   return (
     <div data-page="pipelineruns" className="active h-full min-h-0 flex flex-col overflow-hidden">
       <div className={`${isViewingDetail ? 'px-4 pt-3' : 'px-4 pt-4'} flex-shrink-0 tabs-nav-wrapper`}>
-        <div className="border-b border-[var(--border-primary)]">
+        <div>
           <div className="flex flex-wrap items-center justify-between gap-3 pipeline-runs-tabs-row">
             <nav className="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
               {tabs.map(tab => (

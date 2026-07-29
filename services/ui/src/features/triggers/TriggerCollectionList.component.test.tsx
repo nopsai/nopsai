@@ -41,6 +41,7 @@ test('renders subtree table rows and tree navigation', async () => {
   );
 
   expect(screen.getByText('Trigger tree')).toBeVisible();
+  expect(screen.queryByText('Trigger list')).not.toBeInTheDocument();
   expect(screen.getByRole('separator', { name: 'Resize trigger tree' })).toBeVisible();
   expect(screen.getByRole('button', { name: /All owners/ })).toBeVisible();
   expect(screen.queryByLabelText('Trigger summary')).not.toBeInTheDocument();

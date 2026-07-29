@@ -63,7 +63,6 @@ export type SystemConfigWorkspaceProps = {
   mailSettingsTesting: boolean;
   mailSettingsError: string | null;
   onChange: (next: ConfigFormState) => void;
-  onReload: () => Promise<void>;
   onSave: () => Promise<void>;
   onMailSettingsChange: Dispatch<SetStateAction<NotificationMailSettingsFormState>>;
   onSaveMailSettings: () => Promise<void>;
@@ -102,7 +101,6 @@ function SystemConfigWorkspace({
   mailSettingsTesting,
   mailSettingsError,
   onChange,
-  onReload,
   onSave,
   onMailSettingsChange,
   onSaveMailSettings,
@@ -670,10 +668,6 @@ function SystemConfigWorkspace({
 
               {canViewRuntimeConfig && (
                 <div className="system-settings-action-bar">
-                  <button className="glass-button-ghost" type="button" onClick={() => void onReload()} disabled={configLoading || saving}>
-                    <RefreshCw className={`h-4 w-4 ${configLoading ? 'animate-spin' : ''}`} />
-                    Reload
-                  </button>
                   <button className="glass-button-primary" type="submit" disabled={!canManageRuntimeConfig || configLoading || saving}>
                     <Save className="h-4 w-4" />
                     {saving ? 'Saving...' : 'Save settings'}
