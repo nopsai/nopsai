@@ -39,11 +39,6 @@ export function SettingsSection({ section, children }: { section: SystemSettings
       role="tabpanel"
       aria-labelledby={`system-settings-tab-${section.id}`}
     >
-      <div className="system-settings-section__header">
-        <p>{section.eyebrow}</p>
-        <h3>{section.title}</h3>
-        <span>{section.description}</span>
-      </div>
       {children}
     </section>
   );

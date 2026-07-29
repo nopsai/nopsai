@@ -35,6 +35,7 @@ export function useAgentProfiles({
 }) {
   const [payload, setPayload] = useState(emptyAgentProfilesPayload);
   const [teamProfilesPayload, setTeamProfilesPayload] = useState<TeamAgentProfilesResponse | null>(null);
+  const [teamProfilesByPath, setTeamProfilesByPath] = useState<Record<string, TeamAgentProfilesResponse>>({});
   const [loading, setLoading] = useState(true);
   const [teamProfilesLoading, setTeamProfilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +48,15 @@ export function useAgentProfiles({
   const [deleteBlocker, setDeleteBlocker] = useState<AgentProfileDeleteBlocker | null>(null);
   const [panelMode, setPanelMode] = useState<AgentProfilePanelMode | null>(null);
   const teamProfilesRequestRef = useRef(0);
+  const teamProfilesCacheRef = useRef<Set<string>>(new Set());
+  const teamProfilesPendingRef = useRef<Set<string>>(new Set());
+
+  const cacheTeamProfilesPayload = useCallback((result: TeamAgentProfilesResponse) => {
+    const normalizedTeamPath = normalizeAIResourceTeamPath(result.team_path || '');
+    if (!normalizedTeamPath) return;
+    teamProfilesCacheRef.current.add(normalizedTeamPath);
+    setTeamProfilesByPath(previous => ({ ...previous, [normalizedTeamPath]: result }));
+  }, []);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -76,18 +86,35 @@ export function useAgentProfiles({
 
     setTeamProfilesLoading(true);
     setTeamProfilesError(null);
+    teamProfilesPendingRef.current.add(normalizedTeamPath);
     try {
       const result = await fetchTeamAgentProfiles(normalizedTeamPath);
       if (teamProfilesRequestRef.current !== requestID) return;
       setTeamProfilesPayload(result);
+      cacheTeamProfilesPayload(result);
     } catch (err) {
       if (teamProfilesRequestRef.current !== requestID) return;
       setTeamProfilesPayload(null);
       setTeamProfilesError(err instanceof Error ? err.message : 'Unable to load team agent profiles');
     } finally {
+      teamProfilesPendingRef.current.delete(normalizedTeamPath);
       if (teamProfilesRequestRef.current === requestID) setTeamProfilesLoading(false);
     }
-  }, []);
+  }, [cacheTeamProfilesPayload]);
+
+  const loadTeamProfilesForTree = useCallback((teamPaths: string[]) => {
+    const paths = Array.from(new Set(teamPaths.map(normalizeAIResourceTeamPath).filter(Boolean)))
+      .filter(teamPath => !teamProfilesCacheRef.current.has(teamPath) && !teamProfilesPendingRef.current.has(teamPath));
+    paths.forEach(teamPath => {
+      teamProfilesPendingRef.current.add(teamPath);
+      void fetchTeamAgentProfiles(teamPath)
+        .then(cacheTeamProfilesPayload)
+        .catch(() => undefined)
+        .finally(() => {
+          teamProfilesPendingRef.current.delete(teamPath);
+        });
+    });
+  }, [cacheTeamProfilesPayload]);
 
   const openView = useCallback((profile: AgentProfileRecord) => {
     setSelectedProfile(profile);
@@ -193,6 +220,7 @@ export function useAgentProfiles({
             }
           }
           setTeamProfilesPayload(result);
+          cacheTeamProfilesPayload(result);
           const scopedID = buildAIResourceScopedID(targetTeamPath, localID);
           const saved = teamAgentProfileRecords(result).find(profile => profile.id === scopedID) || null;
           setSelectedProfile(saved);
@@ -230,7 +258,7 @@ export function useAgentProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, editingID, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles, selectedProfile]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, editingID, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles, selectedProfile]
   );
 
   const deleteProfile = useCallback(
@@ -304,6 +332,7 @@ export function useAgentProfiles({
             enabled: !profile.enabled,
           });
           setTeamProfilesPayload(nextPayload);
+          cacheTeamProfilesPayload(nextPayload);
           const scopedID = buildAIResourceScopedID(teamPath, localID);
           const updated = teamAgentProfileRecords(nextPayload).find(item => item.id === scopedID) || null;
           if (selectedProfile?.id === profile.id) setSelectedProfile(updated);
@@ -328,7 +357,7 @@ export function useAgentProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, selectedProfile?.id]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, selectedProfile?.id]
   );
 
   const setDefaultProfile = useCallback(
@@ -344,7 +373,9 @@ export function useAgentProfiles({
         setSaving(true);
         setError(null);
         try {
-          setTeamProfilesPayload(await setTeamDefaultAgentProfile(teamPath, defaultForAPI));
+          const result = await setTeamDefaultAgentProfile(teamPath, defaultForAPI);
+          setTeamProfilesPayload(result);
+          cacheTeamProfilesPayload(result);
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Unable to set team default agent profile');
         } finally {
@@ -363,12 +394,13 @@ export function useAgentProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, teamProfilesPayload]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, teamProfilesPayload]
   );
 
   return {
     payload,
     teamProfilesPayload,
+    teamProfilesByPath,
     loading,
     teamProfilesLoading,
     error,
@@ -384,6 +416,7 @@ export function useAgentProfiles({
     setPanelMode,
     loadProfiles,
     loadTeamProfiles,
+    loadTeamProfilesForTree,
     openView,
     openUsage,
     openSource,

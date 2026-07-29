@@ -113,7 +113,7 @@ test('filters schedules by search, state, and path', () => {
   );
 });
 
-test('summarizes visible schedule state for overview metrics', () => {
+test('summarizes visible schedule state for count tabs', () => {
   const summary = summarizeSchedules(schedules, schedules);
   assert.equal(summary.total, 2);
   assert.equal(summary.visible, 2);

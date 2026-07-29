@@ -116,7 +116,7 @@ test('uses repository owners with NopsAI teams and migrates legacy team routes',
     expect(locations[locations.length - 1]).toBe('/triggers?team=platform');
   });
   expect(await screen.findByRole('button', { name: /All owners/ })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'All owners / platform' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Open owner platform' })).toHaveClass('active');
   expect(screen.getByRole('columnheader', { name: 'Trigger' })).toBeVisible();
   expect(screen.getByText('external/billing')).toBeVisible();
   expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument();

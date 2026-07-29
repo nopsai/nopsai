@@ -5,12 +5,12 @@ import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { TriggerExplorerTree } from './TriggerExplorerTree';
 import {
-  buildTriggerCollectionMetrics,
   normalizeSource,
   sourceLabel,
   triggerIngressLabel,
   triggerScopesLabel,
   triggerSlugLabel,
+  type TriggerCollectionMetrics,
   type TriggerListItem,
 } from './model';
 import type { TriggerTreeNode } from './treeModel';
@@ -21,9 +21,7 @@ type TriggerCollectionListProps = {
   allTriggers: TriggerListItem[];
   visibleTriggers: TriggerListItem[];
   treeRoot: TriggerTreeNode;
-  activeTreeNode: TriggerTreeNode;
-  activeOwnerPath: string;
-  activeTeamPath: string;
+  activeOwner: string;
   searchTerm: string;
   selectedSlug: string | null;
   canCreateTriggerHere: boolean;
@@ -40,9 +38,7 @@ export function TriggerCollectionList({
   allTriggers,
   visibleTriggers,
   treeRoot,
-  activeTreeNode,
-  activeOwnerPath,
-  activeTeamPath,
+  activeOwner,
   searchTerm,
   selectedSlug,
   canCreateTriggerHere,
@@ -52,8 +48,6 @@ export function TriggerCollectionList({
   onOpenTeam,
   onDeleteTrigger,
 }: TriggerCollectionListProps) {
-  const metrics = buildTriggerCollectionMetrics(allTriggers, activeOwnerPath, activeTeamPath);
-  const activeScopeLabel = triggerCollectionScopeLabel(activeOwnerPath, activeTeamPath);
   const treeResize = useResizableTreeColumn({
     storageKey: 'triggers',
     defaultWidth: 280,
@@ -75,7 +69,6 @@ export function TriggerCollectionList({
       />
       <TreeColumnResizeHandle {...treeResize} label="Resize trigger tree" />
       <section className="triggers-browser-main" aria-label="Trigger collection">
-        <TriggerMetricGrid metrics={metrics} />
         <div className="triggers-list-container">
           {listLoading ? (
             <div className="triggers-workspace-empty">Loading triggers...</div>
@@ -83,21 +76,6 @@ export function TriggerCollectionList({
             <div className="triggers-workspace-empty triggers-workspace-empty--error">Failed to load triggers: {listError}</div>
           ) : (
             <>
-              <div className="triggers-collection-head">
-                <div>
-                  <h3>{searchTerm.trim() ? 'Search results' : activeScopeLabel}</h3>
-                  <p>
-                    {visibleTriggers.length} trigger{visibleTriggers.length === 1 ? '' : 's'}
-                    {searchTerm.trim() ? ` matching "${searchTerm.trim()}"` : ''}
-                  </p>
-                </div>
-                {!searchTerm.trim() && activeTreeNode.children.length ? (
-                  <span className="triggers-badge triggers-badge--neutral">
-                    {activeTreeNode.children.length} nested item{activeTreeNode.children.length === 1 ? '' : 's'}
-                  </span>
-                ) : null}
-              </div>
-
               <div className="triggers-resource-table-shell">
                 {visibleTriggers.length ? (
                   <table className="triggers-resource-table triggers-resource-table--triggers">
@@ -142,7 +120,7 @@ export function TriggerCollectionList({
   );
 }
 
-function TriggerMetricGrid({ metrics }: { metrics: ReturnType<typeof buildTriggerCollectionMetrics> }) {
+export function TriggerMetricGrid({ metrics }: { metrics: TriggerCollectionMetrics }) {
   return (
     <div className="triggers-metrics-grid" aria-label="Trigger summary">
       <TriggerMetric icon={<Zap className="h-4 w-4" aria-hidden="true" />} label="Triggers" value={metrics.total} />

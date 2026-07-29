@@ -103,11 +103,12 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   expect(screen.getByLabelText('LLM profile tree')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Select LLM profile hosted' })).toBeVisible();
   expect(screen.queryByLabelText('LLM profile detail')).not.toBeInTheDocument();
-  expect(screen.getByLabelText('Default LLM profile').closest('.ai-resource-overview-bar')).toBe(
-    screen.getByLabelText('Resource summary').closest('.ai-resource-overview-bar')
+  expect(screen.queryByLabelText('Resource summary')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Search LLM profiles' }).closest('.ai-resource-page-action-row')).toBe(
+    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
   );
   expect(screen.getAllByText('Profiles')[0]).toBeVisible();
-  expect(screen.getByText('Credentials')).toBeVisible();
+  expect(screen.queryByText('Credentials')).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'Select LLM profile hosted' }));
   expect(screen.getByLabelText('LLM profile detail')).toHaveClass('ai-resource-detail-fullscreen-main');
@@ -315,9 +316,21 @@ test('applies the team filter from the route query', async () => {
     </MemoryRouter>
   );
 
-  expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
+  expect(await screen.findByRole('button', { name: 'Open team platform/ml' })).toHaveClass('active');
   await waitFor(() => expect(teamProfileMocks.fetchTeamLLMProfiles).toHaveBeenCalledWith('platform/ml'));
   const profileList = screen.getByLabelText('LLM profiles');
   expect(within(profileList).getByText('platform/ml/reasoning')).toBeVisible();
   expect(within(profileList).queryByText('hosted')).not.toBeInTheDocument();
+});
+
+test('counts cached team-owned LLM profiles in the tree', async () => {
+  render(
+    <MemoryRouter>
+      <LLMProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const teamButton = await screen.findByRole('button', { name: 'Open team platform/ml' });
+  await waitFor(() => expect(teamProfileMocks.fetchTeamLLMProfiles).toHaveBeenCalledWith('platform/ml'));
+  await waitFor(() => expect(within(teamButton).getByText('2')).toBeVisible());
 });

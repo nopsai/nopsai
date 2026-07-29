@@ -1,4 +1,4 @@
-import { Copy, ExternalLink, KeyRound, Link2, PencilLine, Plug, Power, PowerOff, RefreshCw, Trash2, X } from 'lucide-react';
+import { Copy, ExternalLink, KeyRound, Link2, PencilLine, Power, PowerOff, RefreshCw, Trash2, X } from 'lucide-react';
 
 import { ObjectIcon } from '../../components/ObjectIcon';
 import {
@@ -56,9 +56,6 @@ export function KnowledgeContextConnectionsView({
     : connectionTeams;
   const activeRows = visibleTeams.flatMap(team => team.connections.map(connection => ({ connection, teamPath: team.teamPath })));
   const activeConnections = activeRows.map(row => row.connection);
-  const connectedCount = activeConnections.filter(connection => connection.status === 'connected' && !connection.disabled).length;
-  const authRequiredCount = activeConnections.filter(connection => connection.status === 'authentication_required').length;
-  const disabledCount = activeConnections.filter(connection => connection.disabled).length;
   const selectedRow = activeRows.find(row => row.connection.id === selectedConnectionID) || null;
 
   if (listLoading) {
@@ -87,33 +84,6 @@ export function KnowledgeContextConnectionsView({
 
   return (
     <section id="knowledge-context-connections-view" className="kc-demo-detail" aria-label="Knowledge Context connections">
-      <div className="kc-demo-card kc-demo-detail-head kc-connection-head">
-        <div className="kc-demo-resource-head">
-          <div className="kc-demo-resource-title">
-            <span className="kc-demo-resource-icon kc-demo-resource-icon--green" aria-hidden="true">
-              <Plug className="h-5 w-5" />
-            </span>
-            <div>
-              <div className="kc-demo-resource-heading-line">
-                <h2>Connections</h2>
-                <span className="kc-demo-status">{activeConnections.length} configured</span>
-              </div>
-              <div className="kc-demo-resource-sub">
-                <span>{visibleTeams.length} team {visibleTeams.length === 1 ? 'scope' : 'scopes'}</span>
-                <span>{connectedCount} connected</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="kc-demo-top-grid kc-connection-summary-grid">
-        <ConnectionSummaryCard label="Configured" value={String(activeConnections.length)} tone="green" icon="credential" />
-        <ConnectionSummaryCard label="Connected" value={String(connectedCount)} tone="blue" icon="team" />
-        <ConnectionSummaryCard label="Auth required" value={String(authRequiredCount)} tone="purple" icon="knowledge-context" />
-        <ConnectionSummaryCard label="Disabled" value={String(disabledCount)} tone="cyan" icon="team" />
-      </div>
-
       <div className="kc-connection-browser-grid">
         <div className="kc-demo-card kc-demo-usage kc-connection-table-card">
           <div className="kc-demo-table-wrap">
@@ -355,16 +325,4 @@ function connectionKnowledgeContextCount(connection: KnowledgeConnectionListItem
 
 function knowledgeContextShortName(id: string) {
   return id.split('/').filter(Boolean).pop() || id;
-}
-
-function ConnectionSummaryCard({ label, value, tone, icon }: { label: string; value: string; tone: string; icon: 'credential' | 'team' | 'knowledge-context' }) {
-  return (
-    <article className="kc-demo-stat">
-      <span className={`kc-demo-stat-icon kc-demo-stat-icon--${tone}`} aria-hidden="true">
-        <ObjectIcon type={icon} />
-      </span>
-      <span className="kc-demo-stat-label">{label}</span>
-      <strong>{value}</strong>
-    </article>
-  );
 }

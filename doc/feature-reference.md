@@ -237,8 +237,8 @@ Pipeline schedules are first-class resources for time-based automation:
 - each schedule has a resource team path, optional run team path, schedule
   kind, cron expression or one-time timestamp, timezone, enabled state,
   optional scope, and optional variable overrides
-- the schedule page uses a run-team path tree, registry table, overview
-  metrics, and a detail panel for visible schedules with cadence, next run
+- the schedule page uses a run-team path tree, counted state tabs, a registry
+  table, and a detail panel for visible schedules with cadence, next run
   time, latest run status, runtime ownership, variable overrides, GitOps
   source, and links to the latest pipeline run. When `run_team_path` is set, it
   owns the browser grouping even if the selected pipeline lives under another
@@ -567,11 +567,11 @@ Sync behavior:
   matching repository apps to the team structure during sync, and matching
   historical runs under the parent team/root are reassigned to the app
 - auth settings GitOps is system/global only and binds provider credential references
-- runtime settings GitOps is system/global only; Settings Config owns persisted
+- runtime settings GitOps is system/global only; System config owns persisted
   runtime defaults, mail settings, and the global config repository workspace,
   while `dispatcher_routing` changes are persisted and applied by the live
   dispatcher through the control-plane sync path
-- Runtime pool management in Settings Config uses a focused pool selector with
+- Runtime pool management in System config uses a focused pool selector with
   per-pool Kubernetes node selector, resource request, and resource limit maps;
   the saved values remain part of the system/global runtime settings GitOps
   payload.
@@ -940,16 +940,16 @@ Pages present in the current UI:
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Monitoring`: tabbed operational analytics with `/monitoring/<tab>` links and query-backed filters for time, team, status, comparison, and run drilldowns
 - `Dashboards`: dashboard detail routes under `/dashboards/<dashboard-ref>` with section tabs as URL view state
-- `Schedules`: LLM-profile-style schedule workspace with run-team path tree, left-aligned state filters, compact header search, registry table, overview metrics, detail panel, pipeline-filtered view, enable/disable, run now, latest-run link, and GitOps markers
-- `Triggers`: trigger override browser/editor with an owner/team tree and list scopes derived from trigger manifests
-- `External API` and `Git webhooks`: event automation resource workspaces with nested detail routes for selected triggers and webhook sources
+- `Schedules`: LLM-profile-style schedule workspace with run-team path tree, left-aligned counted state filters, compact header search, registry table, detail panel, pipeline-filtered view, enable/disable, run now, latest-run link, and GitOps markers
+- `Triggers`: trigger override browser/editor with top-toolbar metrics, owner/team tree navigation, and list scopes derived from trigger manifests
+- `External API` and `Git webhooks`: event automation resource workspaces with top-toolbar metrics and nested detail routes for selected triggers and webhook sources
 - `Scopes`: steps-style team tree and table browsing for scopes, plus a selected-scope detail workspace with summary metrics, combined variable/secret search and type filters, selected-item value inspection, usage relationships, scope use-access controls, GitOps encryption entry points, and collapsible registered runner assignments for the selected scope
 - `Teams`: team/application hierarchy, team-owned resources, config repository controls, and registered runner assignments for the team scope and subgroup scopes
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
-- `Knowledge Context`: kind/team/document browser, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
+- `Knowledge Context`: kind/team/document browser, top-toolbar document/connection metrics, magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
+- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management, compact Credentials registry with top-toolbar metrics/search, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts and no header metric boxes, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 
