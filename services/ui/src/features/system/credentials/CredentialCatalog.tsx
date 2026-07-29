@@ -1,5 +1,5 @@
-import { ChevronDown, Globe2, KeyRound, ListFilter, MoreVertical, Users } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ChevronDown, Globe2, KeyRound, ListFilter, MoreVertical, Search, Users, X } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
 import type { CredentialCatalogGroup, CredentialRecord } from './model';
 import { credentialReferenceDisplay } from './model';
 import { formatCredentialDate, formatCredentialLabel, formatCredentialScopeLabel } from './presentation';
@@ -15,10 +15,12 @@ type CredentialCatalogProps = {
   groups: CredentialCatalogGroup[];
   scopeTabs: CredentialScopeTab[];
   selectedID?: string;
+  query: string;
   scope: string;
   grouped: boolean;
   loading: boolean;
   teamPaths: string[];
+  onQueryChange: (value: string) => void;
   onScopeChange: (value: string) => void;
   onGroupedChange: (value: boolean) => void;
   onSelect: (credential: CredentialRecord) => void;
@@ -28,14 +30,19 @@ export function CredentialCatalog({
   groups,
   scopeTabs,
   selectedID,
+  query,
   scope,
   grouped,
   loading,
   teamPaths,
+  onQueryChange,
   onScopeChange,
   onGroupedChange,
   onSelect,
 }: CredentialCatalogProps) {
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchActive = searchOpen || Boolean(query.trim());
   const visibleCount = groups.reduce((count, group) => count + group.credentials.length, 0);
   const allRows = groups.flatMap(group => group.credentials.map(credential => ({ credential, group })));
 
@@ -62,15 +69,62 @@ export function CredentialCatalog({
             );
           })}
         </div>
-        <button
-          type="button"
-          className="credential-registry__button credential-registry__button--ghost credential-registry__button--small"
-          aria-pressed={grouped}
-          onClick={() => onGroupedChange(!grouped)}
-        >
-          <ListFilter className="h-4 w-4" aria-hidden="true" />
-          {grouped ? 'Flat list' : 'Group by scope'}
-        </button>
+        <div className="credential-registry__catalog-actions">
+          <div className={`pipelines-search-shell credential-registry__search-shell ${searchActive ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="pipelines-search-toggle"
+              aria-label="Search credentials"
+              title="Search credentials"
+              onClick={() => {
+                setSearchOpen(true);
+                requestAnimationFrame(() => searchInputRef.current?.focus());
+              }}
+            >
+              <Search className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <input
+              ref={searchInputRef}
+              type="search"
+              className="pipelines-search-input"
+              aria-label="Search credentials query"
+              placeholder="Search credentials"
+              value={query}
+              onFocus={() => setSearchOpen(true)}
+              onChange={event => {
+                onQueryChange(event.target.value);
+                if (event.target.value && !searchOpen) setSearchOpen(true);
+              }}
+              onBlur={() => {
+                if (!query.trim()) setSearchOpen(false);
+              }}
+            />
+            {query || searchOpen ? (
+              <button
+                type="button"
+                className="pipelines-search-clear"
+                aria-label="Clear search"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => {
+                  onQueryChange('');
+                  setSearchOpen(false);
+                  searchInputRef.current?.blur();
+                }}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="credential-registry__button credential-registry__button--ghost credential-registry__button--small"
+            aria-pressed={grouped}
+            onClick={() => onGroupedChange(!grouped)}
+          >
+            <ListFilter className="h-4 w-4" aria-hidden="true" />
+            {grouped ? 'Flat list' : 'Group by scope'}
+          </button>
+        </div>
       </div>
 
       <div className="credential-registry__table-card">

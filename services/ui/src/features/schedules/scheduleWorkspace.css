@@ -7,10 +7,6 @@
   padding-top: 12px;
 }
 
-.schedule-workspace__scope-card {
-  position: relative;
-}
-
 .schedule-workspace .schedule-workspace__header-actions {
   display: flex;
   align-self: center;
@@ -33,7 +29,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .schedule-workspace .ai-resource-icon-button,
@@ -50,23 +46,46 @@
   padding: 0 12px;
 }
 
-.schedule-workspace__header-search.ai-resource-search--open {
-  min-width: min(100%, 218px);
+.schedule-workspace .ai-resource-create-button {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border-color: #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  padding: 0;
 }
 
-.schedule-workspace__scope-card button {
+.schedule-workspace__header-search.ai-resource-search--open {
+  min-width: min(100%, 190px);
+}
+
+.schedule-workspace__filter-pill {
   display: inline-flex;
-  width: max-content;
-  min-height: 24px;
+  max-width: min(100%, 340px);
+  min-height: 30px;
   align-items: center;
-  gap: 5px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
+  gap: 7px;
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  background: var(--bg-primary);
   color: var(--text-link);
-  padding: 0;
+  padding: 0 9px;
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.schedule-workspace__filter-pill span {
+  color: var(--text-secondary);
+}
+
+.schedule-workspace__filter-pill strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .schedule-workspace__state-filter {
@@ -115,6 +134,10 @@
 
 .schedule-workspace__table {
   min-width: 820px;
+}
+
+.schedule-workspace .ai-resource-browser-list {
+  padding-top: 0;
 }
 
 .schedule-workspace__table td:nth-child(3),
@@ -262,7 +285,7 @@
 
 .schedule-workspace__path-filter select:focus,
 .schedule-workspace__state-filter button:focus-visible,
-.schedule-workspace__scope-card button:focus-visible,
+.schedule-workspace__filter-pill:focus-visible,
 .schedule-workspace__latest-run-link:focus-visible,
 .schedule-detail__link-button:focus-visible {
   outline: 2px solid var(--border-accent);

@@ -37,7 +37,7 @@ export function ScopeCollectionList({
   if (listLoading) {
     return (
       <ScopeWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
-        <ResourcePanel title="Scopes" countLabel="Loading">
+        <ResourcePanel title="Scopes" countLabel="Loading" showHeader={false}>
           <div className="pipeline-runs-empty-state">Loading scopes...</div>
         </ResourcePanel>
       </ScopeWorkspace>
@@ -47,7 +47,7 @@ export function ScopeCollectionList({
   if (listError) {
     return (
       <ScopeWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
-        <ResourcePanel title="Scopes" countLabel="Error">
+        <ResourcePanel title="Scopes" countLabel="Error" showHeader={false}>
           <div className="pipeline-runs-empty-state text-red-500">Failed to load scopes: {listError}</div>
         </ResourcePanel>
       </ScopeWorkspace>
@@ -57,7 +57,7 @@ export function ScopeCollectionList({
   return (
     <ScopeWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
       <div id="scopes-list-view" className="pipelines-view pipeline-runs-content-grid">
-        <ResourcePanel title="Scopes" countLabel={`${visibleScopes.length} visible`}>
+        <ResourcePanel title="Scopes" countLabel={`${visibleScopes.length} visible`} showHeader={false}>
           {visibleScopes.length ? (
             <ScopeTable
               scopes={visibleScopes}
@@ -109,21 +109,29 @@ function ScopeWorkspace({
 function ResourcePanel({
   title,
   countLabel,
+  showHeader = true,
   children,
 }: {
   title: string;
   countLabel: string;
+  showHeader?: boolean;
   children: ReactNode;
 }) {
   const titleID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-title`;
   return (
-    <section className="pipeline-runs-panel resource-collection-panel" aria-labelledby={titleID}>
-      <header className="pipeline-runs-panel-head">
-        <div className="pipeline-runs-panel-title">
-          <h2 id={titleID}>{title}</h2>
-          <span>{countLabel}</span>
-        </div>
-      </header>
+    <section
+      className="pipeline-runs-panel resource-collection-panel"
+      aria-labelledby={showHeader ? titleID : undefined}
+      aria-label={showHeader ? undefined : title}
+    >
+      {showHeader ? (
+        <header className="pipeline-runs-panel-head">
+          <div className="pipeline-runs-panel-title">
+            <h2 id={titleID}>{title}</h2>
+            <span>{countLabel}</span>
+          </div>
+        </header>
+      ) : null}
       {children}
     </section>
   );
@@ -178,7 +186,6 @@ function ScopeRow({
   onSelectScope: (scopeLabel: string) => void;
 }) {
   const displayName = scope.label || formatScopeDisplay(scope.scope);
-  const scopeLabel = formatScopeDisplay(scope.scope);
   const variableCount = data?.variablesLoaded ? data.variables.length : 0;
   const secretCount = data?.secretsLoaded ? data.secrets.length : scope.secretCountHint;
   const variableLabel = `${variableCount} variable${variableCount === 1 ? '' : 's'}`;
@@ -190,7 +197,6 @@ function ScopeRow({
       <td>
         <button type="button" className="pipeline-runs-table-title" onClick={() => onSelectScope(scope.scope)}>
           <span title={displayName}>{displayName}</span>
-          <small>{scopeLabel}</small>
         </button>
       </td>
       <td>

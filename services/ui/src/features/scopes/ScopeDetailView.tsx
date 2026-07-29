@@ -187,13 +187,14 @@ export function ScopeDetailView({
             <div className="scope-detail-create-action">
               <button
                 type="button"
-                className="scope-detail-action scope-detail-action--primary"
+                className="scope-detail-action scope-detail-action--primary scope-detail-create-button"
+                aria-label="New item"
+                title="New item"
                 aria-haspopup="menu"
                 aria-expanded={createMenuOpen}
                 onClick={() => setCreateMenuOpen(open => !open)}
               >
                 <Plus className="h-4 w-4" aria-hidden="true" />
-                <span>New item</span>
               </button>
               {createMenuOpen ? (
                 <div className="scope-detail-create-menu" role="menu" aria-label="Create scoped item">

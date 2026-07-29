@@ -137,6 +137,7 @@ test('renders redesigned pipeline run overview and delegates user actions', asyn
   expect(screen.getByRole('link', { name: /view all/i })).toHaveAttribute('href', '/pipelineruns/recent');
   expect(screen.getByRole('link', { name: 'Show pipelines that need attention' })).toHaveAttribute('href', '/pipelineruns/recent?status=attention');
   expect(screen.getByRole('separator', { name: 'Resize pipeline run team tree' })).toBeVisible();
+  expect(screen.queryByPlaceholderText('Find team or app')).not.toBeInTheDocument();
 
   expect(screen.getByRole('button', { name: 'Open team Platform' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Open team Payments' })).toBeVisible();

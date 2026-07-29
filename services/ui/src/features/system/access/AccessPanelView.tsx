@@ -1,4 +1,4 @@
-import { Plus, RefreshCw, Search, X } from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import { ACCESS_UI_BUILD_ID, ROOT_ACCESS_SCOPE } from "./model";
 import { AccessConfirmationDialog } from "./AccessConfirmationDialog";
 import {
@@ -155,7 +155,6 @@ export function AccessPanelView({
     confirmDeletePolicy,
     confirmDeleteIdentityProvider,
     handleConfirmDialog,
-    handleRefresh,
     handleSaveIdentityProviderSettings,
     handleSaveIdentityProvider,
     handleStageBasicGrant,
@@ -414,20 +413,6 @@ export function AccessPanelView({
                 <span className="access-mode-switch__title">Advanced</span>
               </button>
             </div>
-            <button
-              className="glass-button-ghost access-toolbar-btn"
-              type="button"
-              onClick={handleRefresh}
-              disabled={
-                loading ||
-                serviceAccountsLoading ||
-                accessGrantsLoading ||
-                policiesLoading
-              }
-            >
-              <RefreshIcon />
-              <span>Refresh</span>
-            </button>
           </div>
         </div>
 
@@ -632,10 +617,6 @@ export function AccessPanelView({
 
 function PlusIcon() {
   return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
-}
-
-function RefreshIcon() {
-  return <RefreshCw className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function SearchIcon() {

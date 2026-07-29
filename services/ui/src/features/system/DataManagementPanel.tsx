@@ -9,7 +9,6 @@ import {
   PauseCircle,
   PlayCircle,
   Plus,
-  RefreshCw,
   Save,
   Trash2,
   X,
@@ -37,7 +36,6 @@ function DataManagementPanel({ canManage }: { canManage: boolean }) {
     backups,
     jobs,
     schedules,
-    loading,
     backupType,
     setBackupType,
     manualForm,
@@ -49,7 +47,6 @@ function DataManagementPanel({ canManage }: { canManage: boolean }) {
     previewReady,
     busy,
     toast,
-    loadAll,
     createBackup,
     downloadBackup,
     deleteBackup,
@@ -71,10 +68,6 @@ function DataManagementPanel({ canManage }: { canManage: boolean }) {
           <p className="text-xs uppercase tracking-[0.16em] text-[var(--text-secondary)]">System Data</p>
           <h3 className="text-xl font-semibold text-[var(--text-primary)]">Data Management</h3>
         </div>
-        <button type="button" className="glass-button-ghost inline-flex items-center gap-2" onClick={() => void loadAll()} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
       </div>
 
       {toast && (

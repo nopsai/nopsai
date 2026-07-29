@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Bell, CheckCircle2, Download, Play, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bell, CheckCircle2, Download, Play, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { MonitoringDashboard } from '../features/monitoring/MonitoringDashboard';
 import {
@@ -553,9 +553,6 @@ function MonitoringPage() {
             </button>
             <button type="button" onClick={saveView} title="Save local view" aria-label="Save local view" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]">
               <Save className="h-4 w-4" />
-            </button>
-            <button type="button" onClick={() => void loadMonitoringData()} disabled={loading} title="Refresh" aria-label="Refresh" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-60">
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </section>

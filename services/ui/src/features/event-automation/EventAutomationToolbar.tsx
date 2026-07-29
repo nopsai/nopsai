@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Plus, Search, X } from 'lucide-react';
 import { EventAutomationSwitch, type EventAutomationResource } from './EventAutomationSwitch';
 
 type EventAutomationToolbarProps = {
@@ -14,9 +14,6 @@ type EventAutomationToolbarProps = {
   onCreate: () => void;
   createDisabledReason?: string;
   showCreateWhenDisabled?: boolean;
-  onRefresh?: () => void;
-  refreshLabel?: string;
-  refreshDisabled?: boolean;
   filters?: ReactNode;
   summary?: ReactNode;
 };
@@ -33,16 +30,12 @@ export function EventAutomationToolbar({
   showCreateWhenDisabled = false,
   onSearchTermChange,
   onCreate,
-  onRefresh,
-  refreshLabel,
-  refreshDisabled = false,
   filters,
   summary,
 }: EventAutomationToolbarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const hasTitle = Boolean(title || description);
-  const resolvedRefreshLabel = refreshLabel || (title ? `Refresh ${title}` : 'Refresh');
   const searchActive = searchOpen || Boolean(searchTerm.trim());
 
   return (
@@ -104,29 +97,16 @@ export function EventAutomationToolbar({
             ) : null}
           </div>
           {filters}
-          {onRefresh ? (
-            <button
-              type="button"
-              className="triggers-icon-button"
-              aria-label={resolvedRefreshLabel}
-              title={resolvedRefreshLabel}
-              onClick={onRefresh}
-              disabled={refreshDisabled}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            </button>
-          ) : null}
           {canCreate || showCreateWhenDisabled ? (
             <button
               type="button"
-              className={canCreate ? 'glass-button-primary' : 'triggers-icon-button'}
+              className="glass-button-primary triggers-create-button"
               aria-label={createLabel}
               title={canCreate ? createLabel : createDisabledReason}
               onClick={onCreate}
               disabled={!canCreate}
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
-              {canCreate ? <span>{createLabel}</span> : null}
             </button>
           ) : null}
         </div>

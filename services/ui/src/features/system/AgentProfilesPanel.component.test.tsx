@@ -124,10 +124,11 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   expect(screen.getByRole('button', { name: 'Select agent profile DevOps Engineer' })).toBeVisible();
   expect(screen.queryByLabelText('Agent profile detail')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Resource summary')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Search agent profiles' }).closest('.ai-resource-page-action-row')).toBe(
-    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
+  expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Search agent profiles' }).closest('.ai-resource-table-controls')).toBe(
+    screen.getByRole('button', { name: /new profile/i }).closest('.ai-resource-table-controls')
   );
-  expect(screen.getAllByText('Profiles')[0]).toBeVisible();
+  expect(screen.queryByText(/^Profiles$/)).not.toBeInTheDocument();
   expect(screen.queryByText('Pipeline refs')).not.toBeInTheDocument();
   expect(screen.queryByText('Operates deployments and CI/CD.')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();

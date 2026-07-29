@@ -134,10 +134,11 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getByLabelText('MCP server tree')).toBeVisible();
   expect(await screen.findByRole('button', { name: 'Select MCP server GitHub MCP' })).toBeVisible();
   expect(screen.queryByLabelText('MCP server detail')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Search MCP servers' }).closest('.ai-resource-page-action-row')).toBe(
-    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
+  expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Search MCP servers' }).closest('.ai-resource-table-controls')).toBe(
+    screen.getByRole('button', { name: /new server/i }).closest('.ai-resource-table-controls')
   );
-  expect(screen.getAllByText('Servers')[0]).toBeVisible();
+  expect(screen.getByRole('tab', { name: 'Servers' })).toBeVisible();
   expect(screen.queryByText('Discovered tools')).not.toBeInTheDocument();
   expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
   expect(screen.queryByRole('columnheader', { name: 'Transport' })).not.toBeInTheDocument();
@@ -173,8 +174,9 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
   expect(screen.queryByLabelText('MCP profile detail')).not.toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveClass('ai-resource-view-switch__item');
-  expect(screen.getByRole('button', { name: 'Search MCP profiles' }).closest('.ai-resource-page-action-row')).toBe(
-    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
+  expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Search MCP profiles' }).closest('.ai-resource-table-controls')).toBe(
+    screen.getByRole('button', { name: /new profile/i }).closest('.ai-resource-table-controls')
   );
   expect(screen.queryByText('Approved tools')).not.toBeInTheDocument();
 

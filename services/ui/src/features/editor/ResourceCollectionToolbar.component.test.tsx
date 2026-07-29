@@ -72,9 +72,7 @@ test('hides creation and disables team navigation when access or context is miss
   expect(screen.queryByRole('button', { name: 'Create new step' })).not.toBeInTheDocument();
 });
 
-test('supports resource page actions, filters, summaries, and visible read-only creation', async () => {
-  const user = userEvent.setup();
-  const onRefresh = vi.fn();
+test('supports resource page actions, filters, summaries, and visible read-only creation', () => {
   const { container } = render(
     <ResourceCollectionToolbar
       resourceLabel="schedule"
@@ -85,7 +83,6 @@ test('supports resource page actions, filters, summaries, and visible read-only 
       showCreateWhenDisabled
       summary={<span>3 total</span>}
       filters={<label><input type="checkbox" /> Show disabled</label>}
-      onRefresh={onRefresh}
       onSearchTermChange={() => undefined}
       onCreate={() => undefined}
     />
@@ -101,10 +98,8 @@ test('supports resource page actions, filters, summaries, and visible read-only 
   expect(leading).not.toBeNull();
   expect(actions).not.toBeNull();
   expect(leading).toContainElement(screen.getByLabelText('Show disabled'));
-  expect(actions).toContainElement(screen.getByRole('button', { name: 'Refresh schedules' }));
+  expect(screen.queryByRole('button', { name: 'Refresh schedules' })).not.toBeInTheDocument();
   expect(actions).toContainElement(screen.getByRole('button', { name: 'New schedule' }));
   expect(screen.getByRole('button', { name: 'New schedule' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'New schedule' })).toHaveAttribute('title', 'Read-only schedules');
-  await user.click(screen.getByRole('button', { name: 'Refresh schedules' }));
-  expect(onRefresh).toHaveBeenCalledOnce();
 });

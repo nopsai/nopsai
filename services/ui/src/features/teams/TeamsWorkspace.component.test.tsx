@@ -329,10 +329,8 @@ function renderWorkspace(overrides: Partial<Parameters<typeof TeamsWorkspace>[0]
     activeTeam: teams[0],
     activeTeamPath: [teams[0]],
     searchTerm: '',
-    teamsLoading: false,
     onSearchTermChange: vi.fn(),
     onSelectTeam: vi.fn(),
-    onRefresh: vi.fn(),
     onCreate: vi.fn(),
     onEditTeam: vi.fn(),
     onDeleteTeam: vi.fn(),
@@ -362,6 +360,8 @@ describe('TeamsWorkspace', () => {
     const props = renderWorkspace();
 
     expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Search teams' }).closest('.teams-search')).toHaveClass('ai-resource-search');
+    expect(screen.queryByRole('button', { name: 'Refresh teams' })).not.toBeInTheDocument();
     expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();
     expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
     const overviewCard = screen.getByRole('heading', { name: 'Team Overview' }).closest('article');

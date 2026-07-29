@@ -78,11 +78,13 @@ test('renders scopes in the shared resource collection rail and table design', a
   expect(screen.getByRole('complementary', { name: 'Teams' })).toHaveClass('pipeline-runs-scope-rail');
   expect(screen.getByRole('button', { name: /All teams/ })).toHaveClass('pipeline-runs-scope-item--active');
   expect(screen.getByRole('region', { name: 'Scopes' })).toHaveClass('pipeline-runs-panel');
+  expect(screen.queryByRole('heading', { name: 'Scopes' })).not.toBeInTheDocument();
+  expect(screen.queryByText('2 visible')).not.toBeInTheDocument();
   expect(screen.getByTestId('scopes-resource-table')).toHaveClass('pipeline-runs-table', 'resource-collection-table');
   expect(screen.queryByRole('article')).not.toBeInTheDocument();
   expect(screen.getByText('2 variables')).toBeVisible();
   expect(screen.getByText('3 secrets')).toBeVisible();
-  expect(screen.getByText('platform/dev')).toBeVisible();
+  expect(screen.getAllByText('platform/dev').length).toBeGreaterThanOrEqual(2);
 
   await user.click(screen.getByRole('button', { name: 'Open scope dev' }));
   expect(onSelectScope).toHaveBeenCalledWith('platform/dev');

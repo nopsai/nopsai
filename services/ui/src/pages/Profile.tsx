@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Copy, KeyRound, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { Copy, KeyRound, Plus, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   changePassword,
@@ -399,16 +399,6 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
                   <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">Personal tokens</p>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    className="glass-button-ghost inline-flex items-center gap-2"
-                    type="button"
-                    onClick={() => void loadTokens()}
-                    disabled={tokenLoading}
-                    title="Refresh tokens"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${tokenLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
-                    <span>Refresh</span>
-                  </button>
                   <button
                     className="glass-button-subtle inline-flex items-center gap-2"
                     type="button"

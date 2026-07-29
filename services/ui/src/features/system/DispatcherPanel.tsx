@@ -37,7 +37,6 @@ function DispatcherPanel({
   status,
   pendingActions,
   pendingEjections,
-  onRefresh,
   onToggleRunnerDispatch,
   onEjectRunner,
   canManageDispatcher,
@@ -56,7 +55,6 @@ function DispatcherPanel({
   status: DispatcherStatusState | null;
   pendingActions: Set<string>;
   pendingEjections: Set<string>;
-  onRefresh: () => void;
   onToggleRunnerDispatch: (runner: Runner) => Promise<void>;
   onEjectRunner: (runner: Runner) => Promise<void>;
   canManageDispatcher: boolean;
@@ -94,10 +92,6 @@ function DispatcherPanel({
             <Clock3 className="h-4 w-4" />
             {updatedLabel}
           </span>
-          <button className="glass-button-ghost" type="button" onClick={onRefresh} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
           <Link
             to={`/system/dispatcher?${RUNNER_DEPLOYMENT_GUIDE_QUERY}=${RUNNER_DEPLOYMENT_GUIDE_VALUE}`}
             className="glass-button-primary whitespace-nowrap"

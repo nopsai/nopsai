@@ -42,7 +42,7 @@ describe('ExternalTriggersPage create action', () => {
 
     const opener = screen.getByRole('button', { name: 'New trigger' });
     expect(screen.getByRole('button', { name: 'Search external triggers' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Refresh External API triggers' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Refresh External API triggers' })).not.toBeInTheDocument();
     expect(screen.queryByText('Event automation')).not.toBeInTheDocument();
     expect(screen.queryByText('External API triggers')).not.toBeInTheDocument();
     expect(screen.queryByText('Authenticated invocation endpoints with caller policy, payload mapping, and audit history.')).not.toBeInTheDocument();

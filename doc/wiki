@@ -91,14 +91,18 @@ standalone routes, authored documentation, or genuinely framed previews, not
 normal tables, cards, trees, modals, or split panes. Summary and metric cards
 align icon, label, and value on one row when they fit, with secondary hints
 below. Collection and AI resource searches use a compact magnifier-first control
-that expands on click; scan-first filters stay left aligned where they anchor the
-list. Event automation tabs, Knowledge Context, and Credentials keep summary
+that expands left from a fixed icon without reflowing toolbar rows; scan-first
+filters stay left aligned where they anchor the list, and page-level create
+actions render as consistent 36px blue icon-only plus buttons with accessible labels. Event automation tabs,
+Knowledge Context, and Credentials keep summary
 boxes in the top toolbar when space allows, with tree or tab navigation owning
 duplicated scope filtering. LLM, Agent, and MCP pages keep the default profile
-or MCP tab control on the left, no summary boxes, and the magnifier immediately
-before Reload. Their team tree counts include cached team-owned profiles.
+or MCP tab control on the left, no summary boxes, and compact list-header
+search/create actions without a generic Reload button. Their team tree counts
+include cached team-owned profiles.
 Schedules use counted state tabs instead of separate summary boxes so
-All/Enabled/Disabled/GitOps/One-time stays left aligned above the schedule tree.
+All/Enabled/Disabled/GitOps/One-time stays left aligned above the schedule tree;
+the Schedule view card is not shown.
 
 Pipeline detail documentation must stay aligned with the current task-oriented
 workspace: Flow, Definition, Trigger rules, Runs, Health, and Dependencies tabs

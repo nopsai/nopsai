@@ -571,7 +571,6 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
         onSelectDashboard={selectDashboard}
         onSelectSection={selectDashboardSection}
         sectionTabHref={dashboardSectionHref}
-        onReloadDashboards={() => void loadDashboards()}
         onCreateDashboard={openCreateDashboard}
         onEditDashboard={openEditDashboard}
         onDeleteDashboard={openDeleteDashboard}
