@@ -567,13 +567,21 @@ Sync behavior:
   matching repository apps to the team structure during sync, and matching
   historical runs under the parent team/root are reassigned to the app
 - auth settings GitOps is system/global only and binds provider credential references
-- runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
+- runtime settings GitOps is system/global only; Settings Config owns persisted
+  runtime defaults, mail settings, and the global config repository workspace,
+  while `dispatcher_routing` changes are persisted and applied by the live
+  dispatcher through the control-plane sync path
+- Runtime pool management in Settings Config uses a focused pool selector with
+  per-pool Kubernetes node selector, resource request, and resource limit maps;
+  the saved values remain part of the system/global runtime settings GitOps
+  payload.
 - mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password plaintext
 - data management GitOps is system/global only and stores scheduled cleanup definitions in `setting/system/data-management.yaml`; backup files and cleanup job history remain runtime state
 - credential GitOps is system/global only; `setting/system/credentials.yaml` stores encrypted versions, never plaintext
-- the Dispatcher UI owns `dispatcher_routing` editing while still saving through
-  runtime settings, and persisted `credential://...` references link to
-  **Credentials** without exposing credential values
+- the Dispatcher UI owns live runner operations and `dispatcher_routing` editing
+  while still saving through runtime settings, and persisted
+  `credential://...` references link to **Credentials** without exposing
+  credential values
 
 ## Notifications And Metrics
 
