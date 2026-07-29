@@ -34,6 +34,7 @@ import {
 import {
   buildPipelineGraphData,
   encodeId,
+  filterVisiblePipelineList,
   normalizePipelineSource as normalizeSource,
   normalizeRootPath,
   parsePipelineYaml,
@@ -406,7 +407,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   }, []);
 
   const loadPipelineDetail = useCallback(
-    async (pipelineId: string, source?: string) => {
+    async (pipelineId: string, source?: string, updatedAt?: string) => {
       const normalizedSource = normalizeSource(source);
       setDetailLoading(true);
       setDetailError(null);
@@ -414,7 +415,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         if (normalizedSource === 'draft') {
           const draft = draftsById.get(pipelineId);
           if (!draft) throw new Error('Draft pipeline not found');
-          const parsed = parsePipelineYaml(draft.yaml, pipelineId, 'draft');
+          const parsed = parsePipelineYaml(draft.yaml, pipelineId, 'draft', draft.updatedAt);
           setDetail(parsed);
           setEditorValue(draft.yaml);
           setIsEditing(true);
@@ -422,7 +423,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         }
 
         const rawYaml = await fetchPipelineYaml(pipelineId);
-        const parsed = parsePipelineYaml(rawYaml, pipelineId, normalizedSource);
+        const parsed = parsePipelineYaml(rawYaml, pipelineId, normalizedSource, updatedAt);
         setDetail(parsed);
         setEditorValue(rawYaml);
         setIsEditing(false);
@@ -439,7 +440,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const pipelines = useMemo(() => {
     const merged = new Map<string, PipelineListItem>();
     serverPipelines.forEach(item => merged.set(item.id, item));
-    draftPipelines.forEach(draft => merged.set(draft.id, { id: draft.id, source: 'draft' }));
+    draftPipelines.forEach(draft => merged.set(draft.id, { id: draft.id, source: 'draft', updatedAt: draft.updatedAt }));
     return Array.from(merged.values()).sort((a, b) => a.id.localeCompare(b.id));
   }, [serverPipelines, draftPipelines]);
 
@@ -505,8 +506,8 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       setIsEditing(false);
       return;
     }
-    const source = pipelines.find(item => item.id === selectedId)?.source;
-    void loadPipelineDetail(selectedId, source);
+    const selectedItem = pipelines.find(item => item.id === selectedId);
+    void loadPipelineDetail(selectedId, selectedItem?.source, selectedItem?.updatedAt);
   }, [selectedId, pipelines, loadPipelineDetail]);
 
   useEffect(() => {
@@ -552,18 +553,10 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     void loadPipelineTriggers(selectedId);
   }, [selectedId, loadPipelineTriggers, loadRecentRuns]);
 
-  const filteredPipelines = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-    if (!query) return pipelines;
-    return pipelines.filter(item => item.id.toLowerCase().includes(query));
-  }, [pipelines, searchTerm]);
-
-  const visiblePipelines = useMemo(() => {
-    const list = searchTerm.trim()
-      ? filteredPipelines
-      : filteredPipelines.filter(item => splitIdentifier(item.id).path === activeTeam);
-    return [...list].sort((a, b) => a.id.localeCompare(b.id));
-  }, [activeTeam, filteredPipelines, searchTerm]);
+  const visiblePipelines = useMemo(
+    () => filterVisiblePipelineList(pipelines, searchTerm, activeTeam),
+    [activeTeam, pipelines, searchTerm]
+  );
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
@@ -591,18 +584,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     });
     return root;
   }, [pipelines, resourceTeamPaths]);
-
-  const activeTeamNode = useMemo(() => {
-    if (!activeTeam) return buildTree;
-    const segments = activeTeam.split('/').filter(Boolean);
-    let current: TreeNode | null = buildTree;
-    for (const segment of segments) {
-      const nextNode: TreeNode | undefined = current?.children.find(child => child.name === segment);
-      if (!nextNode) return buildTree;
-      current = nextNode;
-    }
-    return current || buildTree;
-  }, [activeTeam, buildTree]);
 
   const handleSelect = useCallback((id: string) => {
     selectedIdRef.current = id;
@@ -715,7 +696,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   };
 
   return (
-    <div data-page="pipelines" className="active h-full flex flex-col">
+    <div data-page="pipelines" className="active h-full min-h-0 flex flex-col overflow-hidden">
       {!selectedId && (
         <ResourceCollectionToolbar
           resourceLabel="pipeline"
@@ -727,81 +708,83 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           onCreate={openCreateModal}
         />
       )}
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedId ? (
-          <PipelineCollectionList
-            listLoading={listLoading}
-            listError={listError}
-            visiblePipelines={visiblePipelines}
-            activeTeamNode={activeTeamNode}
-            searchTerm={searchTerm}
-            canCreatePipelineHere={canCreatePipelineHere}
-            canUsePipelineDrafts={canUsePipelineDrafts}
-            canDeletePipelines={canDeletePipelines}
-            onSelectPipeline={handleSelect}
-            onOpenTeam={openTeam}
-            onDeletePipeline={openDeleteModal}
-          />
-        ) : detailLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading pipeline…</div>
-        ) : detailError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load pipeline: {detailError}</div>
-        ) : (
-          <PipelineDetailView
-            detail={detail}
-            graphData={graphData}
-            selectedGraphStep={selectedGraphStep}
-            isEditing={isEditing}
-            editorValue={editorValue}
-            validationErrors={validation.errors}
-            validationErrorLines={validationErrorLines}
-            editorSuggestion={editorSuggestion}
-            autocompleteLoading={autocompleteMeta.loading}
-            editorRef={editorRef}
-            highlightContentRef={highlightContentRef}
-            lineNumbersRef={lineNumbersRef}
-            canUpdateSelectedPipeline={canUpdateSelectedPipeline}
-            canCreatePipelineHere={canCreatePipelineHere}
-            canExecuteSelectedPipeline={canExecuteSelectedPipeline}
-            saving={saving}
-            triggers={triggers}
-            triggersLoading={triggersLoading}
-            triggersError={triggersError}
-            recentRuns={recentRuns}
-            runsLoading={runsLoading}
-            runsError={runsError}
-            onBack={handleBackToList}
-            onExecute={handleExecute}
-            onCopy={() => void handleCopy()}
-            onDownload={handleDownload}
-            onEdit={() => setIsEditing(true)}
-            onClone={openCloneModal}
-            onDiscard={discardEditorChanges}
-            onSave={() => void handleSave()}
-            onSelectGraphStep={setSelectedGraphStep}
-            onOpenTrigger={repoSlug => navigate(`/triggers/${encodeId(repoSlug)}`)}
-            onOpenDependency={handleSelect}
-            onCopyDependency={async identifier => {
-              try {
-                await navigator.clipboard.writeText(identifier);
-                addToast('Copied dependency reference.', 'success');
-              } catch (error) {
-                console.error('Failed to copy dependency reference', error);
-                addToast('Unable to copy dependency reference.', 'error');
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <main id="main-content-pipelines" className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-6 space-y-4">
+          {!selectedId ? (
+            <PipelineCollectionList
+              listLoading={listLoading}
+              listError={listError}
+              visiblePipelines={visiblePipelines}
+              treeRoot={buildTree}
+              activeTeam={activeTeam}
+              canCreatePipelineHere={canCreatePipelineHere}
+              canUsePipelineDrafts={canUsePipelineDrafts}
+              canDeletePipelines={canDeletePipelines}
+              onSelectPipeline={handleSelect}
+              onOpenTeam={openTeam}
+              onDeletePipeline={openDeleteModal}
+            />
+          ) : detailLoading ? (
+            <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading pipeline…</div>
+          ) : detailError ? (
+            <div className="glass-card p-5 text-sm text-red-500">Failed to load pipeline: {detailError}</div>
+          ) : (
+            <PipelineDetailView
+              detail={detail}
+              graphData={graphData}
+              selectedGraphStep={selectedGraphStep}
+              isEditing={isEditing}
+              editorValue={editorValue}
+              validationErrors={validation.errors}
+              validationErrorLines={validationErrorLines}
+              editorSuggestion={editorSuggestion}
+              autocompleteLoading={autocompleteMeta.loading}
+              editorRef={editorRef}
+              highlightContentRef={highlightContentRef}
+              lineNumbersRef={lineNumbersRef}
+              canUpdateSelectedPipeline={canUpdateSelectedPipeline}
+              canCreatePipelineHere={canCreatePipelineHere}
+              canExecuteSelectedPipeline={canExecuteSelectedPipeline}
+              saving={saving}
+              triggers={triggers}
+              triggersLoading={triggersLoading}
+              triggersError={triggersError}
+              recentRuns={recentRuns}
+              runsLoading={runsLoading}
+              runsError={runsError}
+              onBack={handleBackToList}
+              onExecute={handleExecute}
+              onCopy={() => void handleCopy()}
+              onDownload={handleDownload}
+              onEdit={() => setIsEditing(true)}
+              onClone={openCloneModal}
+              onDiscard={discardEditorChanges}
+              onSave={() => void handleSave()}
+              onSelectGraphStep={setSelectedGraphStep}
+              onOpenTrigger={repoSlug => navigate(`/triggers/${encodeId(repoSlug)}`)}
+              onOpenDependency={handleSelect}
+              onCopyDependency={async identifier => {
+                try {
+                  await navigator.clipboard.writeText(identifier);
+                  addToast('Copied dependency reference.', 'success');
+                } catch (error) {
+                  console.error('Failed to copy dependency reference', error);
+                  addToast('Unable to copy dependency reference.', 'error');
+                }
+              }}
+              onOpenRun={runID =>
+                navigate(runID ? `/pipelineruns/recent?run=${encodeURIComponent(runID)}` : '/pipelineruns/recent')
               }
-            }}
-            onOpenRun={runID =>
-              navigate(runID ? `/pipelineruns/recent?run=${encodeURIComponent(runID)}` : '/pipelineruns/recent')
-            }
-            onEditorTextChange={handleEditorTextChange}
-            onOpenSuggestion={openEditorSuggestion}
-            onMoveSuggestion={moveEditorSuggestion}
-            onDismissSuggestion={() => setEditorSuggestion(null)}
-            onSelectSuggestion={applyEditorSuggestion}
-            onEditorScroll={handleEditorScroll}
-            onAutoIndentEnter={() => handleAutoIndentEnter()}
-          />
-        )}
+              onEditorTextChange={handleEditorTextChange}
+              onOpenSuggestion={openEditorSuggestion}
+              onMoveSuggestion={moveEditorSuggestion}
+              onDismissSuggestion={() => setEditorSuggestion(null)}
+              onSelectSuggestion={applyEditorSuggestion}
+              onEditorScroll={handleEditorScroll}
+              onAutoIndentEnter={() => handleAutoIndentEnter()}
+            />
+          )}
+        </main>
       </div>
 
       <ResourceWorkflowModals

@@ -25,7 +25,7 @@ import (
 
 func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
-	rows, err := a.db.Query(context.Background(), "SELECT path, name, source FROM pipelines ORDER BY path ASC, name ASC")
+	rows, err := a.db.Query(context.Background(), "SELECT path, name, COALESCE(source, 'database'), COALESCE(version, 'latest'), updated_at FROM pipelines ORDER BY path ASC, name ASC")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query pipelines from database")
 		http.Error(w, "Failed to retrieve pipelines", http.StatusInternalServerError)
@@ -34,21 +34,26 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type pipelineListItem struct {
-		ID     string `json:"id"`
-		Source string `json:"source"`
+		ID        string    `json:"id"`
+		Source    string    `json:"source"`
+		Version   string    `json:"version"`
+		UpdatedAt time.Time `json:"updated_at"`
 	}
 
 	type pipelineEntry struct {
 		identifier string
 		source     string
+		version    string
+		updatedAt  time.Time
 		resource   model.ResourceRef
 	}
 
 	var entries []pipelineEntry
 
 	for rows.Next() {
-		var path, name, source string
-		if err := rows.Scan(&path, &name, &source); err != nil {
+		var path, name, source, version string
+		var updatedAt time.Time
+		if err := rows.Scan(&path, &name, &source, &version, &updatedAt); err != nil {
 			log.Error().Err(err).Msg("Failed to scan pipeline entry")
 			http.Error(w, "Failed to process pipelines", http.StatusInternalServerError)
 			return
@@ -56,6 +61,8 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 		entries = append(entries, pipelineEntry{
 			identifier: configsync.BuildPipelineIdentifier(path, name),
 			source:     source,
+			version:    version,
+			updatedAt:  updatedAt,
 			resource:   routeauthz.PipelineResource(path, name),
 		})
 	}
@@ -79,7 +86,12 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if includeSource {
-			pipelineItems = append(pipelineItems, pipelineListItem{ID: entry.identifier, Source: entry.source})
+			pipelineItems = append(pipelineItems, pipelineListItem{
+				ID:        entry.identifier,
+				Source:    entry.source,
+				Version:   entry.version,
+				UpdatedAt: entry.updatedAt,
+			})
 		} else {
 			pipelineNames = append(pipelineNames, entry.identifier)
 		}

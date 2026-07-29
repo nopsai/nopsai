@@ -29,6 +29,7 @@ import {
   STEP_DIRECTIVES,
   STEP_NAME_PATTERN,
   TASK_DIRECTIVES,
+  filterVisibleStepList,
   normalizeRootPath,
   normalizeSource,
   parseStepYaml,
@@ -622,18 +623,10 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     syncEditorOverlays(editorRef.current);
   }, [editorValue, isEditing, syncEditorOverlays]);
 
-  const filteredSteps = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-    if (!query) return steps;
-    return steps.filter(item => item.id.toLowerCase().includes(query));
-  }, [searchTerm, steps]);
-
-  const visibleSteps = useMemo(() => {
-    const list = searchTerm.trim()
-      ? filteredSteps
-      : filteredSteps.filter(item => splitIdentifier(item.id).path === activeTeam);
-    return [...list].sort((a, b) => a.id.localeCompare(b.id));
-  }, [activeTeam, filteredSteps, searchTerm]);
+  const visibleSteps = useMemo(
+    () => filterVisibleStepList(steps, searchTerm, activeTeam),
+    [activeTeam, searchTerm, steps]
+  );
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], stepIds: [] };
@@ -661,18 +654,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     });
     return root;
   }, [resourceTeamPaths, steps]);
-
-  const activeTeamNode = useMemo(() => {
-    if (!activeTeam) return buildTree;
-    const segments = activeTeam.split('/').filter(Boolean);
-    let current: TreeNode | null = buildTree;
-    for (const segment of segments) {
-      const nextNode: TreeNode | undefined = current?.children.find(child => child.name === segment);
-      if (!nextNode) return buildTree;
-      current = nextNode;
-    }
-    return current || buildTree;
-  }, [activeTeam, buildTree]);
 
   const parentTeam = (path: string) => {
     const parts = path.split('/').filter(Boolean);
@@ -790,7 +771,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   };
 
   return (
-    <div data-page="steps" className="active h-full flex flex-col">
+    <div data-page="steps" className="active h-full min-h-0 flex flex-col overflow-hidden">
       {!selectedId && (
         <ResourceCollectionToolbar
           resourceLabel="step"
@@ -803,59 +784,61 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         />
       )}
 
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedId ? (
-          <StepCollectionList
-            listLoading={listLoading}
-            listError={listError}
-            visibleSteps={visibleSteps}
-            activeTeamNode={activeTeamNode}
-            searchTerm={searchTerm}
-            canCreateStepHere={canCreateStepHere}
-            canUseStepDrafts={canUseStepDrafts}
-            canDeleteSteps={canDeleteSteps}
-            onSelectStep={handleSelect}
-            onOpenTeam={openTeam}
-            onDeleteStep={openDeleteModal}
-          />
-        ) : detailLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading step…</div>
-        ) : detailError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load step: {detailError}</div>
-        ) : (
-          <StepDetailView
-            detail={detail}
-            isEditing={isEditing}
-            editorValue={editorValue}
-            validationErrors={validation.errors}
-            validationErrorLines={validationErrorLines}
-            editorSuggestion={editorSuggestion}
-            autocompleteLoading={autocompleteMeta.loading}
-            editorRef={editorRef}
-            highlightContentRef={highlightContentRef}
-            lineNumbersRef={lineNumbersRef}
-            canUpdateSelectedStep={canUpdateSelectedStep}
-            canCreateStepHere={canCreateStepHere}
-            saving={saving}
-            usage={usage}
-            usageLoading={usageLoading}
-            usageError={usageError}
-            onBack={handleBackToList}
-            onCopy={() => void handleCopy()}
-            onDownload={handleDownload}
-            onEdit={() => setIsEditing(true)}
-            onClone={openCloneModal}
-            onDiscard={discardEditorChanges}
-            onSave={() => void handleSave()}
-            onEditorTextChange={handleEditorTextChange}
-            onOpenSuggestion={openEditorSuggestion}
-            onMoveSuggestion={moveEditorSuggestion}
-            onDismissSuggestion={() => setEditorSuggestion(null)}
-            onSelectSuggestion={applyEditorSuggestion}
-            onEditorScroll={handleEditorScroll}
-            onAutoIndentEnter={() => handleAutoIndentEnter()}
-          />
-        )}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <main id="main-content-steps" className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-6 space-y-4">
+          {!selectedId ? (
+            <StepCollectionList
+              listLoading={listLoading}
+              listError={listError}
+              visibleSteps={visibleSteps}
+              treeRoot={buildTree}
+              activeTeam={activeTeam}
+              canCreateStepHere={canCreateStepHere}
+              canUseStepDrafts={canUseStepDrafts}
+              canDeleteSteps={canDeleteSteps}
+              onSelectStep={handleSelect}
+              onOpenTeam={openTeam}
+              onDeleteStep={openDeleteModal}
+            />
+          ) : detailLoading ? (
+            <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading step…</div>
+          ) : detailError ? (
+            <div className="glass-card p-5 text-sm text-red-500">Failed to load step: {detailError}</div>
+          ) : (
+            <StepDetailView
+              detail={detail}
+              isEditing={isEditing}
+              editorValue={editorValue}
+              validationErrors={validation.errors}
+              validationErrorLines={validationErrorLines}
+              editorSuggestion={editorSuggestion}
+              autocompleteLoading={autocompleteMeta.loading}
+              editorRef={editorRef}
+              highlightContentRef={highlightContentRef}
+              lineNumbersRef={lineNumbersRef}
+              canUpdateSelectedStep={canUpdateSelectedStep}
+              canCreateStepHere={canCreateStepHere}
+              saving={saving}
+              usage={usage}
+              usageLoading={usageLoading}
+              usageError={usageError}
+              onBack={handleBackToList}
+              onCopy={() => void handleCopy()}
+              onDownload={handleDownload}
+              onEdit={() => setIsEditing(true)}
+              onClone={openCloneModal}
+              onDiscard={discardEditorChanges}
+              onSave={() => void handleSave()}
+              onEditorTextChange={handleEditorTextChange}
+              onOpenSuggestion={openEditorSuggestion}
+              onMoveSuggestion={moveEditorSuggestion}
+              onDismissSuggestion={() => setEditorSuggestion(null)}
+              onSelectSuggestion={applyEditorSuggestion}
+              onEditorScroll={handleEditorScroll}
+              onAutoIndentEnter={() => handleAutoIndentEnter()}
+            />
+          )}
+        </main>
       </div>
 
       <ResourceWorkflowModals

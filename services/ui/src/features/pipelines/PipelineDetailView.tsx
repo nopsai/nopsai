@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
 import { Activity, ArrowLeft, BrainCircuit, Play } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
+import { formatResourceListUpdatedAt } from '../editor/resourceCollectionModel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import { StepsGraph } from '../pipeline-runs/RunGraph';
@@ -154,6 +155,7 @@ export function PipelineDetailView({
   }
 
   const source = normalizeSource(detail.source);
+  const updatedLabel = formatResourceListUpdatedAt(detail.updatedAt);
   const isGitSource = source === 'git';
   const executeDisabled = isEditing || source === 'draft' || !canExecuteSelectedPipeline;
   const analysisDisabled = isEditing || source === 'draft';
@@ -181,6 +183,7 @@ export function PipelineDetailView({
                 <span>Path: <span className="text-[var(--text-primary)]" id="pipeline-detail-path">{detail.path || 'Root'}</span></span>
                 <span>Version: <span className="text-[var(--text-primary)]" id="pipeline-detail-version">{detail.version || 'latest'}</span></span>
                 <span>Source: <span className="text-[var(--text-primary)]" id="pipeline-detail-source">{source}</span></span>
+                <span>Updated: <span className="text-[var(--text-primary)]" id="pipeline-detail-updated">{updatedLabel}</span></span>
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">

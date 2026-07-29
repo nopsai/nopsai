@@ -36,7 +36,10 @@ export function normalizePipelineListPayload(payload: unknown): PipelineListItem
           if (item && typeof item === 'object') {
             const record = item as Record<string, unknown>;
             const id = typeof record.id === 'string' ? record.id : typeof record.identifier === 'string' ? record.identifier : '';
-            return id ? { id, source: typeof record.source === 'string' ? record.source : undefined } : null;
+            const source = typeof record.source === 'string' ? record.source : undefined;
+            const version = typeof record.version === 'string' ? record.version : undefined;
+            const updatedAt = typeof record.updated_at === 'string' ? record.updated_at : undefined;
+            return id ? { id, source, version, updatedAt } : null;
           }
           return null;
         })

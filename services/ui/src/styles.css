@@ -3894,6 +3894,42 @@ html.dark .pipeline-card-icon {
     padding: 0 0 1rem;
 }
 
+.resource-collection-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    backdrop-filter: blur(2px);
+}
+
+.resource-collection-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.4rem;
+    height: 2.4rem;
+    border: 1px solid var(--border-secondary);
+    border-radius: 0.6rem;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.resource-collection-icon-button:hover:not(:disabled),
+.resource-collection-icon-button:focus-visible {
+    border-color: var(--border-accent);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    outline: none;
+    box-shadow: 0 0 0 3px var(--border-accent-focus-ring);
+}
+
+.resource-collection-icon-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .pipeline-runs-search-field {
     position: relative;
     display: flex;
@@ -4159,6 +4195,14 @@ html.dark .pipeline-runs-segment {
     white-space: nowrap;
 }
 
+.resource-collection-tree-count {
+    margin-left: auto;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 800;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+}
+
 .pipeline-runs-scope-empty,
 .pipeline-runs-scope-error {
     padding: 0.55rem;
@@ -4415,6 +4459,97 @@ html.dark .pipeline-runs-segment {
     padding-right: 0.4rem;
 }
 
+.pipeline-runs-table.resource-collection-table {
+    min-width: 58rem;
+}
+
+.pipeline-runs-table.resource-collection-table--pipelines th:nth-child(1),
+.pipeline-runs-table.resource-collection-table--pipelines td:nth-child(1) {
+    width: 11%;
+}
+
+.pipeline-runs-table.resource-collection-table--steps th:nth-child(1),
+.pipeline-runs-table.resource-collection-table--steps td:nth-child(1) {
+    width: 12%;
+}
+
+.pipeline-runs-table.resource-collection-table--pipelines th:nth-child(2),
+.pipeline-runs-table.resource-collection-table--pipelines td:nth-child(2) {
+    width: 21%;
+}
+
+.pipeline-runs-table.resource-collection-table--steps th:nth-child(2),
+.pipeline-runs-table.resource-collection-table--steps td:nth-child(2) {
+    width: 23%;
+}
+
+.pipeline-runs-table.resource-collection-table--pipelines th:nth-child(3),
+.pipeline-runs-table.resource-collection-table--pipelines td:nth-child(3) {
+    width: 15%;
+}
+
+.pipeline-runs-table.resource-collection-table--steps th:nth-child(3),
+.pipeline-runs-table.resource-collection-table--steps td:nth-child(3) {
+    width: 17%;
+}
+
+.pipeline-runs-table.resource-collection-table--pipelines th:nth-child(4),
+.pipeline-runs-table.resource-collection-table--pipelines td:nth-child(4) {
+    width: 10%;
+}
+
+.pipeline-runs-table.resource-collection-table--steps th:nth-child(4),
+.pipeline-runs-table.resource-collection-table--steps td:nth-child(4) {
+    width: 11%;
+}
+
+.pipeline-runs-table.resource-collection-table--pipelines th:nth-child(5),
+.pipeline-runs-table.resource-collection-table--pipelines td:nth-child(5) {
+    width: 9%;
+}
+
+.pipeline-runs-table.resource-collection-table--steps th:nth-child(5),
+.pipeline-runs-table.resource-collection-table--steps td:nth-child(5) {
+    width: 29%;
+}
+
+.pipeline-runs-table.resource-collection-table--pipelines th:nth-child(6),
+.pipeline-runs-table.resource-collection-table--pipelines td:nth-child(6) {
+    width: 26%;
+}
+
+.pipeline-runs-table.resource-collection-table--steps th:nth-child(6),
+.pipeline-runs-table.resource-collection-table--steps td:nth-child(6) {
+    width: 8%;
+}
+
+.pipeline-runs-table.resource-collection-table--pipelines th:nth-child(7),
+.pipeline-runs-table.resource-collection-table--pipelines td:nth-child(7) {
+    width: 8%;
+}
+
+.pipeline-runs-table.resource-collection-table--teams th:nth-child(1),
+.pipeline-runs-table.resource-collection-table--teams td:nth-child(1) {
+    width: 12%;
+}
+
+.pipeline-runs-table.resource-collection-table--teams th:nth-child(2),
+.pipeline-runs-table.resource-collection-table--teams td:nth-child(2) {
+    width: 48%;
+}
+
+.pipeline-runs-table.resource-collection-table--teams th:nth-child(3),
+.pipeline-runs-table.resource-collection-table--teams td:nth-child(3),
+.pipeline-runs-table.resource-collection-table--teams th:nth-child(4),
+.pipeline-runs-table.resource-collection-table--teams td:nth-child(4) {
+    width: 14%;
+}
+
+.pipeline-runs-table.resource-collection-table--teams th:nth-child(5),
+.pipeline-runs-table.resource-collection-table--teams td:nth-child(5) {
+    width: 12%;
+}
+
 .pipeline-runs-table th {
     border-bottom: 1px solid var(--border-primary);
     background: var(--bg-primary);
@@ -4621,6 +4756,17 @@ html.dark .pipeline-runs-segment {
     color: var(--text-primary);
     border-color: var(--border-primary);
     background: var(--bg-tertiary);
+}
+
+.pipeline-runs-icon-button--danger {
+    color: #dc2626;
+}
+
+.pipeline-runs-icon-button--danger:hover,
+.pipeline-runs-icon-button--danger:focus-visible {
+    color: #b91c1c;
+    border-color: rgba(239, 68, 68, 0.32);
+    background: rgba(239, 68, 68, 0.1);
 }
 
 .pipeline-runs-empty-state {

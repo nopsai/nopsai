@@ -95,6 +95,21 @@ export function normalizeSource(raw: unknown): 'git' | 'database' | 'draft' {
   return 'database';
 }
 
+export function filterVisibleStepList<T extends { id: string }>(items: T[], searchTerm: string, activeTeam: string): T[] {
+  const query = searchTerm.trim().toLowerCase();
+  const normalizedTeam = normalizeRootPath(activeTeam);
+  const filtered = query ? items.filter(item => item.id.toLowerCase().includes(query)) : items;
+  const scoped = query || !normalizedTeam
+    ? filtered
+    : filtered.filter(item => stepListItemBelongsToTeam(item, normalizedTeam));
+  return [...scoped].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function stepListItemBelongsToTeam(item: { id: string }, normalizedTeam: string): boolean {
+  const resourcePath = normalizeRootPath(splitIdentifier(item.id).path);
+  return resourcePath === normalizedTeam || resourcePath.startsWith(`${normalizedTeam}/`);
+}
+
 export function parseStepYaml(
   rawYaml: string,
   id: string,

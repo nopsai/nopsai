@@ -30,14 +30,16 @@ test('delegates navigation and creation while owning collection search behavior'
   expect(toolbarRow).not.toHaveClass('justify-between');
   expect(toolbarRow).not.toHaveClass('border-b');
   expect(toolbarRow?.children[0]).toBe(screen.getByRole('button', { name: 'Back' }));
-  expect(toolbarRow?.children[1]).toContainElement(screen.getByRole('button', { name: 'Search pipelines' }));
+  expect(toolbarRow?.children[1]).toContainElement(screen.getByRole('searchbox', { name: 'Search pipelines' }));
   expect(toolbarRow?.children[2]).toBe(screen.getByRole('button', { name: 'Create new pipeline' }));
+  expect(container.querySelector('.resource-collection-toolbar')).not.toBeNull();
+  expect(toolbarRow).toHaveClass('pipeline-runs-filterbar');
 
   await user.click(screen.getByRole('button', { name: 'Back' }));
   await user.click(screen.getByRole('button', { name: 'Create new pipeline' }));
-  await user.click(screen.getByRole('button', { name: 'Search pipelines' }));
-  const search = screen.getByPlaceholderText('Search pipelines');
-  await waitFor(() => expect(search).toHaveFocus());
+  const search = screen.getByRole('searchbox', { name: 'Search pipelines' });
+  await user.click(search);
+  await waitFor(() => expect(search.closest('.pipeline-runs-search-field')).toHaveClass('pipeline-runs-search-field--active'));
   await user.type(search, 'release');
   expect(search).toHaveValue('release');
   await user.click(screen.getByRole('button', { name: 'Clear search' }));

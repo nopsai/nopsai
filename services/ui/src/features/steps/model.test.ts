@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeSource, splitIdentifier, validateStepYaml } from './model.js';
+import { filterVisibleStepList, normalizeSource, splitIdentifier, validateStepYaml } from './model.js';
 
 test('validates reusable step include contracts', () => {
   const invalid = validateStepYaml('name: deploy\ninclude: pipelines/deploy');
@@ -72,4 +72,25 @@ test('normalizes step identifiers and source labels', () => {
   assert.equal(normalizeSource('GitOps'), 'git');
   assert.equal(normalizeSource('draft'), 'draft');
   assert.equal(normalizeSource(''), 'database');
+});
+
+test('filters visible steps by all teams, selected team subtree, and search', () => {
+  const items = [
+    { id: 'library/docker/build-image' },
+    { id: 'library/deploy' },
+    { id: 'sandbox/lint' },
+  ];
+
+  assert.deepEqual(
+    filterVisibleStepList(items, '', '').map(item => item.id),
+    ['library/deploy', 'library/docker/build-image', 'sandbox/lint']
+  );
+  assert.deepEqual(
+    filterVisibleStepList(items, '', 'library').map(item => item.id),
+    ['library/deploy', 'library/docker/build-image']
+  );
+  assert.deepEqual(
+    filterVisibleStepList(items, 'build', 'sandbox').map(item => item.id),
+    ['library/docker/build-image']
+  );
 });
