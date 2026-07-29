@@ -88,6 +88,14 @@ truth; this file is the source-adjacent placement guide.
   composition and modal orchestration stay in `pages/Scopes.tsx`. The app-shell
   no longer owns a scopes contextual tree; `/scopes` uses only its local scope
   tree.
+- `features/scopes/ScopeDetailView.tsx` owns the selected-scope detail
+  workspace: metric cards, combined variable/secret search and type filters,
+  selected-item inspector, value reveal/copy affordances, relationship columns,
+  and collapsible runner assignments. Pure list shaping, source summaries, and
+  timestamp display helpers stay in `features/scopes/model.ts`; API calls,
+  action-time AAA checks, GitOps database-override warnings, modal lifecycles,
+  and route selection remain in `api.ts`, `useScopeModalMutations.ts`,
+  `useScopePermissions.ts`, and `pages/Scopes.tsx`.
 - `features/event-automation/EventAutomationSwitch.tsx`,
   `EventAutomationToolbar.tsx`, `AutomationResourceTree.tsx`, and
   `resourceTreeModel.ts` own the rendering-only route switch, shared page

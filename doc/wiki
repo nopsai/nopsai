@@ -572,6 +572,10 @@ UI detail selection uses path-backed routes for primary resources: scopes,
 steps, schedules, LLM profiles, agent profiles, MCP servers/profiles,
 credentials, external API triggers, Git webhook sources, dashboards, and Monitoring tabs. Query
 parameters remain for filters, section/tab view state, and run drilldowns.
+The Scopes detail route renders scope metrics, combined variable/secret search
+and type filters, selected-item value inspection, relationship columns, access
+controls, GitOps encryption, and collapsible runner assignments while keeping
+secret values write-only and using existing AAA/GitOps/MCP-safe contracts.
 
 The control plane includes the API, UI, AAA, dispatcher, git-bot, PostgreSQL,
 Gotenberg, and the restricted Docker socket proxy. The execution plane includes
