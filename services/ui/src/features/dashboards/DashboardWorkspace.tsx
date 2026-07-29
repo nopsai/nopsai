@@ -220,7 +220,7 @@ export function DashboardWorkspace({
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto w-full max-w-[1320px] space-y-6 px-4 py-6 lg:px-8">
+        <div className="mx-auto w-full max-w-[1320px] space-y-4 px-4 py-4 lg:px-6">
           {!selectedDashboard ? (
             <EmptyDashboardState loading={loading} dashboardCount={dashboards.length} />
           ) : (
@@ -255,7 +255,7 @@ export function DashboardWorkspace({
                 </div>
               ) : null}
 
-              <div id="dashboard-sections" className="space-y-6">
+              <div id="dashboard-sections" className="space-y-4">
                 {activeSection ? (
                   <DashboardSectionSurface
                     key={activeSection.id || activeSection.section_key}
@@ -342,7 +342,7 @@ function DashboardHeader({
           {dashboard.managed_by_config_repo ? <Badge>GitOps</Badge> : null}
           <Badge>{dashboard.visibility || 'team'}</Badge>
         </div>
-        <h2 className="mt-1 flex min-w-0 items-center gap-2 text-2xl font-bold tracking-normal text-[var(--text-primary)]">
+        <h2 className="mt-1 flex min-w-0 items-center gap-2 text-xl font-bold tracking-normal text-[var(--text-primary)]">
           <DashboardAttentionIndicator signals={attentionSignals} />
           <span className="truncate">{dashboard.title}</span>
         </h2>

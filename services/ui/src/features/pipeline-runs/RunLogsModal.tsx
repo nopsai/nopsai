@@ -204,14 +204,14 @@ export function RunLogsModal({
     >
       <div
         ref={dialogRef}
-        className="w-full max-w-6xl bg-[var(--bg-primary)] rounded-2xl shadow-2xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden"
+        className="w-full max-w-6xl bg-[var(--bg-primary)] rounded-xl shadow-xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="run-logs-title"
         aria-describedby="run-logs-description"
         tabIndex={-1}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)]">
           <div>
             <h2 id="run-logs-title" className="text-base font-semibold text-[var(--text-primary)]">
               Run Logs for {runName || runId}

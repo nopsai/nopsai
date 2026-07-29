@@ -543,9 +543,19 @@ truth; this file is the source-adjacent placement guide.
   `components/ObjectIcon.tsx` and `components/objectIconRegistry.ts`; new
   object types must extend that registry and its focused component test instead
   of adding inline SVGs or feature-local icon switches.
-- Collection routes should reuse `ResourceCollectionToolbar` for Pipeline Runs
-  style search, refresh, create, summaries, and feature-owned filters unless a documented
-  route-specific workspace shell is a better fit. Create controls remain
+- Normal authenticated workspace density should stay compact and enterprise:
+  56px app headers, roughly 220-260px default expanded sidebars, 32-40px controls,
+  12-14px body text, 18-22px page headings, 8-12px frames, and 16px default
+  page padding. Reserve larger display type, deep shadows, and 16px+ radii for
+  standalone routes such as Login, authored documentation, or genuinely framed
+  previews; operational tables, cards, trees, modals, and split panes should use
+  the compact scale by default. Summary and metric cards should align icon,
+  label, and value on one row whenever they fit, with secondary hints below.
+- Collection routes should reuse `ResourceCollectionToolbar` for compact
+  magnifier-first search, refresh, create, summaries, and feature-owned filters
+  unless a documented route-specific workspace shell is a better fit. Keep
+  create/refresh/search actions right-aligned and place scan-first filters on the left.
+  Create controls remain
   visible but disabled when AAA grants read-only access. Secondary detail panes
   should mount only after a resource is selected or deep-linked.
 - Form dialogs share the Pipeline themed surface and independently scrollable

@@ -136,7 +136,7 @@ describe('ScheduleWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Execution' })).not.toBeInTheDocument();
   });
 
-  it('filters visible schedules by state and path', async () => {
+  it('filters visible schedules by state and tree team path', async () => {
     const user = userEvent.setup();
     renderWorkspace();
 
@@ -145,7 +145,8 @@ describe('ScheduleWorkspace', () => {
     expect(within(table).queryByText('Nightly deploy')).not.toBeInTheDocument();
     expect(within(table).getByText('Release window')).toBeVisible();
 
-    await user.selectOptions(screen.getByLabelText('Filter by schedule path'), 'platform/prod');
+    await user.click(screen.getByRole('button', { name: 'Expand platform' }));
+    await user.click(screen.getByRole('button', { name: 'Open team platform/prod' }));
     expect(screen.getByText('No schedules match the current filters.')).toBeVisible();
   });
 

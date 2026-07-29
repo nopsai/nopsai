@@ -274,12 +274,12 @@ function Metric({
       ? 'text-[var(--text-secondary)]'
       : 'text-blue-600 dark:text-blue-300';
   return (
-    <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-      <div className={`mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] ${toneClass}`}>
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3">
+      <div className={`flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] ${toneClass}`}>
         {icon}
       </div>
-      <div className="text-xs text-[var(--text-secondary)]">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-[var(--text-primary)]">{value}</div>
+      <div className="min-w-0 truncate text-xs text-[var(--text-secondary)]">{label}</div>
+      <div className="justify-self-end text-xl font-semibold leading-none text-[var(--text-primary)]">{value}</div>
     </div>
   );
 }

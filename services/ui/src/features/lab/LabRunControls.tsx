@@ -71,7 +71,7 @@ export function LabRunControls({
         : 'Ready to run';
 
   return (
-    <div className="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-tertiary)]">
+    <div className="glass-card p-4 space-y-4 rounded-lg shadow-sm ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-tertiary)]">
       <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
         <div>
           <label htmlFor="lab-pipeline-select" className="block text-sm font-medium text-[var(--text-secondary)]">

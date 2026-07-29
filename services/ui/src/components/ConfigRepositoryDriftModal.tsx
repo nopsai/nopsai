@@ -68,13 +68,13 @@ export function ConfigRepositoryDriftModal({
     >
       <div
         ref={dialogRef}
-        className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-white shadow-2xl dark:bg-slate-900"
+        className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--border-primary)] bg-white shadow-xl dark:bg-slate-900"
         role="dialog"
         aria-modal="true"
         aria-labelledby="config-repository-drift-title"
         tabIndex={-1}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-4">
+        <div className="flex items-start justify-between gap-3 border-b border-[var(--border-primary)] px-4 py-3">
           <div>
             <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Config Repository Drift</p>
             <h3 id="config-repository-drift-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>

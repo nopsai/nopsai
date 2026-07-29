@@ -485,7 +485,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
         refreshDisabled={loading || saving}
         filters={!canWriteExternalTriggers ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
       />
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
+      <div className="flex-1 overflow-auto px-4 pb-6 triggers-content">
         {error && <div className="dispatcher-error mb-4">{error}</div>}
         <ExternalTriggerWorkspace
           triggers={triggers}

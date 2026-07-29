@@ -110,7 +110,7 @@ export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null
   };
 
   return (
-    <section className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">
+    <section className="border border-[var(--border-primary)] rounded-lg bg-white dark:bg-slate-950 p-3 space-y-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold text-[var(--text-primary)]">Final Outputs</h3>
         <span className="text-xs text-[var(--text-secondary)]">{outputs.length} deliverable{outputs.length === 1 ? '' : 's'}</span>

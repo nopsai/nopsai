@@ -924,6 +924,13 @@ Important behavior:
 
 Pages present in the current UI:
 
+- Authenticated operational workspaces use compact enterprise density: 56px app
+  headers, roughly 220-260px default expanded sidebars, 32-40px controls, 12-14px body
+  text, 18-22px page headings, 8-12px frames, and 16px default page padding.
+  Larger display type, deeper shadows, and 16px+ radii are reserved for Login,
+  authored documentation, or framed previews rather than normal tables, cards,
+  trees, modals, and split panes. Summary and metric cards align icon, label,
+  and value on one row when they fit, with secondary hints below.
 - `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail
@@ -933,7 +940,7 @@ Pages present in the current UI:
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Monitoring`: tabbed operational analytics with `/monitoring/<tab>` links and query-backed filters for time, team, status, comparison, and run drilldowns
 - `Dashboards`: dashboard detail routes under `/dashboards/<dashboard-ref>` with section tabs as URL view state
-- `Schedules`: LLM-profile-style schedule workspace with run-team path tree, registry table, overview metrics, detail panel, pipeline-filtered view, enable/disable, run now, latest-run link, and GitOps markers
+- `Schedules`: LLM-profile-style schedule workspace with run-team path tree, left-aligned state filters, compact header search, registry table, overview metrics, detail panel, pipeline-filtered view, enable/disable, run now, latest-run link, and GitOps markers
 - `Triggers`: trigger override browser/editor with an owner/team tree and list scopes derived from trigger manifests
 - `External API` and `Git webhooks`: event automation resource workspaces with nested detail routes for selected triggers and webhook sources
 - `Scopes`: steps-style team tree and table browsing for scopes, plus a selected-scope detail workspace with summary metrics, combined variable/secret search and type filters, selected-item value inspection, usage relationships, scope use-access controls, GitOps encryption entry points, and collapsible registered runner assignments for the selected scope

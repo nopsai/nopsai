@@ -131,7 +131,7 @@
 
 .ai-resource-stat strong {
   display: block;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 760;
   line-height: 1.15;
   letter-spacing: 0;
@@ -290,9 +290,9 @@
 }
 
 .ai-resource-page-header h2 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 1.45rem;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1.25rem;
   font-weight: 750;
   line-height: 1.2;
   letter-spacing: 0;
@@ -419,7 +419,7 @@
 }
 
 .ai-resource-overview-bar .ai-resource-metric {
-  min-height: 58px;
+  min-height: 44px;
   padding: 8px 9px;
 }
 
@@ -446,12 +446,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  min-height: 57px;
-  padding: 0 16px;
+  min-height: 52px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border-primary);
   background: var(--bg-primary);
+}
+
+.ai-resource-table-head--controls-only {
+  justify-content: flex-start;
 }
 
 .ai-resource-table-title {
@@ -476,34 +480,104 @@
   color: var(--text-secondary);
 }
 
+.ai-resource-table-controls {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ai-resource-table-head--controls-only .ai-resource-table-controls {
+  justify-content: flex-start;
+}
+
 .ai-resource-search {
   position: relative;
-  display: block;
-  min-width: 220px;
-  max-width: 300px;
-  flex: 0 1 280px;
+  display: inline-flex;
+  min-width: 36px;
+  max-width: min(100%, 260px);
+  height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.ai-resource-search--open {
+  min-width: min(100%, 220px);
+  border-color: var(--border-primary);
+  background: var(--bg-primary);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.ai-resource-search__toggle,
+.ai-resource-search__clear {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.ai-resource-search__toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.ai-resource-search__clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.ai-resource-search__toggle:hover,
+.ai-resource-search__toggle:focus-visible,
+.ai-resource-search__clear:hover,
+.ai-resource-search__clear:focus-visible {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  outline: none;
 }
 
 .ai-resource-search__icon {
-  position: absolute;
-  left: 11px;
-  top: 50%;
   width: 16px;
   height: 16px;
-  transform: translateY(-50%);
   color: var(--text-secondary);
-  pointer-events: none;
 }
 
 .ai-resource-search input {
-  width: 100%;
+  width: 0;
+  min-width: 0;
   min-height: 36px;
-  border: 1px solid var(--border-primary);
-  border-radius: 8px;
-  background: var(--bg-primary);
+  border: 0;
+  outline: 0;
+  background: transparent;
   color: var(--text-primary);
-  padding: 0 12px 0 34px;
+  opacity: 0;
+  padding: 0;
   font-size: 13px;
+  transition: width 0.18s ease, opacity 0.14s ease;
+}
+
+.ai-resource-search--open input,
+.ai-resource-search input:focus {
+  width: min(176px, 52vw);
+  opacity: 1;
+  padding: 0 34px 0 0;
 }
 
 .ai-resource-team-filter {
@@ -524,7 +598,7 @@
   font-weight: 620;
 }
 
-.ai-resource-search input:focus,
+.ai-resource-search:focus-within,
 .ai-resource-team-filter select:focus,
 .ai-resource-select:focus,
 .ai-resource-segmented button:focus-visible,
@@ -641,7 +715,7 @@
 .ai-resource-split {
   display: grid;
   grid-template-columns: minmax(520px, 1fr) minmax(380px, 0.72fr);
-  min-height: 660px;
+  min-height: 560px;
 }
 
 .ai-resource-split__list {
@@ -656,9 +730,13 @@
 }
 
 .ai-resource-split__list .ai-resource-search {
-  min-width: 0;
+  min-width: 36px;
   max-width: 210px;
-  flex-basis: 210px;
+  flex-basis: auto;
+}
+
+.ai-resource-split__list .ai-resource-search--open {
+  min-width: min(100%, 210px);
 }
 
 .ai-resource-split__detail {
@@ -666,13 +744,13 @@
   max-height: calc(100vh - 180px);
   overflow: auto;
   background: var(--bg-primary);
-  padding: 18px;
+  padding: 14px;
 }
 
 .ai-resource-browser {
   display: grid;
   grid-template-columns: var(--tree-column-width, 280px) 8px minmax(0, 1fr);
-  min-height: 660px;
+  min-height: 560px;
 }
 
 .ai-resource-explorer {
@@ -895,20 +973,19 @@
 .ai-resource-metric {
   display: grid;
   min-width: 0;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px 8px;
+  gap: 8px;
   border: 1px solid var(--border-primary);
   border-radius: 8px;
   background: var(--bg-secondary);
-  padding: 10px;
+  padding: 8px 10px;
 }
 
 .ai-resource-metric-icon {
   display: inline-flex;
   width: 28px;
   height: 28px;
-  grid-row: span 2;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
@@ -937,6 +1014,7 @@
 }
 
 .ai-resource-metric-label {
+  min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
   font-size: 0.72rem;
@@ -947,8 +1025,9 @@
 
 .ai-resource-metric-value {
   min-width: 0;
+  justify-self: end;
   color: var(--text-primary);
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   line-height: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1090,8 +1169,8 @@
   gap: 10px;
   align-items: center;
   min-width: 0;
-  min-height: 74px;
-  padding: 12px 13px;
+  min-height: 64px;
+  padding: 10px 12px;
   border: 0;
   border-bottom: 1px solid var(--border-primary);
   border-left: 3px solid transparent;
@@ -1226,9 +1305,9 @@
 }
 
 .ai-resource-detail__title h3 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 20px;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 18px;
   font-weight: 760;
   line-height: 1.2;
   letter-spacing: 0;
@@ -1710,7 +1789,10 @@ html.dark .ai-resource-registry-table th {
   }
 
   .ai-resource-search {
-    max-width: none;
+    max-width: 100%;
+  }
+
+  .ai-resource-search--open {
     flex-basis: 100%;
   }
 

@@ -642,10 +642,10 @@ function LabPage() {
 
   return (
     <div data-page="lab" className="active h-full flex flex-col">
-      <div className="px-6 pt-6 pb-4">
+      <div className="px-4 pt-4 pb-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h2 className="text-3xl font-bold text-[var(--text-primary)]">Scoped pipeline runs</h2>
+            <h2 className="text-xl font-bold text-[var(--text-primary)]">Scoped pipeline runs</h2>
             <p className="text-sm text-[var(--text-secondary)] max-w-3xl">
               Pick a stored pipeline, lock in a scope, and launch it with temporary variables to validate behavior quickly.
             </p>
@@ -666,8 +666,8 @@ function LabPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-6 pb-8">
-        <div className="space-y-5">
+      <div className="flex-1 overflow-auto px-4 pb-6">
+        <div className="space-y-4">
           <LabRunControls
             pipelines={pipelines}
             pipelinesLoading={pipelinesLoading}
@@ -688,7 +688,7 @@ function LabPage() {
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-            <div className="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 lg:col-span-3">
+            <div className="glass-card p-4 space-y-4 rounded-lg shadow-sm ring-1 ring-[var(--border-primary)]/70 lg:col-span-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div>

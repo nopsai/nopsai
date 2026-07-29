@@ -28,7 +28,7 @@ const SystemPage = lazy(() => import('../pages/System'));
 const ProfilePage = lazy(() => import('../pages/Profile'));
 
 function PageLoading() {
-  return <div className="p-6 text-sm text-[var(--text-secondary)]">Loading...</div>;
+  return <div className="p-4 text-sm text-[var(--text-secondary)]">Loading...</div>;
 }
 
 export function AppRoutes({

@@ -1,5 +1,5 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { Search } from 'lucide-react';
+import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { Search, X } from 'lucide-react';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
@@ -52,34 +52,117 @@ export function AIResourceTableHeader({
   searchValue,
   onSearchChange,
   filters,
+  className,
 }: {
-  title: string;
-  count: ReactNode;
+  title?: string;
+  count?: ReactNode;
   loading?: boolean;
-  searchLabel: string;
-  searchPlaceholder: string;
-  searchValue: string;
-  onSearchChange: (value: string) => void;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
   filters?: ReactNode;
+  className?: string;
 }) {
+  const hasCount = count !== undefined && count !== null && count !== false;
+  const hasTitle = Boolean(title || hasCount || loading);
+  const searchControl = searchLabel && typeof searchValue === 'string' && onSearchChange ? (
+    <AIResourceExpandableSearch
+      label={searchLabel}
+      placeholder={searchPlaceholder || searchLabel}
+      value={searchValue}
+      onChange={onSearchChange}
+    />
+  ) : null;
+  const headerClassName = [
+    'ai-resource-table-head',
+    !hasTitle ? 'ai-resource-table-head--controls-only' : '',
+    className || '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className="ai-resource-table-head">
-      <div className="ai-resource-table-title">
-        <h3>{title}</h3>
-        <span>{count}</span>
-        {loading && <em>Loading...</em>}
+    <div className={headerClassName}>
+      {hasTitle ? (
+        <div className="ai-resource-table-title">
+          {title ? <h3>{title}</h3> : null}
+          {hasCount ? <span>{count}</span> : null}
+          {loading ? <em>Loading...</em> : null}
+        </div>
+      ) : null}
+      <div className="ai-resource-table-controls">
+        {filters}
+        {searchControl}
       </div>
-      <label className="ai-resource-search">
-        <span className="sr-only">{searchLabel}</span>
+    </div>
+  );
+}
+
+export function AIResourceExpandableSearch({
+  label,
+  placeholder,
+  value,
+  onChange,
+  className,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchActive = searchOpen || Boolean(value.trim());
+  const classes = [
+    'ai-resource-search',
+    searchActive ? 'ai-resource-search--open' : '',
+    className || '',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <div className={classes}>
+      <button
+        type="button"
+        className="ai-resource-search__toggle"
+        aria-label={label}
+        title={label}
+        onClick={() => {
+          setSearchOpen(true);
+          requestAnimationFrame(() => searchInputRef.current?.focus());
+        }}
+      >
         <Search className="ai-resource-search__icon" aria-hidden="true" />
-        <input
-          aria-label={searchLabel}
-          value={searchValue}
-          onChange={event => onSearchChange(event.target.value)}
-          placeholder={searchPlaceholder}
-        />
-      </label>
-      {filters}
+      </button>
+      <input
+        ref={searchInputRef}
+        type="search"
+        aria-label={`${label} query`}
+        value={value}
+        onFocus={() => setSearchOpen(true)}
+        onChange={event => {
+          onChange(event.target.value);
+          if (event.target.value && !searchOpen) setSearchOpen(true);
+        }}
+        onBlur={() => {
+          if (!value.trim()) setSearchOpen(false);
+        }}
+        placeholder={placeholder}
+      />
+      {value || searchOpen ? (
+        <button
+          type="button"
+          className="ai-resource-search__clear"
+          aria-label="Clear search"
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => {
+            onChange('');
+            setSearchOpen(false);
+            searchInputRef.current?.blur();
+          }}
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
     </div>
   );
 }

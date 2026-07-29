@@ -13,7 +13,7 @@ export function PermissionGuard({
   fallbackPath?: string;
 }) {
   if (loading) {
-    return <div className="p-6 text-sm text-[var(--text-secondary)]">Loading access...</div>;
+    return <div className="p-4 text-sm text-[var(--text-secondary)]">Loading access...</div>;
   }
   return allowed ? <>{children}</> : <Navigate to={fallbackPath} replace />;
 }

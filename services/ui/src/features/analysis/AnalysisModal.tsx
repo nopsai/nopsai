@@ -104,19 +104,19 @@ export function AnalysisModal({
   return (
     <div className="fixed inset-0 z-[90] bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation">
       <section
-        className="mx-auto flex h-full max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-2xl dark:border-white/10 dark:bg-slate-950"
+        className="mx-auto flex h-full max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-xl dark:border-white/10 dark:bg-slate-950"
         role="dialog"
         aria-modal="true"
         aria-labelledby="analysis-modal-title"
       >
-        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-4 dark:border-white/10">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-primary)] px-4 py-3 dark:border-white/10">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[var(--text-secondary)]">
               <ShieldCheck className="h-4 w-4" aria-hidden="true" />
               <span>Read-only analysis</span>
               <span className="font-mono normal-case">{result.snapshotRevision}</span>
             </div>
-            <h2 id="analysis-modal-title" className="mt-2 text-2xl font-bold text-[var(--text-primary)]">
+            <h2 id="analysis-modal-title" className="mt-2 text-xl font-bold text-[var(--text-primary)]">
               {result.title}
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">

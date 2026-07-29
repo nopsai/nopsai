@@ -108,7 +108,7 @@ function SystemPage({
   });
 
   return (
-    <div data-page="system" className="active p-6 space-y-6">
+    <div data-page="system" className="active p-4 space-y-4">
       {visibleTab === 'config' && (
         <SystemConfig
           {...systemConfig.panelProps}

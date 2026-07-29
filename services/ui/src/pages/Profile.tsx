@@ -258,8 +258,8 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
 
   if (loading) {
     return (
-      <div className="p-6 max-w-5xl mx-auto">
-        <div className="glass-card p-6 rounded-xl border border-[var(--border-primary)] animate-pulse">
+      <div className="p-4 max-w-5xl mx-auto">
+        <div className="glass-card p-4 rounded-lg border border-[var(--border-primary)] animate-pulse">
           <div className="h-4 w-32 bg-[var(--bg-tertiary)] rounded mb-3"></div>
           <div className="h-10 w-48 bg-[var(--bg-tertiary)] rounded"></div>
         </div>
@@ -268,7 +268,7 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="p-4 space-y-4 max-w-5xl mx-auto">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm text-[var(--text-secondary)]">Manage your account, roles, and session details.</p>
@@ -284,11 +284,11 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
       </div>
 
       {!user ? (
-        <div className="glass-card p-6 rounded-xl border border-[var(--border-primary)]">
+        <div className="glass-card p-4 rounded-lg border border-[var(--border-primary)]">
           <p className="text-sm text-[var(--text-secondary)]">No active user session. Please sign in again.</p>
         </div>
       ) : (
-        <div className="glass-card p-6 rounded-xl border border-[var(--border-primary)] space-y-6">
+        <div className="glass-card p-4 rounded-lg border border-[var(--border-primary)] space-y-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="h-16 w-16 rounded-full bg-[var(--border-accent)]/15 text-[var(--border-accent)] flex items-center justify-center text-xl font-semibold">
               {initials}
@@ -515,7 +515,7 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
             setConfirmPassword('');
           }}
         >
-          <div className="w-full max-w-md rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-md rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-xl p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-[var(--text-secondary)]">Security</p>
@@ -617,7 +617,7 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
             resetTokenForm();
           }}
         >
-          <div className="w-full max-w-md rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-2xl p-6 space-y-4">
+          <div className="w-full max-w-md rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-xl p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-[var(--text-secondary)]">API access</p>
