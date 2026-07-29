@@ -4473,6 +4473,11 @@ html.dark .pipeline-runs-segment {
     width: 12%;
 }
 
+.pipeline-runs-table.resource-collection-table--scopes th:nth-child(1),
+.pipeline-runs-table.resource-collection-table--scopes td:nth-child(1) {
+    width: 24%;
+}
+
 .pipeline-runs-table.resource-collection-table--pipelines th:nth-child(2),
 .pipeline-runs-table.resource-collection-table--pipelines td:nth-child(2) {
     width: 21%;
@@ -4481,6 +4486,11 @@ html.dark .pipeline-runs-segment {
 .pipeline-runs-table.resource-collection-table--steps th:nth-child(2),
 .pipeline-runs-table.resource-collection-table--steps td:nth-child(2) {
     width: 23%;
+}
+
+.pipeline-runs-table.resource-collection-table--scopes th:nth-child(2),
+.pipeline-runs-table.resource-collection-table--scopes td:nth-child(2) {
+    width: 18%;
 }
 
 .pipeline-runs-table.resource-collection-table--pipelines th:nth-child(3),
@@ -4493,6 +4503,11 @@ html.dark .pipeline-runs-segment {
     width: 17%;
 }
 
+.pipeline-runs-table.resource-collection-table--scopes th:nth-child(3),
+.pipeline-runs-table.resource-collection-table--scopes td:nth-child(3) {
+    width: 13%;
+}
+
 .pipeline-runs-table.resource-collection-table--pipelines th:nth-child(4),
 .pipeline-runs-table.resource-collection-table--pipelines td:nth-child(4) {
     width: 10%;
@@ -4501,6 +4516,11 @@ html.dark .pipeline-runs-segment {
 .pipeline-runs-table.resource-collection-table--steps th:nth-child(4),
 .pipeline-runs-table.resource-collection-table--steps td:nth-child(4) {
     width: 11%;
+}
+
+.pipeline-runs-table.resource-collection-table--scopes th:nth-child(4),
+.pipeline-runs-table.resource-collection-table--scopes td:nth-child(4) {
+    width: 13%;
 }
 
 .pipeline-runs-table.resource-collection-table--pipelines th:nth-child(5),
@@ -4513,6 +4533,11 @@ html.dark .pipeline-runs-segment {
     width: 29%;
 }
 
+.pipeline-runs-table.resource-collection-table--scopes th:nth-child(5),
+.pipeline-runs-table.resource-collection-table--scopes td:nth-child(5) {
+    width: 24%;
+}
+
 .pipeline-runs-table.resource-collection-table--pipelines th:nth-child(6),
 .pipeline-runs-table.resource-collection-table--pipelines td:nth-child(6) {
     width: 26%;
@@ -4520,6 +4545,11 @@ html.dark .pipeline-runs-segment {
 
 .pipeline-runs-table.resource-collection-table--steps th:nth-child(6),
 .pipeline-runs-table.resource-collection-table--steps td:nth-child(6) {
+    width: 8%;
+}
+
+.pipeline-runs-table.resource-collection-table--scopes th:nth-child(6),
+.pipeline-runs-table.resource-collection-table--scopes td:nth-child(6) {
     width: 8%;
 }
 

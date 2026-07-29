@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildPipelineTree,
-  buildScopeTree,
   buildStepTree,
-  normalizeScopeLabel,
   splitIdentifier,
 } from './resourceTrees';
 import { apiClient } from '../lib/api';
@@ -45,65 +43,13 @@ export function useResourceTrees({
   const serverStepsRef = useRef<string[]>([]);
   const [stepTreeOpen, setStepTreeOpen] = useState<Set<string>>(new Set());
 
-  const [scopes, setScopes] = useState<string[]>([]);
-  const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
-
   const onTogglePipelineNode = useCallback((id: string) => {
     setPipelineTreeOpen(prev => toggleOpenSet(prev, id));
-  }, []);
-
-  const onToggleScopeNode = useCallback((id: string) => {
-    setScopeTreeOpen(prev => toggleOpenSet(prev, id));
   }, []);
 
   const onToggleStepNode = useCallback((id: string) => {
     setStepTreeOpen(prev => toggleOpenSet(prev, id));
   }, []);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const load = async () => {
-      try {
-        const [secretResp, variableResp] = await Promise.all([
-          apiClient.fetch('/v1/secrets/scopes'),
-          apiClient.fetch('/v1/variables/scopes'),
-        ]);
-        const secretJson = secretResp.ok ? await secretResp.json() : [];
-        const variableJson = variableResp.ok ? await variableResp.json() : [];
-        const scopeSet = new Set<string>();
-        scopeSet.add('');
-        if (Array.isArray(secretJson)) {
-          secretJson.forEach((entry: unknown) => {
-            const record = asRecord(entry);
-            const scopeLabel = typeof record?.scope === 'string' ? record.scope : '';
-            scopeSet.add(normalizeScopeLabel(scopeLabel));
-          });
-        }
-        if (Array.isArray(variableJson)) {
-          variableJson.forEach((entry: unknown) => {
-            if (typeof entry === 'string') {
-              scopeSet.add(normalizeScopeLabel(entry));
-              return;
-            }
-            const record = asRecord(entry);
-            const scopeLabel = typeof record?.scope === 'string'
-              ? record.scope
-              : typeof record?.name === 'string'
-                ? record.name
-                : '';
-            scopeSet.add(normalizeScopeLabel(scopeLabel));
-          });
-        }
-        const list = Array.from(scopeSet).map(normalizeScopeLabel).sort((a, b) => a.localeCompare(b));
-        setScopes(list);
-      } catch (error) {
-        console.warn('Failed to load scopes for sidebar', error);
-      }
-    };
-    if (pathname.startsWith('/scopes')) {
-      void load();
-    }
-  }, [isAuthenticated, pathname]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -207,16 +153,12 @@ export function useResourceTrees({
   }, [canWriteSteps, draftScope, pathname]);
 
   const pipelineTree = useMemo(() => buildPipelineTree(pipelines, []), [pipelines]);
-  const scopeTree = useMemo(() => buildScopeTree(scopes, []), [scopes]);
   const stepTree = useMemo(() => buildStepTree(steps, []), [steps]);
 
   return {
     pipelineTree,
     pipelineTreeOpen,
     onTogglePipelineNode,
-    scopeTree,
-    scopeTreeOpen,
-    onToggleScopeNode,
     splitIdentifier,
     stepTree,
     stepTreeOpen,

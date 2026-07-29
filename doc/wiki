@@ -568,9 +568,9 @@ Implemented workflow building blocks include:
   points
 - final Markdown, JSON, HTML, PDF, and Excel deliverables
 
-UI detail selection uses path-backed routes for primary resources: schedules,
-LLM profiles, agent profiles, MCP servers/profiles, credentials, external API
-triggers, Git webhook sources, dashboards, and Monitoring tabs. Query
+UI detail selection uses path-backed routes for primary resources: scopes,
+steps, schedules, LLM profiles, agent profiles, MCP servers/profiles,
+credentials, external API triggers, Git webhook sources, dashboards, and Monitoring tabs. Query
 parameters remain for filters, section/tab view state, and run drilldowns.
 
 The control plane includes the API, UI, AAA, dispatcher, git-bot, PostgreSQL,

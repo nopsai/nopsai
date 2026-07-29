@@ -25,14 +25,6 @@ export type StepTreeNode = {
   stepIds: string[];
 };
 
-export type ScopeTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: ScopeTreeNode[];
-  scopes: string[];
-};
-
 export type ResourceCapabilities = {
   write?: boolean;
   delete?: boolean;
