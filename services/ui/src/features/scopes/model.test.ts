@@ -11,6 +11,7 @@ import {
   extractPipelineSecrets,
   extractScopeVariables,
   extractTriggerPipelines,
+  filterVisibleScopeList,
   formatScopeDisplay,
   getScopeTreeNode,
   teamScopedItems,
@@ -63,6 +64,29 @@ test('builds scope trees with empty enterprise team teams', () => {
   assert.equal(countScopesRecursive(root), 1);
   assert.equal(getScopeTreeNode(root, 'teams/platform')?.fullPath, 'teams/platform');
   assert.equal(parentScopeTeam('teams/platform'), 'teams');
+});
+
+test('filters visible scopes by team and global search like resource collections', () => {
+  const scopes = [
+    { scope: '', label: 'Default Scope', teamPath: '', description: 'Fallback', secretCountHint: 0 },
+    { scope: 'platform/dev', label: 'dev', teamPath: 'platform/dev', description: 'Development', secretCountHint: 1 },
+    { scope: 'platform/prod', label: 'prod', teamPath: 'platform/prod', description: 'Production', secretCountHint: 2 },
+    { scope: 'data/prod', label: 'prod', teamPath: 'data/prod', description: 'Analytics', secretCountHint: 3 },
+  ];
+
+  assert.deepEqual(filterVisibleScopeList(scopes, '', '').map(scope => scope.scope), [
+    '',
+    'data/prod',
+    'platform/dev',
+    'platform/prod',
+  ]);
+  assert.deepEqual(filterVisibleScopeList(scopes, '', 'platform').map(scope => scope.scope), [
+    'platform/dev',
+    'platform/prod',
+  ]);
+  assert.deepEqual(filterVisibleScopeList(scopes, 'analytics', 'platform').map(scope => scope.scope), [
+    'data/prod',
+  ]);
 });
 
 test('teams scoped items and preserves GitOps source behavior', () => {

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, KeyRound, Plus, Search, X } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
+import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ScopeCollectionList } from '../features/scopes/ScopeCollectionList';
 import { ScopeDetailView } from '../features/scopes/ScopeDetailView';
 import { ScopeWorkflowModals } from '../features/scopes/ScopeWorkflowModals';
@@ -28,7 +29,7 @@ import {
   extractPipelineSecrets,
   extractScopeVariables,
   extractTriggerPipelines,
-  getScopeTreeNode,
+  filterVisibleScopeList,
   normalizeItemListPayload,
   normalizeScopePipelineList,
   normalizeScopeLabel,
@@ -65,8 +66,6 @@ function ScopesPage({
 
   const [activeTeam, setActiveTeam] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
   const selectedScopeRef = useRef<string | null>(null);
@@ -559,21 +558,10 @@ function ScopesPage({
 
   const scopeTree = useMemo(() => buildScopeTree(scopes, resourceTeamPaths), [resourceTeamPaths, scopes]);
 
-  const filteredScopes = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return scopes;
-    return scopes.filter(scope => {
-      if (scope.scope.toLowerCase().includes(term)) return true;
-      if (scope.label.toLowerCase().includes(term)) return true;
-      if (scope.description.toLowerCase().includes(term)) return true;
-      return false;
-    });
-  }, [scopes, searchTerm]);
-
-  const activeTeamNode = useMemo(() => {
-    const node = getScopeTreeNode(scopeTree, activeTeam);
-    return node || scopeTree;
-  }, [activeTeam, scopeTree]);
+  const visibleScopes = useMemo(
+    () => filterVisibleScopeList(scopes, searchTerm, activeTeam),
+    [activeTeam, scopes, searchTerm]
+  );
 
   const openTeam = (path: string) => {
     const cleaned = normalizeScopeLabel(path);
@@ -702,138 +690,80 @@ function ScopesPage({
   };
 
   return (
-    <div data-page="scopes" className="active h-full flex flex-col">
+    <div data-page="scopes" className="active h-full min-h-0 flex flex-col overflow-hidden">
       {selectedScope === null && (
-        <div className="px-6 pt-6 pb-4">
-          <div className="flex flex-wrap items-center gap-3">
+        <ResourceCollectionToolbar
+          resourceLabel="scope"
+          activeTeam={activeTeam}
+          searchTerm={searchTerm}
+          canCreate={!searchTerm.trim() && canCreateScopeHere}
+          onBack={() => openTeam(parentScopeTeam(activeTeam))}
+          onSearchTermChange={setSearchTerm}
+          onCreate={openNewScopeModal}
+          filters={
             <button
               type="button"
-              className="glass-button-ghost"
-              aria-label="Back"
-              onClick={() => openTeam(parentScopeTeam(activeTeam))}
-              disabled={!activeTeam}
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            </button>
-
-            <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-              <button
-                type="button"
-                className="pipelines-search-toggle"
-                aria-label="Search scopes"
-                onClick={() => {
-                  setSearchOpen(true);
-                  requestAnimationFrame(() => searchInputRef.current?.focus());
-                }}
-              >
-                <Search className="h-4 w-4" aria-hidden="true" />
-              </button>
-              <input
-                ref={searchInputRef}
-                id="scopes-search"
-                type="text"
-                placeholder="Search scopes"
-                className="pipelines-search-input"
-                value={searchTerm}
-                onChange={event => {
-                  setSearchTerm(event.target.value);
-                  if (event.target.value && !searchOpen) setSearchOpen(true);
-                }}
-                onBlur={() => {
-                  if (!searchTerm.trim()) setSearchOpen(false);
-                }}
-              />
-              {(searchTerm || searchOpen) && (
-                <button
-                  type="button"
-                  className="pipelines-search-clear"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSearchOpen(false);
-                    searchInputRef.current?.blur();
-                  }}
-                  aria-label="Clear search"
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </button>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="pipelines-icon-only"
+              className="resource-collection-icon-button"
               aria-label="Encrypt secret for GitOps"
               title="Encrypt secret for GitOps"
               onClick={openGitOpsEncryptModal}
             >
               <KeyRound className="h-4 w-4" aria-hidden="true" />
             </button>
-
-            {!searchTerm.trim() && canCreateScopeHere && (
-              <button
-                id="scopes-new-btn"
-                type="button"
-                className="pipelines-icon-only"
-                aria-label="Create new scope"
-                title="New Scope"
-                onClick={openNewScopeModal}
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-              </button>
-            )}
-          </div>
-        </div>
+          }
+        />
       )}
 
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {selectedScope === null ? (
-          <ScopeCollectionList
-            listLoading={listLoading}
-            listError={listError}
-            searchTerm={searchTerm}
-            activeTeamNode={activeTeamNode}
-            filteredScopes={filteredScopes}
-            scopesByLabel={scopesByLabel}
-            scopeDataByScope={scopeDataByScope}
-            canCreateScopeHere={canCreateScopeHere}
-            onOpenTeam={openTeam}
-            onSelectScope={handleSelectScope}
-          />
-        ) : (
-          <ScopeDetailView
-            selectedScope={selectedScope}
-            scopeDataByScope={scopeDataByScope}
-            selectedVariable={selectedVariable}
-            selectedSecret={selectedSecret}
-            expandedVariableKey={expandedVariableKey}
-            variableValueLoadingKey={variableValueLoadingKey}
-            variableValues={variableValues}
-            pipelineVariableIndex={pipelineVariableIndex}
-            pipelineSecretIndex={pipelineSecretIndex}
-            pipelineMetadata={pipelineMetadata}
-            triggersByScope={triggersByScope}
-            usageLoading={usageLoading}
-            usageError={usageError}
-            runnerStatus={runnerAssignments.status}
-            runnerStatusLoading={runnerAssignments.loading}
-            runnerStatusError={runnerAssignments.error}
-            canWriteVariablesInSelectedScope={canWriteVariablesInSelectedScope}
-            canWriteSecretsInSelectedScope={canWriteSecretsInSelectedScope}
-            canDeleteScopes={canDeleteScopes}
-            onSelectVariable={selectVariable}
-            onSelectSecret={selectSecret}
-            onToggleVariableValue={toggleVariableValue}
-            onCreateVariable={openVariableCreateModal}
-            onUpdateVariable={openVariableUpdateModal}
-            onCloneVariable={openVariableCloneModal}
-            onCreateSecret={openSecretCreateModal}
-            onUpdateSecret={openSecretUpdateModal}
-            onCloneSecret={openSecretCloneModal}
-            onDeleteValue={openDeleteModal}
-            onOpenGitOpsEncrypt={openGitOpsEncryptModal}
-            onBack={handleBackToList}
-          />
-        )}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <main id="main-content-scopes" className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-6 space-y-4">
+          {selectedScope === null ? (
+            <ScopeCollectionList
+              listLoading={listLoading}
+              listError={listError}
+              visibleScopes={visibleScopes}
+              treeRoot={scopeTree}
+              activeTeam={activeTeam}
+              scopeDataByScope={scopeDataByScope}
+              canCreateScopeHere={canCreateScopeHere}
+              onOpenTeam={openTeam}
+              onSelectScope={handleSelectScope}
+            />
+          ) : (
+            <ScopeDetailView
+              selectedScope={selectedScope}
+              scopeDataByScope={scopeDataByScope}
+              selectedVariable={selectedVariable}
+              selectedSecret={selectedSecret}
+              expandedVariableKey={expandedVariableKey}
+              variableValueLoadingKey={variableValueLoadingKey}
+              variableValues={variableValues}
+              pipelineVariableIndex={pipelineVariableIndex}
+              pipelineSecretIndex={pipelineSecretIndex}
+              pipelineMetadata={pipelineMetadata}
+              triggersByScope={triggersByScope}
+              usageLoading={usageLoading}
+              usageError={usageError}
+              runnerStatus={runnerAssignments.status}
+              runnerStatusLoading={runnerAssignments.loading}
+              runnerStatusError={runnerAssignments.error}
+              canWriteVariablesInSelectedScope={canWriteVariablesInSelectedScope}
+              canWriteSecretsInSelectedScope={canWriteSecretsInSelectedScope}
+              canDeleteScopes={canDeleteScopes}
+              onSelectVariable={selectVariable}
+              onSelectSecret={selectSecret}
+              onToggleVariableValue={toggleVariableValue}
+              onCreateVariable={openVariableCreateModal}
+              onUpdateVariable={openVariableUpdateModal}
+              onCloneVariable={openVariableCloneModal}
+              onCreateSecret={openSecretCreateModal}
+              onUpdateSecret={openSecretUpdateModal}
+              onCloneSecret={openSecretCloneModal}
+              onDeleteValue={openDeleteModal}
+              onOpenGitOpsEncrypt={openGitOpsEncryptModal}
+              onBack={handleBackToList}
+            />
+          )}
+        </main>
       </div>
 
       <ScopeWorkflowModals

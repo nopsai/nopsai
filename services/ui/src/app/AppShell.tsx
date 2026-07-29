@@ -26,7 +26,6 @@ import {
   summarizeStatus,
   timeAgoShort,
 } from './runSidebarUtils';
-import { normalizeScopeLabel } from './resourceTrees';
 import type {
   CurrentUser,
   NavItem,
@@ -34,7 +33,6 @@ import type {
   RunTeam,
   RunListItem,
   RunTabKey,
-  ScopeTreeNode,
   StepTreeNode,
   Theme,
 } from './types';
@@ -262,16 +260,12 @@ function AppShell() {
               stepTree={resourceTrees.stepTree}
               stepTreeOpen={resourceTrees.stepTreeOpen}
               onToggleStepNode={resourceTrees.onToggleStepNode}
-              scopeTree={resourceTrees.scopeTree}
-              scopeTreeOpen={resourceTrees.scopeTreeOpen}
-              onToggleScopeNode={resourceTrees.onToggleScopeNode}
               splitIdentifier={resourceTrees.splitIdentifier}
               locationPathname={location.pathname}
               locationSearch={location.search}
               navigateTo={navigate}
               onSelectPipelineTeam={path => navigate(teamScopedRoute('/pipelines', path))}
               onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
-              onSelectScopeTeam={path => navigate(teamScopedRoute('/scopes', path))}
             />
             {!sidebar.collapsed ? (
               <div
@@ -338,16 +332,12 @@ function Sidebar({
   stepTree,
   stepTreeOpen,
   onToggleStepNode,
-  scopeTree,
-  scopeTreeOpen,
-  onToggleScopeNode,
   splitIdentifier,
   locationPathname,
   locationSearch,
   navigateTo,
   onSelectPipelineTeam,
   onSelectStepTeam,
-  onSelectScopeTeam,
 }: {
   navItems: NavItem[];
   systemSubNav: NavItem[];
@@ -362,22 +352,17 @@ function Sidebar({
   stepTree: StepTreeNode;
   stepTreeOpen: Set<string>;
   onToggleStepNode: (id: string) => void;
-  scopeTree: ScopeTreeNode;
-  scopeTreeOpen: Set<string>;
-  onToggleScopeNode: (id: string) => void;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
   locationSearch: string;
   navigateTo: (path: string) => void;
   onSelectPipelineTeam: (path: string) => void;
   onSelectStepTeam: (path: string) => void;
-  onSelectScopeTeam: (path: string) => void;
 }) {
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : width;
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
   const isTriggersRoute = locationPathname.startsWith('/triggers');
   const isStepsRoute = locationPathname.startsWith('/steps');
-  const isScopesRoute = locationPathname.startsWith('/scopes');
   const isPipelineRunsRoute = locationPathname.startsWith('/pipelineruns');
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
@@ -390,13 +375,11 @@ function Sidebar({
         ? 'triggers'
         : isStepsRoute
           ? 'steps'
-          : isScopesRoute
-            ? 'scopes'
-            : isPipelineRunsRoute
-              ? 'pipelineruns'
-              : '';
+          : isPipelineRunsRoute
+            ? 'pipelineruns'
+            : '';
     return (root ? extractTeamPathFromRoute(locationPathname, root) : '') || searchParams.get('team') || '';
-  }, [isPipelineRunsRoute, isPipelinesRoute, isScopesRoute, isStepsRoute, isTriggersRoute, locationPathname, searchParams]);
+  }, [isPipelineRunsRoute, isPipelinesRoute, isStepsRoute, isTriggersRoute, locationPathname, searchParams]);
 
   const renderPipelineTreeNode = (node: PipelineTreeNode) => {
     const isOpen = pipelineTreeOpen.has(node.id);
@@ -531,89 +514,6 @@ function Sidebar({
     );
   };
 
-  const encodeScopeForRoute = (scope: string) => {
-    const normalized = normalizeScopeLabel(scope);
-    if (!normalized) return 'default';
-    return normalized
-      .split('/')
-      .filter(Boolean)
-      .map(encodeURIComponent)
-      .join('/');
-  };
-
-  const renderScopeTreeNode = (node: ScopeTreeNode) => {
-    const isOpen = scopeTreeOpen.has(node.id);
-    const isRoot = node.id === '__root__';
-    const isActiveTeam = activeTeam === node.fullPath;
-    return (
-      <li key={`scope-${node.id}`} className="pipeline-tree-row">
-        {!isRoot && (
-          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
-            <button
-              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
-              onClick={() => onToggleScopeNode(node.id)}
-              aria-label="Toggle team"
-            >
-              <svg
-                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <button
-              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
-              onClick={() => {
-                if (!isOpen) onToggleScopeNode(node.id);
-                onSelectScopeTeam(node.fullPath);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span className="truncate">{node.name}</span>
-            </button>
-          </div>
-        )}
-        {(isRoot || isOpen) && (
-          <ul className="pipeline-tree-children">
-            {node.children.map(child => renderScopeTreeNode(child))}
-            {node.scopes.map(scopeLabel => {
-              const active = locationPathname.includes(`/scopes/${encodeScopeForRoute(scopeLabel)}`);
-              const name = scopeLabel.split('/').filter(Boolean).pop() || 'Default';
-              return (
-                <li key={`scope-leaf-${scopeLabel || 'default'}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
-                  <NavLink
-                    className="pipeline-tree-leaf-btn"
-                    to={`/scopes/${encodeScopeForRoute(scopeLabel)}`}
-                    onClick={() => onSelectScopeTeam(node.fullPath)}
-                  >
-                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="7" />
-                        <circle cx="12" cy="12" r="2.2" />
-                        <path d="M12 4v2.4m0 11.2V20m8-8h-2.4M6.4 12H4" />
-                        <path d="M16.4 7.6l-1.4 1.4m-6 6-1.4 1.4" />
-                        <path d="M7.6 7.6l1.4 1.4m6 6 1.4 1.4" />
-                      </svg>
-                    </span>
-                    <span className="truncate">{name}</span>
-                  </NavLink>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </li>
-    );
-  };
-
   return (
     <>
       <div
@@ -681,13 +581,6 @@ function Sidebar({
                     <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All steps</p>
                   </div>
                   <ul className="pipeline-tree-list">{renderStepTreeNode(stepTree)}</ul>
-                </div>
-              ) : isScopesRoute ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All scopes</p>
-                  </div>
-                  <ul className="pipeline-tree-list">{renderScopeTreeNode(scopeTree)}</ul>
                 </div>
               ) : (
                 <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>

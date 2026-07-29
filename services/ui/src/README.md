@@ -82,6 +82,12 @@ truth; this file is the source-adjacent placement guide.
 - Scope and trigger route identifiers, repository-owner grouping, source labels,
   usage indexes, manifest validation, and modal mutation state belong in their
   feature modules.
+- `features/scopes/ScopeCollectionList.tsx` renders scopes through the shared
+  resource collection tree/table workspace used by pipelines and reusable
+  steps; scope filtering belongs in `features/scopes/model.ts`, while route
+  composition and modal orchestration stay in `pages/Scopes.tsx`. The app-shell
+  no longer owns a scopes contextual tree; `/scopes` uses only its local scope
+  tree.
 - `features/event-automation/EventAutomationSwitch.tsx`,
   `EventAutomationToolbar.tsx`, `AutomationResourceTree.tsx`, and
   `resourceTreeModel.ts` own the rendering-only route switch, shared page
