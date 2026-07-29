@@ -98,6 +98,7 @@ function PipelineRunsPage() {
   const [logsTaskFilter, setLogsTaskFilter] = useState<string | null>(null);
   const [logsSearchFilter, setLogsSearchFilter] = useState<string | null>(null);
   const [stepDetailName, setStepDetailName] = useState<string | null>(null);
+  const [stepDetailTaskName, setStepDetailTaskName] = useState<string | null>(null);
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
   const eventCollapseTouchedRef = useRef(false);
 
@@ -142,6 +143,8 @@ function PipelineRunsPage() {
   useEffect(() => {
     // Reset step selection when run detail changes to avoid showing task graphs by default.
     setSelectedStep(null);
+    setStepDetailName(null);
+    setStepDetailTaskName(null);
   }, [runDetail?.run_info.run_id]);
 
   useEffect(() => {
@@ -598,6 +601,8 @@ function PipelineRunsPage() {
       setLogsStepFilter(null);
       setLogsTaskFilter(null);
       setLogsSearchFilter(null);
+      setStepDetailName(null);
+      setStepDetailTaskName(null);
       scrollMainToTop();
     },
     [activeTab, navigate, routeRunId, scrollMainToTop, searchParams, updateSearchParams]
@@ -619,6 +624,8 @@ function PipelineRunsPage() {
     setLogsStepFilter(null);
     setLogsTaskFilter(null);
     setLogsSearchFilter(null);
+    setStepDetailName(null);
+    setStepDetailTaskName(null);
   }, [activeTab, navigate, routeRunId, searchParams, updateSearchParams]);
 
   const handleDeleteRun = useCallback(
@@ -798,6 +805,7 @@ function PipelineRunsPage() {
       setLogsTaskFilter={setLogsTaskFilter}
       setLogsSearchFilter={setLogsSearchFilter}
       setStepDetailName={setStepDetailName}
+      setStepDetailTaskName={setStepDetailTaskName}
       setDefinitionOpen={setDefinitionOpen}
       handleApprovalDecision={handleApprovalDecision}
       approvalDecisionPending={approvalDecisionPending}
@@ -807,6 +815,7 @@ function PipelineRunsPage() {
       logsTaskFilter={logsTaskFilter}
       logsSearchFilter={logsSearchFilter}
       stepDetailName={stepDetailName}
+      stepDetailTaskName={stepDetailTaskName}
     />
   );
 }

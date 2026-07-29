@@ -72,6 +72,7 @@ type PipelineRunsPageViewProps = {
   setLogsTaskFilter: Dispatch<SetStateAction<string | null>>;
   setLogsSearchFilter: Dispatch<SetStateAction<string | null>>;
   setStepDetailName: Dispatch<SetStateAction<string | null>>;
+  setStepDetailTaskName: Dispatch<SetStateAction<string | null>>;
   setDefinitionOpen: Dispatch<SetStateAction<boolean>>;
   handleApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject') => Promise<void>;
   approvalDecisionPending: string | null;
@@ -81,6 +82,7 @@ type PipelineRunsPageViewProps = {
   logsTaskFilter: string | null;
   logsSearchFilter: string | null;
   stepDetailName: string | null;
+  stepDetailTaskName: string | null;
 };
 
 const tabs: Array<{ id: PipelineRunsTabKey; label: string }> = [
@@ -161,6 +163,7 @@ export function PipelineRunsPageView({
   setLogsTaskFilter,
   setLogsSearchFilter,
   setStepDetailName,
+  setStepDetailTaskName,
   setDefinitionOpen,
   handleApprovalDecision,
   approvalDecisionPending,
@@ -170,6 +173,7 @@ export function PipelineRunsPageView({
   logsTaskFilter,
   logsSearchFilter,
   stepDetailName,
+  stepDetailTaskName,
 }: PipelineRunsPageViewProps) {
   const tabRoute = (tab: PipelineRunsTabKey) => {
     const params = new URLSearchParams();
@@ -327,8 +331,9 @@ export function PipelineRunsPageView({
                   setLogsSearchFilter(null);
                   setLogsOpen(true);
                 }}
-                onOpenStepDetail={stepName => {
+                onOpenStepDetail={(stepName, taskName) => {
                   setStepDetailName(stepName);
+                  setStepDetailTaskName(taskName || null);
                 }}
                 onOpenRun={handleOpenRun}
                 onShowDefinition={() => setDefinitionOpen(true)}
@@ -405,10 +410,14 @@ export function PipelineRunsPageView({
       {stepDetailName && runDetail && (
         <StepDetailModal
           step={runDetail.steps.find(step => step.name === stepDetailName) || null}
-          onClose={() => setStepDetailName(null)}
-          onViewLogs={() => {
+          initialTaskName={stepDetailTaskName}
+          onClose={() => {
+            setStepDetailName(null);
+            setStepDetailTaskName(null);
+          }}
+          onViewLogs={taskName => {
             setLogsStepFilter(stepDetailName);
-            setLogsTaskFilter(null);
+            setLogsTaskFilter(taskName || null);
             setLogsSearchFilter(null);
             setLogsOpen(true);
           }}

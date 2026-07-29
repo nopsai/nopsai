@@ -94,7 +94,14 @@ row lists on their own tabs, while clone, edit, access, YAML download, and YAML
 copy belong in the detail header beside Execute. Pipeline edit sessions can
 change YAML, name, and team path together; an identity move persists the new
 resource and removes the old one through the existing AAA/GitOps-aware mutation
-path. The wiki must not describe a separate trigger-creation modal, separate
+path. Pipeline run detail documentation must also show the task-oriented
+execution graph: selected multi-task steps reveal their task DAG below the step
+overview, keep direct upstream/downstream context, expose the full step-detail
+modal through node info controls with optional task preselection, separate Graph
+and Outputs tabs, center the graph bounds when a run opens or Fit is pressed,
+preserve the task reveal during zoom/pan navigation, and preserve existing log,
+search, filter, zoom, pan, copy-link, AAA, monitoring, MCP, and GitOps
+contracts. The wiki must not describe a separate trigger-creation modal, separate
 run modal, or server-side reviewer persistence unless those flows are
 implemented.
 

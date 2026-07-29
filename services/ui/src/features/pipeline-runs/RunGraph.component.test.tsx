@@ -59,17 +59,23 @@ function ControlledStepsGraph({
       onSelectStep={handleSelectStep}
       childRuns={[]}
       hideStatusLegend
+      pipelineDefinition={{
+        steps: [
+          { name: 'build', tasks: [{ name: 'compile' }] },
+          { name: 'deploy', tasks: [{ name: 'publish' }] },
+        ],
+      }}
     />
   );
 }
 
-test('expands the graph and dispatches task-log and step-detail interactions', async () => {
+test('reveals a selected step task graph and dispatches task-log and step-detail interactions', async () => {
   const onSelectStep = vi.fn();
   const onOpenTaskLogs = vi.fn();
   const onOpenStepDetail = vi.fn();
   const user = userEvent.setup();
 
-  const { container } = render(
+  render(
     <StepsGraph
       steps={graphSteps}
       selectedStep={null}
@@ -86,46 +92,38 @@ test('expands the graph and dispatches task-log and step-detail interactions', a
       ]}
       pipelineDefinition={{
         steps: [
-          {
-            name: 'build',
-            tasks: [{ name: 'compile' }],
-          },
-          {
-            name: 'deploy',
-            tasks: [{ name: 'publish' }],
-          },
+          { name: 'build', tasks: [{ name: 'compile' }] },
+          { name: 'deploy', tasks: [{ name: 'publish' }] },
         ],
       }}
     />
   );
 
+  expect(screen.getByText('Execution Graph')).toBeVisible();
   expect(screen.getByText('2 steps')).toBeVisible();
   expect(screen.getByText('2 tasks')).toBeVisible();
-  expect(screen.getByText('build')).toBeVisible();
   expect(screen.getByText('Included Pipeline')).toBeVisible();
-  expect(container).toHaveTextContent('Child run');
+  expect(screen.queryByText('Child run')).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole('button', { name: 'Expand all steps' }));
+  await user.click(screen.getByRole('button', { name: 'Open full details for build step' }));
+  expect(onOpenStepDetail).toHaveBeenCalledWith('build');
+  expect(onSelectStep).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole('button', { name: /Reveal build step/ }));
+
+  expect(onSelectStep).toHaveBeenCalledWith('build');
   expect(screen.getByText('compile')).toBeVisible();
-  expect(screen.getByText('publish')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Collapse all steps' })).toBeVisible();
+  expect(screen.queryByText('Selection Details')).not.toBeInTheDocument();
 
-  screen.getByRole('button', { name: /Open logs for compile task/ }).focus();
+  await user.click(screen.getByRole('button', { name: 'Open full details for compile task in build' }));
+  expect(onOpenStepDetail).toHaveBeenCalledWith('build', 'compile');
+
+  screen.getByRole('button', { name: /Open logs for compile task in build/ }).focus();
   await user.keyboard('{Enter}');
   expect(onOpenTaskLogs).toHaveBeenCalledWith('build', 'compile');
-
-  const buildDetails = screen.getByRole('button', { name: 'Open details for build step' });
-  fireEvent.mouseEnter(buildDetails, { clientX: 20, clientY: 20 });
-  await waitFor(() => expect(screen.getByText(/^Duration:/)).toBeVisible());
-  buildDetails.focus();
-  await user.keyboard(' ');
-  expect(onOpenStepDetail).toHaveBeenCalledWith('build');
-
-  await user.click(screen.getByRole('button', { name: 'Collapse all steps' }));
-  expect(screen.queryByText('compile')).not.toBeInTheDocument();
 });
 
-test('auto-expands a selected step and supports graph zoom and pan controls', async () => {
+test('auto-reveals a selected step and supports graph zoom and pan controls', async () => {
   const onSelectStep = vi.fn();
   const { container } = render(
     <StepsGraph
@@ -135,23 +133,26 @@ test('auto-expands a selected step and supports graph zoom and pan controls', as
       childRuns={[]}
       hideStatusLegend
       statusVariant="dot"
+      pipelineDefinition={{ steps: [{ name: 'deploy', tasks: [{ name: 'publish' }] }] }}
     />
   );
 
   await waitFor(() => expect(screen.getByText('publish')).toBeVisible());
-  expect(screen.queryByText('Success')).not.toBeInTheDocument();
 
-  const graphLayer = container.querySelector('svg > g');
+  const graphLayer = container.querySelector('.run-graph-overview > g');
   expect(graphLayer).not.toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-  expect(graphLayer).toHaveAttribute('transform', expect.stringContaining('scale(1.2)'));
+  expect(graphLayer).toHaveAttribute('transform', expect.stringContaining('scale(1.32)'));
   fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
   expect(graphLayer).toHaveAttribute('transform', expect.stringContaining('scale(1)'));
 
-  const graphSurface = container.querySelector('svg')?.parentElement;
+  const graphSurface = container.querySelector('.run-graph-workspace') as HTMLElement | null;
   expect(graphSurface).not.toBeNull();
   fireEvent.wheel(graphSurface!, { deltaY: -200 });
-  expect(graphLayer).toHaveAttribute('transform', expect.stringContaining('scale(1.2)'));
+  await waitFor(() => {
+    const scaleValue = Number(graphLayer?.getAttribute('transform')?.match(/scale\(([^)]+)\)/)?.[1] || 0);
+    expect(scaleValue).toBeGreaterThan(1.4);
+  });
 
   fireEvent.mouseDown(graphSurface!, { button: 0, clientX: 40, clientY: 50 });
   fireEvent.mouseMove(graphSurface!, { clientX: 80, clientY: 90 });
@@ -159,89 +160,79 @@ test('auto-expands a selected step and supports graph zoom and pan controls', as
   expect(graphLayer?.getAttribute('transform')).toContain('translate(');
 });
 
-test('clicking a step frames that step and its direct graph neighborhood', async () => {
+test('centers the graph by default and recenters when the run changes', () => {
   const onSelectStep = vi.fn();
-  const onOpenStepLogs = vi.fn();
-  const onOpenTaskLogs = vi.fn();
-  const { container } = render(
+  const singleStep = [{ name: 'generate-data', status: 'success', depends_on: [], tasks: [] }];
+  const { container, rerender } = render(
     <StepsGraph
-      steps={[
-        { name: 'setup', status: 'success', depends_on: [], tasks: [] },
-        {
-          name: 'build',
-          status: 'running',
-          depends_on: ['setup'],
-          tasks: [
-            {
-              task_id: 'task-build',
-              step_name: 'build',
-              task_name: 'compile',
-              status: 'running',
-              task_index: 0,
-            },
-          ],
-        },
-        { name: 'deploy', status: 'pending', depends_on: ['build'], tasks: [] },
-        { name: 'notify', status: 'pending', depends_on: ['deploy'], tasks: [] },
-      ]}
+      graphKey="run-1"
+      steps={singleStep}
       selectedStep={null}
       onSelectStep={onSelectStep}
-      onOpenStepLogs={onOpenStepLogs}
-      onOpenTaskLogs={onOpenTaskLogs}
       childRuns={[]}
       hideStatusLegend
-      pipelineDefinition={{ steps: [{ name: 'build', tasks: [{ name: 'compile' }] }] }}
     />
   );
 
-  const graphSurface = container.querySelector('svg')?.parentElement as HTMLElement | null;
-  const graphLayer = container.querySelector('svg > g');
-  expect(graphSurface).not.toBeNull();
-  Object.defineProperty(graphSurface, 'clientWidth', { configurable: true, value: 960 });
-  Object.defineProperty(graphSurface, 'clientHeight', { configurable: true, value: 480 });
+  const initial = graphTransform(container);
+  expect(initial.scale).toBe(1);
+  expect(initial.x).toBeGreaterThan(300);
+  expect(initial.y).toBeGreaterThan(50);
 
-  await userEvent.click(screen.getByRole('button', { name: /Expand build step/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+  expect(graphTransform(container).scale).toBeGreaterThan(1);
 
-  await waitFor(() => {
-    expect(onSelectStep).toHaveBeenCalledWith('build');
-    const scale = Number(graphLayer?.getAttribute('transform')?.match(/scale\(([^)]+)\)/)?.[1] || 0);
-    expect(scale).toBeGreaterThan(1);
-    expect(scale).toBeLessThanOrEqual(1.4);
-  });
-  expect(screen.getByRole('button', { name: /Open logs for compile task in build/ })).toBeVisible();
-  expect(onOpenStepLogs).not.toHaveBeenCalled();
+  rerender(
+    <StepsGraph
+      graphKey="run-2"
+      steps={singleStep}
+      selectedStep={null}
+      onSelectStep={onSelectStep}
+      childRuns={[]}
+      hideStatusLegend
+    />
+  );
+
+  const recentered = graphTransform(container);
+  expect(recentered.scale).toBe(1);
+  expect(recentered.x).toBeCloseTo(initial.x);
+  expect(recentered.y).toBeCloseTo(initial.y);
 });
 
-test('clicking an expanded step collapses it instead of re-expanding from selected state', async () => {
+test('clicking an open step collapses the task reveal', async () => {
   render(<ControlledStepsGraph />);
 
-  await userEvent.click(screen.getByRole('button', { name: /Expand build step/ }));
+  await userEvent.click(screen.getByRole('button', { name: /Reveal build step/ }));
   expect(await screen.findByText('compile')).toBeVisible();
 
   await userEvent.click(screen.getByRole('button', { name: /Collapse build step/ }));
   await waitFor(() => {
     expect(screen.queryByText('compile')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Expand build step/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Reveal build step/ })).toBeVisible();
   });
 });
 
-test('manual graph navigation clears clicked step focus', async () => {
+test('wheel zoom keeps an open task reveal selected', async () => {
   const onSelectionChange = vi.fn();
   const { container } = render(<ControlledStepsGraph onSelectionChange={onSelectionChange} />);
-  const graphSurface = container.querySelector('svg')?.parentElement as HTMLElement | null;
+  const graphSurface = container.querySelector('.run-graph-workspace') as HTMLElement | null;
+  const graphLayer = container.querySelector('.run-graph-overview > g');
   expect(graphSurface).not.toBeNull();
-  Object.defineProperty(graphSurface, 'clientWidth', { configurable: true, value: 960 });
-  Object.defineProperty(graphSurface, 'clientHeight', { configurable: true, value: 480 });
+  expect(graphLayer).not.toBeNull();
 
-  await userEvent.click(screen.getByRole('button', { name: /Expand build step/ }));
+  await userEvent.click(screen.getByRole('button', { name: /Reveal build step/ }));
   expect(await screen.findByText('compile')).toBeVisible();
   await waitFor(() => expect(onSelectionChange).toHaveBeenCalledWith('build'));
 
-  fireEvent.wheel(graphSurface!, { deltaY: 200 });
-  await waitFor(() => expect(onSelectionChange).toHaveBeenLastCalledWith(null));
+  fireEvent.wheel(graphSurface!, { deltaY: -200 });
+  await waitFor(() => {
+    expect(graphTransform(container).scale).toBeGreaterThan(1);
+  });
+  expect(screen.getByText('compile')).toBeVisible();
+  expect(onSelectionChange).not.toHaveBeenCalledWith(null);
 });
 
-test('clicking a step without tasks opens step logs instead of expanding an empty graph', async () => {
+test('clicking a step without tasks opens step logs instead of revealing an empty graph', async () => {
   const onSelectStep = vi.fn();
   const onOpenStepLogs = vi.fn();
   render(
@@ -295,3 +286,15 @@ test('does not render a placeholder task that only repeats the step name', async
   expect(onOpenStepLogs).toHaveBeenCalledWith('approve');
   expect(screen.queryByRole('button', { name: /Open logs for approve task/ })).not.toBeInTheDocument();
 });
+
+function graphTransform(container: HTMLElement) {
+  const graphLayer = container.querySelector('.run-graph-overview > g');
+  const transform = graphLayer?.getAttribute('transform') || '';
+  const match = /translate\(([^,]+), ([^)]+)\) scale\(([^)]+)\)/.exec(transform);
+  if (!match) throw new Error(`Unexpected graph transform: ${transform}`);
+  return {
+    x: Number(match[1]),
+    y: Number(match[2]),
+    scale: Number(match[3]),
+  };
+}
