@@ -38,6 +38,42 @@ describe('assistant page context', () => {
     assert.equal(assistantPageContextScope(context), 'platform/api');
   });
 
+  it('extracts path-backed resource context for routed workspaces', () => {
+    const schedule = buildAssistantPageContext('/schedules/prod/nightly-api', '?pipeline=general/api');
+    assert.equal(schedule.route, '/schedules/:schedule_id');
+    assert.equal(schedule.resource_type, 'schedule');
+    assert.equal(schedule.resource_id, 'prod/nightly-api');
+    assert.equal(schedule.pipeline_id, 'general/api');
+
+    const dashboard = buildAssistantPageContext('/dashboards/team-1/ops-dashboard', '?tab=service-metrics');
+    assert.equal(dashboard.route, '/dashboards/:dashboard_id');
+    assert.equal(dashboard.resource_type, 'dashboard');
+    assert.equal(dashboard.resource_id, 'team-1/ops-dashboard');
+    assert.equal(dashboard.tab, 'service-metrics');
+
+    const llmProfile = buildAssistantPageContext('/llm-profiles/platform/ml/reasoning', '');
+    assert.equal(llmProfile.route, '/llm-profiles/:profile_id');
+    assert.equal(llmProfile.resource_type, 'llm_profile');
+    assert.equal(llmProfile.team_path, 'platform/ml');
+
+    const mcpServer = buildAssistantPageContext('/mcp/servers/platform/ml/github', '');
+    assert.equal(mcpServer.route, '/mcp/servers/:server_id');
+    assert.equal(mcpServer.resource_type, 'mcp_server');
+    assert.equal(mcpServer.resource_id, 'platform/ml/github');
+
+    const credential = buildAssistantPageContext('/credentials/team/platform/payments/openai', '');
+    assert.equal(credential.route, '/credentials/:credential_ref');
+    assert.equal(credential.resource_type, 'credential');
+    assert.equal(credential.resource_id, 'credential://team/platform/payments/openai');
+    assert.equal(credential.team_path, 'platform/payments');
+
+    const monitoring = buildAssistantPageContext('/monitoring/ai-usage', '?runId=run-1');
+    assert.equal(monitoring.route, '/monitoring/:tab');
+    assert.equal(monitoring.resource_type, 'monitoring');
+    assert.equal(monitoring.tab, 'ai-usage');
+    assert.equal(monitoring.run_id, 'run-1');
+  });
+
   it('normalizes route-state context before sending it to the assistant', () => {
     const context = normalizeAssistantPageContext({
       title: '  Scopes  ',

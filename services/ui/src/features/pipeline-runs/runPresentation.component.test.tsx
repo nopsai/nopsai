@@ -118,7 +118,7 @@ describe('Pipeline Runs presentation', () => {
     expect(getPipelineIdentifier(item)).toBe('platform/core/release');
     expect(buildPipelineLink(item)).toBe('/pipelines/platform/core/release');
     expect(buildPipelineLink(null)).toBe('');
-    expect(buildRunMonitoringLink(item)).toBe('/monitoring?tab=ai-usage&runId=run-1');
+    expect(buildRunMonitoringLink(item)).toBe('/monitoring/ai-usage?runId=run-1');
     expect(formatTriggerId('1234567890123456')).toEqual({ display: '12345678', full: '1234567890123456' });
     expect(formatTriggerId()).toEqual({ display: 'N/A', full: 'N/A' });
   });

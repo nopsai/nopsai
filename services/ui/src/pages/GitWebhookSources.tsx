@@ -12,9 +12,9 @@ export default function GitWebhookSourcesPage({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const selectedID = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] || '');
+  const selectedID = gitWebhookSourceIDFromPath(location.pathname);
   const onSelect = useCallback((sourceID: string) => {
-    navigate(sourceID ? `/git-webhook-sources/${encodeURIComponent(sourceID)}` : '/git-webhook-sources');
+    navigate(sourceID ? `/git-webhook-sources/${encodeRouteIdentifier(sourceID)}` : '/git-webhook-sources');
   }, [navigate]);
   const controller = useGitWebhookSources({
     selectedID,
@@ -30,4 +30,20 @@ export default function GitWebhookSourcesPage({
       canDelete={canDeleteGitWebhookSources}
     />
   );
+}
+
+function gitWebhookSourceIDFromPath(pathname: string) {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'git-webhook-sources' || parts.length < 2) return '';
+  return parts.slice(1).map(part => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  }).join('/');
+}
+
+function encodeRouteIdentifier(identifier: string) {
+  return identifier.split('/').filter(Boolean).map(encodeURIComponent).join('/');
 }

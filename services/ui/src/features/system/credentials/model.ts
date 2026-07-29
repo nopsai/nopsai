@@ -185,7 +185,20 @@ export function isTeamCredentialReference(reference: string): boolean {
 
 export function credentialReferenceRoute(reference: string): string {
   const trimmed = reference.trim();
-  return `/credentials?credential=${encodeURIComponent(trimmed)}`;
+  const parsed = parseCredentialReference(trimmed);
+  const segments = [parsed.namespace, ...parsed.name.split('/').filter(Boolean)]
+    .map(encodeURIComponent)
+    .join('/');
+  return segments ? `/credentials/${segments}` : '/credentials';
+}
+
+export function credentialReferenceFromRoute(pathname: string): string {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'credentials' || segments.length < 3) return '';
+  const decoded = segments.slice(1).map(decodeCredentialRouteSegment);
+  const namespace = decoded[0]?.trim() || 'system';
+  const name = decoded.slice(1).join('/').replace(/^\/+|\/+$/g, '');
+  return name ? `credential://${namespace}/${name}` : '';
 }
 
 export function parseCredentialReference(reference: string): CredentialReferenceParts {
@@ -198,6 +211,14 @@ export function parseCredentialReference(reference: string): CredentialReference
   const displayName = segments.at(-1) || name || 'Unnamed credential';
   const parentPath = segments.slice(1, -1).join(' / ');
   return { namespace, name, category, displayName, parentPath };
+}
+
+function decodeCredentialRouteSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 export function credentialReferenceDisplay(

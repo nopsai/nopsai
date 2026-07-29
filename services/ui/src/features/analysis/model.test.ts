@@ -39,7 +39,7 @@ test('analyses team resources for duplicates, GitOps drift, and credential overe
         kind: 'credential',
         label: 'github-admin',
         description: 'github credential in platform/payments',
-        href: '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fpayments%2Fgithub-admin',
+        href: '/credentials/team/platform/payments/github-admin',
         teamPath: 'platform/payments',
         source: 'database',
       },
@@ -80,7 +80,7 @@ test('analyses an individual credential without exposing sensitive values', () =
     kind: 'credential',
     label: 'aws-prod-admin',
     description: 'password: never-show-this',
-    href: '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fpayments%2Faws-prod',
+    href: '/credentials/team/platform/payments/aws-prod',
     teamPath: 'platform/payments',
     source: 'database',
   };

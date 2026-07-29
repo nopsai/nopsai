@@ -70,11 +70,11 @@ export function AppRoutes({
         <Route path="/pipelineruns/:tab/team/*" element={<PipelineRunsPage />} />
         <Route path="/pipelineruns/:tab/:runID" element={<PipelineRunsPage />} />
         <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
-        <Route path="/monitoring" element={<MonitoringPage />} />
+        <Route path="/monitoring/*" element={<MonitoringPage />} />
         <Route path="/teams/*" element={<TeamsPage />} />
         <Route path="/assistant" element={<AssistantPage />} />
         <Route
-          path="/llm-profiles"
+          path="/llm-profiles/*"
           element={
             <PermissionGuard allowed={access.canViewSystemLLMProfiles} loading={currentUserLoading}>
               <LLMProfilesPage canManage={access.canManageSystemLLMProfiles} />
@@ -82,7 +82,7 @@ export function AppRoutes({
           }
         />
         <Route
-          path="/agent-profiles"
+          path="/agent-profiles/*"
           element={
             <PermissionGuard allowed={access.canViewSystemAgentProfiles} loading={currentUserLoading}>
               <AgentProfilesPage canManage={access.canManageSystemAgentProfiles} />
@@ -90,7 +90,7 @@ export function AppRoutes({
           }
         />
         <Route
-          path="/mcp"
+          path="/mcp/*"
           element={
             <PermissionGuard allowed={access.canViewSystemMCP} loading={currentUserLoading}>
               <MCPPage canManage={access.canManageSystemMCP} />
@@ -98,7 +98,7 @@ export function AppRoutes({
           }
         />
         <Route
-          path="/credentials"
+          path="/credentials/*"
           element={
             <PermissionGuard allowed={access.canViewSystemCredentials} loading={currentUserLoading}>
               <CredentialsPage

@@ -152,7 +152,7 @@ test('builds team AI context from visible resources and operations metadata', ()
       kind: 'credential',
       label: 'prod-admin',
       description: 'production admin credential token=never-show-this',
-      href: '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fpayments%2Fprod-admin',
+      href: '/credentials/team/platform/payments/prod-admin',
       teamPath: 'platform/payments',
       source: 'database',
     },

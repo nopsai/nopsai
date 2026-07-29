@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import { CredentialCatalog, type CredentialScopeTab } from './credentials/CredentialCatalog';
 import { CredentialCreateForm } from './credentials/CredentialCreateForm';
@@ -8,6 +8,8 @@ import { CredentialDetail } from './credentials/CredentialDetail';
 import {
   credentialCatalogGroups,
   credentialNamespaces,
+  credentialReferenceFromRoute,
+  credentialReferenceRoute,
   credentialSummary,
   filterCredentials,
   isTeamCredentialReference,
@@ -35,8 +37,12 @@ type CredentialsPanelBodyProps = {
 function CredentialsPanel({ canManage, isNopsAIAdmin = false }: { canManage: boolean; isNopsAIAdmin?: boolean }) {
   const controller = useCredentials({ canManage });
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const linkedCredentialRef = (searchParams.get('credential') || '').trim();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const routeCredentialRef = useMemo(() => credentialReferenceFromRoute(location.pathname), [location.pathname]);
+  const legacyCredentialRef = (searchParams.get('credential') || '').trim();
+  const linkedCredentialRef = routeCredentialRef || legacyCredentialRef;
   const suppressedLinkedCredentialRef = useRef('');
   const {
     closeDetails,
@@ -47,6 +53,14 @@ function CredentialsPanel({ canManage, isNopsAIAdmin = false }: { canManage: boo
     selected,
     startCreate: startControllerCreate,
   } = controller;
+
+  useEffect(() => {
+    if (routeCredentialRef || !legacyCredentialRef) return;
+    const next = new URLSearchParams(location.search);
+    next.delete('credential');
+    const query = next.toString();
+    navigate(`${credentialReferenceRoute(legacyCredentialRef)}${query ? `?${query}` : ''}`, { replace: true, preventScrollReset: true });
+  }, [legacyCredentialRef, location.search, navigate, routeCredentialRef]);
 
   useEffect(() => {
     if (!linkedCredentialRef) {
@@ -72,8 +86,9 @@ function CredentialsPanel({ canManage, isNopsAIAdmin = false }: { canManage: boo
   const selectCredential = (credential: CredentialRecord) => {
     suppressedLinkedCredentialRef.current = '';
     const next = new URLSearchParams(searchParams);
-    next.set('credential', credential.reference);
-    setSearchParams(next, { replace: true });
+    next.delete('credential');
+    const query = next.toString();
+    navigate(`${credentialReferenceRoute(credential.reference)}${query ? `?${query}` : ''}`, { replace: true, preventScrollReset: true });
     void selectControllerCredential(credential);
   };
 
@@ -82,7 +97,8 @@ function CredentialsPanel({ canManage, isNopsAIAdmin = false }: { canManage: boo
     closeDetails();
     const next = new URLSearchParams(searchParams);
     next.delete('credential');
-    setSearchParams(next, { replace: true });
+    const query = next.toString();
+    navigate(query ? `/credentials?${query}` : '/credentials', { replace: true, preventScrollReset: true });
   };
 
   const startCreate = () => {
@@ -96,7 +112,8 @@ function CredentialsPanel({ canManage, isNopsAIAdmin = false }: { canManage: boo
     }
     const next = new URLSearchParams(searchParams);
     next.delete('credential');
-    setSearchParams(next, { replace: true });
+    const query = next.toString();
+    navigate(query ? `/credentials?${query}` : '/credentials', { replace: true, preventScrollReset: true });
   };
 
   return (

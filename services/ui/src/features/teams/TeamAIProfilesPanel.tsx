@@ -29,7 +29,6 @@ export function TeamAIProfilesPanel({
   const globalScope = !teamPath;
   const encodedTeam = encodeURIComponent(teamPath);
   const teamQuery = teamPath ? `?team=${encodedTeam}` : '?team=global';
-  const mcpQuery = teamPath ? `?team=${encodedTeam}&view=profiles` : '?team=global&view=profiles';
   const title = globalScope ? 'Global AI Profiles' : 'Team AI Profiles';
   const description = gitOpsTarget
     ? `GitOps target: ${gitOpsTarget}`
@@ -59,7 +58,7 @@ export function TeamAIProfilesPanel({
             <Bot className="h-4 w-4" aria-hidden="true" />
             Agent Profiles
           </Link>
-          <Link className="teams-secondary-btn" to={`/mcp${mcpQuery}`}>
+          <Link className="teams-secondary-btn" to={`/mcp/profiles${teamQuery}`}>
             <Route className="h-4 w-4" aria-hidden="true" />
             MCP
           </Link>

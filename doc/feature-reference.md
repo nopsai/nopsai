@@ -237,8 +237,13 @@ Pipeline schedules are first-class resources for time-based automation:
 - each schedule has a resource team path, optional run team path, schedule
   kind, cron expression or one-time timestamp, timezone, enabled state,
   optional scope, and optional variable overrides
-- the schedule page lists visible schedules with next run time, latest run
-  status, GitOps source, and links to the latest pipeline run
+- the schedule page uses a run-team path tree, registry table, overview
+  metrics, and a detail panel for visible schedules with cadence, next run
+  time, latest run status, runtime ownership, variable overrides, GitOps
+  source, and links to the latest pipeline run. When `run_team_path` is set, it
+  owns the browser grouping even if the selected pipeline lives under another
+  path. Selecting a schedule navigates to `/schedules/<resource path/name>` so
+  schedule detail links can be opened directly.
 - UI-created schedules derive their path from the selected pipeline; API and
   GitOps schedules may still set explicit organizational paths
 - the schedule form uses existing pipelines and scopes as dropdown choices and
@@ -249,6 +254,9 @@ Pipeline schedules are first-class resources for time-based automation:
   the caller has the matching `pipeline_schedule.*` action. Editing or deleting
   a GitOps-managed schedule changes the database row only; the next GitOps sync
   can replace or recreate it unless the change is pushed back to GitOps.
+- the schedule browser redesign is UI-only: AAA actions, GitOps storage,
+  schedule service-account execution, monitoring filters, hosted MCP proposal
+  behavior, and CLI/API contracts are unchanged
 - scheduled runs are tagged with `trigger_source: schedule`, linked to
   `schedule_id`, and badged in Pipeline runs
 - execution uses a schedule-owned service account with explicit pipeline,
@@ -873,15 +881,18 @@ Pages present in the current UI:
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
-- `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
+- `Monitoring`: tabbed operational analytics with `/monitoring/<tab>` links and query-backed filters for time, team, status, comparison, and run drilldowns
+- `Dashboards`: dashboard detail routes under `/dashboards/<dashboard-ref>` with section tabs as URL view state
+- `Schedules`: LLM-profile-style schedule workspace with run-team path tree, registry table, overview metrics, detail panel, pipeline-filtered view, enable/disable, run now, latest-run link, and GitOps markers
 - `Triggers`: trigger override browser/editor with an owner/team tree and list scopes derived from trigger manifests
+- `External API` and `Git webhooks`: event automation resource workspaces with nested detail routes for selected triggers and webhook sources
 - `Scopes`: variable and secret management by scope and repository, scope use-access controls, and registered runner assignments for the selected scope
 - `Teams`: team/application hierarchy, team-owned resources, config repository controls, and registered runner assignments for the team scope and subgroup scopes
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
 - `Knowledge Context`: kind/team/document browser, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management
+- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 

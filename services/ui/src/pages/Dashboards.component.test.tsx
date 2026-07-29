@@ -112,15 +112,15 @@ test('dashboard route aliases resolve before detail endpoints load and stay stab
   expect(screen.getByTestId('selected-dashboard')).toHaveTextContent(canonicalDashboardID);
   expect(screen.getByTestId('active-section')).toHaveTextContent('service-metrics');
   expect(screen.getByTestId('location')).toHaveTextContent(
-    '?dashboard=team-1%2Fops-dashboard&tab=service-metrics'
+    '/dashboards/team-1/ops-dashboard?tab=service-metrics'
   );
   expect(screen.getByTestId('service-section-link')).toHaveAttribute(
     'href',
-    '/dashboards?dashboard=team-1%2Fops-dashboard&tab=service-metrics'
+    '/dashboards/team-1/ops-dashboard?tab=service-metrics'
   );
 });
 
 function LocationProbe() {
   const location = useLocation();
-  return <div data-testid="location">{location.search}</div>;
+  return <div data-testid="location">{location.pathname}{location.search}</div>;
 }

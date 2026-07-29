@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 import MCPPanel from './MCPPanel';
 
@@ -112,6 +112,11 @@ beforeEach(() => {
   }));
 });
 
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}{location.search}</span>;
+}
+
 test('renders MCP servers and profiles in the split detail workspace', async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const user = userEvent.setup();
@@ -119,6 +124,7 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   render(
     <MemoryRouter>
       <MCPPanel canManage />
+      <LocationProbe />
     </MemoryRouter>
   );
 
@@ -134,12 +140,13 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.queryByRole('columnheader', { name: 'Transport' })).not.toBeInTheDocument();
 
   await user.click(await screen.findByRole('button', { name: 'Select MCP server GitHub MCP' }));
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/mcp/servers/platform/ml/github'));
   expect(screen.getByLabelText('MCP server detail')).toHaveClass('ai-resource-detail-fullscreen-main');
   expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
   expect(screen.getByText('https://api.githubcopilot.com/mcp/x/all/readonly')).toBeVisible();
   expect(screen.getByRole('link', { name: 'credential://system/mcp/github' })).toHaveAttribute(
     'href',
-    '/credentials?credential=credential%3A%2F%2Fsystem%2Fmcp%2Fgithub'
+    '/credentials/system/mcp/github'
   );
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
@@ -156,6 +163,7 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   await waitFor(() => expect(apiMocks.discoverMCPServer).toHaveBeenCalledWith('platform/ml/github'));
 
   await user.click(screen.getByRole('tab', { name: 'Profiles' }));
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/mcp/profiles'));
   expect(screen.getByLabelText('MCP profile workspace')).toHaveClass('ai-resource-workspace-card');
   expect(screen.getByLabelText('MCP profile tree')).toBeVisible();
   const profileTable = await screen.findByLabelText('MCP profiles');
@@ -165,6 +173,7 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getByText('Approved tools')).toBeVisible();
 
   await user.click(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' }));
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/mcp/profiles/platform/ml/pr-review'));
   expect(screen.getByLabelText('MCP profile detail')).toHaveClass('ai-resource-detail-fullscreen-main');
   expect(await screen.findByText('Review pull requests.')).toBeVisible();
   expect(screen.getByText('issues_list')).toBeVisible();
@@ -219,7 +228,7 @@ test('moves an edited MCP server to the global catalog when no profiles referenc
   const user = userEvent.setup();
 
   render(
-    <MemoryRouter initialEntries={['/mcp?team=platform%2Fml&view=servers']}>
+    <MemoryRouter initialEntries={['/mcp/servers?team=platform%2Fml']}>
       <MCPPanel canManage />
     </MemoryRouter>
   );
@@ -267,7 +276,7 @@ test('moves an edited team MCP profile to the global catalog', async () => {
   const user = userEvent.setup();
 
   render(
-    <MemoryRouter initialEntries={['/mcp?team=platform%2Fml&view=profiles']}>
+    <MemoryRouter initialEntries={['/mcp/profiles?team=platform%2Fml']}>
       <MCPPanel canManage />
     </MemoryRouter>
   );
@@ -291,7 +300,7 @@ test('moves an edited team MCP profile to the global catalog', async () => {
 
 test('applies the team filter and profiles view from the route query', async () => {
   render(
-    <MemoryRouter initialEntries={['/mcp?team=platform%2Fml&view=profiles']}>
+    <MemoryRouter initialEntries={['/mcp/profiles?team=platform%2Fml']}>
       <MCPPanel canManage />
     </MemoryRouter>
   );
