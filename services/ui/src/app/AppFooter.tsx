@@ -31,7 +31,7 @@ function AppFooter() {
   if (!footerText) return null;
 
   return (
-    <footer className="app-footer-shell flex-shrink-0 px-6 py-2 text-right text-xs text-[var(--text-tertiary)]" aria-label="Application version">
+    <footer className="app-footer-shell flex-shrink-0 px-4 py-2 text-right text-xs text-[var(--text-tertiary)]" aria-label="Application version">
       <span>{footerText}</span>
     </footer>
   );

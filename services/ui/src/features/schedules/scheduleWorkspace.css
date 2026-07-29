@@ -15,6 +15,40 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.schedule-workspace .schedule-workspace__header-actions {
+  display: grid;
+  align-self: stretch;
+  align-content: center;
+  justify-items: end;
+  gap: 7px;
+  margin-left: auto;
+}
+
+.schedule-workspace__header-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.schedule-workspace .ai-resource-icon-button,
+.schedule-workspace .ai-resource-primary-button {
+  min-height: 34px;
+  border-radius: 7px;
+}
+
+.schedule-workspace .ai-resource-icon-button {
+  width: 36px;
+}
+
+.schedule-workspace .ai-resource-primary-button {
+  padding: 0 12px;
+}
+
+.schedule-workspace__header-search.ai-resource-search--open {
+  min-width: min(100%, 218px);
+}
+
 .schedule-workspace__scope-card button {
   display: inline-flex;
   width: max-content;
@@ -33,28 +67,20 @@
 .schedule-workspace__filters {
   display: flex;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
 }
 
-.schedule-workspace__path-filter {
-  display: block;
-  min-width: 150px;
-  flex: 0 0 170px;
+.schedule-workspace__table-header {
+  justify-content: flex-start;
+  min-height: 46px;
+  padding-inline: 12px;
 }
 
-.schedule-workspace__path-filter select {
-  width: 100%;
-  min-height: 36px;
-  border: 1px solid var(--border-primary);
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  padding: 0 32px 0 12px;
-  font-size: 13px;
-  font-weight: 620;
+.schedule-workspace__table-header .ai-resource-table-controls {
+  justify-content: flex-start;
 }
 
 .schedule-workspace__state-filter {

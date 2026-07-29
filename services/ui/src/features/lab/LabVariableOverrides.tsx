@@ -15,7 +15,7 @@ export function LabVariableOverrides({
   onRemove,
 }: LabVariableOverridesProps) {
   return (
-    <section className="glass-card p-5 space-y-4 rounded-2xl ring-1 ring-[var(--border-primary)]/70">
+    <section className="glass-card p-4 space-y-3 rounded-lg ring-1 ring-[var(--border-primary)]/70">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-lg font-semibold text-[var(--text-primary)] leading-tight" style={{ paddingTop: 10 }}>
           Variable overrides

@@ -25,7 +25,7 @@
   --teams-icon-default: var(--teams-muted);
   --teams-shadow: 0 1px 2px rgba(16, 24, 40, 0.03), 0 8px 25px rgba(16, 24, 40, 0.035);
   min-height: 100%;
-  padding: 24px;
+  padding: 16px;
   background: var(--teams-bg);
   color: var(--teams-text);
 }
@@ -69,7 +69,7 @@ html.dark .teams-page-shell {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px;
   margin-bottom: var(--space-section);
 }
 
@@ -263,15 +263,15 @@ html.dark .teams-breadcrumb__item.current {
 
 .teams-stat-card {
   display: flex;
-  min-height: 78px;
+  min-height: 66px;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
   border: 1px solid var(--teams-line);
   border-radius: 8px;
   background: var(--teams-card);
   box-shadow: none;
-  padding: 14px 16px;
+  padding: 10px 12px;
 }
 
 .teams-stat-card p {
@@ -282,7 +282,7 @@ html.dark .teams-breadcrumb__item.current {
 
 .teams-stat-card strong {
   color: var(--teams-text);
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.1;
 }
 
@@ -298,8 +298,8 @@ html.dark .teams-breadcrumb__item.current {
 }
 
 .teams-stat-card__icon {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
 }
 
 .teams-tone-blue {
@@ -361,9 +361,9 @@ html.dark .teams-tone-cyan {
 
 .teams-tree-card {
   position: sticky;
-  top: 14px;
-  min-height: 760px;
-  padding: 18px;
+  top: 10px;
+  min-height: 560px;
+  padding: 14px;
   background: var(--teams-tree-bg);
   box-shadow: none;
 }
@@ -596,7 +596,7 @@ html.dark .teams-tree-row.active {
   overflow: hidden;
   margin: 0;
   color: var(--teams-text);
-  font-size: 21px;
+  font-size: 18px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -658,7 +658,7 @@ html.dark .teams-tabs button.active {
 }
 
 .teams-card {
-  padding: 18px;
+  padding: 14px;
 }
 
 html.dark .teams-overview-card,
@@ -668,11 +668,11 @@ html.dark .teams-focus-card {
 
 .teams-overview-card,
 .teams-focus-card {
-  min-height: 300px;
+  min-height: 240px;
 }
 
 .teams-focus-card--wide {
-  min-height: 245px;
+  min-height: 200px;
 }
 
 .teams-focus-hero {
@@ -940,10 +940,10 @@ html.dark .teams-profile-summary__row {
 }
 
 .teams-resource-mini {
-  min-height: 98px;
+  min-height: 82px;
   border: 1px solid #e1e6ed;
   border-radius: 7px;
-  padding: 12px;
+  padding: 10px;
   background: var(--teams-elevated);
   color: inherit;
   text-align: left;
@@ -1001,7 +1001,7 @@ html.dark .teams-resource-mini.active {
 .teams-resource-mini strong {
   display: block;
   color: var(--teams-text);
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1.1;
 }
 

@@ -26,12 +26,14 @@ export function TriggerCollectionToolbar({
   onSearchOpenChange,
   onCreate,
 }: TriggerCollectionToolbarProps) {
+  const searchActive = searchOpen || Boolean(searchTerm.trim());
+
   return (
     <div className="triggers-page-toolbar triggers-page-toolbar--compact">
       <div className="triggers-page-toolbar-head triggers-page-toolbar-head--compact">
         <EventAutomationSwitch active="triggers" />
         <div className="triggers-page-toolbar-actions">
-          <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
+          <div className={`pipelines-search-shell ${searchActive ? 'open' : ''}`}>
             <button
               type="button"
               className="pipelines-search-toggle"
@@ -62,6 +64,7 @@ export function TriggerCollectionToolbar({
               <button
                 type="button"
                 className="pipelines-search-clear"
+                onMouseDown={event => event.preventDefault()}
                 onClick={() => {
                   onSearchTermChange('');
                   onSearchOpenChange(false);

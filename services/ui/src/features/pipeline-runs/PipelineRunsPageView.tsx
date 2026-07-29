@@ -184,10 +184,11 @@ export function PipelineRunsPageView({
     const search = params.toString();
     return `${buildPipelineRunsRoute(tab, activeTeamURLValue)}${search ? `?${search}` : ''}`;
   };
+  const runSearchActive = searchOpen || Boolean(searchTerm.trim());
 
   return (
     <div data-page="pipelineruns" className="active h-full min-h-0 flex flex-col overflow-hidden">
-      <div className={`${isViewingDetail ? 'px-6 pt-4' : 'px-6 pt-6'} flex-shrink-0 tabs-nav-wrapper`}>
+      <div className={`${isViewingDetail ? 'px-4 pt-3' : 'px-4 pt-4'} flex-shrink-0 tabs-nav-wrapper`}>
         <div className="border-b border-[var(--border-primary)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <nav className="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
@@ -209,13 +210,25 @@ export function PipelineRunsPageView({
           </div>
           {!isViewingDetail && (
             <div className="pipeline-runs-filterbar">
-              <label className={`pipeline-runs-search-field ${searchOpen ? 'pipeline-runs-search-field--active' : ''}`}>
-                <Search className="h-4 w-4" aria-hidden="true" />
-                <span className="sr-only">Search pipeline runs</span>
+              <div className={`pipelines-search-shell pipeline-runs-search-shell ${runSearchActive ? 'open' : ''}`}>
+                <button
+                  type="button"
+                  className="pipelines-search-toggle"
+                  aria-label="Search pipeline runs"
+                  title="Search pipeline runs"
+                  onClick={() => {
+                    setSearchOpen(true);
+                    requestAnimationFrame(() => searchInputRef.current?.focus());
+                  }}
+                >
+                  <Search className="h-4 w-4" aria-hidden="true" />
+                </button>
                 <input
                   ref={searchInputRef}
                   id="pipeline-runs-search"
-                  type="text"
+                  type="search"
+                  className="pipelines-search-input"
+                  aria-label="Search pipeline runs"
                   placeholder="Search pipeline, branch, commit, or run ID"
                   value={searchTerm}
                   onFocus={() => setSearchOpen(true)}
@@ -231,7 +244,8 @@ export function PipelineRunsPageView({
                 {(searchTerm || searchOpen) && (
                   <button
                     type="button"
-                    className="pipeline-runs-search-clear"
+                    className="pipelines-search-clear"
+                    onMouseDown={event => event.preventDefault()}
                     onClick={() => {
                       setSearchTerm('');
                       setSearchOpen(false);
@@ -243,7 +257,7 @@ export function PipelineRunsPageView({
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 )}
-              </label>
+              </div>
               <div className="pipeline-runs-segmented" role="group" aria-label="Filter by run source">
                 {sourceFilterOptions.map(option => (
                   <button
@@ -297,7 +311,7 @@ export function PipelineRunsPageView({
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        <main id="main-content-runs" ref={mainContentRef} className={`pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto ${activeRunId ? 'p-4 space-y-3' : 'p-6 space-y-4'}`}>
+        <main id="main-content-runs" ref={mainContentRef} className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-4 space-y-3">
           {activeRunId ? (
             runDetail ? (
               <RunDetailView

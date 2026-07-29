@@ -374,7 +374,7 @@ export function RunCard({
       onKeyDown={event => {
         if (event.key === 'Enter') onOpen();
       }}
-      className={`run-card run-card--grid p-4 flex flex-col justify-between ${cardTone} hover:border-[var(--border-accent)] rounded-2xl ${selected ? 'run-link-highlight' : ''}`}
+      className={`run-card run-card--grid p-3 flex flex-col justify-between ${cardTone} hover:border-[var(--border-accent)] rounded-lg ${selected ? 'run-link-highlight' : ''}`}
       data-trigger-id={run.trigger_event_id || ''}
       data-run-id={run.run_id}
     >
@@ -488,7 +488,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
   ].filter(Boolean).join(' | ');
   return (
     <div
-      className={`run-card run-card--list border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm rounded-2xl hover:border-[var(--border-accent)] ${selected ? 'run-link-highlight' : ''}`}
+      className={`run-card run-card--list border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm rounded-lg hover:border-[var(--border-accent)] ${selected ? 'run-link-highlight' : ''}`}
       role="button"
       tabIndex={0}
       title={rowTitle}

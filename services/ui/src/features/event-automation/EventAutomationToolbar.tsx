@@ -41,6 +41,7 @@ export function EventAutomationToolbar({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const hasTitle = Boolean(title || description);
   const resolvedRefreshLabel = refreshLabel || (title ? `Refresh ${title}` : 'Refresh');
+  const searchActive = searchOpen || Boolean(searchTerm.trim());
 
   return (
     <div className={`triggers-page-toolbar ${hasTitle ? '' : 'triggers-page-toolbar--compact'}`}>
@@ -57,7 +58,7 @@ export function EventAutomationToolbar({
           )}
         </div>
         <div className="triggers-page-toolbar-actions">
-          <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
+          <div className={`pipelines-search-shell ${searchActive ? 'open' : ''}`}>
             <button
               type="button"
               className="pipelines-search-toggle"
@@ -88,6 +89,7 @@ export function EventAutomationToolbar({
                 type="button"
                 className="pipelines-search-clear"
                 aria-label="Clear search"
+                onMouseDown={event => event.preventDefault()}
                 onClick={() => {
                   onSearchTermChange('');
                   setSearchOpen(false);

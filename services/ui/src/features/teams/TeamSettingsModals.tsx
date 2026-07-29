@@ -130,7 +130,7 @@ export function NewTeamItemModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="team-item-modal-title"
-        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden"
+        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] overflow-hidden"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
@@ -295,7 +295,7 @@ export function EditTeamItemModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="team-edit-modal-title"
-        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden"
+        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] overflow-hidden"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
@@ -484,7 +484,7 @@ export function TeamConfigRepositoryModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="team-settings-modal-title"
-        className="w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-y-auto"
+        className="w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] overflow-y-auto"
       >
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]/70">
           <div>

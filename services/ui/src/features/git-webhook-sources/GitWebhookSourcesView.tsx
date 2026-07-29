@@ -58,7 +58,7 @@ export function GitWebhookSourcesView({
         refreshDisabled={controller.loading || controller.saving}
         filters={!canWrite ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
       />
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
+      <div className="flex-1 overflow-auto px-4 pb-6 triggers-content">
         {controller.error && !controller.editorOpen ? (
           <div className="mb-4 rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500">
             {controller.error}

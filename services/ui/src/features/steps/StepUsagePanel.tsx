@@ -10,7 +10,7 @@ type StepUsagePanelProps = {
 
 export function StepUsagePanel({ usage, loading, error }: StepUsagePanelProps) {
   return (
-    <aside className="min-w-0 space-y-6">
+    <aside className="min-w-0 space-y-4">
       <section className="glass-card overflow-hidden">
         <header className="p-4 border-b border-[var(--border-primary)]" style={{ paddingTop: 4 }}>
           <h3 className="text-lg font-semibold text-[var(--text-primary)]">Used in Pipelines</h3>

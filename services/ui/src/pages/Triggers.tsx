@@ -871,7 +871,7 @@ function TriggersPage({
         onCreate={openCreateModal}
       />
 
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
+      <div className="flex-1 overflow-auto px-4 pb-6 triggers-content">
         {selectedSlug ? (
           <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" style={treeResize.gridStyle} aria-label="Trigger detail">
             <TriggerExplorerTree

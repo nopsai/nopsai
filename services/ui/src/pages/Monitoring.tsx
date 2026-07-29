@@ -488,7 +488,7 @@ function MonitoringPage() {
 
   return (
     <div className="min-h-full bg-[var(--bg-primary)]">
-      <div className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-[1500px] space-y-4 px-4 py-4 sm:px-5 lg:px-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="min-w-0">
             <div className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)]">

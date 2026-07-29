@@ -120,7 +120,7 @@ function StatusBlock({ block }: { block: DashboardBlock }) {
   return (
     <div className={`rounded border p-3 ${toneClass[tone] || toneClass.neutral}`}>
       <div className="text-xs font-semibold uppercase tracking-wide">{block.label || block.title || 'Status'}</div>
-      <div className="mt-1 text-2xl font-semibold">{block.value || block.status || block.text}</div>
+      <div className="mt-1 text-xl font-semibold">{block.value || block.status || block.text}</div>
       {block.text && block.value ? <div className="mt-1 text-sm">{block.text}</div> : null}
     </div>
   );
@@ -182,7 +182,7 @@ function metricValueClass(value: unknown): string {
   const length = formatCell(value).length;
   if (length > 20) return 'break-words text-lg';
   if (length > 12) return 'break-words text-xl';
-  return 'text-2xl';
+  return 'text-xl';
 }
 
 function TableBlock({ block }: { block: DashboardBlock }) {

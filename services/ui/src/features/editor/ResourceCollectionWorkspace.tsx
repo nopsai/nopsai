@@ -27,6 +27,7 @@ type ResourceCollectionWorkspaceProps = {
   rootLabel: string;
   searchLabel: string;
   searchPlaceholder: string;
+  showTreeSearch?: boolean;
   emptyLabel: string;
   activePath: string;
   rootNode: ResourceCollectionTreeNode;
@@ -41,6 +42,7 @@ export function ResourceCollectionWorkspace({
   rootLabel,
   searchLabel,
   searchPlaceholder,
+  showTreeSearch = true,
   emptyLabel,
   activePath,
   rootNode,
@@ -91,6 +93,7 @@ export function ResourceCollectionWorkspace({
         rootLabel={rootLabel}
         searchLabel={searchLabel}
         searchPlaceholder={searchPlaceholder}
+        showTreeSearch={showTreeSearch}
         emptyLabel={emptyLabel}
         rootCount={countResourceCollectionItems(rootNode)}
         activePath={normalizeResourceTreePath(activePath)}
@@ -113,6 +116,7 @@ function ResourceCollectionTreeRail({
   rootLabel,
   searchLabel,
   searchPlaceholder,
+  showTreeSearch,
   emptyLabel,
   rootCount,
   activePath,
@@ -126,6 +130,7 @@ function ResourceCollectionTreeRail({
   rootLabel: string;
   searchLabel: string;
   searchPlaceholder: string;
+  showTreeSearch: boolean;
   emptyLabel: string;
   rootCount: number;
   activePath: string;
@@ -140,15 +145,17 @@ function ResourceCollectionTreeRail({
       <div className="pipeline-runs-scope-head">
         <h2>{title}</h2>
       </div>
-      <label className="pipeline-runs-scope-search">
-        <Search className="h-4 w-4" aria-hidden="true" />
-        <span className="sr-only">{searchLabel}</span>
-        <input
-          value={treeSearch}
-          onChange={event => onTreeSearchChange(event.target.value)}
-          placeholder={searchPlaceholder}
-        />
-      </label>
+      {showTreeSearch ? (
+        <label className="pipeline-runs-scope-search">
+          <Search className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">{searchLabel}</span>
+          <input
+            value={treeSearch}
+            onChange={event => onTreeSearchChange(event.target.value)}
+            placeholder={searchPlaceholder}
+          />
+        </label>
+      ) : null}
       <div className="pipeline-runs-scope-list">
         <button
           type="button"

@@ -89,15 +89,15 @@ export function StepDetailView({
 
   return (
     <div id="steps-detail-view" className="pipelines-view">
-      <div className="min-w-0 space-y-6">
-        <div className="glass-card p-6">
+      <div className="min-w-0 space-y-4">
+        <div className="glass-card p-4">
           <div className="flex items-start justify-between gap-4 w-full mb-4">
             <div className="min-w-0 flex items-start gap-3">
               <span className="pipeline-card-icon mt-1" aria-hidden="true">
                 <ObjectIcon type="step" />
               </span>
               <div className="min-w-0">
-                <h2 id="step-detail-name" className="text-3xl font-bold text-[var(--text-primary)] truncate">
+                <h2 id="step-detail-name" className="text-xl font-bold text-[var(--text-primary)] truncate">
                   {detail.name || detail.id}
                 </h2>
                 <p id="step-detail-description" className="text-sm text-[var(--text-secondary)] mt-1">
@@ -124,8 +124,8 @@ export function StepDetailView({
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-          <div className="min-w-0 space-y-6">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
+          <div className="min-w-0 space-y-4">
             <ResourceYamlDetailPanel
               title="Step Definition (YAML)"
               rawYaml={detail.rawYaml}
