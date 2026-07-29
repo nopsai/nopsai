@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import { Copy, Maximize2, Search, X, ZoomIn, ZoomOut } from 'lucide-react';
 import type {
   GraphLayout,
+  GraphPoint,
   GraphStatus,
   GraphStep,
   GraphTask,
@@ -41,13 +42,22 @@ const STEP_NODE_HEIGHT = 88;
 const OVERVIEW_MIN_WIDTH = 1120;
 const OVERVIEW_MIN_HEIGHT = 310;
 const TASK_VIEW_WIDTH = 1220;
-const TASK_VIEW_HEIGHT = 360;
-const TASK_REGION = { x: 148, y: 92, width: 924, height: 224 };
+const TASK_VIEW_HEIGHT = 250;
+const TASK_REGION = { x: 134, y: 72, width: 952, height: 146 };
 const MIN_GRAPH_SCALE = 0.45;
 const MAX_GRAPH_SCALE = 5;
 const ZOOM_BUTTON_FACTOR = 1.32;
 const WHEEL_ZOOM_SENSITIVITY = 0.0018;
 const DEFAULT_GRAPH_VIEW_PADDING = 52;
+const DRAG_CLOSE_THRESHOLD = 5;
+const MINIMAP_MIN_WINDOW_SIZE = 24;
+
+type GraphDragStart = {
+  clientX: number;
+  clientY: number;
+  panX: number;
+  panY: number;
+};
 
 type SelectedGraphEntity =
   | { type: 'step'; stepId: string }
@@ -73,6 +83,8 @@ export function StepsGraph({
   statusColorOverride,
   stepStatusColorOverride,
   taskStatusColorOverride,
+  ariaLabel,
+  presentation = 'panel',
 }: {
   graphKey?: string;
   steps: StepDetail[];
@@ -88,6 +100,8 @@ export function StepsGraph({
   statusColorOverride?: string;
   stepStatusColorOverride?: string;
   taskStatusColorOverride?: string;
+  ariaLabel?: string;
+  presentation?: 'panel' | 'embedded';
 }) {
   const [selectedEntityState, setSelectedEntityState] = useState<{
     graphKey: string | null;
@@ -101,11 +115,17 @@ export function StepsGraph({
     pan: { x: 0, y: 0 },
   });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isMinimapDragging, setIsMinimapDragging] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'unavailable'>('idle');
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const overviewRef = useRef<SVGSVGElement | null>(null);
+  const minimapRef = useRef<SVGSVGElement | null>(null);
+  const dragStartRef = useRef<GraphDragStart | null>(null);
+  const didDragRef = useRef(false);
   const hydratedSelectionRef = useRef<string | null>(null);
   const copyResetRef = useRef<number | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingDragViewportRef = useRef<GraphViewport | null>(null);
 
   const graphSteps = useMemo(
     () => buildRunGraphSteps({ steps, pipelineDefinition, childRuns }),
@@ -121,6 +141,8 @@ export function StepsGraph({
     () => graphKey || buildGraphIdentity(graphSteps),
     [graphKey, graphSteps]
   );
+  const embedded = presentation === 'embedded';
+  const graphRegionLabel = ariaLabel || (embedded ? 'Pipeline graph' : 'Pipeline run graph');
 
   const taskLayouts = useMemo(() => {
     const map = new Map<string, GraphLayout<GraphTask>>();
@@ -175,20 +197,6 @@ export function StepsGraph({
     (viewport: GraphViewport) => setViewportState({ graphKey: graphIdentity, ...viewport }),
     [graphIdentity]
   );
-  const updateViewport = useCallback(
-    (patch: Partial<GraphViewport>) => {
-      setViewportState(prev => {
-        const current = prev.graphKey === graphIdentity ? prev : defaultViewport;
-        return {
-          graphKey: graphIdentity,
-          scale: patch.scale ?? current.scale,
-          pan: patch.pan ?? current.pan,
-        };
-      });
-    },
-    [defaultViewport, graphIdentity]
-  );
-
   useEffect(() => {
     if (hydratedSelectionRef.current === graphIdentity || !graphSteps.length) return;
     if (selectedStep) {
@@ -208,6 +216,7 @@ export function StepsGraph({
   useEffect(() => {
     return () => {
       if (copyResetRef.current !== null) window.clearTimeout(copyResetRef.current);
+      if (dragFrameRef.current !== null) window.cancelAnimationFrame(dragFrameRef.current);
     };
   }, []);
 
@@ -242,15 +251,36 @@ export function StepsGraph({
     () => getStepContext(graphSteps, overviewLayout, selectedStepId),
     [graphSteps, overviewLayout, selectedStepId]
   );
+  const minimapViewport = useMemo(
+    () => getMinimapViewportRect(activeViewport, overviewView),
+    [activeViewport, overviewView]
+  );
+  const minimapVisible = useMemo(() => {
+    if (overviewLayout.nodes.length <= 1) return false;
+    const zoomChanged = Math.abs(scale - defaultViewport.scale) > 0.04;
+    const panChanged = Math.hypot(pan.x - defaultViewport.pan.x, pan.y - defaultViewport.pan.y) > 12;
+    return zoomChanged || panChanged;
+  }, [defaultViewport.pan.x, defaultViewport.pan.y, defaultViewport.scale, overviewLayout.nodes.length, pan.x, pan.y, scale]);
   const clearSelection = useCallback(() => {
     setSelectedEntity(null);
     onSelectStep(null);
   }, [onSelectStep, setSelectedEntity]);
 
+  useEffect(() => {
+    if (!revealOpen || typeof document === 'undefined') return undefined;
+    const handleDocumentMouseDown = (event: globalThis.MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (workspaceRef.current?.contains(target)) return;
+      clearSelection();
+    };
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    return () => document.removeEventListener('mousedown', handleDocumentMouseDown);
+  }, [clearSelection, revealOpen]);
+
   const graphFocusPoint = useCallback(
     (clientX?: number, clientY?: number) => {
-      const workspace = workspaceRef.current;
-      const rect = workspace?.getBoundingClientRect();
+      const rect = overviewRef.current?.getBoundingClientRect() || workspaceRef.current?.getBoundingClientRect();
       if (!rect?.width || !rect.height || clientX === undefined || clientY === undefined) {
         return { x: overviewView.width / 2, y: overviewView.height / 2 };
       }
@@ -278,6 +308,72 @@ export function StepsGraph({
     },
     [graphFocusPoint, pan.x, pan.y, scale, setViewport]
   );
+  const scheduleDragViewport = useCallback(
+    (viewport: GraphViewport) => {
+      pendingDragViewportRef.current = viewport;
+      if (typeof window === 'undefined') {
+        setViewport(viewport);
+        return;
+      }
+      if (dragFrameRef.current !== null) return;
+      dragFrameRef.current = window.requestAnimationFrame(() => {
+        const next = pendingDragViewportRef.current;
+        pendingDragViewportRef.current = null;
+        dragFrameRef.current = null;
+        if (next) setViewport(next);
+      });
+    },
+    [setViewport]
+  );
+  const minimapPointFromClient = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = minimapRef.current?.getBoundingClientRect();
+      if (!rect?.width || !rect.height) return null;
+      return {
+        x: clampNumber(((clientX - rect.left) / rect.width) * overviewView.width, 0, overviewView.width),
+        y: clampNumber(((clientY - rect.top) / rect.height) * overviewView.height, 0, overviewView.height),
+      };
+    },
+    [overviewView.height, overviewView.width]
+  );
+  const panToMinimapPoint = useCallback(
+    (point: { x: number; y: number } | null) => {
+      if (!point) return;
+      setViewport({
+        scale,
+        pan: {
+          x: overviewView.width / 2 - point.x * scale,
+          y: overviewView.height / 2 - point.y * scale,
+        },
+      });
+    },
+    [overviewView.height, overviewView.width, scale, setViewport]
+  );
+  const handleMinimapMouseDown = useCallback(
+    (event: MouseEvent<SVGSVGElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsMinimapDragging(true);
+      panToMinimapPoint(minimapPointFromClient(event.clientX, event.clientY));
+    },
+    [minimapPointFromClient, panToMinimapPoint]
+  );
+
+  useEffect(() => {
+    if (!isMinimapDragging || typeof document === 'undefined') return undefined;
+    const handleMove = (event: globalThis.MouseEvent) => {
+      event.preventDefault();
+      panToMinimapPoint(minimapPointFromClient(event.clientX, event.clientY));
+    };
+    const handleUp = () => setIsMinimapDragging(false);
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp);
+    };
+  }, [isMinimapDragging, minimapPointFromClient, panToMinimapPoint]);
 
   const handleStepActivate = useCallback(
     (step: GraphStep) => {
@@ -308,6 +404,7 @@ export function StepsGraph({
 
   const handleWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement> | WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       event.stopPropagation();
       const deltaY = 'deltaY' in event ? event.deltaY : 0;
@@ -327,18 +424,46 @@ export function StepsGraph({
 
   const handleMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
-    const target = event.target;
-    if (target instanceof Element && target.closest('[data-run-graph-node], button, input, select')) return;
+    if (isInteractiveGraphTarget(event.target)) return;
+    event.preventDefault();
     setIsDragging(true);
-    setDragStart({ x: event.clientX - pan.x, y: event.clientY - pan.y });
+    didDragRef.current = false;
+    dragStartRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    clearWindowSelection();
   };
 
   const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
-    updateViewport({ pan: { x: event.clientX - dragStart.x, y: event.clientY - dragStart.y } });
+    const dragStart = dragStartRef.current;
+    if (!isDragging || !dragStart) return;
+    event.preventDefault();
+    const clientDeltaX = event.clientX - dragStart.clientX;
+    const clientDeltaY = event.clientY - dragStart.clientY;
+    const moved = Math.hypot(clientDeltaX, clientDeltaY);
+    if (moved > DRAG_CLOSE_THRESHOLD) didDragRef.current = true;
+    const graphDelta = clientDeltaToGraphDelta(clientDeltaX, clientDeltaY, overviewRef.current, overviewView);
+    scheduleDragViewport({
+      scale,
+      pan: {
+        x: dragStart.panX + graphDelta.x,
+        y: dragStart.panY + graphDelta.y,
+      },
+    });
+    clearWindowSelection();
   };
 
-  const endDragging = () => setIsDragging(false);
+  const endDragging = (event?: MouseEvent<HTMLDivElement>) => {
+    if (isDragging && event && !didDragRef.current && !isInteractiveGraphTarget(event.target)) {
+      clearSelection();
+    }
+    setIsDragging(false);
+    dragStartRef.current = null;
+    didDragRef.current = false;
+  };
 
   const resetView = () => {
     setViewport(defaultViewport);
@@ -365,60 +490,68 @@ export function StepsGraph({
     if (copyResetRef.current !== null) window.clearTimeout(copyResetRef.current);
     copyResetRef.current = window.setTimeout(() => setCopyState('idle'), 2200);
   }, [effectiveSelection]);
+  const graphSearchControls = (
+    <>
+      <label className="run-graph-search">
+        <Search className="h-4 w-4" aria-hidden="true" />
+        <span className="sr-only">Search graph nodes</span>
+        <input
+          value={searchQuery}
+          onChange={event => setSearchQuery(event.target.value)}
+          placeholder="Find step or task"
+        />
+      </label>
+      <select
+        className="run-graph-select"
+        aria-label="Filter graph by status"
+        value={statusFilter}
+        onChange={event => setStatusFilter(event.target.value as RunGraphStatusFilter)}
+      >
+        <option value="all">All statuses</option>
+        <option value="success">Succeeded</option>
+        <option value="failed">Failed</option>
+        <option value="running">Running</option>
+        <option value="pending">Pending</option>
+        <option value="skipped">Skipped</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </>
+  );
 
   return (
     <section
-      className="run-graph-redesign"
+      className={`run-graph-redesign${embedded ? ' run-graph-redesign--embedded' : ''}`}
+      data-presentation={presentation}
       role="region"
-      aria-label="Pipeline run graph"
+      aria-label={graphRegionLabel}
       aria-describedby="pipeline-run-graph-instructions"
     >
       <p id="pipeline-run-graph-instructions" className="sr-only">
-        Use Tab to reach graph controls and nodes. Press Enter or Space to select graph nodes or open logs.
+        Use Tab to reach graph controls and nodes. Press Enter or Space to select graph nodes or open logs. Use Control or Command with wheel scrolling to zoom.
       </p>
       <div className="run-graph-panel">
-        <div className="run-graph-head">
-          <div className="run-graph-title">
-            <span>Execution Graph</span>
-            <small>Step dependency map</small>
-          </div>
-          <span className="run-graph-count">{steps.length} step{steps.length === 1 ? '' : 's'}</span>
-          <span className="run-graph-count">{totalTasks} task{totalTasks === 1 ? '' : 's'}</span>
-          {!hideStatusLegend ? (
-            <div className="run-graph-legend" aria-label="Graph status summary">
-              {(['success', 'running', 'failed'] as GraphStatus[]).map(status => (
-                <span key={status}>
-                  <i style={{ backgroundColor: statusColor(status, statusColorOverride) }} />
-                  {statusSummary[status]} {getGraphStatusLabel(status)}
-                </span>
-              ))}
+        {!embedded ? (
+          <div className="run-graph-head">
+            <div className="run-graph-title">
+              <span>Execution Graph</span>
+              <small>Step dependency map</small>
             </div>
-          ) : null}
-          <div className="run-graph-head-spacer" />
-          <label className="run-graph-search">
-            <Search className="h-4 w-4" aria-hidden="true" />
-            <span className="sr-only">Search graph nodes</span>
-            <input
-              value={searchQuery}
-              onChange={event => setSearchQuery(event.target.value)}
-              placeholder="Find step or task"
-            />
-          </label>
-          <select
-            className="run-graph-select"
-            aria-label="Filter graph by status"
-            value={statusFilter}
-            onChange={event => setStatusFilter(event.target.value as RunGraphStatusFilter)}
-          >
-            <option value="all">All statuses</option>
-            <option value="success">Succeeded</option>
-            <option value="failed">Failed</option>
-            <option value="running">Running</option>
-            <option value="pending">Pending</option>
-            <option value="skipped">Skipped</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </div>
+            <span className="run-graph-count">{steps.length} step{steps.length === 1 ? '' : 's'}</span>
+            <span className="run-graph-count">{totalTasks} task{totalTasks === 1 ? '' : 's'}</span>
+            {!hideStatusLegend ? (
+              <div className="run-graph-legend" aria-label="Graph status summary">
+                {(['success', 'running', 'failed'] as GraphStatus[]).map(status => (
+                  <span key={status}>
+                    <i style={{ backgroundColor: statusColor(status, statusColorOverride) }} />
+                    {statusSummary[status]} {getGraphStatusLabel(status)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <div className="run-graph-head-spacer" />
+            {graphSearchControls}
+          </div>
+        ) : null}
 
         <div
           className={`run-graph-workspace${revealOpen ? ' has-task-reveal' : ''}`}
@@ -426,9 +559,10 @@ export function StepsGraph({
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={endDragging}
-          onMouseLeave={endDragging}
+          onMouseLeave={() => endDragging()}
         >
           <div className="run-graph-grid" />
+          {embedded ? <div className="run-graph-embedded-controls">{graphSearchControls}</div> : null}
           <div className="run-graph-tools">
             <button type="button" onClick={resetView} aria-label="Fit graph" title="Fit graph">
               <Maximize2 className="h-4 w-4" aria-hidden="true" />
@@ -454,9 +588,58 @@ export function StepsGraph({
               </span>
             ) : null}
           </div>
+          {minimapVisible ? (
+            <div
+              className="run-graph-minimap"
+              role="group"
+              aria-label="Graph navigator"
+              onMouseDown={event => event.stopPropagation()}
+            >
+              <div className="run-graph-minimap-label">Navigator</div>
+              <svg
+                className="run-graph-minimap-svg"
+                ref={minimapRef}
+                viewBox={`0 0 ${overviewView.width} ${overviewView.height}`}
+                aria-label="Full graph position navigator"
+                role="img"
+                onMouseDown={handleMinimapMouseDown}
+              >
+                {overviewLayout.edges.map(edge => (
+                  <path
+                    key={edge.id}
+                    className="run-graph-minimap-edge"
+                    d={edgePathD(edge.points)}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+                {overviewLayout.nodes.map(node => (
+                  <rect
+                    key={node.data.id}
+                    className={`run-graph-minimap-node${selectedStepId === node.data.id ? ' selected' : ''}`}
+                    x={node.x}
+                    y={node.y}
+                    width={node.width}
+                    height={node.height}
+                    rx={8}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+                <rect
+                  className="run-graph-minimap-window"
+                  x={minimapViewport.x}
+                  y={minimapViewport.y}
+                  width={minimapViewport.width}
+                  height={minimapViewport.height}
+                  rx={10}
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            </div>
+          ) : null}
 
           <svg
             className="run-graph-overview"
+            ref={overviewRef}
             viewBox={`0 0 ${overviewView.width} ${overviewView.height}`}
             role="img"
             aria-label={`${steps.length}-step pipeline dependency graph`}
@@ -607,6 +790,56 @@ function readHashRouteSearchParams() {
   return new URLSearchParams(queryPart);
 }
 
+function isInteractiveGraphTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest('[data-run-graph-node], button, input, select, textarea, a'));
+}
+
+function clientDeltaToGraphDelta(
+  clientDeltaX: number,
+  clientDeltaY: number,
+  graphElement: Element | null,
+  view: { width: number; height: number }
+) {
+  const rect = graphElement?.getBoundingClientRect();
+  if (!rect?.width || !rect.height) return { x: clientDeltaX, y: clientDeltaY };
+  return {
+    x: clientDeltaX * (view.width / rect.width),
+    y: clientDeltaY * (view.height / rect.height),
+  };
+}
+
+function clearWindowSelection() {
+  if (typeof window === 'undefined') return;
+  window.getSelection()?.removeAllRanges();
+}
+
+function getMinimapViewportRect(viewport: GraphViewport, view: { width: number; height: number }) {
+  const raw = {
+    x: -viewport.pan.x / viewport.scale,
+    y: -viewport.pan.y / viewport.scale,
+    width: view.width / viewport.scale,
+    height: view.height / viewport.scale,
+  };
+  const left = clampNumber(raw.x, 0, view.width);
+  const top = clampNumber(raw.y, 0, view.height);
+  const right = clampNumber(raw.x + raw.width, 0, view.width);
+  const bottom = clampNumber(raw.y + raw.height, 0, view.height);
+  const width = Math.min(view.width, Math.max(MINIMAP_MIN_WINDOW_SIZE, right - left));
+  const height = Math.min(view.height, Math.max(MINIMAP_MIN_WINDOW_SIZE, bottom - top));
+  return {
+    x: clampNumber(left, 0, view.width - width),
+    y: clampNumber(top, 0, view.height - height),
+    width,
+    height,
+  };
+}
+
+function edgePathD(points: GraphPoint[]) {
+  const [start, c1, c2, end] = points;
+  if (!start || !c1 || !c2 || !end) return '';
+  return `M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`;
+}
+
 function buildGraphIdentity(steps: GraphStep[]): string {
   if (!steps.length) return 'empty';
   return steps
@@ -644,4 +877,8 @@ function statusColor(status: GraphStatus, override?: string) {
 
 function clampGraphScale(value: number) {
   return Math.max(MIN_GRAPH_SCALE, Math.min(MAX_GRAPH_SCALE, value));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }

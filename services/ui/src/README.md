@@ -66,11 +66,10 @@ truth; this file is the source-adjacent placement guide.
   stays under `features/pipelines` and `features/steps`.
 - Pipeline detail rendering stays under `features/pipelines/PipelineDetailView.tsx`.
   Tab section rendering lives in `features/pipelines/PipelineDetailSections.tsx`.
-  Pure display derivation for the redesigned detail metrics, source state, run
-  summary, and health score helpers lives in
-  `features/pipelines/pipelineDetailPresentation.ts`; route selection, editor
-  orchestration, drafts, identity edit state, and Lab execute handoff remain owned by
-  `pages/Pipelines.tsx`.
+  Pure display derivation for source state, graph work-unit counts, run summary,
+  and health score helpers lives in `features/pipelines/pipelineDetailPresentation.ts`;
+  route selection, editor orchestration, drafts, identity edit state, and Lab
+  execute handoff remain owned by `pages/Pipelines.tsx`.
 - Permission checks must be keyed to the active resource path/name and must fail
   closed when navigation changes.
 - Git-managed workflow resources can be edited in the UI when AAA permits; those
@@ -265,9 +264,14 @@ truth; this file is the source-adjacent placement guide.
   preselected task when the affordance belongs to a task, without changing the
   primary click behavior: multi-task steps reveal tasks, atomic steps open step
   logs, and task clicks open task logs. Clicking the open step again must
-  collapse it and clear selection. Manual graph navigation after a click,
-  including wheel zoom, pan, Fit, and zoom controls, must preserve the current
-  step/task selection and keep the task reveal open.
+  collapse it and clear selection. Empty-canvas and outside-graph clicks also
+  close the task reveal, while manual graph navigation after a click, including
+  Ctrl/Command-wheel zoom, pan, Fit, and zoom controls, must preserve the
+  current step/task selection. Unmodified wheel scrolling over graph canvases
+  must keep scrolling the page instead of changing graph zoom. Zoomed or panned
+  graph canvases expose a compact navigator with a draggable viewport rectangle
+  for moving across the full step graph. Drag panning must use viewport-scaled,
+  frame-batched updates and suppress browser text selection inside graph labels.
   Opening a run, changing runs, and pressing Fit must center the graph bounds in
   the canvas for both single-step and multi-step runs. Graph rendering should
   ignore single placeholder task rows that only repeat the step name when the
@@ -275,9 +279,19 @@ truth; this file is the source-adjacent placement guide.
 - Run detail keeps the execution graph and final outputs in sibling Graph and
   Outputs tabs so deliverables do not crowd the graph canvas.
 - Pipeline-definition graph steps keep their existing expansion and dependency
-  framing behavior; run-detail graph ownership stays in
-  `features/pipeline-runs/RunGraph.tsx`, with API/polling owned by
-  `pages/PipelineRuns.tsx` and layout/model helpers beside the graph renderer.
+  framing behavior and embed the shared graph canvas without nested graph-panel
+  chrome. Embedded pipeline graphs must let the overview SVG fill the visible
+  graph frame so centered steps cannot be clipped by an internal layer. The
+  Pipeline Flow card should end at the graph canvas rather than adding a
+  detached footer; source and dependency actions stay in the hero/definition
+  and Dependencies tab surfaces. The detail page should keep a compact
+  run-detail-style headline and avoid a KPI-card row above the tabs. The shared
+  graph canvas, nodes, controls, minimap, and task reveal must use graph theme
+  variables so light mode is not forced onto the dark graph palette. Run-detail
+  graph ownership stays in
+  `features/pipeline-runs/RunGraph.tsx`,
+  with API/polling owned by `pages/PipelineRuns.tsx` and layout/model helpers
+  beside the graph renderer.
 
 ### Lab
 

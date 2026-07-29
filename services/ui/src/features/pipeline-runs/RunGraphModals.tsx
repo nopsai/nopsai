@@ -176,7 +176,9 @@ export function StepDetailModal({
     const el = graphContainerRef.current;
     if (!el) return undefined;
     const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
+      e.stopPropagation();
       const factor = e.deltaY > 0 ? 1 / 1.06 : 1.06;
       markUserAdjusted();
       setUserGraphScale(prev => clampUserScale(prev * factor));

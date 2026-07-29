@@ -4,7 +4,6 @@ import type { AnalysisResult } from '../analysis/model.js';
 import type { PipelineGraphData } from './model.js';
 import {
   buildPipelineDetailHealthSummary,
-  buildPipelineDetailMetrics,
   countPipelineGraphTasks,
   formatPipelineDetailSource,
   summarizePipelineLatestRun,
@@ -56,7 +55,7 @@ test('formats source state for GitOps and drafts', () => {
   });
 });
 
-test('builds detail metrics and health summary from current page data', () => {
+test('builds health summary from current page data', () => {
   const analysis = {
     healthScore: 72,
     findings: [
@@ -69,17 +68,6 @@ test('builds detail metrics and health summary from current page data', () => {
     ],
   } as unknown as AnalysisResult;
 
-  const metrics = buildPipelineDetailMetrics({
-    graphData,
-    triggers: [{ repoSlug: 'acme/api', source: 'git', trigger: { on: 'push' } }],
-    recentRuns: [{ run_id: 'run-123456789', pipeline_name: 'release', status: 'success' }],
-    analysis,
-    validationErrorCount: 0,
-  });
-
-  assert.equal(metrics.find(metric => metric.id === 'tasks')?.value, '2');
-  assert.equal(metrics.find(metric => metric.id === 'triggers')?.tone, 'success');
-  assert.equal(metrics.find(metric => metric.id === 'health')?.detail, '1 blocking finding');
   assert.deepEqual(buildPipelineDetailHealthSummary(analysis), {
     score: 72,
     label: 'Needs attention',
