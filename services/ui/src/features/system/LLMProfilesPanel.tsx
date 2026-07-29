@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Bot, CheckCircle2, Edit3, ExternalLink, KeyRound, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { type LLMFeatureConfig, type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
 import { LLMFeatureControls } from './llm-profiles/LLMFeatureControls';
@@ -25,6 +25,8 @@ import {
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
   aiResourceLocalName,
   aiResourceMatchesTeamFilter,
+  aiResourceRoute,
+  aiResourceSearchParamsForTeamFilter,
   aiResourceTeamFilterFromSearch,
   aiResourceTeamScope,
   buildAIResourceScopedID,
@@ -98,14 +100,30 @@ function isProfileHealthy(profile: LLMProfileRecord) {
   return profile.status === 'valid';
 }
 
-function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
+type LLMProfilesPanelProps = {
+  canManage: boolean;
+  selectedProfileName?: string;
+  onSelectedProfileNameChange?: (profileName: string) => void;
+};
+
+function LLMProfilesPanel({
+  canManage,
+  selectedProfileName: controlledSelectedProfileName,
+  onSelectedProfileNameChange,
+}: LLMProfilesPanelProps) {
   const profilePanelRef = useRef<HTMLElement | null>(null);
   const location = useLocation();
+  const navigate = useNavigate();
   const requestedTeamFilter = useMemo(() => aiResourceTeamFilterFromSearch(location.search), [location.search]);
   const [searchTerm, setSearchTerm] = useState('');
   const [teamFilter, setTeamFilter] = useState(requestedTeamFilter);
   const [createTeamPath, setCreateTeamPath] = useState('');
-  const [selectedProfileName, setSelectedProfileName] = useState('');
+  const [uncontrolledSelectedProfileName, setUncontrolledSelectedProfileName] = useState('');
+  const selectedProfileName = controlledSelectedProfileName ?? uncontrolledSelectedProfileName;
+  const setSelectedProfileName = (profileName: string) => {
+    if (onSelectedProfileNameChange) onSelectedProfileNameChange(profileName);
+    else setUncontrolledSelectedProfileName(profileName);
+  };
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
   const selectedTeamPath = useMemo(() => {
     if (teamFilter === AI_RESOURCE_TEAM_FILTER_ALL || teamFilter === AI_RESOURCE_TEAM_FILTER_GLOBAL) return '';
@@ -143,6 +161,11 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);
   }, [requestedTeamFilter]);
+
+  useEffect(() => {
+    if (!selectedProfileName) return;
+    setTeamFilter(aiResourceTreeFilterForResource(selectedProfileName));
+  }, [selectedProfileName]);
 
   useEffect(() => {
     void loadTeamProfiles(selectedTeamPath);
@@ -258,9 +281,13 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   };
   const openTeamFilter = (value: string) => {
     setTeamFilter(value);
-    setSelectedProfileName('');
+    if (!onSelectedProfileNameChange) setUncontrolledSelectedProfileName('');
     setDeleteBlocker(null);
     setPanelMode(null);
+    navigate(
+      aiResourceRoute('/llm-profiles', '', aiResourceSearchParamsForTeamFilter(new URLSearchParams(location.search), value)),
+      { preventScrollReset: true }
+    );
   };
   const closeDetail = () => {
     setSelectedProfileName('');

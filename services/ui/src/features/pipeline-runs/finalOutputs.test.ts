@@ -29,7 +29,7 @@ test('uses stored dashboard target metadata for final output links', () => {
     mode: 'replace',
     preset: 'summary',
     ttl: '',
-    href: '/dashboards?dashboard=platform%2Fops&tab=overview',
+    href: '/dashboards/platform/ops?tab=overview',
     label: 'platform/ops / overview',
   });
 });

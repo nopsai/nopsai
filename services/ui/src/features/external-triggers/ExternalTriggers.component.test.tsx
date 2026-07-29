@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ExternalTriggersPage from '../../pages/ExternalTriggers';
 import { ExternalTriggerCards } from './ExternalTriggerCards';
@@ -20,6 +20,11 @@ vi.mock('../../lib/api', () => ({
 vi.mock('../../lib/resourceTeams', () => ({
   fetchPipelineRunTeamPaths: mocks.fetchPipelineRunTeamPaths,
 }));
+
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}{location.search}</span>;
+}
 
 describe('ExternalTriggersPage create action', () => {
   beforeEach(() => {
@@ -61,7 +66,7 @@ describe('ExternalTriggersPage create action', () => {
   it('renders workspace metrics and opens details after selecting a row', async () => {
     const user = userEvent.setup();
     const trigger: ExternalTrigger = {
-      id: 'deploy-prod',
+      id: 'deploy/prod',
       name: 'Deploy production',
       description: 'ServiceNow approval endpoint',
       enabled: true,
@@ -75,14 +80,15 @@ describe('ExternalTriggersPage create action', () => {
     mocks.fetch.mockImplementation(async path => {
       const requestPath = String(path);
       if (requestPath === '/v1/external-triggers') return Response.json([trigger]);
-      if (requestPath === '/v1/external-triggers/deploy-prod') return Response.json(trigger);
-      if (requestPath === '/v1/external-triggers/deploy-prod/invocations?limit=20') return Response.json([]);
+      if (requestPath === '/v1/external-triggers/deploy%2Fprod') return Response.json(trigger);
+      if (requestPath === '/v1/external-triggers/deploy%2Fprod/invocations?limit=20') return Response.json([]);
       return Response.json([]);
     });
 
     render(
       <MemoryRouter initialEntries={['/external-triggers']}>
         <ExternalTriggersPage canWriteExternalTriggers canDeleteExternalTriggers />
+        <LocationProbe />
       </MemoryRouter>
     );
 
@@ -101,10 +107,11 @@ describe('ExternalTriggersPage create action', () => {
 
     await user.click(screen.getByRole('button', { name: 'Deploy production' }));
 
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/external-triggers/deploy/prod'));
     expect(await screen.findByText('Allowed callers')).toBeVisible();
     expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
     expect(screen.getByText('service_account:deployer')).toBeVisible();
-    expect(screen.getAllByText(/external-triggers\/deploy-prod\/invoke/)).toHaveLength(2);
+    expect(screen.getAllByText(/external-triggers\/deploy%2Fprod\/invoke/)).toHaveLength(2);
   });
 
   it('keeps the action visible but disabled when AAA grants read-only access', () => {

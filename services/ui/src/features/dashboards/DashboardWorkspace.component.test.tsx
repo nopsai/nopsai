@@ -196,7 +196,7 @@ const history: DashboardEvent[] = [
   },
 ];
 
-const sectionTabHref = (sectionKey: string) => `/dashboards?dashboard=dashboard-1&tab=${encodeURIComponent(sectionKey)}`;
+const sectionTabHref = (sectionKey: string) => `/dashboards/dashboard-1?tab=${encodeURIComponent(sectionKey)}`;
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -283,9 +283,9 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   const overviewTab = screen.getByRole('tab', { name: /Overview/ });
   const deploymentsTab = screen.getByRole('tab', { name: /Deployments/ });
   expect(overviewTab).toHaveAttribute('aria-selected', 'true');
-  expect(overviewTab).toHaveAttribute('href', '/dashboards?dashboard=dashboard-1&tab=overview');
+  expect(overviewTab).toHaveAttribute('href', '/dashboards/dashboard-1?tab=overview');
   expect(deploymentsTab).toHaveAttribute('aria-selected', 'false');
-  expect(deploymentsTab).toHaveAttribute('href', '/dashboards?dashboard=dashboard-1&tab=deployments');
+  expect(deploymentsTab).toHaveAttribute('href', '/dashboards/dashboard-1?tab=deployments');
   expect(screen.queryByRole('tab', { name: /Build and release/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('tab', { name: /Monitoring/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('tab', { name: /Activity/ })).not.toBeInTheDocument();

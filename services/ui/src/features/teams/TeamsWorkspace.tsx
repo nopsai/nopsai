@@ -869,7 +869,7 @@ function buildMCPProfileLinkedResources(profiles: NonNullable<TeamOperationsSumm
       kind: 'mcp_profile',
       label: profile.name,
       description: servers.length ? servers.join(', ') : profile.description || 'MCP profile',
-      href: `/mcp${aiResourceQuery(teamPath, '&view=profiles')}`,
+      href: `/mcp/profiles${aiResourceQuery(teamPath)}`,
       teamPath,
       source: profile.enabled === false ? 'disabled' : undefined,
     };

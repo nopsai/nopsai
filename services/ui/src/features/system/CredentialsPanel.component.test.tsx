@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 import CredentialsPanel from './CredentialsPanel';
 
@@ -76,6 +76,11 @@ beforeEach(() => {
   Object.values(apiMocks).forEach(mock => mock.mockReset());
 });
 
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}{location.search}</span>;
+}
+
 test('uses registry table references and supports enable plus old-version deletion', async () => {
   const user = userEvent.setup();
   vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -92,6 +97,7 @@ test('uses registry table references and supports enable plus old-version deleti
   render(
     <MemoryRouter>
       <CredentialsPanel canManage isNopsAIAdmin />
+      <LocationProbe />
     </MemoryRouter>
   );
 
@@ -101,6 +107,7 @@ test('uses registry table references and supports enable plus old-version deleti
   expect(screen.getAllByText('System')).not.toHaveLength(0);
 
   await user.click(screen.getByRole('button', { name: /openai primary/i }));
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/credentials/system/llm/openai-primary'));
   expect(await screen.findByText('credential://system/llm/openai-primary')).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: 'Enable' }));
@@ -204,9 +211,11 @@ test('opens a credential detail from the credential query parameter', async () =
   render(
     <MemoryRouter initialEntries={['/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai-primary']}>
       <CredentialsPanel canManage isNopsAIAdmin />
+      <LocationProbe />
     </MemoryRouter>
   );
 
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/credentials/system/llm/openai-primary'));
   expect(await screen.findByText('credential://system/llm/openai-primary')).toBeVisible();
   expect(apiMocks.fetchCredential).toHaveBeenCalledWith('credential-1');
 });

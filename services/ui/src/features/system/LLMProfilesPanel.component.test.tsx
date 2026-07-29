@@ -114,7 +114,7 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
   expect(screen.getByRole('link', { name: 'credential://system/llm/openai' })).toHaveAttribute(
     'href',
-    '/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'
+    '/credentials/system/llm/openai'
   );
   expect(screen.getByText('30s')).toBeVisible();
   expect(screen.getByText('2048 tokens')).toBeVisible();

@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
-import { ScheduleCard } from '../features/schedules/ScheduleCards';
 import { ScheduleFormModal } from '../features/schedules/ScheduleFormModal';
+import { ScheduleWorkspace } from '../features/schedules/ScheduleWorkspace';
 import {
   deleteSchedule as deleteScheduleRequest,
   fetchScheduleMetadata,
@@ -23,17 +21,52 @@ import {
   type ScheduleFormState,
   type ScheduleModalState,
 } from '../features/schedules/model';
-import { sourceLabel } from '../features/schedules/presentation';
+import { isGitOpsSchedule, scheduleResourceID } from '../features/schedules/workspaceModel';
 
 type SchedulesPageProps = {
   canWriteSchedules: boolean;
   canDeleteSchedules: boolean;
 };
 
+function decodeScheduleRouteSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function scheduleIDFromRoute(pathname: string) {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'schedules' || segments.length < 2) return '';
+  return normalizeIdentifier(segments.slice(1).map(decodeScheduleRouteSegment).join('/'));
+}
+
+function encodeScheduleRouteID(scheduleID: string) {
+  return normalizeIdentifier(scheduleID).split('/').filter(Boolean).map(encodeURIComponent).join('/');
+}
+
+function buildSchedulesRoute(scheduleID: string, searchParams?: URLSearchParams) {
+  const params = new URLSearchParams(searchParams);
+  params.delete('schedule');
+  const encodedScheduleID = encodeScheduleRouteID(scheduleID);
+  const route = encodedScheduleID ? `/schedules/${encodedScheduleID}` : '/schedules';
+  const query = params.toString();
+  return query ? `${route}?${query}` : route;
+}
+
+function pipelineRunRoute(runID: string) {
+  return `/pipelineruns/recent/${encodeURIComponent(runID)}`;
+}
+
 export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }: SchedulesPageProps) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const pipelineFilter = normalizeIdentifier(searchParams.get('pipeline') || '');
+  const schedulePathParam = useMemo(() => scheduleIDFromRoute(location.pathname), [location.pathname]);
+  const legacyScheduleParam = searchParams.get('schedule') || '';
+  const scheduleRouteParam = schedulePathParam || legacyScheduleParam;
 
   const [schedules, setSchedules] = useState<PipelineSchedule[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
@@ -67,6 +100,13 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   }, [loadSchedules]);
 
   useEffect(() => {
+    if (schedulePathParam || !legacyScheduleParam) return;
+    const params = new URLSearchParams(location.search);
+    params.delete('schedule');
+    navigate(buildSchedulesRoute(legacyScheduleParam, params), { replace: true, preventScrollReset: true });
+  }, [legacyScheduleParam, location.search, navigate, schedulePathParam]);
+
+  useEffect(() => {
     let cancelled = false;
     const loadMeta = async () => {
       try {
@@ -97,34 +137,31 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [schedules, scopes]);
 
-  const filteredSchedules = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    return schedules.filter(schedule => {
-      if (!term) return true;
-      const haystack = [
-        schedule.identifier,
-        schedule.name,
-        schedule.path,
-        schedule.pipeline,
-        schedule.cron_expression,
-        schedule.schedule_kind,
-        schedule.run_at,
-        schedule.timezone,
-        schedule.scope,
-        schedule.last_status,
-        sourceLabel(schedule.source),
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(term);
+  const selectedScheduleID = useMemo(() => {
+    const normalizedParam = normalizeIdentifier(scheduleRouteParam);
+    if (!normalizedParam) return '';
+    const matched = schedules.find(schedule => {
+      const resourceID = scheduleResourceID(schedule);
+      return (
+        resourceID === normalizedParam ||
+        normalizeIdentifier(schedule.identifier) === normalizedParam ||
+        normalizeIdentifier(schedule.id) === normalizedParam ||
+        normalizeIdentifier(schedule.name) === normalizedParam
+      );
     });
-  }, [schedules, searchTerm]);
+    return matched ? scheduleResourceID(matched) : normalizedParam;
+  }, [scheduleRouteParam, schedules]);
 
   const clearPipelineFilter = useCallback(() => {
-    const params = new URLSearchParams(searchParams);
+    const params = new URLSearchParams(location.search);
     params.delete('pipeline');
-    setSearchParams(params, { replace: true });
-  }, [searchParams, setSearchParams]);
+    navigate(buildSchedulesRoute(selectedScheduleID, params), { replace: true, preventScrollReset: true });
+  }, [location.search, navigate, selectedScheduleID]);
+
+  const setSelectedScheduleID = useCallback((scheduleID: string) => {
+    const params = new URLSearchParams(location.search);
+    navigate(buildSchedulesRoute(scheduleID, params), { preventScrollReset: true });
+  }, [location.search, navigate]);
 
   const openCreate = useCallback(() => {
     setForm(createEmptyForm(pipelineFilter, runTeamOptions));
@@ -192,7 +229,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
         const result = await runSchedule(schedule.id);
         await loadSchedules();
         if (result.run_id) {
-          navigate(`/pipelineruns/recent?run=${encodeURIComponent(result.run_id)}`);
+          navigate(pipelineRunRoute(result.run_id));
         }
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Unable to run schedule');
@@ -213,70 +250,43 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
       try {
         await deleteScheduleRequest(schedule.id);
         setSchedules(prev => prev.filter(item => item.id !== schedule.id));
+        if (selectedScheduleID === scheduleResourceID(schedule)) {
+          setSelectedScheduleID('');
+        }
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Unable to delete schedule');
       } finally {
         setBusyScheduleID(null);
       }
     },
-    []
+    [selectedScheduleID, setSelectedScheduleID]
   );
 
   return (
     <div data-page="schedules" className="active h-full flex flex-col">
-      <ResourceCollectionToolbar
-        resourceLabel="schedule"
+      <ScheduleWorkspace
+        schedules={schedules}
+        teams={teams}
+        loading={loading}
+        error={error}
+        saving={saving}
+        busyScheduleID={busyScheduleID}
         searchTerm={searchTerm}
-        canCreate={canWriteSchedules}
-        createLabel="New schedule"
-        createDisabledReason="You have read-only access to schedules"
-        showCreateWhenDisabled
+        pipelineFilter={pipelineFilter}
+        selectedScheduleID={selectedScheduleID}
+        canWriteSchedules={canWriteSchedules}
+        canDeleteSchedules={canDeleteSchedules}
         onSearchTermChange={setSearchTerm}
+        onClearPipelineFilter={clearPipelineFilter}
+        onSelectedScheduleIDChange={setSelectedScheduleID}
         onCreate={openCreate}
         onRefresh={() => void loadSchedules()}
-        refreshDisabled={loading || saving}
-        summary={pipelineFilter ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="runner-pill runner-pill--link">
-              Pipeline {pipelineFilter}
-              <button type="button" onClick={clearPipelineFilter} aria-label="Clear pipeline filter">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </span>
-          </div>
-        ) : undefined}
+        onEdit={openEdit}
+        onEnable={setScheduleEnabled}
+        onRun={runNow}
+        onDelete={deleteSchedule}
+        onOpenRun={runID => navigate(pipelineRunRoute(runID))}
       />
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {loading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading schedules...</div>
-        ) : error ? (
-          <div className="glass-card p-5 text-sm text-red-500">{error}</div>
-        ) : filteredSchedules.length ? (
-          <div className="compact-resource-grid" data-testid="schedule-card-list">
-            {filteredSchedules.map(schedule => (
-              <ScheduleCard
-                key={schedule.id}
-                schedule={schedule}
-                canWriteSchedules={canWriteSchedules}
-                canDeleteSchedules={canDeleteSchedules}
-                busy={busyScheduleID === schedule.id}
-                onEdit={openEdit}
-                onEnable={setScheduleEnabled}
-                onRun={runNow}
-                onDelete={deleteSchedule}
-                onOpenRun={runID => navigate(`/pipelineruns/recent?run=${encodeURIComponent(runID)}`)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="pipelines-empty">
-            <h2 className="text-base font-semibold text-[var(--text-primary)]">No schedules found</h2>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Create a schedule or adjust the current filters.
-            </p>
-          </div>
-        )}
-      </div>
 
       {modal ? (
         <ScheduleFormModal
@@ -295,8 +305,4 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
       ) : null}
     </div>
   );
-}
-
-function isGitOpsSchedule(schedule: PipelineSchedule) {
-  return Boolean(schedule.managed_by_config_repo || sourceLabel(schedule.source) === 'GitOps');
 }

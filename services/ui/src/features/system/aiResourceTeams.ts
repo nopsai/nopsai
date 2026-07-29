@@ -11,6 +11,48 @@ export function normalizeAIResourceTeamPath(value: string) {
   return value.trim().replace(/^\/+|\/+$/g, '');
 }
 
+export function decodeAIResourceRouteID(pathname: string, baseSegment: string): string {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== baseSegment || segments.length < 2) return '';
+  return normalizeAIResourceTeamPath(segments.slice(1).map(decodeAIResourceRouteSegment).join('/'));
+}
+
+export function encodeAIResourceRouteID(resourceID: string): string {
+  return normalizeAIResourceTeamPath(resourceID)
+    .split('/')
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join('/');
+}
+
+export function aiResourceRoute(basePath: string, resourceID: string, searchParams?: URLSearchParams): string {
+  const params = new URLSearchParams(searchParams);
+  const encodedResourceID = encodeAIResourceRouteID(resourceID);
+  const normalizedBasePath = `/${basePath.replace(/^\/+|\/+$/g, '')}`;
+  const route = encodedResourceID ? `${normalizedBasePath}/${encodedResourceID}` : normalizedBasePath;
+  const query = params.toString();
+  return query ? `${route}?${query}` : route;
+}
+
+export function aiResourceSearchParamsForTeamFilter(
+  searchParams: URLSearchParams,
+  teamFilter: string
+): URLSearchParams {
+  const params = new URLSearchParams(searchParams);
+  const normalizedTeamFilter = normalizeAIResourceTeamPath(teamFilter);
+  params.delete('team_path');
+
+  if (!normalizedTeamFilter || normalizedTeamFilter === AI_RESOURCE_TEAM_FILTER_ALL) {
+    params.delete('team');
+  } else if (normalizedTeamFilter === AI_RESOURCE_TEAM_FILTER_GLOBAL) {
+    params.set('team', 'global');
+  } else {
+    params.set('team', normalizedTeamFilter);
+  }
+
+  return params;
+}
+
 export function aiResourceTeamFilterFromSearch(search: string) {
   const params = new URLSearchParams(search);
   const team = normalizeAIResourceTeamPath(params.get('team') || params.get('team_path') || '');
@@ -80,4 +122,12 @@ export function countAIResourceTeams(resourceIDs: string[]) {
 
 export function formatAIResourceTeamLabel(resourceID: string) {
   return aiResourceTeamScope(resourceID).displayTeam;
+}
+
+function decodeAIResourceRouteSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
