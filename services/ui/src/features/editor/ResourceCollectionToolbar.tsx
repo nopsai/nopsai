@@ -41,38 +41,30 @@ export function ResourceCollectionToolbar({
   const createButtonLabel = createLabel || `Create new ${resourceLabel}`;
 
   return (
-    <div className="px-6 pt-6 pb-4">
-      <div className="resource-collection-toolbar-row flex flex-wrap items-center gap-3">
+    <div className="px-6 pt-6 flex-shrink-0 resource-collection-toolbar">
+      <div className="resource-collection-toolbar-row pipeline-runs-filterbar">
         {onBack ? (
           <button
             type="button"
-            className="glass-button-ghost"
+            className="resource-collection-icon-button"
             aria-label="Back"
+            title="Back"
             onClick={onBack}
             disabled={!activeTeam}
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </button>
         ) : null}
-        <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-          <button
-            type="button"
-            className="pipelines-search-toggle"
-            aria-label={`Search ${plural}`}
-            onClick={() => {
-              setSearchOpen(true);
-              requestAnimationFrame(() => searchInputRef.current?.focus());
-            }}
-          >
-            <Search className="h-4 w-4" aria-hidden="true" />
-          </button>
+        <label className={`pipeline-runs-search-field ${searchOpen ? 'pipeline-runs-search-field--active' : ''}`}>
+          <Search className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">{`Search ${plural}`}</span>
           <input
             ref={searchInputRef}
             id={`${plural.replace(/\s+/g, '-')}-search`}
             type="search"
             placeholder={`Search ${plural}`}
-            className="pipelines-search-input"
             value={searchTerm}
+            onFocus={() => setSearchOpen(true)}
             onChange={event => {
               onSearchTermChange(event.target.value);
               if (event.target.value && !searchOpen) setSearchOpen(true);
@@ -95,12 +87,12 @@ export function ResourceCollectionToolbar({
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
-        </div>
+        </label>
         {filters}
         {onRefresh ? (
           <button
             type="button"
-            className="pipelines-icon-only"
+            className="resource-collection-icon-button"
             aria-label={`Refresh ${plural}`}
             title={`Refresh ${plural}`}
             onClick={onRefresh}
@@ -113,7 +105,7 @@ export function ResourceCollectionToolbar({
           <button
             id={`${plural.replace(/\s+/g, '-')}-new-btn`}
             type="button"
-            className="pipelines-icon-only"
+            className="resource-collection-icon-button"
             aria-label={createButtonLabel}
             title={canCreate ? createLabel || `New ${title}` : createDisabledReason}
             onClick={onCreate}

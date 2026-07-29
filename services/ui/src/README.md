@@ -482,18 +482,21 @@ truth; this file is the source-adjacent placement guide.
   unless a documented product reason requires a specialized shell.
 - Feature create actions remain visible when AAA makes a collection read-only;
   disable them and explain the restriction instead of removing the control.
-- Dense resource collections should use `CompactResourceCard` in a responsive
-  tile grid and the same glass surface, icon treatment, hover state, spacing,
-  and divider metadata used by Pipelines and Pipeline Runs. Shared icon-led
-  identity, descriptions, facts, footer status tags, and action slots keep
-  hierarchy consistent without repeating the collection's resource type on each
-  card. Feature modules own essential facts, status labels, actions, and
-  GitOps/AAA decisions. Resource identity glyphs should come from
+- Dense workflow collections such as Pipelines and Steps should follow the
+  Pipeline Runs structure: sticky collection toolbar, bounded main scroll,
+  resizable team tree rail, `pipeline-runs-panel` sections, dense tables,
+  source/status pills, and icon-only row actions. Card grids are reserved for
+  collections where visual comparison is the primary interaction. Feature
+  modules own essential facts, status labels, actions, and GitOps/AAA
+  decisions. The `All teams` tree selection represents every resource the
+  authenticated user can access; concrete team selections apply the feature's
+  subtree filtering. Rows should expose useful operator metadata such as source,
+  updated date, and version when available. Resource identity glyphs should come from
   `components/ObjectIcon.tsx` and `components/objectIconRegistry.ts`; new
   object types must extend that registry and its focused component test instead
   of adding inline SVGs or feature-local icon switches.
-- Collection routes should reuse `ResourceCollectionToolbar` for compact search,
-  refresh, create, summaries, and feature-owned filters unless a documented
+- Collection routes should reuse `ResourceCollectionToolbar` for Pipeline Runs
+  style search, refresh, create, summaries, and feature-owned filters unless a documented
   route-specific workspace shell is a better fit. Create controls remain
   visible but disabled when AAA grants read-only access. Secondary detail panes
   should mount only after a resource is selected or deep-linked.
