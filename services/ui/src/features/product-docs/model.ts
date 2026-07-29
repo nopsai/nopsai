@@ -2736,12 +2736,12 @@ const baseWikiSections: WikiSectionInput[] = [
           'GitOps owns identity-provider settings through setting/system/auth.yaml and credential references; provider users and IdP-managed grants are runtime state.',
           'Runnable SSO examples live under examples/sso/keycloak and examples/sso/idp-test-pack; they are test fixtures, not production config.',
           'Scopes are runtime context such as dev, test, production, or platform/prod. They are not run-navigation parents.',
+          'The Scopes detail page combines variables, secrets, usage relationships, access controls, GitOps encryption, and runner assignments for the selected runtime scope.',
         ],
         details: [
           'Teams form hierarchical product boundaries for ownership, access, run navigation, config repository delegation, notifications, team AI overlays, and repository-to-application matching.',
           'Cross-team execution requires access to every concrete resource used by the run, not only the pipeline.',
-          'The Keycloak example exercises keycloak_team_roles so direct client roles become global access roles and Keycloak team client roles become scoped Basic roles.',
-          'The IdP test pack provides mock OAuth2 scenarios for Entra ID, Okta, Google, and Keycloak claim mapping plus a production-shaped GitHub OAuth2 configuration example.',
+          'Scope variables can be revealed and copied when the current subject has value-read access; secret values stay write-only in the UI and are managed through create/update flows or GitOps encryption.',
         ],
         configRows: [
           {

@@ -909,7 +909,7 @@ Pages present in the current UI:
 - `Schedules`: LLM-profile-style schedule workspace with run-team path tree, registry table, overview metrics, detail panel, pipeline-filtered view, enable/disable, run now, latest-run link, and GitOps markers
 - `Triggers`: trigger override browser/editor with an owner/team tree and list scopes derived from trigger manifests
 - `External API` and `Git webhooks`: event automation resource workspaces with nested detail routes for selected triggers and webhook sources
-- `Scopes`: steps-style team tree and table browsing for scopes, variable and secret management by scope and repository, scope use-access controls, and registered runner assignments for the selected scope
+- `Scopes`: steps-style team tree and table browsing for scopes, plus a selected-scope detail workspace with summary metrics, combined variable/secret search and type filters, selected-item value inspection, usage relationships, scope use-access controls, GitOps encryption entry points, and collapsible registered runner assignments for the selected scope
 - `Teams`: team/application hierarchy, team-owned resources, config repository controls, and registered runner assignments for the team scope and subgroup scopes
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
