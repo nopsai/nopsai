@@ -11235,11 +11235,11 @@ html.dark .pipelines-detail-shell {
 .pipeline-detail-hero {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 1.25rem;
+    gap: 0.9rem;
     align-items: start;
-    padding: 1.25rem;
+    padding: 0.95rem 1rem;
     border: 1px solid var(--pipeline-detail-border);
-    border-radius: 16px;
+    border-radius: 14px;
     background:
         linear-gradient(135deg, rgba(20,184,166,0.08), transparent 38%),
         linear-gradient(180deg, var(--pipeline-detail-surface-strong), var(--pipeline-detail-surface));
@@ -11254,14 +11254,14 @@ html.dark .pipelines-detail-shell {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    min-height: 2rem;
-    padding: 0 0.55rem;
-    margin: -0.2rem 0 0.55rem;
+    min-height: 1.8rem;
+    padding: 0 0.48rem;
+    margin: -0.12rem 0 0.35rem;
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 0.82rem;
+    font-size: 0.76rem;
     font-weight: 650;
     cursor: pointer;
 }
@@ -11277,15 +11277,15 @@ html.dark .pipelines-detail-shell {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.55rem;
 }
 
 .pipeline-detail-title-row h2 {
     margin: 0;
     min-width: 0;
     overflow-wrap: anywhere;
-    font-size: 2.05rem;
-    line-height: 1.14;
+    font-size: 1.65rem;
+    line-height: 1.18;
     font-weight: 800;
 }
 
@@ -11293,13 +11293,13 @@ html.dark .pipelines-detail-shell {
     display: inline-flex;
     align-items: center;
     gap: 0.42rem;
-    min-height: 1.7rem;
-    padding: 0 0.65rem;
+    min-height: 1.45rem;
+    padding: 0 0.55rem;
     border-radius: 999px;
     border: 1px solid var(--pipeline-detail-border);
     background: var(--pipeline-detail-surface-soft);
     color: var(--text-secondary);
-    font-size: 0.75rem;
+    font-size: 0.68rem;
     font-weight: 750;
 }
 
@@ -11321,17 +11321,17 @@ html.dark .pipelines-detail-shell {
 }
 
 .pipeline-detail-description {
-    margin: 0.55rem 0 0;
+    margin: 0.36rem 0 0;
     max-width: 58rem;
     color: var(--text-secondary);
-    font-size: 0.95rem;
+    font-size: 0.84rem;
 }
 
 .pipeline-detail-meta-line {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.55rem 1rem;
-    margin-top: 0.9rem;
+    gap: 0.42rem 0.85rem;
+    margin-top: 0.55rem;
 }
 
 .pipeline-detail-meta-item {
@@ -11340,7 +11340,7 @@ html.dark .pipelines-detail-shell {
     gap: 0.42rem;
     min-width: 0;
     color: var(--text-secondary);
-    font-size: 0.78rem;
+    font-size: 0.73rem;
 }
 
 .pipeline-detail-meta-item svg {
@@ -11361,7 +11361,7 @@ html.dark .pipelines-detail-shell {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 0.55rem;
+    gap: 0.45rem;
     max-width: 46rem;
 }
 
@@ -11369,65 +11369,9 @@ html.dark .pipelines-detail-shell {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    min-height: 2.35rem;
-    border-radius: 9px;
+    min-height: 2.15rem;
+    border-radius: 8px;
     white-space: nowrap;
-}
-
-.pipeline-detail-metrics {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(9rem, 1fr));
-    gap: 0.75rem;
-}
-
-.pipeline-detail-metric {
-    min-width: 0;
-    min-height: 5.55rem;
-    padding: 0.9rem 0.95rem;
-    border: 1px solid var(--pipeline-detail-border);
-    border-radius: 12px;
-    background: var(--pipeline-detail-surface);
-    box-shadow: 0 12px 34px -30px rgba(15,23,42,0.55);
-}
-
-.pipeline-detail-metric__top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    color: var(--text-secondary);
-    font-size: 0.68rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-
-.pipeline-detail-metric--success .pipeline-detail-metric__top svg,
-.pipeline-detail-metric--success strong {
-    color: var(--pipeline-detail-teal);
-}
-
-.pipeline-detail-metric--warning .pipeline-detail-metric__top svg,
-.pipeline-detail-metric--warning strong {
-    color: var(--pipeline-detail-amber);
-}
-
-.pipeline-detail-metric--danger .pipeline-detail-metric__top svg,
-.pipeline-detail-metric--danger strong {
-    color: var(--pipeline-detail-red);
-}
-
-.pipeline-detail-metric strong {
-    display: block;
-    margin-top: 0.5rem;
-    font-size: 1.55rem;
-    line-height: 1;
-}
-
-.pipeline-detail-metric p {
-    margin: 0.38rem 0 0;
-    color: var(--text-secondary);
-    font-size: 0.74rem;
 }
 
 .pipeline-detail-tabs-wrap {
@@ -11561,34 +11505,32 @@ html.dark .pipeline-detail-tabs-wrap {
 
 .pipeline-detail-graph-stage {
     min-height: 36rem;
-    padding: 0.9rem;
-    background:
-        linear-gradient(rgba(100,116,139,0.08) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(100,116,139,0.08) 1px, transparent 1px),
-        var(--pipeline-detail-surface-soft);
-    background-size: 28px 28px, 28px 28px, auto;
+    background: transparent;
 }
 
-.pipeline-detail-graph-stage [role="region"] > .relative {
+.pipeline-detail-graph-stage .run-graph-redesign {
+    gap: 0;
+}
+
+.pipeline-detail-graph-stage .run-graph-panel {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.pipeline-detail-graph-stage .run-graph-head {
+    display: none;
+}
+
+.pipeline-detail-graph-stage .run-graph-workspace {
     height: min(40.5rem, calc(100vh - 19rem));
     min-height: 31rem;
-    border-radius: 12px;
+    border-radius: 0;
 }
 
-.pipeline-detail-flow-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    min-height: 3.2rem;
-    padding: 0.75rem 1rem;
-    border-top: 1px solid var(--pipeline-detail-border);
-    color: var(--text-secondary);
-    font-size: 0.78rem;
-}
-
-.pipeline-detail-flow-footer strong {
-    color: var(--text-primary);
+.pipeline-detail-graph-stage .run-graph-workspace:not(.has-task-reveal) .run-graph-overview {
+    height: 100%;
 }
 
 .pipeline-detail-dependency-links,
@@ -12031,10 +11973,6 @@ button.pipeline-detail-object-row--button:focus-visible {
 }
 
 @media (max-width: 1280px) {
-    .pipeline-detail-metrics {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
     .pipeline-detail-definition-layout,
     .pipeline-detail-health-hero {
         grid-template-columns: 1fr;
@@ -12055,14 +11993,8 @@ button.pipeline-detail-object-row--button:focus-visible {
         max-width: none;
     }
 
-    .pipeline-detail-metrics,
     .pipeline-detail-run-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .pipeline-detail-flow-footer {
-        align-items: flex-start;
-        flex-direction: column;
     }
 
     .pipeline-detail-finding-row {
@@ -12072,16 +12004,15 @@ button.pipeline-detail-object-row--button:focus-visible {
 
 @media (max-width: 560px) {
     .pipeline-detail-title-row h2 {
-        font-size: 1.55rem;
+        font-size: 1.38rem;
     }
 
     .pipeline-detail-hero,
     .pipeline-detail-card-header,
     .pipeline-detail-health-hero {
-        padding: 0.9rem;
+        padding: 0.8rem;
     }
 
-    .pipeline-detail-metrics,
     .pipeline-detail-run-summary {
         grid-template-columns: 1fr;
     }
@@ -12092,12 +12023,6 @@ button.pipeline-detail-object-row--button:focus-visible {
     }
 
     .pipeline-detail-graph-stage {
-        min-height: 28rem;
-        padding: 0.6rem;
-    }
-
-    .pipeline-detail-graph-stage [role="region"] > .relative {
-        height: 28rem;
         min-height: 28rem;
     }
 }
@@ -18193,9 +18118,114 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     --rg-success-soft: rgba(34, 211, 154, 0.12);
     --rg-danger-soft: rgba(251, 113, 133, 0.12);
     --rg-running-soft: rgba(94, 167, 255, 0.13);
+    --rg-panel-bg: linear-gradient(180deg, rgba(15, 25, 45, 0.98), rgba(8, 15, 29, 0.98));
+    --rg-chip-bg: rgba(255, 255, 255, 0.035);
+    --rg-field-bg: rgba(255, 255, 255, 0.026);
+    --rg-field-hover-bg: rgba(255, 255, 255, 0.055);
+    --rg-control-bg: rgba(7, 16, 30, 0.9);
+    --rg-control-hover-bg: rgba(255, 255, 255, 0.075);
+    --rg-grid-dot: #34415a;
+    --rg-node-fill: #0e1a2d;
+    --rg-node-stroke: #2a3a54;
+    --rg-node-hover-fill: #12213a;
+    --rg-node-hover-stroke: #697a9b;
+    --rg-node-selected-fill: #171e39;
+    --rg-node-selected-stroke: #967bff;
+    --rg-node-title: #d8e0ee;
+    --rg-node-meta: #7f8ca4;
+    --rg-node-kicker: #b9a8ff;
+    --rg-node-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+    --rg-detail-fill: rgba(15, 25, 45, 0.92);
+    --rg-detail-stroke: rgba(167, 139, 250, 0.5);
+    --rg-detail-hover-fill: rgba(139, 92, 246, 0.35);
+    --rg-detail-hover-stroke: rgba(216, 208, 255, 0.9);
+    --rg-detail-text: #d8d0ff;
+    --rg-include-fill: rgba(99, 102, 241, 0.13);
+    --rg-include-stroke: rgba(167, 139, 250, 0.34);
+    --rg-include-text: #d5ccff;
+    --rg-task-pill-fill: rgba(139, 92, 246, 0.16);
+    --rg-task-pill-stroke: rgba(167, 139, 250, 0.38);
+    --rg-task-pill-text: #c5b7ff;
+    --rg-minimap-bg: rgba(5, 12, 23, 0.86);
+    --rg-minimap-border: rgba(67, 83, 112, 0.74);
+    --rg-minimap-edge: rgba(113, 132, 165, 0.5);
+    --rg-minimap-node-fill: rgba(30, 45, 70, 0.8);
+    --rg-minimap-node-stroke: rgba(125, 145, 178, 0.75);
+    --rg-minimap-selected-fill: rgba(79, 70, 229, 0.32);
+    --rg-minimap-selected-stroke: rgba(190, 181, 255, 0.95);
+    --rg-minimap-window-fill: rgba(99, 102, 241, 0.12);
+    --rg-minimap-window-stroke: rgba(216, 208, 255, 0.95);
+    --rg-task-reveal-bg: linear-gradient(180deg, rgba(16, 25, 44, 0.94), rgba(6, 12, 24, 0.985) 28%, rgba(4, 9, 19, 0.995));
+    --rg-task-reveal-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(148, 163, 184, 0.12);
+    --rg-task-reveal-line: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.34), rgba(45, 212, 191, 0.2), transparent);
+    --rg-task-chip-bg: rgba(13, 22, 39, 0.88);
+    --rg-task-chip-border: rgba(139, 92, 246, 0.3);
+    --rg-task-chip-text: #ded7ff;
     display: grid;
     gap: 14px;
     color: var(--rg-text);
+}
+
+html:not(.dark) .run-graph-redesign {
+    --rg-bg: #f8fafc;
+    --rg-panel: #ffffff;
+    --rg-panel-2: #f8fafc;
+    --rg-panel-3: #eef2f7;
+    --rg-canvas: #f8fafc;
+    --rg-border: #d8e0ec;
+    --rg-border-strong: #94a3b8;
+    --rg-text: #172033;
+    --rg-text-2: #334155;
+    --rg-muted: #64748b;
+    --rg-accent: #4f46e5;
+    --rg-accent-2: #7c3aed;
+    --rg-accent-soft: rgba(79, 70, 229, 0.1);
+    --rg-success-soft: rgba(20, 184, 166, 0.1);
+    --rg-danger-soft: rgba(220, 38, 38, 0.08);
+    --rg-running-soft: rgba(37, 99, 235, 0.1);
+    --rg-panel-bg: linear-gradient(180deg, #ffffff, #f8fafc);
+    --rg-chip-bg: rgba(15, 23, 42, 0.035);
+    --rg-field-bg: rgba(255, 255, 255, 0.88);
+    --rg-field-hover-bg: #ffffff;
+    --rg-control-bg: rgba(255, 255, 255, 0.92);
+    --rg-control-hover-bg: #eef2ff;
+    --rg-grid-dot: #cbd5e1;
+    --rg-node-fill: #ffffff;
+    --rg-node-stroke: #cbd5e1;
+    --rg-node-hover-fill: #f8fafc;
+    --rg-node-hover-stroke: #94a3b8;
+    --rg-node-selected-fill: #eef2ff;
+    --rg-node-selected-stroke: #4f46e5;
+    --rg-node-title: #1e293b;
+    --rg-node-meta: #64748b;
+    --rg-node-kicker: #5b21b6;
+    --rg-node-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+    --rg-detail-fill: #ffffff;
+    --rg-detail-stroke: rgba(79, 70, 229, 0.38);
+    --rg-detail-hover-fill: #eef2ff;
+    --rg-detail-hover-stroke: rgba(79, 70, 229, 0.7);
+    --rg-detail-text: #4f46e5;
+    --rg-include-fill: rgba(79, 70, 229, 0.08);
+    --rg-include-stroke: rgba(79, 70, 229, 0.28);
+    --rg-include-text: #4338ca;
+    --rg-task-pill-fill: rgba(20, 184, 166, 0.1);
+    --rg-task-pill-stroke: rgba(15, 118, 110, 0.28);
+    --rg-task-pill-text: #0f766e;
+    --rg-minimap-bg: rgba(255, 255, 255, 0.92);
+    --rg-minimap-border: rgba(148, 163, 184, 0.58);
+    --rg-minimap-edge: rgba(100, 116, 139, 0.5);
+    --rg-minimap-node-fill: rgba(226, 232, 240, 0.88);
+    --rg-minimap-node-stroke: rgba(100, 116, 139, 0.7);
+    --rg-minimap-selected-fill: rgba(79, 70, 229, 0.16);
+    --rg-minimap-selected-stroke: rgba(79, 70, 229, 0.82);
+    --rg-minimap-window-fill: rgba(79, 70, 229, 0.1);
+    --rg-minimap-window-stroke: rgba(79, 70, 229, 0.86);
+    --rg-task-reveal-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
+    --rg-task-reveal-shadow: 0 -10px 28px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    --rg-task-reveal-line: linear-gradient(90deg, transparent, rgba(79, 70, 229, 0.28), rgba(20, 184, 166, 0.2), transparent);
+    --rg-task-chip-bg: rgba(255, 255, 255, 0.92);
+    --rg-task-chip-border: rgba(79, 70, 229, 0.26);
+    --rg-task-chip-text: #312e81;
 }
 
 .run-detail-workspace {
@@ -18275,8 +18305,19 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     overflow: hidden;
     border: 1px solid var(--rg-border);
     border-radius: 8px;
-    background: linear-gradient(180deg, rgba(15, 25, 45, 0.98), rgba(8, 15, 29, 0.98));
+    background: var(--rg-panel-bg);
     box-shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
+}
+
+.run-graph-redesign--embedded {
+    gap: 0;
+}
+
+.run-graph-redesign--embedded .run-graph-panel {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
 }
 
 .run-graph-head {
@@ -18312,7 +18353,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     padding: 0 8px;
     border: 1px solid var(--rg-border);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.035);
+    background: var(--rg-chip-bg);
     color: var(--rg-text-2);
     font-size: 11px;
     font-weight: 750;
@@ -18340,7 +18381,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     min-height: 35px;
     border: 1px solid var(--rg-border);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.026);
+    background: var(--rg-field-bg);
     color: var(--rg-text-2);
     transition: background 150ms ease, border-color 150ms ease;
 }
@@ -18377,17 +18418,37 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 .run-graph-search:focus-within,
 .run-graph-select:focus {
     border-color: var(--rg-border-strong);
-    background: rgba(255, 255, 255, 0.055);
+    background: var(--rg-field-hover-bg);
 }
 
 .run-graph-workspace {
     position: relative;
-    height: 430px;
+    height: 360px;
     overflow: hidden;
     isolation: isolate;
     background: var(--rg-canvas);
     cursor: grab;
     transition: height 340ms cubic-bezier(0.2, 0.78, 0.2, 1);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+}
+
+.run-graph-redesign--embedded .run-graph-workspace {
+    height: min(40.5rem, calc(100vh - 19rem));
+    min-height: 31rem;
+    border-radius: 0;
+}
+
+.run-graph-embedded-controls {
+    position: absolute;
+    z-index: 19;
+    top: 14px;
+    left: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: calc(100% - 178px);
 }
 
 .run-graph-workspace:active {
@@ -18395,7 +18456,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 }
 
 .run-graph-workspace.has-task-reveal {
-    height: 760px;
+    height: 540px;
 }
 
 .run-graph-grid {
@@ -18403,7 +18464,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     inset: 0;
     pointer-events: none;
     opacity: 0.28;
-    background-image: radial-gradient(circle, #34415a 1px, transparent 1px);
+    background-image: radial-gradient(circle, var(--rg-grid-dot) 1px, transparent 1px);
     background-size: 24px 24px;
     mask-image: linear-gradient(to bottom, black, rgba(0, 0, 0, 0.35));
 }
@@ -18412,12 +18473,26 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     position: relative;
     z-index: 2;
     width: 100%;
-    height: 420px;
-    transition: transform 300ms ease;
+    height: 352px;
+    transition: height 300ms ease, transform 300ms ease;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.run-graph-redesign--embedded .run-graph-workspace:not(.has-task-reveal) .run-graph-overview {
+    height: 100%;
+}
+
+.run-graph-overview text,
+.run-graph-task-svg text,
+.run-graph-minimap-svg text {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .run-graph-workspace.has-task-reveal .run-graph-overview {
-    transform: translateY(-8px);
+    height: 300px;
+    transform: translateY(-6px);
 }
 
 .run-graph-tools {
@@ -18436,7 +18511,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     justify-content: center;
     border: 1px solid var(--rg-border);
     border-radius: 999px;
-    background: rgba(7, 16, 30, 0.9);
+    background: var(--rg-control-bg);
     color: var(--rg-text-2);
     cursor: pointer;
     transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
@@ -18451,7 +18526,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 .run-graph-tools button:hover,
 .run-graph-reveal-close:hover {
     border-color: var(--rg-border-strong);
-    background: rgba(255, 255, 255, 0.075);
+    background: var(--rg-control-hover-bg);
 }
 
 .run-graph-tools button:active,
@@ -18466,7 +18541,61 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 
 .run-graph-copy-state-floating {
     min-height: 36px;
-    background: rgba(7, 16, 30, 0.9);
+    background: var(--rg-control-bg);
+}
+
+.run-graph-minimap {
+    position: absolute;
+    z-index: 17;
+    top: 58px;
+    right: 14px;
+    width: 168px;
+    padding: 8px;
+    border: 1px solid var(--rg-minimap-border);
+    border-radius: 10px;
+    background: var(--rg-minimap-bg);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(10px);
+}
+
+.run-graph-minimap-label {
+    margin: 0 0 5px;
+    color: var(--rg-muted);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.run-graph-minimap-svg {
+    display: block;
+    width: 100%;
+    height: 82px;
+    cursor: crosshair;
+}
+
+.run-graph-minimap-edge {
+    fill: none;
+    stroke: var(--rg-minimap-edge);
+    stroke-width: 1.6;
+}
+
+.run-graph-minimap-node {
+    fill: var(--rg-minimap-node-fill);
+    stroke: var(--rg-minimap-node-stroke);
+    stroke-width: 1.5;
+}
+
+.run-graph-minimap-node.selected {
+    fill: var(--rg-minimap-selected-fill);
+    stroke: var(--rg-minimap-selected-stroke);
+}
+
+.run-graph-minimap-window {
+    fill: var(--rg-minimap-window-fill);
+    stroke: var(--rg-minimap-window-stroke);
+    stroke-width: 2.2;
+    cursor: move;
 }
 
 .run-graph-task-reveal {
@@ -18474,35 +18603,31 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     z-index: 8;
     left: 2.5%;
     right: 2.5%;
-    bottom: 18px;
-    height: 390px;
+    bottom: 10px;
+    height: 248px;
     overflow: hidden;
-    border: 1px solid rgba(139, 92, 246, 0.4);
-    border-radius: 48% 48% 8px 8px / 22% 22% 8px 8px;
-    background:
-        radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.18), transparent 48%),
-        linear-gradient(180deg, rgba(10, 17, 33, 0.99), rgba(4, 9, 19, 0.995));
-    box-shadow:
-        0 -10px 46px rgba(0, 0, 0, 0.28),
-        inset 0 1px 0 rgba(255, 255, 255, 0.035),
-        inset 0 40px 100px rgba(12, 7, 36, 0.16);
+    border: 0;
+    border-radius: 14px;
+    background: var(--rg-task-reveal-bg);
+    box-shadow: var(--rg-task-reveal-shadow);
 }
 
 .run-graph-task-reveal::before {
     content: "";
     position: absolute;
-    top: -1px;
-    left: 8%;
-    right: 8%;
-    height: 1px;
+    top: 0;
+    left: 20px;
+    right: 20px;
+    height: 2px;
     pointer-events: none;
-    background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.8), transparent);
+    background: var(--rg-task-reveal-line);
+    opacity: 0.78;
 }
 
 .run-graph-task-chip {
     position: absolute;
     z-index: 4;
-    top: 42px;
+    top: 22px;
     left: 50%;
     transform: translateX(-50%);
     min-height: 30px;
@@ -18513,10 +18638,10 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     text-overflow: ellipsis;
     white-space: nowrap;
     padding: 0 12px;
-    border: 1px solid rgba(139, 92, 246, 0.3);
+    border: 1px solid var(--rg-task-chip-border);
     border-radius: 999px;
-    background: rgba(13, 22, 39, 0.88);
-    color: #ded7ff;
+    background: var(--rg-task-chip-bg);
+    color: var(--rg-task-chip-text);
     font-size: 11px;
     font-weight: 750;
     backdrop-filter: blur(8px);
@@ -18525,15 +18650,15 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 .run-graph-reveal-close {
     position: absolute;
     z-index: 4;
-    top: 34px;
-    right: 28px;
+    top: 18px;
+    right: 24px;
 }
 
 .run-graph-task-svg {
     position: relative;
     z-index: 2;
     width: 100%;
-    height: 360px;
+    height: 250px;
 }
 
 .run-graph-edge {
@@ -18555,24 +18680,24 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 
 .run-graph-svg-node {
     cursor: pointer;
-    filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.22));
+    filter: drop-shadow(var(--rg-node-shadow));
 }
 
 .run-graph-svg-node .run-graph-node-card {
-    fill: #0e1a2d;
-    stroke: #2a3a54;
+    fill: var(--rg-node-fill);
+    stroke: var(--rg-node-stroke);
     stroke-width: 1.2;
 }
 
 .run-graph-svg-node:hover .run-graph-node-card,
 .run-graph-svg-node:focus .run-graph-node-card {
-    fill: #12213a;
-    stroke: #697a9b;
+    fill: var(--rg-node-hover-fill);
+    stroke: var(--rg-node-hover-stroke);
 }
 
 .run-graph-svg-node.selected .run-graph-node-card {
-    fill: #171e39;
-    stroke: #967bff;
+    fill: var(--rg-node-selected-fill);
+    stroke: var(--rg-node-selected-stroke);
     stroke-width: 2.2;
 }
 
@@ -18591,13 +18716,13 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 }
 
 .run-graph-node-detail-button circle {
-    fill: rgba(15, 25, 45, 0.92);
-    stroke: rgba(167, 139, 250, 0.5);
+    fill: var(--rg-detail-fill);
+    stroke: var(--rg-detail-stroke);
     stroke-width: 1.1;
 }
 
 .run-graph-node-detail-button text {
-    fill: #d8d0ff;
+    fill: var(--rg-detail-text);
     font-size: 11px;
     font-weight: 800;
     pointer-events: none;
@@ -18611,24 +18736,24 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 
 .run-graph-node-detail-button:hover circle,
 .run-graph-node-detail-button:focus circle {
-    fill: rgba(139, 92, 246, 0.35);
-    stroke: rgba(216, 208, 255, 0.9);
+    fill: var(--rg-detail-hover-fill);
+    stroke: var(--rg-detail-hover-stroke);
 }
 
 .run-graph-node-title {
-    fill: #d8e0ee;
+    fill: var(--rg-node-title);
     font-size: 12px;
     font-weight: 700;
 }
 
 .run-graph-node-meta {
-    fill: #7f8ca4;
+    fill: var(--rg-node-meta);
     font-size: 10px;
     font-weight: 500;
 }
 
 .run-graph-node-kicker {
-    fill: #b9a8ff;
+    fill: var(--rg-node-kicker);
     font-size: 9px;
     font-weight: 800;
     text-anchor: end;
@@ -18636,12 +18761,12 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 }
 
 .run-graph-include-chip {
-    fill: rgba(99, 102, 241, 0.13);
-    stroke: rgba(167, 139, 250, 0.34);
+    fill: var(--rg-include-fill);
+    stroke: var(--rg-include-stroke);
 }
 
 .run-graph-include-chip-text {
-    fill: #d5ccff;
+    fill: var(--rg-include-text);
     font-size: 7.6px;
     font-weight: 800;
     text-anchor: middle;
@@ -18649,12 +18774,12 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 }
 
 .run-graph-task-pill {
-    fill: rgba(139, 92, 246, 0.16);
-    stroke: rgba(167, 139, 250, 0.38);
+    fill: var(--rg-task-pill-fill);
+    stroke: var(--rg-task-pill-stroke);
 }
 
 .run-graph-task-pill-text {
-    fill: #c5b7ff;
+    fill: var(--rg-task-pill-text);
     font-size: 8.5px;
     font-weight: 800;
     text-anchor: middle;
@@ -18675,37 +18800,58 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
         width: 100%;
     }
 
+    .run-graph-embedded-controls {
+        top: 58px;
+        left: 10px;
+        right: 10px;
+        max-width: calc(100% - 20px);
+    }
+
     .run-graph-workspace {
-        height: 460px;
+        height: 390px;
     }
 
     .run-graph-workspace.has-task-reveal {
-        height: 850px;
+        height: 620px;
     }
 
     .run-graph-overview {
-        height: 460px;
+        height: 382px;
+    }
+
+    .run-graph-workspace.has-task-reveal .run-graph-overview {
+        height: 330px;
     }
 
     .run-graph-task-reveal {
         left: 10px;
         right: 10px;
-        bottom: 12px;
-        height: 420px;
-        border-radius: 38% 38% 8px 8px / 16% 16% 8px 8px;
+        bottom: 10px;
+        height: 280px;
+        border-radius: 14px;
     }
 
     .run-graph-task-chip {
-        top: 34px;
+        top: 22px;
     }
 
     .run-graph-reveal-close {
-        top: 28px;
+        top: 18px;
         right: 18px;
     }
 
     .run-graph-task-svg {
-        height: 390px;
+        height: 280px;
+    }
+
+    .run-graph-minimap {
+        top: 58px;
+        right: 10px;
+        width: 132px;
+    }
+
+    .run-graph-minimap-svg {
+        height: 68px;
     }
 
     .run-detail-workspace-tabs {
@@ -18715,5 +18861,16 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     .run-detail-workspace-tab {
         flex: 1;
         min-width: 0;
+    }
+}
+
+@media (max-width: 560px) {
+    .run-graph-redesign--embedded .run-graph-workspace {
+        height: 28rem;
+        min-height: 28rem;
+    }
+
+    .run-graph-redesign--embedded .run-graph-workspace.has-task-reveal {
+        height: 34rem;
     }
 }

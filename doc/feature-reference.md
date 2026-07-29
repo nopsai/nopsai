@@ -667,6 +667,14 @@ already loads:
   last 30 visible runs. The redesigned pipeline detail page renders the full
   reviewer inside the Health tab; selecting **Analyse Pipeline** switches to
   that tab and starts AI Evaluation for the visible snapshot when available.
+  The pipeline Flow tab embeds the shared graph canvas inside its existing
+  Pipeline graph card so operators see one graph frame rather than a nested
+  Execution Graph panel, and the overview SVG fills that visible frame so
+  centered steps do not disappear behind an internal clipping layer. The Flow
+  card ends at the graph canvas; source metadata and dependency actions remain
+  in the header/definition and Dependencies tab surfaces instead of a detached
+  graph footer. The shared graph canvas and SVG node chrome use light/dark graph
+  theme variables rather than a dark-only palette.
   Trigger rules, runs, and dependencies use full-width row tables on their
   dedicated tabs so operators can scan all loaded objects without card limits.
   Pipeline detail actions for clone, edit, access, YAML copy, and YAML download
@@ -764,7 +772,7 @@ Current implementation ownership:
   `services/ui/src/features/pipelines/PipelineDetailView.tsx`
 - pipeline detail tab section rendering:
   `services/ui/src/features/pipelines/PipelineDetailSections.tsx`
-- pipeline detail metric/source/run/health presentation:
+- pipeline detail source/run/health presentation:
   `services/ui/src/features/pipelines/pipelineDetailPresentation.ts`
 - run detail action and safe follow-ups:
   `services/ui/src/features/pipeline-runs/RunDetailPanel.tsx`
@@ -834,11 +842,17 @@ Run organization behavior:
   lower reveal stage with direct upstream/downstream context, node info
   affordances open the full step-detail modal with optional task preselection,
   and graph controls keep search/status filtering, zoom/pan, and copyable
-  selection links in the existing `pipeline_run.read` surface. Wheel zoom,
-  toolbar zoom, Fit, and pan preserve any open task reveal. Opening a run and
-  pressing Fit center the graph bounds for single-step and multi-step executions.
-  Run detail separates the execution graph and final deliverables into Graph and
-  Outputs tabs.
+  selection links in the existing `pipeline_run.read` surface. Ctrl/Command
+  wheel zoom, toolbar zoom, Fit, and pan preserve any open task reveal; normal
+  wheel scrolling over graph canvases scrolls the page. Empty graph-surface and
+  outside-graph clicks close the reveal. When the shared graph is zoomed or
+  panned, it exposes a compact navigator with a draggable viewport rectangle for
+  moving across the full step graph. Graph drag panning uses viewport-scaled,
+  frame-batched movement and suppresses browser text selection on graph labels.
+  Opening a run and pressing Fit center the graph bounds for single-step and
+  multi-step executions. Run detail separates the execution graph and final
+  deliverables into Graph and Outputs tabs, with the shared graph palette
+  honoring light and dark app themes.
 - The graph redesign is UI-only: GitOps YAML shape, AAA checks, run APIs, MCP
   monitoring tools, CLI commands, and persisted run/task records are unchanged.
 - pipeline path is used as the run owner when a run has no repository or
@@ -913,8 +927,9 @@ Pages present in the current UI:
 - `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail
-  with KPI summary, dependency graphing, definition side summary, trigger/run/dependency
-  panels, read-only health findings, and Execute handoff to Lab
+  with a compact run-detail-style header, single-frame embedded dependency
+  graphing, definition side summary, trigger/run/dependency panels, read-only
+  health findings, and Execute handoff to Lab
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Monitoring`: tabbed operational analytics with `/monitoring/<tab>` links and query-backed filters for time, team, status, comparison, and run drilldowns
 - `Dashboards`: dashboard detail routes under `/dashboards/<dashboard-ref>` with section tabs as URL view state

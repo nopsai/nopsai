@@ -99,11 +99,23 @@ execution graph: selected multi-task steps reveal their task DAG below the step
 overview, keep direct upstream/downstream context, expose the full step-detail
 modal through node info controls with optional task preselection, separate Graph
 and Outputs tabs, center the graph bounds when a run opens or Fit is pressed,
-preserve the task reveal during zoom/pan navigation, and preserve existing log,
-search, filter, zoom, pan, copy-link, AAA, monitoring, MCP, and GitOps
-contracts. The wiki must not describe a separate trigger-creation modal, separate
-run modal, or server-side reviewer persistence unless those flows are
-implemented.
+preserve the task reveal during Ctrl/Command-wheel zoom, toolbar zoom, and pan
+navigation, let unmodified wheel input scroll the page, close the reveal on
+empty graph and outside clicks, expose a compact draggable graph navigator while
+zoomed or panned, keep drag panning frame-batched and free of browser text
+selection, and preserve existing log, search, filter, zoom, pan, copy-link, AAA,
+monitoring, MCP, and GitOps contracts. Pipeline detail must embed the shared
+graph canvas in its Pipeline graph card without a nested graph-window frame, and
+that embedded overview must fill the visible graph frame so steps are not
+clipped by an internal SVG viewport. The Flow graph card must end at the graph
+canvas, with source and dependency actions kept in existing non-footer surfaces.
+Pipeline detail must use a compact run-detail-style headline and must not
+reintroduce a KPI-card row above the tabs. Shared graph surfaces must use
+light/dark theme variables for the canvas, SVG nodes, controls, minimap, and
+task reveal rather than forcing the dark palette in light mode. The wiki must
+not describe a separate
+trigger-creation modal, separate run modal, or server-side reviewer persistence
+unless those flows are implemented.
 
 CLI reference pages must cover both automation commands and the interactive
 operator console. The interactive console currently exposes API catalog calls,

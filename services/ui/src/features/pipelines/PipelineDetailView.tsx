@@ -41,16 +41,13 @@ import {
 } from './model';
 import {
   ActivityTabPanel,
-  DependencyLinks,
   MetaItem,
   PipelineAnalysisControls,
   PipelineDefinitionPanel,
-  PipelineMetricCard,
   SummaryBlock,
   type DetailTabID,
 } from './PipelineDetailSections';
 import {
-  buildPipelineDetailMetrics,
   countPipelineGraphTasks,
   formatPipelineDetailPath,
   formatPipelineDetailSource,
@@ -225,13 +222,6 @@ export function PipelineDetailView({
   const dependencyRefs = Array.from(new Set(detail.includedDependencies))
     .map(parsePipelineDependencyReference)
     .sort((a, b) => a.raw.localeCompare(b.raw));
-  const metrics = buildPipelineDetailMetrics({
-    graphData,
-    triggers,
-    recentRuns,
-    analysis: analysisResult,
-    validationErrorCount: validationErrors.length,
-  });
   const tabs: Array<{ id: DetailTabID; label: string; count?: number }> = [
     { id: 'flow', label: 'Flow' },
     { id: 'definition', label: 'Definition' },
@@ -369,12 +359,6 @@ export function PipelineDetailView({
           </div>
         </section>
 
-        <section className="pipeline-detail-metrics" aria-label="Pipeline summary">
-          {metrics.map(metric => (
-            <PipelineMetricCard key={metric.id} metric={metric} />
-          ))}
-        </section>
-
         <div className="pipeline-detail-tabs-wrap">
           <div className="pipeline-detail-tabs" role="tablist" aria-label="Pipeline detail sections">
             {tabs.map(tab => (
@@ -439,13 +423,11 @@ export function PipelineDetailView({
                       stepStatusColorOverride="#14b8a6"
                       taskStatusColorOverride="#38bdf8"
                       hideStatusLegend
+                      ariaLabel="Pipeline graph"
+                      presentation="embedded"
                     />
                   )}
                 </div>
-                <footer className="pipeline-detail-flow-footer">
-                  <span>Source <strong>{sourceState.description}</strong></span>
-                  <DependencyLinks dependencies={dependencyRefs} onOpenDependency={onOpenDependency} onCopyDependency={onCopyDependency} />
-                </footer>
               </article>
             </section>
           ) : null}

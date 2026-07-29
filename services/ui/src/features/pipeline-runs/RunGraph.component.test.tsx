@@ -123,6 +123,31 @@ test('reveals a selected step task graph and dispatches task-log and step-detail
   expect(onOpenTaskLogs).toHaveBeenCalledWith('build', 'compile');
 });
 
+test('embedded presentation renders the graph canvas without nested graph chrome', () => {
+  render(
+    <StepsGraph
+      steps={graphSteps}
+      selectedStep={null}
+      onSelectStep={() => undefined}
+      childRuns={[]}
+      hideStatusLegend
+      ariaLabel="Pipeline graph"
+      presentation="embedded"
+      pipelineDefinition={{
+        steps: [
+          { name: 'build', tasks: [{ name: 'compile' }] },
+          { name: 'deploy', tasks: [{ name: 'publish' }] },
+        ],
+      }}
+    />
+  );
+
+  expect(screen.getByRole('region', { name: 'Pipeline graph' })).toHaveAttribute('data-presentation', 'embedded');
+  expect(screen.queryByText('Execution Graph')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Search graph nodes')).toBeVisible();
+  expect(screen.getByRole('button', { name: /Reveal build step/ })).toBeVisible();
+});
+
 test('auto-reveals a selected step and supports graph zoom and pan controls', async () => {
   const onSelectStep = vi.fn();
   const { container } = render(
@@ -149,10 +174,33 @@ test('auto-reveals a selected step and supports graph zoom and pan controls', as
   const graphSurface = container.querySelector('.run-graph-workspace') as HTMLElement | null;
   expect(graphSurface).not.toBeNull();
   fireEvent.wheel(graphSurface!, { deltaY: -200 });
+  expect(graphTransform(container).scale).toBe(1);
+  fireEvent.wheel(graphSurface!, { ctrlKey: true, deltaY: -200 });
   await waitFor(() => {
     const scaleValue = Number(graphLayer?.getAttribute('transform')?.match(/scale\(([^)]+)\)/)?.[1] || 0);
     expect(scaleValue).toBeGreaterThan(1.4);
   });
+  expect(screen.getByRole('group', { name: 'Graph navigator' })).toBeVisible();
+
+  const minimap = container.querySelector('.run-graph-minimap-svg') as SVGSVGElement | null;
+  expect(minimap).not.toBeNull();
+  vi.spyOn(minimap!, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    left: 0,
+    top: 0,
+    right: 168,
+    bottom: 82,
+    width: 168,
+    height: 82,
+    toJSON: () => ({}),
+  } as DOMRect);
+  const zoomedTransform = graphTransform(container);
+  fireEvent.mouseDown(minimap!, { button: 0, clientX: 150, clientY: 68 });
+  await waitFor(() => {
+    expect(graphTransform(container).x).not.toBeCloseTo(zoomedTransform.x);
+  });
+  fireEvent.mouseUp(document);
 
   fireEvent.mouseDown(graphSurface!, { button: 0, clientX: 40, clientY: 50 });
   fireEvent.mouseMove(graphSurface!, { clientX: 80, clientY: 90 });
@@ -212,7 +260,7 @@ test('clicking an open step collapses the task reveal', async () => {
   });
 });
 
-test('wheel zoom keeps an open task reveal selected', async () => {
+test('modified wheel zoom keeps an open task reveal selected and click-away closes it', async () => {
   const onSelectionChange = vi.fn();
   const { container } = render(<ControlledStepsGraph onSelectionChange={onSelectionChange} />);
   const graphSurface = container.querySelector('.run-graph-workspace') as HTMLElement | null;
@@ -225,11 +273,30 @@ test('wheel zoom keeps an open task reveal selected', async () => {
   await waitFor(() => expect(onSelectionChange).toHaveBeenCalledWith('build'));
 
   fireEvent.wheel(graphSurface!, { deltaY: -200 });
+  expect(graphTransform(container).scale).toBe(1);
+
+  fireEvent.wheel(graphSurface!, { ctrlKey: true, deltaY: -200 });
   await waitFor(() => {
     expect(graphTransform(container).scale).toBeGreaterThan(1);
   });
   expect(screen.getByText('compile')).toBeVisible();
   expect(onSelectionChange).not.toHaveBeenCalledWith(null);
+
+  fireEvent.mouseDown(document.body);
+  await waitFor(() => {
+    expect(screen.queryByText('compile')).not.toBeInTheDocument();
+  });
+  expect(onSelectionChange).toHaveBeenLastCalledWith(null);
+
+  await userEvent.click(screen.getByRole('button', { name: /Reveal build step/ }));
+  expect(await screen.findByText('compile')).toBeVisible();
+
+  fireEvent.mouseDown(graphSurface!, { button: 0, clientX: 24, clientY: 24 });
+  fireEvent.mouseUp(graphSurface!, { clientX: 24, clientY: 24 });
+  await waitFor(() => {
+    expect(screen.queryByText('compile')).not.toBeInTheDocument();
+  });
+  expect(onSelectionChange).toHaveBeenLastCalledWith(null);
 });
 
 test('clicking a step without tasks opens step logs instead of revealing an empty graph', async () => {
