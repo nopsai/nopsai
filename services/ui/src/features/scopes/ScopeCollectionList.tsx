@@ -92,7 +92,8 @@ function ScopeWorkspace({
       treeTitle="Teams"
       rootLabel="All teams"
       searchLabel="Search scope teams"
-      searchPlaceholder="Find team"
+      searchPlaceholder=""
+      showTreeSearch={false}
       emptyLabel="No scope teams found."
       activePath={activeTeam}
       rootNode={treeRoot}

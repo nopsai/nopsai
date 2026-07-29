@@ -4,12 +4,10 @@ import {
   CheckCircle2,
   Edit3,
   ExternalLink,
-  GitBranch,
   PauseCircle,
   Play,
   RefreshCw,
   Trash2,
-  Workflow,
   X,
 } from 'lucide-react';
 
@@ -21,9 +19,8 @@ import {
   AIResourceEmptyState,
   AIResourceExpandableSearch,
   AIResourceIconAction,
-  AIResourceTableHeader,
 } from '../system/AIResourcePanel';
-import { AIResourceMetricGrid, AIResourceWorkspace, type AIResourceWorkspaceItem } from '../system/AIResourceWorkspace';
+import { AIResourceWorkspace, type AIResourceWorkspaceItem } from '../system/AIResourceWorkspace';
 import type { PipelineSchedule } from './model';
 import {
   formatDateTime,
@@ -34,17 +31,16 @@ import {
 } from './presentation';
 import {
   filterSchedules,
-  formatScheduleRatio,
   isGitOpsSchedule,
   latestScheduleRunID,
   scheduleDisplayName,
   scheduleKindLabel,
   schedulePathOptions,
   scheduleResourceID,
+  scheduleMatchesState,
   scheduleSourceDetail,
   scheduleStatusHealthClass,
   scheduleStatusText,
-  summarizeSchedules,
   SCHEDULE_STATE_FILTERS,
   type ScheduleStateFilter,
 } from './workspaceModel';
@@ -106,7 +102,17 @@ export function ScheduleWorkspace({
     () => filterSchedules({ schedules, searchTerm, pathFilter, stateFilter }),
     [pathFilter, schedules, searchTerm, stateFilter]
   );
-  const summary = useMemo(() => summarizeSchedules(schedules, visibleSchedules), [schedules, visibleSchedules]);
+  const stateCountBaseSchedules = useMemo(
+    () => filterSchedules({ schedules, searchTerm, pathFilter, stateFilter: 'all' }),
+    [pathFilter, schedules, searchTerm]
+  );
+  const stateCounts = useMemo<Record<ScheduleStateFilter, number>>(() => {
+    const counts = {} as Record<ScheduleStateFilter, number>;
+    SCHEDULE_STATE_FILTERS.forEach(option => {
+      counts[option.value] = stateCountBaseSchedules.filter(schedule => scheduleMatchesState(schedule, option.value)).length;
+    });
+    return counts;
+  }, [stateCountBaseSchedules]);
   const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
     () => schedules.map(schedule => ({
       id: scheduleResourceID(schedule),
@@ -139,26 +145,33 @@ export function ScheduleWorkspace({
       {!detailOpen ? (
         <div className="ai-resource-page-header ai-resource-page-header--toolbar ai-resource-overview-bar">
           <h2 className="sr-only">Schedules</h2>
-          <div className="ai-resource-default-control schedule-workspace__scope-card">
-            <span>{pipelineFilter ? 'Pipeline filter' : 'Schedule view'}</span>
-            <strong>{pipelineFilter || 'All pipelines'}</strong>
-            {pipelineFilter ? (
-              <button type="button" onClick={onClearPipelineFilter} aria-label="Clear pipeline filter">
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                Clear
-              </button>
-            ) : null}
+          <div className="schedule-workspace__header-leading">
+            <ScheduleStateSegmentedFilter
+              value={stateFilter}
+              counts={stateCounts}
+              onChange={setStateFilter}
+            />
+            <div className="ai-resource-default-control schedule-workspace__scope-card">
+              <span>{pipelineFilter ? 'Pipeline filter' : 'Schedule view'}</span>
+              <strong>{pipelineFilter || 'All pipelines'}</strong>
+              {pipelineFilter ? (
+                <button type="button" onClick={onClearPipelineFilter} aria-label="Clear pipeline filter">
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  Clear
+                </button>
+              ) : null}
+            </div>
           </div>
-          <AIResourceMetricGrid
-            metrics={[
-              { label: 'Enabled', value: formatScheduleRatio(summary.enabled, summary.visible), icon: <CheckCircle2 className="h-4 w-4" />, tone: summary.visible === 0 || summary.enabled === summary.visible ? 'ok' : 'warning' },
-              { label: 'Pipelines', value: summary.pipelines, icon: <Workflow className="h-4 w-4" />, tone: 'info' },
-              { label: 'GitOps', value: summary.gitops, icon: <GitBranch className="h-4 w-4" />, tone: summary.gitops > 0 ? 'muted' : 'default' },
-            ]}
-          />
           <div className="ai-resource-page-actions schedule-workspace__header-actions">
             <div className="schedule-workspace__header-action-row">
               {!canWriteSchedules && <span className="runner-pill runner-pill--muted">Read-only</span>}
+              <AIResourceExpandableSearch
+                label="Search schedules"
+                placeholder="Search schedules..."
+                value={searchTerm}
+                onChange={onSearchTermChange}
+                className="schedule-workspace__header-search"
+              />
               <button type="button" className="ai-resource-icon-button" onClick={onRefresh} disabled={loading || saving} aria-label="Reload schedules">
                 <RefreshCw className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -174,13 +187,6 @@ export function ScheduleWorkspace({
                 </button>
               )}
             </div>
-            <AIResourceExpandableSearch
-              label="Search schedules"
-              placeholder="Search schedules..."
-              value={searchTerm}
-              onChange={onSearchTermChange}
-              className="schedule-workspace__header-search"
-            />
           </div>
         </div>
       ) : null}
@@ -203,19 +209,7 @@ export function ScheduleWorkspace({
         detailOpen={detailOpen}
         detailRef={detailRef}
         detailLabel="Schedule detail"
-        listHeader={(
-          <AIResourceTableHeader
-            className="schedule-workspace__table-header"
-            filters={(
-              <div className="schedule-workspace__filters">
-                <ScheduleStateSegmentedFilter
-                  value={stateFilter}
-                  onChange={setStateFilter}
-                />
-              </div>
-            )}
-          />
-        )}
+        listHeader={null}
         list={(
           <ScheduleTable
             schedules={visibleSchedules}
@@ -248,9 +242,11 @@ export function ScheduleWorkspace({
 
 function ScheduleStateSegmentedFilter({
   value,
+  counts,
   onChange,
 }: {
   value: ScheduleStateFilter;
+  counts: Record<ScheduleStateFilter, number>;
   onChange: (value: ScheduleStateFilter) => void;
 }) {
   return (
@@ -263,7 +259,8 @@ function ScheduleStateSegmentedFilter({
           aria-selected={value === option.value}
           onClick={() => onChange(option.value)}
         >
-          {option.label}
+          <span>{option.label}</span>
+          <strong>{counts[option.value]}</strong>
         </button>
       ))}
     </div>

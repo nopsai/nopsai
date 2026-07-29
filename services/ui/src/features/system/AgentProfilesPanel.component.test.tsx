@@ -123,11 +123,12 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   expect(screen.getByLabelText('Agent profile tree')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Select agent profile DevOps Engineer' })).toBeVisible();
   expect(screen.queryByLabelText('Agent profile detail')).not.toBeInTheDocument();
-  expect(screen.getByLabelText('Default agent profile').closest('.ai-resource-overview-bar')).toBe(
-    screen.getByLabelText('Resource summary').closest('.ai-resource-overview-bar')
+  expect(screen.queryByLabelText('Resource summary')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Search agent profiles' }).closest('.ai-resource-page-action-row')).toBe(
+    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
   );
   expect(screen.getAllByText('Profiles')[0]).toBeVisible();
-  expect(screen.getByText('Pipeline refs')).toBeVisible();
+  expect(screen.queryByText('Pipeline refs')).not.toBeInTheDocument();
   expect(screen.queryByText('Operates deployments and CI/CD.')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
 
@@ -269,9 +270,39 @@ test('applies the team filter from the route query', async () => {
     </MemoryRouter>
   );
 
-  expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
+  expect(await screen.findByRole('button', { name: 'Open team platform/ml' })).toHaveClass('active');
   await waitFor(() => expect(teamProfileMocks.fetchTeamAgentProfiles).toHaveBeenCalledWith('platform/ml'));
   const profileTable = await screen.findByLabelText('Agent profiles');
   expect(within(profileTable).getByRole('button', { name: /security reviewer/i })).toBeVisible();
   expect(within(profileTable).queryByRole('button', { name: /devops engineer/i })).not.toBeInTheDocument();
+});
+
+test('counts cached team-owned agent profiles in the tree', async () => {
+  apiMocks.fetchAgentProfiles.mockResolvedValueOnce({
+    default_profile: 'devops-engineer',
+    profiles: [
+      {
+        id: 'devops-engineer',
+        display_name: 'DevOps Engineer',
+        role: 'Senior DevOps Engineer',
+        description: 'Operates deployments and CI/CD.',
+        instructions: 'Keep releases boring and reversible.',
+        enabled: true,
+        built_in: true,
+        source: 'built-in',
+        usage_count: 2,
+        references: ['pipelines/deploy.yaml'],
+      },
+    ],
+  });
+
+  render(
+    <MemoryRouter>
+      <AgentProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const teamButton = await screen.findByRole('button', { name: 'Open team platform/ml' });
+  await waitFor(() => expect(teamProfileMocks.fetchTeamAgentProfiles).toHaveBeenCalledWith('platform/ml'));
+  await waitFor(() => expect(within(teamButton).getByText('2')).toBeVisible());
 });

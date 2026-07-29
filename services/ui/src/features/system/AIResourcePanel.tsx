@@ -1,8 +1,6 @@
 import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Search, X } from 'lucide-react';
 import {
-  AI_RESOURCE_TEAM_FILTER_ALL,
-  AI_RESOURCE_TEAM_FILTER_GLOBAL,
   buildAIResourceScopedID,
   formatAIResourceTeamLabel,
   normalizeAIResourceTeamPath,
@@ -74,6 +72,7 @@ export function AIResourceTableHeader({
       onChange={onSearchChange}
     />
   ) : null;
+  const hasControls = Boolean(filters || searchControl);
   const headerClassName = [
     'ai-resource-table-head',
     !hasTitle ? 'ai-resource-table-head--controls-only' : '',
@@ -89,10 +88,12 @@ export function AIResourceTableHeader({
           {loading ? <em>Loading...</em> : null}
         </div>
       ) : null}
-      <div className="ai-resource-table-controls">
-        {filters}
-        {searchControl}
-      </div>
+      {hasControls ? (
+        <div className="ai-resource-table-controls">
+          {filters}
+          {searchControl}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -229,47 +230,6 @@ export function AIResourceTeamBadge({ resourceID }: { resourceID: string }) {
     <span className={`ai-resource-team-badge ${isGlobal ? 'ai-resource-team-badge--global' : ''}`}>
       {label}
     </span>
-  );
-}
-
-export function AIResourceTeamFilter({
-  value,
-  onChange,
-  teamPaths,
-  disabled,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  teamPaths: string[];
-  disabled?: boolean;
-}) {
-  const normalizedTeamPaths = teamPaths.map(normalizeAIResourceTeamPath).filter(Boolean);
-  const selectableTeamPaths = [...new Set(normalizedTeamPaths)];
-  const normalizedValue = normalizeAIResourceTeamPath(value);
-  const safeValue = value === AI_RESOURCE_TEAM_FILTER_GLOBAL
-    ? AI_RESOURCE_TEAM_FILTER_GLOBAL
-    : normalizedValue && selectableTeamPaths.includes(normalizedValue)
-      ? normalizedValue
-      : AI_RESOURCE_TEAM_FILTER_ALL;
-
-  return (
-    <label className="ai-resource-team-filter">
-      <span className="sr-only">Filter by team</span>
-      <select
-        aria-label="Filter by team"
-        value={safeValue}
-        onChange={event => onChange(event.target.value)}
-        disabled={disabled}
-      >
-        <option value={AI_RESOURCE_TEAM_FILTER_ALL}>All teams</option>
-        <option value={AI_RESOURCE_TEAM_FILTER_GLOBAL}>Global</option>
-        {selectableTeamPaths.map(path => (
-          <option key={path} value={path}>
-            /{path}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 

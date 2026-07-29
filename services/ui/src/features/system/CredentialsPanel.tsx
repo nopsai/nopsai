@@ -7,7 +7,6 @@ import { CredentialDashboard } from './credentials/CredentialDashboard';
 import { CredentialDetail } from './credentials/CredentialDetail';
 import {
   credentialCatalogGroups,
-  credentialNamespaces,
   credentialReferenceFromRoute,
   credentialReferenceRoute,
   credentialSummary,
@@ -143,7 +142,6 @@ function CredentialsPanelBody({
   onStartCreate,
 }: CredentialsPanelBodyProps) {
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
   const [scopeOverride, setScopeOverride] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(true);
   const visibleCredentials = useMemo(
@@ -166,10 +164,9 @@ function CredentialsPanelBody({
   const scope = !isNopsAIAdmin && !['all', 'team'].includes(requestedScope) ? 'team' : requestedScope;
   const canCreateCredentials = canManage && (isNopsAIAdmin || teamPathsLoading || teamPaths.length > 0);
   const summary = useMemo(() => credentialSummary(visibleCredentials), [visibleCredentials]);
-  const namespaces = useMemo(() => credentialNamespaces(visibleCredentials), [visibleCredentials]);
   const filteredCredentials = useMemo(
-    () => filterCredentials(visibleCredentials, query, status, scope),
-    [query, scope, status, visibleCredentials]
+    () => filterCredentials(visibleCredentials, query, 'all', scope),
+    [query, scope, visibleCredentials]
   );
   const groups = useMemo(
     () => credentialCatalogGroups(filteredCredentials, teamPaths),
@@ -187,13 +184,10 @@ function CredentialsPanelBody({
           canManage={canManage}
           canCreate={canCreateCredentials}
           loading={controller.loading}
+          query={query}
           saving={controller.saving}
-          scopeDescription={
-            isNopsAIAdmin
-              ? 'Manage encrypted, versioned credentials across teams and global resources.'
-              : 'Manage encrypted, versioned credentials for authorized teams.'
-          }
           summary={summary}
+          onQueryChange={setQuery}
           onReload={() => void controller.loadCredentials()}
           onStartCreate={onStartCreate}
         />
@@ -204,18 +198,12 @@ function CredentialsPanelBody({
 
         <CredentialCatalog
           groups={groups}
-          isNopsAIAdmin={isNopsAIAdmin}
-          namespaces={namespaces}
           scopeTabs={scopeTabs}
           selectedID={visibleSelected?.id}
-          query={query}
-          status={status}
           scope={scope}
           grouped={grouped}
           loading={controller.loading}
           teamPaths={teamPaths}
-          onQueryChange={setQuery}
-          onStatusChange={setStatus}
           onScopeChange={value => setScopeOverride(value)}
           onGroupedChange={setGrouped}
           onSelect={onSelectCredential}

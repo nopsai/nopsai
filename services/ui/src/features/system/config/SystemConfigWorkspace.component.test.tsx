@@ -147,18 +147,18 @@ test('renders the settings hub and filters sections by search', async () => {
   const user = userEvent.setup();
   renderWorkspace();
 
-  expect(screen.getByText('Settings Config')).toBeVisible();
-  expect(screen.getByText('Platform Identity')).toBeVisible();
+  expect(screen.queryByText('Settings Config')).not.toBeInTheDocument();
+  expect(screen.queryByText('Platform Identity')).not.toBeInTheDocument();
   expect(screen.getByRole('tab', { name: /Platform/ })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: /Config Source/ })).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Open Dispatcher' })).toHaveAttribute('href', '/system/dispatcher');
+  expect(screen.queryByText(/Config stores persisted defaults/)).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('tab', { name: /Config Source/ }));
-  expect(screen.getByText('Global Config Repository')).toBeVisible();
+  expect(screen.getByLabelText('Repository URL')).toBeVisible();
 
   await user.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'smtp');
 
-  expect(screen.getByText('Mail Notifications')).toBeVisible();
+  expect(screen.getByRole('tab', { name: /Notifications/ })).toBeVisible();
   expect(screen.queryByText('Platform Identity')).not.toBeInTheDocument();
   expect(screen.queryByText('Global Config Repository')).not.toBeInTheDocument();
 

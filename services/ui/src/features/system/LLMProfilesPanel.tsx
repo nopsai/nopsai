@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Bot, CheckCircle2, Edit3, ExternalLink, KeyRound, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { Bot, CheckCircle2, Edit3, ExternalLink, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { type LLMFeatureConfig, type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
@@ -13,13 +13,13 @@ import {
 import { useTeamProfileWriteAccess } from './useTeamProfileWriteAccess';
 import {
   AIResourceEmptyState,
+  AIResourceExpandableSearch,
   AIResourceIconAction,
   AIResourceTeamBadge,
-  AIResourceTeamFilter,
   AIResourceTeamPlacementField,
   AIResourceTableHeader,
 } from './AIResourcePanel';
-import { AIResourceMetricGrid, AIResourceWorkspace, type AIResourceWorkspaceItem } from './AIResourceWorkspace';
+import { AIResourceWorkspace, type AIResourceWorkspaceItem } from './AIResourceWorkspace';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
@@ -34,11 +34,7 @@ import {
   formatAIResourceTeamLabel,
   normalizeAIResourceTeamPath,
 } from './aiResourceTeams';
-import {
-  formatAIResourceRatio,
-  formatFilteredCount,
-  matchesAIResourceSearch,
-} from './aiResourcePresentation';
+import { formatFilteredCount, matchesAIResourceSearch } from './aiResourcePresentation';
 import { aiResourceTreeFilterForResource } from './aiResourceTree';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import { ObjectIcon } from '../../components/ObjectIcon';
@@ -96,10 +92,6 @@ function profileFeatureModeText(feature?: LLMFeatureConfig) {
   return 'Auto';
 }
 
-function isProfileHealthy(profile: LLMProfileRecord) {
-  return profile.status === 'valid';
-}
-
 type LLMProfilesPanelProps = {
   canManage: boolean;
   selectedProfileName?: string;
@@ -134,6 +126,7 @@ function LLMProfilesPanel({
   const {
     payload,
     teamProfilesPayload,
+    teamProfilesByPath,
     loading,
     teamProfilesLoading,
     error,
@@ -150,6 +143,7 @@ function LLMProfilesPanel({
     setPanelMode,
     loadProfiles,
     loadTeamProfiles,
+    loadTeamProfilesForTree,
     startCreate,
     startEdit,
     saveProfile,
@@ -192,6 +186,9 @@ function LLMProfilesPanel({
     () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.name), teamPaths),
     [payload.profiles, teamPaths]
   );
+  useEffect(() => {
+    loadTeamProfilesForTree(teamFilterOptions);
+  }, [loadTeamProfilesForTree, teamFilterOptions]);
   const selectedTeamPayload = selectedTeamPath && normalizeAIResourceTeamPath(teamProfilesPayload?.team_path || '') === selectedTeamPath
     ? teamProfilesPayload
     : null;
@@ -203,19 +200,29 @@ function LLMProfilesPanel({
     () => selectedTeamPath ? payload.profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === selectedTeamPath) : [],
     [payload.profiles, selectedTeamPath]
   );
+  const cachedTeamScopedProfiles = useMemo(
+    () => Object.values(teamProfilesByPath).flatMap(teamLLMProfileRecords),
+    [teamProfilesByPath]
+  );
   const sourceProfiles = useMemo(() => {
-    if (!selectedTeamPath) return payload.profiles;
     const byName = new Map<string, LLMProfileRecord>();
+    payload.profiles.forEach(profile => byName.set(profile.name, profile));
+    if (!selectedTeamPath) {
+      cachedTeamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
+      return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }
+    byName.clear();
     catalogScopedProfiles.forEach(profile => byName.set(profile.name, profile));
     teamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
     return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [catalogScopedProfiles, payload.profiles, selectedTeamPath, teamScopedProfiles]);
+  }, [cachedTeamScopedProfiles, catalogScopedProfiles, payload.profiles, selectedTeamPath, teamScopedProfiles]);
   const workspaceProfiles = useMemo(() => {
     const byName = new Map<string, LLMProfileRecord>();
     payload.profiles.forEach(profile => byName.set(profile.name, profile));
+    cachedTeamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
     teamScopedProfiles.forEach(profile => byName.set(profile.name, profile));
     return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [payload.profiles, teamScopedProfiles]);
+  }, [cachedTeamScopedProfiles, payload.profiles, teamScopedProfiles]);
   const globalDefaultProfileOptions = useMemo(
     () => payload.profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === ''),
     [payload.profiles]
@@ -257,9 +264,6 @@ function LLMProfilesPanel({
   }, [selectedProfileName, visibleProfiles]);
   const emptyProfilesMessage = sourceProfiles.length === 0 ? 'No LLM profiles configured.' : 'No LLM profiles match your filters.';
   const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
-  const visibleHealthyCount = visibleProfiles.filter(isProfileHealthy).length;
-  const visibleProviderCount = new Set(visibleProfiles.map(profile => getLLMProvider(profile.provider).id)).size;
-  const visibleCredentialCount = visibleProfiles.filter(profile => Boolean(profile.credential_ref)).length;
   const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
     () => workspaceProfiles.map(profile => {
       const provider = getLLMProvider(profile.provider);
@@ -344,27 +348,28 @@ function LLMProfilesPanel({
             <strong>{activeDefaultProfile || (selectedTeamPath ? 'No default' : '-')}</strong>
           )}
         </div>
-        {!detailOpen && (
-          <AIResourceMetricGrid
-            metrics={[
-              { label: 'Profiles', value: visibleProfiles.length, icon: <Bot className="h-4 w-4" /> },
-              { label: 'Healthy', value: formatAIResourceRatio(visibleHealthyCount, visibleProfiles.length), icon: <CheckCircle2 className="h-4 w-4" />, tone: visibleProfiles.length === 0 || visibleHealthyCount === visibleProfiles.length ? 'ok' : 'warning' },
-              { label: 'Providers', value: visibleProviderCount, icon: <Sparkles className="h-4 w-4" />, tone: 'info' },
-              { label: 'Credentials', value: visibleCredentialCount, icon: <KeyRound className="h-4 w-4" />, tone: visibleCredentialCount > 0 ? 'muted' : 'warning' },
-            ]}
-          />
-        )}
-        <div className="ai-resource-page-actions">
-          {!canManageCurrentScope && <span className="runner-pill runner-pill--muted">Read-only</span>}
-          <button type="button" className="ai-resource-icon-button" onClick={reloadProfiles} disabled={defaultControlLoading} aria-label="Reload">
-            <RefreshIcon />
-          </button>
-          {canManageCurrentScope && (
-            <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
-              <PlusIcon />
-              New profile
+        <div className="ai-resource-page-actions ai-resource-page-actions--stacked">
+          <div className="ai-resource-page-action-row">
+            {!canManageCurrentScope && <span className="runner-pill runner-pill--muted">Read-only</span>}
+            {!detailOpen && (
+              <AIResourceExpandableSearch
+                label="Search LLM profiles"
+                placeholder="Search profiles..."
+                value={searchTerm}
+                onChange={setSearchTerm}
+                className="ai-resource-header-search"
+              />
+            )}
+            <button type="button" className="ai-resource-icon-button" onClick={reloadProfiles} disabled={defaultControlLoading} aria-label="Reload">
+              <RefreshIcon />
             </button>
-          )}
+            {canManageCurrentScope && (
+              <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
+                <PlusIcon />
+                New profile
+              </button>
+            )}
+          </div>
         </div>
       </div>
       {error && <div className="ai-resource-alert ai-resource-alert--error">{error}</div>}
@@ -391,18 +396,6 @@ function LLMProfilesPanel({
             title="Profiles"
             count={formatFilteredCount(visibleProfiles.length, sourceProfiles.length, filteredCountToken)}
             loading={listLoading}
-            searchLabel="Search LLM profiles"
-            searchPlaceholder="Search profiles..."
-            searchValue={searchTerm}
-            onSearchChange={setSearchTerm}
-            filters={(
-              <AIResourceTeamFilter
-                value={teamFilter}
-                onChange={openTeamFilter}
-                teamPaths={teamFilterOptions}
-                disabled={teamPathsLoading && teamFilterOptions.length === 0}
-              />
-            )}
           />
         )}
         list={(

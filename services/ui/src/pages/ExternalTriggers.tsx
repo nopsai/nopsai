@@ -3,8 +3,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { EventAutomationToolbar } from '../features/event-automation/EventAutomationToolbar';
 import { ExternalTriggerFormModal } from '../features/external-triggers/ExternalTriggerFormModal';
-import { ExternalTriggerWorkspace } from '../features/external-triggers/ExternalTriggerWorkspace';
+import { ExternalTriggerMetricGrid, ExternalTriggerWorkspace } from '../features/external-triggers/ExternalTriggerWorkspace';
 import {
+  buildExternalTriggerCollectionMetrics,
   buildExternalTriggerTreeItems,
   externalTriggerBelongsToTeam,
   externalTriggerTeamPath,
@@ -114,6 +115,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   }, [filteredTriggers, searchTerm, workspaceTeamPath]);
 
   const treeItems = useMemo(() => buildExternalTriggerTreeItems(triggers), [triggers]);
+  const metrics = useMemo(() => buildExternalTriggerCollectionMetrics(triggers), [triggers]);
 
   const invokeURL = useMemo(() => {
     if (!selectedTrigger) return '';
@@ -484,11 +486,11 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
         refreshLabel="Refresh External API triggers"
         refreshDisabled={loading || saving}
         filters={!canWriteExternalTriggers ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+        summary={<ExternalTriggerMetricGrid metrics={metrics} />}
       />
       <div className="flex-1 overflow-auto px-4 pb-6 triggers-content">
         {error && <div className="dispatcher-error mb-4">{error}</div>}
         <ExternalTriggerWorkspace
-          triggers={triggers}
           visibleTriggers={visibleTriggers}
           treeItems={treeItems}
           activeTeamPath={workspaceTeamPath}

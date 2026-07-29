@@ -148,12 +148,13 @@ test('filters by team scope and toggles registry grouping', async () => {
     </MemoryRouter>
   );
 
-  expect(await screen.findByText('2 credentials shown')).toBeVisible();
+  expect(await screen.findByLabelText('Credential summary')).toBeVisible();
   expect(screen.getByRole('button', { name: /all credentials/i })).toBeVisible();
   expect(screen.getByRole('button', { name: /system \(1\)/i })).toBeVisible();
-  await user.selectOptions(screen.getByLabelText('Filter by scope'), 'team');
+  expect(screen.queryByLabelText('Filter by scope')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Filter by status')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /teams \(1\)/i }));
 
-  expect(screen.getByText('1 credential shown')).toBeVisible();
   expect((await screen.findAllByText('Platform / ML'))[0]).toBeVisible();
   expect(screen.getAllByText('Password')).not.toHaveLength(0);
   expect((await screen.findAllByText('SMTP Primary'))[0]).toBeVisible();
@@ -161,8 +162,8 @@ test('filters by team scope and toggles registry grouping', async () => {
   await user.click(screen.getByRole('button', { name: 'Flat list' }));
   expect(screen.getByRole('button', { name: 'Group by scope' })).toBeVisible();
 
-  await user.type(screen.getByLabelText('Search credentials'), 'does-not-exist');
-  expect(screen.getByText('0 credentials shown')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Search credentials' }));
+  await user.type(screen.getByLabelText('Search credentials query'), 'does-not-exist');
   expect(screen.getByText('No matching credentials')).toBeVisible();
 });
 
@@ -176,9 +177,10 @@ test('limits non-admin credentials to team scopes and team creation', async () =
     </MemoryRouter>
   );
 
-  expect(await screen.findByText('1 credential shown')).toBeVisible();
+  expect(await screen.findByLabelText('Credential summary')).toBeVisible();
+  expect(screen.getByRole('button', { name: /teams \(1\)/i })).toBeVisible();
   expect(screen.queryByText('OpenAI Primary')).not.toBeInTheDocument();
-  expect(screen.queryByRole('option', { name: 'System' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /system/i })).not.toBeInTheDocument();
 
   const createButton = screen.getByRole('button', { name: 'New credential' });
   await waitFor(() => expect(createButton).toBeEnabled());

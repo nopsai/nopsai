@@ -384,14 +384,14 @@ truth; this file is the source-adjacent placement guide.
 - Access-specific catalogs, policy fields, grant editors, token panels,
   confirmation dialogs, resource catalogs, and presentation helpers belong under
   `features/system/access`.
-- Settings Config rendering lives in
+- System config rendering lives in
   `features/system/config/SystemConfigWorkspace.tsx`; pure section/search/status
   presentation belongs in `features/system/config/settingsPresentation.ts`;
   config API mapping stays in `features/system/config/api.ts`; async loading,
   mutation state, drift modal wiring, and toast orchestration stay in
   `features/system/config/useSystemConfig.ts`. `pages/System.tsx` should only
   compose the config hook/component and pass route-level permissions.
-- Dispatcher involvement on Settings Config is limited to handoff links and
+- Dispatcher involvement on System config is limited to handoff links and
   persisted runtime defaults. `features/system/dispatcher` owns live runner
   status, dispatch pause/eject actions, route editing operations, scope loading,
   runner install templates, polling, and dispatcher API calls.
@@ -437,10 +437,11 @@ truth; this file is the source-adjacent placement guide.
   `features/system/aiResourcePanel.css`, `features/system/aiResourceTree.ts`,
   and `features/system/aiResourcePresentation.ts` own the shared trigger-style
   AI resource workspace shell, borderless outer workspace frame, resizable team
-  tree, inline overview metrics, selected-resource detail mode, search, count,
+  tree, selected-resource detail mode, search, count,
   labeled resource rows, compact icon actions, team placement controls, and
   responsive presentation for LLM, agent, and MCP resource pages. Domain panels
-  still own filtering inputs,
+  own default or tab controls, team-profile cache prefetch for accurate tree
+  counts, filtering inputs,
   mutations, and detail composition, while focused renderers such as
   `MCPViewSwitch.tsx`, `MCPResourceTables.tsx`, and detail helpers such as
   `MCPDetailSection.tsx` own domain-specific tabs, rows, and repeated detail
@@ -496,11 +497,11 @@ truth; this file is the source-adjacent placement guide.
   shaping, metadata normalization, and schedule transport.
 - `features/schedules/workspaceModel.ts` owns schedule workspace identifiers,
   run-team path filtering, state filtering, GitOps/source detection,
-  latest-run labels, and overview metric shaping. When `run_team_path` is set,
+  latest-run labels, and state-count tab shaping. When `run_team_path` is set,
   it owns the schedule tree placement even if the pipeline lives under another
   path; schedule path remains the fallback for older rows.
   `ScheduleWorkspace.tsx` owns the LLM-profile-style schedule browser
-  composition: run-team path tree, registry table, inline metrics, detail
+  composition: run-team path tree, counted state tabs, registry table, detail
   panel, and icon action placement. `pages/Schedules.tsx` owns URL pipeline
   filters, `/schedules/<team>/<name>` detail routes, legacy query-link
   migration, loading, API mutation orchestration, GitOps confirmation prompts,
@@ -558,6 +559,19 @@ truth; this file is the source-adjacent placement guide.
   Create controls remain
   visible but disabled when AAA grants read-only access. Secondary detail panes
   should mount only after a resource is selected or deep-linked.
+- Event automation pages should keep metrics in the top toolbar when there is
+  room. LLM, Agent, and MCP pages do not use header metric boxes: keep the
+  default profile or MCP tab control on the left and refresh/create plus
+  magnifier-first search on the right, with the magnifier immediately before
+  Reload. Team scope filtering for LLM, Agent, and MCP resources is tree-owned;
+  avoid duplicating it with an `All teams` dropdown in the list header.
+- Schedules use the state filter tabs as their count surface instead of separate
+  summary boxes: keep All/Enabled/Disabled/GitOps/One-time left aligned above
+  the tree, and keep the magnifier immediately before Refresh/New.
+- Knowledge Context and Credentials use the same compact toolbar treatment:
+  summary boxes stay inline with primary tabs or actions, source/status dropdowns
+  are avoided when a tree or tab scope already owns the filter, and search opens
+  from a magnifier button at the right edge.
 - Form dialogs share the Pipeline themed surface and independently scrollable
   body; collection card effects such as `glass-card` are not dialog shells.
 - New validation feedback should use `WorkflowInlineAlert` or an equivalent

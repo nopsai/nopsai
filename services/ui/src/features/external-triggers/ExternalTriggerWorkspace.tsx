@@ -4,23 +4,19 @@ import { ObjectIcon } from '../../components/ObjectIcon';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { AutomationResourceTree } from '../event-automation/AutomationResourceTree';
+import { buildAutomationResourceTree } from '../event-automation/resourceTreeModel';
 import {
-  buildAutomationResourceTree,
-  findAutomationResourceTreeNode,
-} from '../event-automation/resourceTreeModel';
-import {
-  buildExternalTriggerCollectionMetrics,
   externalTriggerRelativeLabel,
   externalTriggerScopeLabel,
   externalTriggerSourceLabel,
   externalTriggerTeamLabel,
+  type ExternalTriggerCollectionMetrics,
   type ExternalTrigger,
   type ExternalTriggerInvocation,
   type ExternalTriggerTreeItem,
 } from './model';
 
 type ExternalTriggerWorkspaceProps = {
-  triggers: ExternalTrigger[];
   visibleTriggers: ExternalTrigger[];
   treeItems: ExternalTriggerTreeItem[];
   activeTeamPath: string;
@@ -48,7 +44,6 @@ type ExternalTriggerWorkspaceProps = {
 };
 
 export function ExternalTriggerWorkspace({
-  triggers,
   visibleTriggers,
   treeItems,
   activeTeamPath,
@@ -74,13 +69,7 @@ export function ExternalTriggerWorkspace({
   onDelete,
   onRefreshInvocations,
 }: ExternalTriggerWorkspaceProps) {
-  const metrics = buildExternalTriggerCollectionMetrics(triggers);
   const treeRoot = useMemo(() => buildAutomationResourceTree(treeItems), [treeItems]);
-  const activeTeamNode = useMemo(
-    () => findAutomationResourceTreeNode(treeRoot, activeTeamPath),
-    [activeTeamPath, treeRoot]
-  );
-  const activeTeamLabel = activeTeamPath ? activeTeamPath : 'All teams';
   const emptyTitle = searchTerm.trim()
     ? 'No matching external triggers'
     : activeTeamPath
@@ -151,33 +140,11 @@ export function ExternalTriggerWorkspace({
         />
         <TreeColumnResizeHandle {...treeResize} label="Resize team tree" />
         <section className="triggers-browser-main" aria-label="External trigger collection">
-          <div className="triggers-metrics-grid" aria-label="External trigger summary">
-            <Metric icon={<Zap className="h-4 w-4" aria-hidden="true" />} label="API endpoints" value={metrics.total} />
-            <Metric icon={<CheckCircle2 className="h-4 w-4" aria-hidden="true" />} label="Enabled" value={metrics.enabled} tone="green" />
-            <Metric icon={<ObjectIcon type="gitops" />} label="GitOps managed" value={metrics.gitManaged} tone="blue" />
-            <Metric icon={<Shield className="h-4 w-4" aria-hidden="true" />} label="Caller policies" value={metrics.callerPolicies} tone="amber" />
-          </div>
-
           <div className="triggers-list-container">
             {loading ? (
               <div className="triggers-workspace-empty">Loading external triggers...</div>
             ) : (
               <>
-                <div className="triggers-collection-head">
-                  <div>
-                    <h3>{searchTerm.trim() ? 'Search results' : activeTeamLabel}</h3>
-                    <p>
-                      {visibleTriggers.length} endpoint{visibleTriggers.length === 1 ? '' : 's'}
-                      {searchTerm.trim() ? ` matching "${searchTerm.trim()}"` : ''}
-                    </p>
-                  </div>
-                  {!searchTerm.trim() && activeTeamNode.children.length ? (
-                    <span className="triggers-badge triggers-badge--neutral">
-                      {activeTeamNode.children.length} nested team{activeTeamNode.children.length === 1 ? '' : 's'}
-                    </span>
-                  ) : null}
-                </div>
-
                 {visibleTriggers.length ? (
                   <div className="triggers-resource-table-shell">
                     <table className="triggers-resource-table">
@@ -217,6 +184,17 @@ export function ExternalTriggerWorkspace({
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+export function ExternalTriggerMetricGrid({ metrics }: { metrics: ExternalTriggerCollectionMetrics }) {
+  return (
+    <div className="triggers-metrics-grid" aria-label="External trigger summary">
+      <Metric icon={<Zap className="h-4 w-4" aria-hidden="true" />} label="API endpoints" value={metrics.total} />
+      <Metric icon={<CheckCircle2 className="h-4 w-4" aria-hidden="true" />} label="Enabled" value={metrics.enabled} tone="green" />
+      <Metric icon={<ObjectIcon type="gitops" />} label="GitOps managed" value={metrics.gitManaged} tone="blue" />
+      <Metric icon={<Shield className="h-4 w-4" aria-hidden="true" />} label="Caller policies" value={metrics.callerPolicies} tone="amber" />
     </div>
   );
 }

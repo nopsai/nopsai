@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { EventAutomationToolbar } from '../event-automation/EventAutomationToolbar';
 import { GitWebhookSourceForm } from './GitWebhookSourceForm';
-import { GitWebhookSourcesWorkspace } from './GitWebhookSourcesWorkspace';
+import { GitWebhookSourceMetricGrid, GitWebhookSourcesWorkspace } from './GitWebhookSourcesWorkspace';
 import {
+  buildGitWebhookSourceMetrics,
   buildGitWebhookSourceTreeItems,
   filterGitWebhookSources,
   gitWebhookSourceBelongsToTeam,
@@ -31,6 +32,7 @@ export function GitWebhookSourcesView({
     return filteredSources.filter(source => gitWebhookSourceBelongsToTeam(source, workspaceTeamPath));
   }, [filteredSources, searchTerm, workspaceTeamPath]);
   const treeItems = useMemo(() => buildGitWebhookSourceTreeItems(controller.sources), [controller.sources]);
+  const metrics = useMemo(() => buildGitWebhookSourceMetrics(controller.sources), [controller.sources]);
   const openTeam = (path: string) => {
     setActiveTeamPath(path);
     controller.onSelect('');
@@ -57,6 +59,7 @@ export function GitWebhookSourcesView({
         refreshLabel="Refresh Git webhook sources"
         refreshDisabled={controller.loading || controller.saving}
         filters={!canWrite ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+        summary={<GitWebhookSourceMetricGrid metrics={metrics} />}
       />
       <div className="flex-1 overflow-auto px-4 pb-6 triggers-content">
         {controller.error && !controller.editorOpen ? (
@@ -65,7 +68,6 @@ export function GitWebhookSourcesView({
           </div>
         ) : null}
         <GitWebhookSourcesWorkspace
-          sources={controller.sources}
           visibleSources={visibleSources}
           treeItems={treeItems}
           activeTeamPath={workspaceTeamPath}

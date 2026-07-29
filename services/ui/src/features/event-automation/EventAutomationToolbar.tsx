@@ -18,6 +18,7 @@ type EventAutomationToolbarProps = {
   refreshLabel?: string;
   refreshDisabled?: boolean;
   filters?: ReactNode;
+  summary?: ReactNode;
 };
 
 export function EventAutomationToolbar({
@@ -36,6 +37,7 @@ export function EventAutomationToolbar({
   refreshLabel,
   refreshDisabled = false,
   filters,
+  summary,
 }: EventAutomationToolbarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -57,6 +59,7 @@ export function EventAutomationToolbar({
             <EventAutomationSwitch active={active} />
           )}
         </div>
+        {summary ? <div className="triggers-page-toolbar-summary">{summary}</div> : null}
         <div className="triggers-page-toolbar-actions">
           <div className={`pipelines-search-shell ${searchActive ? 'open' : ''}`}>
             <button

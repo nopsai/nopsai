@@ -134,8 +134,11 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getByLabelText('MCP server tree')).toBeVisible();
   expect(await screen.findByRole('button', { name: 'Select MCP server GitHub MCP' })).toBeVisible();
   expect(screen.queryByLabelText('MCP server detail')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Search MCP servers' }).closest('.ai-resource-page-action-row')).toBe(
+    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
+  );
   expect(screen.getAllByText('Servers')[0]).toBeVisible();
-  expect(screen.getByText('Discovered tools')).toBeVisible();
+  expect(screen.queryByText('Discovered tools')).not.toBeInTheDocument();
   expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
   expect(screen.queryByRole('columnheader', { name: 'Transport' })).not.toBeInTheDocument();
 
@@ -170,7 +173,10 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
   expect(screen.queryByLabelText('MCP profile detail')).not.toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveClass('ai-resource-view-switch__item');
-  expect(screen.getByText('Approved tools')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Search MCP profiles' }).closest('.ai-resource-page-action-row')).toBe(
+    screen.getByRole('button', { name: 'Reload' }).closest('.ai-resource-page-action-row')
+  );
+  expect(screen.queryByText('Approved tools')).not.toBeInTheDocument();
 
   await user.click(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' }));
   await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/mcp/profiles/platform/ml/pr-review'));
@@ -305,7 +311,7 @@ test('applies the team filter and profiles view from the route query', async () 
     </MemoryRouter>
   );
 
-  expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
+  expect(await screen.findByRole('button', { name: 'Open team platform/ml' })).toHaveClass('active');
   await waitFor(() => expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute('aria-selected', 'true'));
   const profileTable = await screen.findByLabelText('MCP profiles');
   expect(await within(profileTable).findByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
@@ -313,4 +319,34 @@ test('applies the team filter and profiles view from the route query', async () 
   expect(screen.queryByText('Review pull requests.')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('MCP profile detail')).not.toBeInTheDocument();
   expect(screen.queryByText('https://api.githubcopilot.com/mcp/x/all/readonly')).not.toBeInTheDocument();
+});
+
+test('counts cached team-owned MCP profiles in the tree', async () => {
+  apiMocks.fetchMCPRegistry.mockResolvedValueOnce({
+    servers: [],
+    profiles: [],
+  });
+  teamProfileMocks.fetchTeamMCPProfiles.mockResolvedValueOnce({
+    team_id: 7,
+    team_path: 'platform/ml',
+    profiles: [
+      {
+        name: 'pr-review',
+        description: 'Team-owned PR review tools.',
+        enabled: true,
+        servers: [],
+        allowed_scopes: ['prod'],
+      },
+    ],
+  });
+
+  render(
+    <MemoryRouter initialEntries={['/mcp/profiles']}>
+      <MCPPanel canManage />
+    </MemoryRouter>
+  );
+
+  const teamButton = await screen.findByRole('button', { name: 'Open team platform/ml' });
+  await waitFor(() => expect(teamProfileMocks.fetchTeamMCPProfiles).toHaveBeenCalledWith('platform/ml'));
+  await waitFor(() => expect(within(teamButton).getByText('1')).toBeVisible());
 });
