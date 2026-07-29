@@ -1,17 +1,8 @@
 import type {
   PipelineTreeNode,
-  ScopeTreeNode,
   StepTreeNode,
 } from './types.js';
 import { insertTeamPath } from '../lib/resourceTeams.js';
-
-export function normalizeScopeLabel(value: unknown): string {
-  if (value == null) return '';
-  const normalized = String(value)
-    .trim()
-    .replace(/^\/+|\/+$/g, '');
-  return normalized.toLowerCase() === 'default' ? '' : normalized;
-}
 
 export function splitIdentifier(id: string): { name: string; path: string } {
   const parts = id.split('/').filter(Boolean);
@@ -70,36 +61,6 @@ export function buildStepTree(steps: string[], resourceTeamPaths: string[]): Ste
     });
     current.stepIds.push(id);
     current.stepIds.sort((a, b) => a.localeCompare(b));
-  });
-  return root;
-}
-
-export function buildScopeTree(scopes: string[], resourceTeamPaths: string[]): ScopeTreeNode {
-  const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
-  resourceTeamPaths.forEach(path => {
-    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
-  });
-  scopes.forEach(scope => {
-    const normalized = normalizeScopeLabel(scope);
-    const parts = normalized.split('/').filter(Boolean);
-    if (!parts.length) {
-      root.scopes.push('');
-      return;
-    }
-    let current = root;
-    let pathSoFar = '';
-    parts.forEach(segment => {
-      pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
-      let child = current.children.find(c => c.name === segment);
-      if (!child) {
-        child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], scopes: [] };
-        current.children.push(child);
-        current.children.sort((a, b) => a.name.localeCompare(b.name));
-      }
-      current = child;
-    });
-    current.scopes.push(normalized);
-    current.scopes.sort((a, b) => a.localeCompare(b));
   });
   return root;
 }

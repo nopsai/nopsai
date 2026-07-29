@@ -1,6 +1,8 @@
-import { ObjectIcon } from '../../components/ObjectIcon';
+import { useMemo, type ReactNode } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { ResourceCollectionWorkspace, type ResourceCollectionTreeNode } from '../editor/ResourceCollectionWorkspace';
 import {
-  countScopesRecursive,
+  formatScopeDisplay,
   type ScopeData,
   type ScopeEntry,
   type ScopeTreeNode,
@@ -9,118 +11,163 @@ import {
 type ScopeCollectionListProps = {
   listLoading: boolean;
   listError: string | null;
-  searchTerm: string;
-  activeTeamNode: ScopeTreeNode;
-  filteredScopes: ScopeEntry[];
-  scopesByLabel: Map<string, ScopeEntry>;
-  scopeDataByScope: Record<string, ScopeData>;
+  visibleScopes: ScopeEntry[];
+  treeRoot: ScopeTreeNode;
+  activeTeam: string;
   canCreateScopeHere: boolean;
   onOpenTeam: (path: string) => void;
   onSelectScope: (scopeLabel: string) => void;
+  scopeDataByScope: Record<string, ScopeData>;
 };
 
 export function ScopeCollectionList({
   listLoading,
   listError,
-  searchTerm,
-  activeTeamNode,
-  filteredScopes,
-  scopesByLabel,
-  scopeDataByScope,
+  visibleScopes,
+  treeRoot,
+  activeTeam,
   canCreateScopeHere,
   onOpenTeam,
   onSelectScope,
+  scopeDataByScope,
 }: ScopeCollectionListProps) {
-  const hasSearch = Boolean(searchTerm.trim());
-  const teams = hasSearch ? [] : activeTeamNode.children;
-  const scopeLabels = hasSearch ? [] : activeTeamNode.scopes;
-  const scopeEntries = hasSearch
-    ? filteredScopes
-    : scopeLabels.map(label => scopesByLabel.get(label)).filter((item): item is ScopeEntry => Boolean(item));
+  const resourceTreeRoot = useMemo(() => toResourceCollectionTreeNode(treeRoot), [treeRoot]);
+  const emptyMessage = canCreateScopeHere ? 'Create a new scope or adjust your filters.' : 'Adjust your filters or check your access.';
+
+  if (listLoading) {
+    return (
+      <ScopeWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
+        <ResourcePanel title="Scopes" countLabel="Loading">
+          <div className="pipeline-runs-empty-state">Loading scopes...</div>
+        </ResourcePanel>
+      </ScopeWorkspace>
+    );
+  }
+
+  if (listError) {
+    return (
+      <ScopeWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
+        <ResourcePanel title="Scopes" countLabel="Error">
+          <div className="pipeline-runs-empty-state text-red-500">Failed to load scopes: {listError}</div>
+        </ResourcePanel>
+      </ScopeWorkspace>
+    );
+  }
 
   return (
-    <div id="scopes-list-view" className="pipelines-view">
-      <div className="space-y-3">
-        {listLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading scopes…</div>
-        ) : listError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load scopes: {listError}</div>
-        ) : (
-          <>
-            {scopeEntries.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines">
-                {scopeEntries.map(scope => (
-                  <ScopeCard
-                    key={scope.scope || '__default__'}
-                    scope={scope}
-                    data={scopeDataByScope[scope.scope]}
-                    onSelectScope={onSelectScope}
-                  />
-                ))}
-              </div>
-            ) : null}
-
-            {!hasSearch && teams.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {teams.map(child => (
-                  <ScopeTeamCard key={`team-${child.id}`} node={child} onOpenTeam={onOpenTeam} />
-                ))}
-              </div>
-            ) : null}
-
-            {!scopeEntries.length && !teams.length && (
-              <div id="scopes-empty" className="pipelines-empty">
-                <h3 className="text-base font-semibold text-[var(--text-primary)]">No scopes found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {hasSearch
-                    ? `No scope teams matched “${searchTerm.trim()}”.`
-                    : canCreateScopeHere
-                      ? 'Create a new scope or adjust your filters.'
-                      : 'Adjust your filters or browse another team.'}
-                </p>
-              </div>
-            )}
-          </>
-        )}
+    <ScopeWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
+      <div id="scopes-list-view" className="pipelines-view pipeline-runs-content-grid">
+        <ResourcePanel title="Scopes" countLabel={`${visibleScopes.length} visible`}>
+          {visibleScopes.length ? (
+            <ScopeTable
+              scopes={visibleScopes}
+              scopeDataByScope={scopeDataByScope}
+              onSelectScope={onSelectScope}
+            />
+          ) : (
+            <div id="scopes-empty" className="pipeline-runs-empty-state">
+              <h3 className="text-base font-semibold text-[var(--text-primary)]">No scopes found</h3>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">{emptyMessage}</p>
+            </div>
+          )}
+        </ResourcePanel>
       </div>
+    </ScopeWorkspace>
+  );
+}
+
+function ScopeWorkspace({
+  treeRoot,
+  activeTeam,
+  onOpenTeam,
+  children,
+}: {
+  treeRoot: ResourceCollectionTreeNode;
+  activeTeam: string;
+  onOpenTeam: (path: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <ResourceCollectionWorkspace
+      treeTitle="Teams"
+      rootLabel="All teams"
+      searchLabel="Search scope teams"
+      searchPlaceholder="Find team"
+      emptyLabel="No scope teams found."
+      activePath={activeTeam}
+      rootNode={treeRoot}
+      resizeStorageKey="scopes"
+      resizeLabel="Resize scope team tree"
+      onOpenPath={onOpenTeam}
+    >
+      {children}
+    </ResourceCollectionWorkspace>
+  );
+}
+
+function ResourcePanel({
+  title,
+  countLabel,
+  children,
+}: {
+  title: string;
+  countLabel: string;
+  children: ReactNode;
+}) {
+  const titleID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-title`;
+  return (
+    <section className="pipeline-runs-panel resource-collection-panel" aria-labelledby={titleID}>
+      <header className="pipeline-runs-panel-head">
+        <div className="pipeline-runs-panel-title">
+          <h2 id={titleID}>{title}</h2>
+          <span>{countLabel}</span>
+        </div>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function ScopeTable({
+  scopes,
+  scopeDataByScope,
+  onSelectScope,
+}: {
+  scopes: ScopeEntry[];
+  scopeDataByScope: Record<string, ScopeData>;
+  onSelectScope: (scopeLabel: string) => void;
+}) {
+  return (
+    <div className="pipeline-runs-table-wrap">
+      <table className="pipeline-runs-table resource-collection-table resource-collection-table--scopes" data-testid="scopes-resource-table">
+        <thead>
+          <tr>
+            <th>Scope</th>
+            <th>Team</th>
+            <th>Variables</th>
+            <th>Secrets</th>
+            <th>Identifier</th>
+            <th>
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {scopes.map(scope => (
+            <ScopeRow
+              key={scope.scope || '__default__'}
+              scope={scope}
+              data={scopeDataByScope[scope.scope]}
+              onSelectScope={onSelectScope}
+            />
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function ScopeTeamCard({ node, onOpenTeam }: { node: ScopeTreeNode; onOpenTeam: (path: string) => void }) {
-  const totalScopes = countScopesRecursive(node);
-  return (
-    <article
-      className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onOpenTeam(node.fullPath)}
-    >
-      <div className="pipeline-card-header">
-        <div className="pipeline-card-info">
-          <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="team" />
-          </span>
-          <div className="pipeline-card-text">
-            <h3 className="pipeline-card-title">{node.name}</h3>
-            <p className="pipeline-card-path">{node.fullPath ? `/${node.fullPath}` : '/'}</p>
-          </div>
-        </div>
-        <span className="pipeline-team-chevron">›</span>
-      </div>
-      <div className="pipeline-team-meta">
-        <div className="pipeline-team-meta-row">
-          <span className="pipeline-card-meta-label">Scopes:</span>
-          <span className="pipeline-card-meta-value">{totalScopes}</span>
-        </div>
-        <div className="pipeline-team-meta-row">
-          <span className="pipeline-card-meta-label">Sub teams:</span>
-          <span className="pipeline-card-meta-value">{node.children.length}</span>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function ScopeCard({
+function ScopeRow({
   scope,
   data,
   onSelectScope,
@@ -129,39 +176,50 @@ function ScopeCard({
   data?: ScopeData;
   onSelectScope: (scopeLabel: string) => void;
 }) {
-  const scopeLabel = scope.scope ? `/${scope.scope}` : '/';
+  const displayName = scope.label || formatScopeDisplay(scope.scope);
+  const scopeLabel = formatScopeDisplay(scope.scope);
   const variableCount = data?.variablesLoaded ? data.variables.length : 0;
   const secretCount = data?.secretsLoaded ? data.secrets.length : scope.secretCountHint;
   const variableLabel = `${variableCount} variable${variableCount === 1 ? '' : 's'}`;
   const secretLabel = `${secretCount} secret${secretCount === 1 ? '' : 's'}`;
+  const identifier = scope.scope || 'default';
 
   return (
-    <article
-      className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onSelectScope(scope.scope)}
-    >
-      <div className="pipeline-card-header">
-        <div className="pipeline-card-info">
-          <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="scope" />
-          </span>
-          <div className="pipeline-card-text">
-            <h3 className="pipeline-card-title">{scope.label}</h3>
-            <p className="pipeline-card-path">{scopeLabel}</p>
-            <p className="pipeline-card-description">Configuration &amp; secrets manager.</p>
-          </div>
+    <tr>
+      <td>
+        <button type="button" className="pipeline-runs-table-title" onClick={() => onSelectScope(scope.scope)}>
+          <span title={displayName}>{displayName}</span>
+          <small>{scopeLabel}</small>
+        </button>
+      </td>
+      <td>
+        <span className="pipeline-runs-mono">{scope.teamPath || 'root'}</span>
+      </td>
+      <td className="pipeline-runs-mono">{variableLabel}</td>
+      <td className="pipeline-runs-mono">{secretLabel}</td>
+      <td className="pipeline-runs-mono">{identifier}</td>
+      <td>
+        <div className="pipeline-runs-row-actions">
+          <button
+            type="button"
+            className="pipeline-runs-icon-button"
+            onClick={() => onSelectScope(scope.scope)}
+            aria-label={`Open scope ${displayName}`}
+          >
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-      </div>
-      <div className="pipeline-card-meta">
-        <div className="pipeline-card-meta-row">
-          <span className="pipeline-card-meta-label">Variables</span>
-          <span className="pipeline-card-meta-value">{variableLabel}</span>
-        </div>
-        <div className="pipeline-card-meta-row">
-          <span className="pipeline-card-meta-label">Secrets</span>
-          <span className="pipeline-card-meta-value">{secretLabel}</span>
-        </div>
-      </div>
-    </article>
+      </td>
+    </tr>
   );
+}
+
+function toResourceCollectionTreeNode(node: ScopeTreeNode): ResourceCollectionTreeNode {
+  return {
+    id: node.id,
+    name: node.name,
+    fullPath: node.fullPath,
+    resourceIds: [...node.scopes],
+    children: node.children.map(toResourceCollectionTreeNode),
+  };
 }

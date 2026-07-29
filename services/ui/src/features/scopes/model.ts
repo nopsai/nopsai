@@ -179,6 +179,32 @@ export function buildScopeTree(scopes: ScopeEntry[], teamPaths: string[] = []): 
   return root;
 }
 
+export function filterVisibleScopeList(items: ScopeEntry[], searchTerm: string, activeTeam: string): ScopeEntry[] {
+  const query = searchTerm.trim().toLowerCase();
+  const normalizedTeam = normalizeScopeLabel(activeTeam);
+  const filtered = query
+    ? items.filter(item => {
+        if (item.scope.toLowerCase().includes(query)) return true;
+        if (item.label.toLowerCase().includes(query)) return true;
+        if (item.description.toLowerCase().includes(query)) return true;
+        return false;
+      })
+    : items;
+  const scoped = query || !normalizedTeam
+    ? filtered
+    : filtered.filter(item => scopeBelongsToTeam(item, normalizedTeam));
+  return [...scoped].sort((a, b) => {
+    const scopeCompare = a.scope.localeCompare(b.scope, undefined, { sensitivity: 'base' });
+    if (scopeCompare !== 0) return scopeCompare;
+    return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+  });
+}
+
+function scopeBelongsToTeam(item: ScopeEntry, normalizedTeam: string): boolean {
+  const resourcePath = normalizeScopeLabel(item.scope);
+  return resourcePath === normalizedTeam || resourcePath.startsWith(`${normalizedTeam}/`);
+}
+
 export function normalizeItemListPayload(payload: unknown): { names: string[]; meta: Record<string, ItemMeta> } {
   const names: string[] = [];
   const meta: Record<string, ItemMeta> = {};
