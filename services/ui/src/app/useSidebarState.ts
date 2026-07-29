@@ -7,7 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
 } from 'react';
-import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './constants';
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH_STORAGE_VERSION } from './constants';
 
 export function useSidebarState(pathname: string) {
   const [open, setOpen] = useState(false);
@@ -17,6 +17,7 @@ export function useSidebarState(pathname: string) {
   });
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
+    if (localStorage.getItem('sidebarWidthVersion') !== SIDEBAR_WIDTH_STORAGE_VERSION) return SIDEBAR_DEFAULT_WIDTH;
     const stored = Number(localStorage.getItem('sidebarWidth'));
     if (Number.isFinite(stored)) return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, stored));
     return SIDEBAR_DEFAULT_WIDTH;
@@ -71,6 +72,7 @@ export function useSidebarState(pathname: string) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     localStorage.setItem('sidebarWidth', String(width));
+    localStorage.setItem('sidebarWidthVersion', SIDEBAR_WIDTH_STORAGE_VERSION);
   }, [width]);
 
   useEffect(() => {

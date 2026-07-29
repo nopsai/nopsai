@@ -73,7 +73,7 @@ describe('SchedulesPage modal flows', () => {
     expect(screen.getByRole('table', { name: 'Pipeline schedules' })).toBeVisible();
     expect(screen.getByLabelText('Search schedules')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Reload schedules' })).toBeVisible();
-    expect(screen.getByLabelText('Filter by schedule path')).toBeVisible();
+    expect(screen.queryByLabelText('Filter by schedule path')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Enabled' })).toBeVisible();
     const opener = screen.getByRole('button', { name: 'New schedule' });
     await userEvent.click(opener);

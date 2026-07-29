@@ -83,6 +83,16 @@ The in-app wiki route is rendered inside the authenticated app shell. When a
 user changes articles or topics without a hash anchor, the page must restore
 `#page-content-wrapper` to the top so the next article never inherits the prior
 article's scroll position.
+Authenticated operational workspaces should stay compact and enterprise:
+56px app headers, roughly 220-260px default expanded sidebars, 32-40px controls,
+12-14px body text, 18-22px page headings, 8-12px frames, and 16px default page
+padding. Larger display type, deep shadows, and 16px+ radii belong only on
+standalone routes, authored documentation, or genuinely framed previews, not
+normal tables, cards, trees, modals, or split panes. Summary and metric cards
+align icon, label, and value on one row when they fit, with secondary hints
+below. Collection and AI resource searches use a compact magnifier-first control
+that expands on click; scan-first filters stay left aligned where they anchor the
+list.
 
 Pipeline detail documentation must stay aligned with the current task-oriented
 workspace: Flow, Definition, Trigger rules, Runs, Health, and Dependencies tabs

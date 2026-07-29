@@ -107,10 +107,10 @@ export function ScopeUsagePanel({ selection, pipelineMetadata, triggers, loading
   const triggersEmpty = loading ? 'Loading impact analysis…' : error || 'No triggers reference this scope.';
 
   return (
-    <article className="glass-card p-5 rounded-2xl border border-[var(--border-primary)]">
+    <article className="glass-card p-4 rounded-lg border border-[var(--border-primary)]">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xl font-semibold text-[var(--text-primary)]">
+          <p className="text-lg font-semibold text-[var(--text-primary)]">
             {selection ? selection.name : 'Select a variable or secret'}
           </p>
         </div>

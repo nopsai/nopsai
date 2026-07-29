@@ -98,7 +98,8 @@ function PipelineWorkspace({
       treeTitle="Teams"
       rootLabel="All teams"
       searchLabel="Search pipeline teams"
-      searchPlaceholder="Find team"
+      searchPlaceholder=""
+      showTreeSearch={false}
       emptyLabel="No pipeline teams found."
       activePath={activeTeam}
       rootNode={treeRoot}
@@ -208,7 +209,6 @@ function PipelineRow({
       <td>
         <button type="button" className="pipeline-runs-table-title" onClick={() => onSelectPipeline(pipeline.id)}>
           <span title={displayName}>{displayName}</span>
-          <small>Pipeline definition</small>
         </button>
       </td>
       <td>

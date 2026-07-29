@@ -666,8 +666,8 @@ function SetupWizard({
 
   const wizardModal = status && !status.completed ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl">
-        <div className="border-b border-[var(--border-primary)] p-5">
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-xl">
+        <div className="border-b border-[var(--border-primary)] p-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">First-install wizard</div>

@@ -1000,7 +1000,7 @@ export default function KnowledgeContextPage({
 
   return (
     <div data-page="knowledge-context" className="active h-full flex flex-col">
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
+      <div className="flex-1 overflow-auto px-4 pb-6 triggers-content">
         <KnowledgeContextWorkspace
           activeTeam={activeTeam}
           activeConnectionTeam={activeConnectionTeam}

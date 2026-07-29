@@ -554,7 +554,7 @@ function MetricCard({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-[var(--text-secondary)]">{label}</p>
-          <p className="mt-2 truncate text-2xl font-semibold text-[var(--text-primary)]">{loading ? '...' : value}</p>
+          <p className="mt-1 truncate text-xl font-semibold text-[var(--text-primary)]">{loading ? '...' : value}</p>
         </div>
         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${toneClass}`}>
           <span className="[&>svg]:h-5 [&>svg]:w-5">{icon}</span>

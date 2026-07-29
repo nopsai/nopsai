@@ -753,7 +753,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         />
       )}
       <div className="flex-1 min-h-0 overflow-hidden">
-        <main id="main-content-pipelines" className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-6 space-y-4">
+        <main id="main-content-pipelines" className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-4 space-y-3">
           {!selectedId ? (
             <PipelineCollectionList
               listLoading={listLoading}

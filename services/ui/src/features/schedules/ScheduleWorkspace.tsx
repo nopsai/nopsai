@@ -19,11 +19,11 @@ import {
 } from '../system/aiResourceTeams';
 import {
   AIResourceEmptyState,
+  AIResourceExpandableSearch,
   AIResourceIconAction,
   AIResourceTableHeader,
 } from '../system/AIResourcePanel';
 import { AIResourceMetricGrid, AIResourceWorkspace, type AIResourceWorkspaceItem } from '../system/AIResourceWorkspace';
-import { formatFilteredCount } from '../system/aiResourcePresentation';
 import type { PipelineSchedule } from './model';
 import {
   formatDateTime,
@@ -121,12 +121,6 @@ export function ScheduleWorkspace({
   );
   const selectedSchedule = selectedScheduleID ? schedulesByResourceID.get(selectedScheduleID) ?? null : null;
   const detailOpen = Boolean(selectedSchedule);
-  const filteredCountToken = [
-    searchTerm,
-    pipelineFilter,
-    pathFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? pathFilter : '',
-    stateFilter !== 'all' ? stateFilter : '',
-  ].filter(Boolean).join(' ');
 
   useEffect(() => {
     if (loading) return;
@@ -162,22 +156,31 @@ export function ScheduleWorkspace({
               { label: 'GitOps', value: summary.gitops, icon: <GitBranch className="h-4 w-4" />, tone: summary.gitops > 0 ? 'muted' : 'default' },
             ]}
           />
-          <div className="ai-resource-page-actions">
-            {!canWriteSchedules && <span className="runner-pill runner-pill--muted">Read-only</span>}
-            <button type="button" className="ai-resource-icon-button" onClick={onRefresh} disabled={loading || saving} aria-label="Reload schedules">
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            </button>
-            {canWriteSchedules ? (
-              <button type="button" className="ai-resource-primary-button" onClick={onCreate} disabled={saving}>
-                <CalendarClock className="h-4 w-4" aria-hidden="true" />
-                New schedule
+          <div className="ai-resource-page-actions schedule-workspace__header-actions">
+            <div className="schedule-workspace__header-action-row">
+              {!canWriteSchedules && <span className="runner-pill runner-pill--muted">Read-only</span>}
+              <button type="button" className="ai-resource-icon-button" onClick={onRefresh} disabled={loading || saving} aria-label="Reload schedules">
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
               </button>
-            ) : (
-              <button type="button" className="ai-resource-primary-button" disabled title="You have read-only access to schedules">
-                <CalendarClock className="h-4 w-4" aria-hidden="true" />
-                New schedule
-              </button>
-            )}
+              {canWriteSchedules ? (
+                <button type="button" className="ai-resource-primary-button" onClick={onCreate} disabled={saving}>
+                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                  New schedule
+                </button>
+              ) : (
+                <button type="button" className="ai-resource-primary-button" disabled title="You have read-only access to schedules">
+                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                  New schedule
+                </button>
+              )}
+            </div>
+            <AIResourceExpandableSearch
+              label="Search schedules"
+              placeholder="Search schedules..."
+              value={searchTerm}
+              onChange={onSearchTermChange}
+              className="schedule-workspace__header-search"
+            />
           </div>
         </div>
       ) : null}
@@ -202,20 +205,9 @@ export function ScheduleWorkspace({
         detailLabel="Schedule detail"
         listHeader={(
           <AIResourceTableHeader
-            title="Schedules"
-            count={formatFilteredCount(visibleSchedules.length, schedules.length, filteredCountToken)}
-            loading={loading}
-            searchLabel="Search schedules"
-            searchPlaceholder="Search schedules..."
-            searchValue={searchTerm}
-            onSearchChange={onSearchTermChange}
+            className="schedule-workspace__table-header"
             filters={(
               <div className="schedule-workspace__filters">
-                <SchedulePathFilter
-                  value={pathFilter}
-                  pathOptions={pathOptions}
-                  onChange={openPathFilter}
-                />
                 <ScheduleStateSegmentedFilter
                   value={stateFilter}
                   onChange={setStateFilter}
@@ -251,38 +243,6 @@ export function ScheduleWorkspace({
         )}
       />
     </div>
-  );
-}
-
-function SchedulePathFilter({
-  value,
-  pathOptions,
-  onChange,
-}: {
-  value: string;
-  pathOptions: string[];
-  onChange: (value: string) => void;
-}) {
-  const safeValue = value === AI_RESOURCE_TEAM_FILTER_ALL || pathOptions.includes(value)
-    ? value
-    : AI_RESOURCE_TEAM_FILTER_ALL;
-
-  return (
-    <label className="schedule-workspace__path-filter">
-      <span className="sr-only">Filter by schedule path</span>
-      <select
-        aria-label="Filter by schedule path"
-        value={safeValue}
-        onChange={event => onChange(event.target.value)}
-      >
-        <option value={AI_RESOURCE_TEAM_FILTER_ALL}>All paths</option>
-        {pathOptions.map(path => (
-          <option key={path} value={path}>
-            {path === 'root' ? 'Root' : `/${path}`}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 

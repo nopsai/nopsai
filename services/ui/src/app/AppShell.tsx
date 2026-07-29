@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { BranchIcon, IconMenu, IconX, RunIdIcon } from './icons';
+import { BranchIcon, IconDocs, IconMenu, IconX, RunIdIcon } from './icons';
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_MAX_WIDTH,
@@ -47,7 +47,6 @@ import AppFooter from './AppFooter';
 import { getAppAccess } from '../auth/capabilities';
 import { useAuth } from '../auth/AuthContext';
 import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
-import AppHelp from '../components/AppHelp';
 import AssistantDock from '../components/AssistantDock';
 import BrandIdentity from '../components/BrandIdentity';
 import { logoutCurrentSession } from '../lib/api';
@@ -530,7 +529,7 @@ function Sidebar({
           maxWidth: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_MAX_WIDTH,
         }}
       >
-        <div className="app-sidebar-brand-row flex items-center justify-between px-6 h-16 flex-shrink-0">
+        <div className="app-sidebar-brand-row flex items-center justify-between px-4 h-14 flex-shrink-0">
           <BrandIdentity className="sidebar-brand" variant={collapsed ? 'mark' : 'wordmark'} />
           <div className="app-sidebar-brand-actions">
             <button
@@ -1088,8 +1087,7 @@ function Header({
 
   return (
     <header
-      className="app-header-shell relative flex items-center justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm z-40 flex-shrink-0"
-      style={{ paddingTop: '11px' }}
+      className="app-header-shell relative flex items-center justify-between px-5 py-2 themed-bg-blur backdrop-blur-sm z-40 flex-shrink-0"
     >
       <button
         id="open-sidebar-btn"
@@ -1099,15 +1097,22 @@ function Header({
       >
         <IconMenu />
       </button>
-      <h1 id="main-header" className="flex-1 text-xl font-semibold min-w-0 truncate">{title}</h1>
-      <div className="flex items-center gap-3">
-        <AppHelp />
+      <h1 id="main-header" className="flex-1 text-lg font-semibold min-w-0 truncate">{title}</h1>
+      <div className="flex items-center gap-2">
+        <NavLink
+          to="/docs"
+          className={({ isActive }) => `app-header-icon-button ${isActive ? 'app-header-icon-button--active' : ''}`}
+          aria-label="Open product wiki"
+          title="Product wiki"
+        >
+          <IconDocs />
+        </NavLink>
         <div className="relative" ref={menuRef}>
           <button
             ref={menuButtonRef}
             type="button"
             onClick={() => setMenuOpen(open => !open)}
-            className={`flex items-center gap-3 px-3 h-11 rounded-full border bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm transition-all ${
+            className={`flex items-center gap-2 px-3 h-10 rounded-lg border bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm transition-all ${
               menuOpen ? 'border-[var(--border-accent)]' : 'border-[var(--border-primary)] hover:border-[var(--border-accent)]'
             } focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]`}
             aria-label={`Open user menu for ${displayName}`}
@@ -1120,11 +1125,11 @@ function Header({
           {menuOpen && (
             <div
               id="user-menu"
-              className="absolute right-0 mt-2 w-72 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl overflow-hidden z-[500]"
+              className="absolute right-0 mt-2 w-72 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-lg overflow-hidden z-[500]"
               role="menu"
               aria-label="User menu"
             >
-              <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
+              <div className="p-3 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
                 <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Signed in as</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : displayName}</p>
                 <p className="text-xs text-[var(--text-secondary)] mt-2">Global access model</p>

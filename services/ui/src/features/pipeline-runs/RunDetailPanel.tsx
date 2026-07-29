@@ -227,12 +227,12 @@ export function RunDetailView({
   return (
     <>
       <div className="space-y-4">
-      <div className="rounded-2xl border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-[0_16px_44px_rgba(8,10,24,0.1)] dark:border-white/10 dark:bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] dark:text-[var(--text-primary)] dark:shadow-[0_16px_44px_rgba(8,10,24,0.42)] overflow-hidden">
-        <div className="p-4 flex flex-col gap-4">
+      <div className="rounded-lg border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-[0_10px_28px_rgba(8,10,24,0.08)] dark:border-white/10 dark:bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] dark:text-[var(--text-primary)] dark:shadow-[0_12px_32px_rgba(8,10,24,0.38)] overflow-hidden">
+        <div className="p-3 flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-2xl lg:text-[1.65rem] font-black tracking-tight text-[var(--text-primary)] dark:text-[var(--text-primary)]">{run.pipeline_name}</span>
+                <span className="text-xl lg:text-[1.35rem] font-black tracking-tight text-[var(--text-primary)] dark:text-[var(--text-primary)]">{run.pipeline_name}</span>
                 {parentRun && (
                   <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={() => onOpenRun(parentRun.run_id)}>
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -404,7 +404,7 @@ export function RunDetailView({
       />
 
       {approvals.length > 0 && (
-        <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">
+        <div className="border border-[var(--border-primary)] rounded-lg bg-white dark:bg-slate-950 p-3 space-y-3 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-semibold text-[var(--text-primary)]">Approvals</h3>
             <span className="text-xs text-[var(--text-secondary)]">
@@ -417,7 +417,7 @@ export function RunDetailView({
               const approveKey = `${approval.id}:approve`;
               const rejectKey = `${approval.id}:reject`;
               return (
-                <div key={approval.id} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm">
+                <div key={approval.id} className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -466,11 +466,11 @@ export function RunDetailView({
       )}
 
       {detail.child_runs?.length > 0 && (
-        <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-2 shadow-sm">
+        <div className="border border-[var(--border-primary)] rounded-lg bg-white dark:bg-slate-950 p-3 space-y-2 shadow-sm">
           <h3 className="font-semibold text-[var(--text-primary)]">Child runs</h3>
           <div className="space-y-3">
             {detail.child_runs.map(child => (
-              <div key={child.run_id} className="flex items-center justify-between text-sm p-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+              <div key={child.run_id} className="flex items-center justify-between text-sm p-3 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={child.status} complete={child.is_complete} />
                   <span className="font-medium text-[var(--text-primary)]">{child.pipeline_name}</span>
@@ -579,7 +579,7 @@ function RunMetadataPanel({ run }: { run: RunListItem }) {
   return (
     <section
       id="pipeline-run-metadata"
-      className="rounded-2xl border border-[var(--border-primary)] bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-950"
+      className="rounded-lg border border-[var(--border-primary)] bg-white p-3 shadow-sm dark:border-white/10 dark:bg-slate-950"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold text-[var(--text-primary)]">Run Metadata</h3>

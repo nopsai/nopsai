@@ -260,9 +260,9 @@ function ScopedValueDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className={`pipelines-modal-card ${isVariable ? 'max-w-10xl rounded-2xl' : 'max-w-6xl rounded-xl'} w-full overflow-hidden border border-[var(--border-primary)] shadow-2xl`}
+      className={`pipelines-modal-card ${isVariable ? 'max-w-10xl rounded-xl' : 'max-w-6xl rounded-lg'} w-full overflow-hidden border border-[var(--border-primary)] shadow-xl`}
     >
-        <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+        <header className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded-full text-[11px] uppercase tracking-[0.18em] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
@@ -270,7 +270,7 @@ function ScopedValueDialog({
               </span>
               <span className="text-xs text-[var(--text-secondary)]">{formatScopeDisplay(modal.scope)}</span>
             </div>
-            <h3 id={titleId} className="text-xl font-semibold text-[var(--text-primary)]">{title}</h3>
+            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
             <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
               {isVariable ? 'Plain text value; best for non-sensitive config.' : 'Encrypted value; use for sensitive credentials.'}
             </p>
@@ -284,7 +284,7 @@ function ScopedValueDialog({
             Close
           </button>
         </header>
-        <div className="grid gap-4 md:grid-cols-[1.6fr_1fr] p-6 bg-[var(--bg-primary)]">
+        <div className="grid gap-4 md:grid-cols-[1.6fr_1fr] p-4 bg-[var(--bg-primary)]">
           <form
             className="space-y-4"
             onSubmit={event => {
@@ -394,15 +394,15 @@ function GitOpsEncryptDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className="pipelines-modal-card max-w-3xl w-full overflow-hidden rounded-xl border border-[var(--border-primary)] shadow-2xl"
+      className="pipelines-modal-card max-w-3xl w-full overflow-hidden rounded-lg border border-[var(--border-primary)] shadow-xl"
     >
-        <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+        <header className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
               <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">GitOps</span>
             </div>
-            <h3 id={titleId} className="text-xl font-semibold text-[var(--text-primary)]">Secret Encryption</h3>
+            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">Secret Encryption</h3>
             <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
               Encrypt a secret value for a Git-managed scope file.
             </p>
@@ -412,7 +412,7 @@ function GitOpsEncryptDialog({
           </button>
         </header>
         <form
-          className="space-y-4 p-6 bg-[var(--bg-primary)]"
+          className="space-y-3 p-4 bg-[var(--bg-primary)]"
           onSubmit={event => {
             event.preventDefault();
             onEncrypt();

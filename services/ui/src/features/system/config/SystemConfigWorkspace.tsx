@@ -133,7 +133,6 @@ function SystemConfigWorkspace({
     [canViewGlobalConfigRepo, config, envFilePath, globalConfigRepo, mailSettings]
   );
   const visibleActiveSection = visibleSectionIDs.has(activeSection) ? activeSection : visibleSections[0]?.id;
-  const runtimeActionsVisible = Boolean(canViewRuntimeConfig && visibleActiveSection && visibleActiveSection !== 'source');
 
   const envPath = envFilePath.trim();
   const runtimeDisabled = !canManageRuntimeConfig || configLoading || saving;
@@ -187,18 +186,6 @@ function SystemConfigWorkspace({
           <h2>Settings Config</h2>
           <p>Runtime defaults, notifications, and GitOps source state for the NopsAI control plane.</p>
         </div>
-        {runtimeActionsVisible && (
-          <div className="system-settings-header__actions">
-            <button className="glass-button-ghost" type="button" onClick={() => void onReload()} disabled={configLoading || saving}>
-              <RefreshCw className={`h-4 w-4 ${configLoading ? 'animate-spin' : ''}`} />
-              Reload
-            </button>
-            <button className="glass-button-primary" type="button" onClick={() => void onSave()} disabled={!canManageRuntimeConfig || configLoading || saving}>
-              <Save className="h-4 w-4" />
-              {saving ? 'Saving...' : 'Save settings'}
-            </button>
-          </div>
-        )}
       </header>
 
       <div className="system-settings-summary-grid" aria-label="Settings summary">

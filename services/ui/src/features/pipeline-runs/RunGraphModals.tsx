@@ -272,8 +272,8 @@ export function StepDetailModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-6xl bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
+      <div className="w-full max-w-6xl bg-white dark:bg-slate-900 rounded-lg shadow-lg border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
           <div className="flex flex-wrap items-center gap-3">
             <h3 className="text-lg font-semibold text-[var(--text-primary)]">Step: {step.name}</h3>
             {statusMeta && <span className={`runner-pill border ${statusMeta.pillClass} text-xs`}>{statusMeta.text}</span>}
@@ -290,8 +290,8 @@ export function StepDetailModal({
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-5 space-y-4 bg-[var(--bg-secondary)]">
-          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4">
+        <div className="flex-1 overflow-auto p-4 space-y-3 bg-[var(--bg-secondary)]">
+          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm font-semibold text-[var(--text-primary)]">Execution Flow</p>
               <span className="text-xs text-[var(--text-secondary)]">
@@ -299,7 +299,7 @@ export function StepDetailModal({
               </span>
             </div>
             <div
-              className="relative h-[420px] lg:h-[480px] w-full overflow-hidden rounded border border-[var(--border-primary)] bg-white dark:bg-slate-950 flex items-center justify-center"
+              className="relative h-[360px] lg:h-[420px] w-full overflow-hidden rounded border border-[var(--border-primary)] bg-white dark:bg-slate-950 flex items-center justify-center"
               ref={graphContainerRef}
               onMouseDown={onMouseDownGraph}
               onMouseMove={onMouseMoveGraph}
@@ -337,7 +337,7 @@ export function StepDetailModal({
                     height="100%"
                     viewBox={`0 0 ${taskGraphView.viewWidth} ${taskGraphView.viewHeight}`}
                     preserveAspectRatio="xMidYMid meet"
-                    className="p-6"
+                    className="p-4"
                     style={{
                       transform: `translate(${pan.x}px, ${pan.y}px) scale(${graphScale})`,
                       transformOrigin: 'center center',
@@ -694,7 +694,7 @@ export function PipelineDefinitionModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="bg-[var(--bg-primary)] rounded-xl shadow-xl w-full max-w-5xl max-h-[85vh] overflow-hidden border border-[var(--border-primary)]">
+      <div className="bg-[var(--bg-primary)] rounded-lg shadow-lg w-full max-w-5xl max-h-[85vh] overflow-hidden border border-[var(--border-primary)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)]">
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">Pipeline definition</p>
