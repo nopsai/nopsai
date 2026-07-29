@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildScopeDetailItems,
   buildScopePipelineMeta,
   buildScopeTree,
   canonicalizeTriggerEvent,
@@ -11,9 +12,12 @@ import {
   extractPipelineSecrets,
   extractScopeVariables,
   extractTriggerPipelines,
+  filterScopeDetailItems,
   filterVisibleScopeList,
   formatScopeDisplay,
+  formatScopeTimestamp,
   getScopeTreeNode,
+  groupScopeDetailItems,
   teamScopedItems,
   isEditableScopeSource,
   normalizeItemListPayload,
@@ -25,7 +29,9 @@ import {
   parseScopedIdentity,
   parseScopeYamlSafe,
   scopeSourceLabel,
+  summarizeScopeSourceMix,
   suggestCloneName,
+  type ScopeData,
 } from './model.js';
 
 test('normalizes scope routes and repository identities', () => {
@@ -116,6 +122,48 @@ test('teams scoped items and preserves GitOps source behavior', () => {
     secretsLoaded: false,
     secretsLoading: false,
   });
+});
+
+test('builds and filters the combined scope detail item model', () => {
+  const data: ScopeData = {
+    variables: ['GLOBAL_REGION', 'acme/api/API_URL'],
+    variableMeta: {
+      GLOBAL_REGION: { source: 'git', updatedAt: '2026-06-07T10:00:00Z' },
+      'acme/api/API_URL': { source: 'database' },
+    },
+    variablesLoaded: true,
+    variablesLoading: false,
+    secrets: ['REGISTRY_TOKEN'],
+    secretMeta: {
+      REGISTRY_TOKEN: { source: 'local', createdAt: '2026-06-01T09:00:00Z' },
+    },
+    secretsLoaded: true,
+    secretsLoading: false,
+  };
+  const items = buildScopeDetailItems(
+    data,
+    new Map([
+      ['GLOBAL_REGION', new Set(['platform/deploy'])],
+      ['acme/api/API_URL', new Set(['platform/deploy', 'platform/release'])],
+    ]),
+    new Map([['REGISTRY_TOKEN', new Set(['platform/release'])]])
+  );
+
+  assert.deepEqual(items.map(item => [item.kind, item.group, item.displayName, item.pipelineCount, item.sourceLabel]), [
+    ['variable', 'Global', 'GLOBAL_REGION', 1, 'GitOps'],
+    ['variable', 'acme/api', 'API_URL', 2, 'Database'],
+    ['secret', 'Global', 'REGISTRY_TOKEN', 1, 'Local'],
+  ]);
+  assert.deepEqual(filterScopeDetailItems(items, 'gitops', 'all').map(item => item.fullName), ['GLOBAL_REGION']);
+  assert.deepEqual(filterScopeDetailItems(items, 'token', 'secret').map(item => item.fullName), ['REGISTRY_TOKEN']);
+  assert.deepEqual(groupScopeDetailItems(items).map(section => [section.title, section.items.length]), [
+    ['Variables', 1],
+    ['Variables / acme/api', 1],
+    ['Secrets', 1],
+  ]);
+  assert.equal(summarizeScopeSourceMix(items.filter(item => item.kind === 'variable'), 'None'), '1 Database / 1 GitOps');
+  assert.notEqual(formatScopeTimestamp('2026-06-07T10:00:00Z'), 'Unknown');
+  assert.equal(formatScopeTimestamp('not-a-date'), 'Unknown');
 });
 
 test('builds scope usage indexes from pipeline and trigger payloads', () => {

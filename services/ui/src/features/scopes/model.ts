@@ -69,6 +69,27 @@ export type TeamedScopedList = {
   repositories: { repo: string; items: TeamedScopedItem[] }[];
 };
 
+export type ScopeDetailItemKind = 'variable' | 'secret';
+export type ScopeDetailItemFilter = ScopeDetailItemKind | 'all';
+
+export type ScopeDetailItem = {
+  kind: ScopeDetailItemKind;
+  fullName: string;
+  displayName: string;
+  group: string;
+  source: SourceKey;
+  sourceLabel: string;
+  createdAt?: string;
+  updatedAt?: string;
+  pipelineCount: number;
+};
+
+export type ScopeDetailItemSection = {
+  id: string;
+  title: string;
+  items: ScopeDetailItem[];
+};
+
 export function normalizeSourceKey(raw: unknown): SourceKey {
   const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
   if (!value) return 'database';
@@ -360,6 +381,106 @@ export function teamScopedItems(items: string[]): TeamedScopedList {
     .sort((a, b) => a.repo.localeCompare(b.repo, undefined, { sensitivity: 'base' }));
 
   return { global, repositories };
+}
+
+export function buildScopeDetailItems(
+  data: ScopeData,
+  pipelineVariableIndex: Map<string, Set<string>>,
+  pipelineSecretIndex: Map<string, Set<string>>
+): ScopeDetailItem[] {
+  return [
+    ...buildScopeDetailItemsForKind('variable', teamScopedItems(data.variables), data.variableMeta, pipelineVariableIndex),
+    ...buildScopeDetailItemsForKind('secret', teamScopedItems(data.secrets), data.secretMeta, pipelineSecretIndex),
+  ];
+}
+
+function buildScopeDetailItemsForKind(
+  kind: ScopeDetailItemKind,
+  grouped: TeamedScopedList,
+  metadata: Record<string, ItemMeta>,
+  pipelineIndex: Map<string, Set<string>>
+): ScopeDetailItem[] {
+  const sections = [
+    { group: 'Global', items: grouped.global },
+    ...grouped.repositories.map(repo => ({ group: repo.repo, items: repo.items })),
+  ];
+
+  return sections.flatMap(section =>
+    section.items.map(item => {
+      const meta = metadata[item.full];
+      const source = normalizeSourceKey(meta?.source);
+      return {
+        kind,
+        fullName: item.full,
+        displayName: item.display,
+        group: section.group,
+        source,
+        sourceLabel: scopeSourceLabel(source),
+        createdAt: meta?.createdAt,
+        updatedAt: meta?.updatedAt,
+        pipelineCount: pipelineIndex.get(item.full)?.size || 0,
+      };
+    })
+  );
+}
+
+export function filterScopeDetailItems(
+  items: ScopeDetailItem[],
+  searchTerm: string,
+  activeFilter: ScopeDetailItemFilter
+): ScopeDetailItem[] {
+  const query = searchTerm.trim().toLowerCase();
+  return items.filter(item => {
+    if (activeFilter !== 'all' && item.kind !== activeFilter) return false;
+    if (!query) return true;
+    const searchable = [
+      item.displayName,
+      item.fullName,
+      item.group,
+      item.kind,
+      item.sourceLabel,
+    ].join(' ').toLowerCase();
+    return searchable.includes(query);
+  });
+}
+
+export function groupScopeDetailItems(items: ScopeDetailItem[]): ScopeDetailItemSection[] {
+  const sections = new Map<string, ScopeDetailItemSection>();
+
+  items.forEach(item => {
+    const kindTitle = item.kind === 'variable' ? 'Variables' : 'Secrets';
+    const title = item.group === 'Global' ? kindTitle : `${kindTitle} / ${item.group}`;
+    const id = `${item.kind}:${item.group}`;
+    const section = sections.get(id) || { id, title, items: [] };
+    section.items.push(item);
+    sections.set(id, section);
+  });
+
+  return Array.from(sections.values());
+}
+
+export function summarizeScopeSourceMix(items: ScopeDetailItem[], emptyLabel: string): string {
+  if (!items.length) return emptyLabel;
+  const sourceCounts = new Map<string, number>();
+  items.forEach(item => {
+    sourceCounts.set(item.sourceLabel, (sourceCounts.get(item.sourceLabel) || 0) + 1);
+  });
+  if (sourceCounts.size === 1) {
+    const [source] = sourceCounts.keys();
+    return `All sourced from ${source}`;
+  }
+  return Array.from(sourceCounts.entries())
+    .sort(([left], [right]) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
+    .map(([source, count]) => `${count} ${source}`)
+    .join(' / ');
+}
+
+export function formatScopeTimestamp(value?: string): string {
+  const raw = (value || '').trim();
+  if (!raw) return 'Unknown';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString();
 }
 
 export async function runWithConcurrencyLimit(tasks: Array<() => Promise<void>>, limit = 4): Promise<void> {
