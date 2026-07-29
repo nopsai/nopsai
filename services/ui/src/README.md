@@ -336,6 +336,17 @@ truth; this file is the source-adjacent placement guide.
 - Access-specific catalogs, policy fields, grant editors, token panels,
   confirmation dialogs, resource catalogs, and presentation helpers belong under
   `features/system/access`.
+- Settings Config rendering lives in
+  `features/system/config/SystemConfigWorkspace.tsx`; pure section/search/status
+  presentation belongs in `features/system/config/settingsPresentation.ts`;
+  config API mapping stays in `features/system/config/api.ts`; async loading,
+  mutation state, drift modal wiring, and toast orchestration stay in
+  `features/system/config/useSystemConfig.ts`. `pages/System.tsx` should only
+  compose the config hook/component and pass route-level permissions.
+- Dispatcher involvement on Settings Config is limited to handoff links and
+  persisted runtime defaults. `features/system/dispatcher` owns live runner
+  status, dispatch pause/eject actions, route editing operations, scope loading,
+  runner install templates, polling, and dispatcher API calls.
 - Runtime config, dispatcher, data management, setup, access, and logs stay
   under the System route.
 - Credentials are a first-class left-navigation route composed by

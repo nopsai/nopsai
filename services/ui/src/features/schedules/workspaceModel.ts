@@ -1,20 +1,20 @@
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   aiResourceMatchesTeamFilter,
-} from '../system/aiResourceTeams';
+} from '../system/aiResourceTeams.js';
 import {
   effectiveScheduleRunTeamPath,
   normalizeIdentifier,
   normalizeScheduleKind,
   splitIdentifier,
   type PipelineSchedule,
-} from './model';
+} from './model.js';
 import {
   formatTeamPath,
   sourceLabel,
   statusClass,
   statusLabel,
-} from './presentation';
+} from './presentation.js';
 
 export type ScheduleStateFilter = 'all' | 'enabled' | 'disabled' | 'gitops' | 'once';
 

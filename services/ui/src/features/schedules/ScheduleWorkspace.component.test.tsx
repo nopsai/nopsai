@@ -108,8 +108,10 @@ describe('ScheduleWorkspace', () => {
 
     expect(screen.getByRole('heading', { name: 'Execution' })).toBeVisible();
     expect(screen.getByText('Deploys the platform every night.')).toBeVisible();
-    expect(screen.getByText('ENV')).toBeVisible();
-    expect(screen.getByText('prod')).toBeVisible();
+    const variablesSection = screen.getByRole('heading', { name: 'Variables' }).closest('section');
+    expect(variablesSection).not.toBeNull();
+    expect(within(variablesSection as HTMLElement).getByText('ENV')).toBeVisible();
+    expect(within(variablesSection as HTMLElement).getByText('prod')).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Run Nightly deploy now' }));
     await user.click(screen.getByRole('button', { name: 'Disable Nightly deploy' }));
