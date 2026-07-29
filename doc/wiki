@@ -84,6 +84,20 @@ user changes articles or topics without a hash anchor, the page must restore
 `#page-content-wrapper` to the top so the next article never inherits the prior
 article's scroll position.
 
+Pipeline detail documentation must stay aligned with the current task-oriented
+workspace: Flow, Definition, Trigger rules, Runs, Health, and Dependencies tabs
+all reuse already-loaded pipeline page data and existing callbacks. The Health
+tab owns the full pipeline analysis result and AI Evaluation surface; the
+Analyse Pipeline header action switches there instead of opening a separate
+pipeline-analysis modal. Trigger rules, Runs, and Dependencies are full-width
+row lists on their own tabs, while clone, edit, access, YAML download, and YAML
+copy belong in the detail header beside Execute. Pipeline edit sessions can
+change YAML, name, and team path together; an identity move persists the new
+resource and removes the old one through the existing AAA/GitOps-aware mutation
+path. The wiki must not describe a separate trigger-creation modal, separate
+run modal, or server-side reviewer persistence unless those flows are
+implemented.
+
 CLI reference pages must cover both automation commands and the interactive
 operator console. The interactive console currently exposes API catalog calls,
 raw API requests, route listing, route descriptions, context management,
