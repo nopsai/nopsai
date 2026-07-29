@@ -1,4 +1,5 @@
 import type { AIUsageSummary, RunListItem } from './contracts.js';
+import { monitoringTabRoute } from '../monitoring/routes.js';
 import { normalizeStatus } from './statusPresentation.js';
 
 export type { Team } from '../../lib/teamModels.js';
@@ -254,10 +255,10 @@ export function formatAIUsageBreakdown(usage?: AIUsageSummary | null) {
 }
 
 export function buildRunMonitoringLink(run: Pick<RunListItem, 'run_id'> | null | undefined) {
-  const params = new URLSearchParams({ tab: 'ai-usage' });
+  const params = new URLSearchParams();
   const runID = (run?.run_id || '').trim();
   if (runID) params.set('runId', runID);
-  return `/monitoring?${params.toString()}`;
+  return monitoringTabRoute('ai-usage', params);
 }
 
 export function getPipelineIdentifier(

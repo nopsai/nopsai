@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 import GitWebhookSourcesPage from '../../pages/GitWebhookSources';
 import { GitWebhookSourceForm } from './GitWebhookSourceForm';
@@ -47,6 +47,11 @@ beforeEach(() => {
   apiMocks.fetchGitWebhookSourceTeamPaths.mockResolvedValue(['platform', 'platform/prod']);
 });
 
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}{location.search}</span>;
+}
+
 test('renders source details and audited deliveries', async () => {
   apiMocks.fetchGitWebhookSources.mockResolvedValue([source]);
   apiMocks.fetchGitWebhookSource.mockResolvedValue(source);
@@ -80,13 +85,15 @@ test('renders source details and audited deliveries', async () => {
 
 test('shows source details after selecting a row from the list route', async () => {
   const user = userEvent.setup();
-  apiMocks.fetchGitWebhookSources.mockResolvedValue([source]);
-  apiMocks.fetchGitWebhookSource.mockResolvedValue(source);
+  const slashSource = { ...source, id: 'gitlab/platform' };
+  apiMocks.fetchGitWebhookSources.mockResolvedValue([slashSource]);
+  apiMocks.fetchGitWebhookSource.mockResolvedValue(slashSource);
   apiMocks.fetchGitWebhookDeliveries.mockResolvedValue([]);
 
   render(
     <MemoryRouter initialEntries={['/git-webhook-sources']}>
       <GitWebhookSourcesPage canWriteGitWebhookSources canDeleteGitWebhookSources />
+      <LocationProbe />
     </MemoryRouter>
   );
 
@@ -96,11 +103,12 @@ test('shows source details after selecting a row from the list route', async () 
   expect(screen.getByRole('button', { name: 'All teams (1)' })).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'Last used' })).toBeVisible();
   expect(screen.queryByText('Select a webhook source')).not.toBeInTheDocument();
-  expect(screen.queryByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/\/v1\/git\/webhooks\/gitlab\/platform$/)).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'GitLab Platform' }));
 
-  expect(await screen.findByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/git-webhook-sources/gitlab/platform'));
+  expect(await screen.findByText(/\/v1\/git\/webhooks\/gitlab\/platform$/)).toBeVisible();
   expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
 });
 

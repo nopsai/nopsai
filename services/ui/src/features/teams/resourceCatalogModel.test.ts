@@ -128,8 +128,8 @@ test('builds linked resources with canonical detail links', () => {
     credential('credential://system/llm/openai', 'api_key'),
   ]);
   assert.deepEqual(credentials.map(resource => [resource.label, resource.teamPath, resource.href]), [
-    ['openai', 'platform/payments', '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fpayments%2Fopenai'],
-    ['openai', '', '/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'],
+    ['openai', 'platform/payments', '/credentials/team/platform/payments/openai'],
+    ['openai', '', '/credentials/system/llm/openai'],
   ]);
 });
 

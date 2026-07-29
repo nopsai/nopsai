@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { Boxes, Cable, CheckCircle2, Edit3, ExternalLink, KeyRound, Plus, RefreshCw, Trash2, Wrench, X } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useMCPRegistry } from './mcp/useMCPRegistry';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 import { teamMCPProfileRecords } from './teamProfileAdapters';
@@ -17,12 +17,15 @@ import { AIResourceMetricGrid, AIResourceWorkspace, type AIResourceWorkspaceItem
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
+  aiResourceRoute,
   aiResourceLocalName,
   aiResourceMatchesTeamFilter,
+  aiResourceSearchParamsForTeamFilter,
   aiResourceTeamFilterFromSearch,
   aiResourceTeamScope,
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
+  decodeAIResourceRouteID,
   formatAIResourceTeamLabel,
   normalizeAIResourceTeamPath,
   selectableAIResourceTeamPath,
@@ -55,11 +58,36 @@ function mcpViewFromSearch(search: string): 'servers' | 'profiles' | null {
   return null;
 }
 
+function mcpRouteSelectionFromPath(pathname: string): { view: 'servers' | 'profiles' | null; resourceID: string } {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'mcp') return { view: null, resourceID: '' };
+  const view = segments[1] === 'profiles' ? 'profiles' : segments[1] === 'servers' ? 'servers' : null;
+  if (!view) return { view: null, resourceID: '' };
+  return {
+    view,
+    resourceID: decodeAIResourceRouteID(`/${view}/${segments.slice(2).join('/')}`, view),
+  };
+}
+
+function mcpRouteSearchParams(search: string) {
+  const params = new URLSearchParams(search);
+  params.delete('view');
+  params.delete('tab');
+  return params;
+}
+
+function mcpResourceRoute(view: 'servers' | 'profiles', resourceID: string, search: string) {
+  return aiResourceRoute(`/mcp/${view}`, resourceID, mcpRouteSearchParams(search));
+}
+
 function MCPPanel({ canManage }: { canManage: boolean }) {
   const mcpPanelRef = useRef<HTMLElement | null>(null);
   const location = useLocation();
+  const navigate = useNavigate();
+  const routeSelection = useMemo(() => mcpRouteSelectionFromPath(location.pathname), [location.pathname]);
   const requestedTeamFilter = useMemo(() => aiResourceTeamFilterFromSearch(location.search), [location.search]);
-  const requestedView = useMemo(() => mcpViewFromSearch(location.search), [location.search]);
+  const legacyRequestedView = useMemo(() => mcpViewFromSearch(location.search), [location.search]);
+  const requestedView = routeSelection.view || legacyRequestedView;
   const [serverSearchTerm, setServerSearchTerm] = useState('');
   const [profileSearchTerm, setProfileSearchTerm] = useState('');
   const [teamFilter, setTeamFilter] = useState(requestedTeamFilter);
@@ -116,10 +144,28 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   }, [requestedTeamFilter]);
 
   useEffect(() => {
+    if (routeSelection.view || !legacyRequestedView) return;
+    navigate(mcpResourceRoute(legacyRequestedView, '', location.search), { replace: true, preventScrollReset: true });
+  }, [legacyRequestedView, location.search, navigate, routeSelection.view]);
+
+  useEffect(() => {
     if (!requestedView) return;
     setInnerTab(requestedView);
     setPanelMode(null);
   }, [requestedView, setInnerTab, setPanelMode]);
+
+  useEffect(() => {
+    if (!routeSelection.view) return;
+    if (routeSelection.view === 'servers') {
+      setSelectedServerName(routeSelection.resourceID || null);
+      setSelectedProfileName(null);
+      if (routeSelection.resourceID) setTeamFilter(aiResourceTreeFilterForResource(routeSelection.resourceID));
+    } else {
+      setSelectedProfileName(routeSelection.resourceID || null);
+      setSelectedServerName(null);
+      if (routeSelection.resourceID) setTeamFilter(aiResourceTreeFilterForResource(routeSelection.resourceID));
+    }
+  }, [routeSelection.resourceID, routeSelection.view]);
 
   useEffect(() => {
     void loadTeamProfiles(selectedTeamPath);
@@ -252,27 +298,39 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     setSelectedServerName(null);
     setSelectedProfileName(null);
     setPanelMode(null);
+    navigate(mcpResourceRoute(view, '', location.search), { preventScrollReset: true });
   };
   const openTeamFilter = (value: string) => {
     setTeamFilter(value);
     setSelectedServerName(null);
     setSelectedProfileName(null);
     setPanelMode(null);
+    navigate(
+      aiResourceRoute(
+        `/mcp/${innerTab}`,
+        '',
+        aiResourceSearchParamsForTeamFilter(mcpRouteSearchParams(location.search), value)
+      ),
+      { preventScrollReset: true }
+    );
   };
   const selectServer = (name: string) => {
     setSelectedServerName(name);
     setTeamFilter(aiResourceTreeFilterForResource(name));
     setPanelMode(null);
+    navigate(mcpResourceRoute('servers', name, location.search), { preventScrollReset: true });
   };
   const selectProfile = (name: string) => {
     setSelectedProfileName(name);
     setTeamFilter(aiResourceTreeFilterForResource(name));
     setPanelMode(null);
+    navigate(mcpResourceRoute('profiles', name, location.search), { preventScrollReset: true });
   };
   const closeDetail = () => {
     setSelectedServerName(null);
     setSelectedProfileName(null);
     setPanelMode(null);
+    navigate(mcpResourceRoute(innerTab, '', location.search), { preventScrollReset: true });
   };
 
   const openServerCreate = () => {
@@ -283,6 +341,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     setCreateServerTeamPath(initialTeamPath);
     startServerCreate();
     setServerForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
+    navigate(mcpResourceRoute('servers', '', location.search), { preventScrollReset: true });
   };
   const openServerEdit = (server: MCPServerRecord) => {
     setCreateServerTeamPath(normalizeAIResourceTeamPath(aiResourceTeamScope(server.name).teamPath));
@@ -294,6 +353,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     setCreateProfileTeamPath(initialTeamPath);
     startProfileCreate();
     setProfileForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
+    navigate(mcpResourceRoute('profiles', '', location.search), { preventScrollReset: true });
   };
   const openProfileEdit = (profile: MCPProfileRecord) => {
     setCreateProfileTeamPath(normalizeAIResourceTeamPath(

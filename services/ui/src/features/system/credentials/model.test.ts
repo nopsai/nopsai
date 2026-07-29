@@ -5,6 +5,7 @@ import {
   credentialCatalogGroups,
   credentialNamespaces,
   credentialPayloadFromForm,
+  credentialReferenceFromRoute,
   credentialReferenceRoute,
   credentialReferenceDisplay,
   credentialSummary,
@@ -157,7 +158,11 @@ test('builds deep links for credential references', () => {
   assert.equal(isTeamCredentialReference('credential://system/llm/openai'), false);
   assert.equal(
     credentialReferenceRoute('credential://system/llm/openai'),
-    '/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'
+    '/credentials/system/llm/openai'
+  );
+  assert.equal(
+    credentialReferenceFromRoute('/credentials/team/platform/payments/prod-admin'),
+    'credential://team/platform/payments/prod-admin'
   );
 });
 

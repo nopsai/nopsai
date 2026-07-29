@@ -9,9 +9,9 @@ describe('hash router URL canonicalization', () => {
       canonicalHashRouterURL({
         pathname: '/system/config',
         search: '?tab=ai-usage',
-        hash: '#/dashboards?dashboard=b6d7f0b9-c5fe-437b-9385-3b9eb4dddc82&tab=release-readiness',
+        hash: '#/dashboards/b6d7f0b9-c5fe-437b-9385-3b9eb4dddc82?tab=release-readiness',
       }),
-      '/#/dashboards?dashboard=b6d7f0b9-c5fe-437b-9385-3b9eb4dddc82&tab=release-readiness'
+      '/#/dashboards/b6d7f0b9-c5fe-437b-9385-3b9eb4dddc82?tab=release-readiness'
     );
   });
 

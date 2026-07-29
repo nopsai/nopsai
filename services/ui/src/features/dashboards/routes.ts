@@ -16,6 +16,20 @@ export function normalizeDashboardRouteValue(value?: string | null): string {
   return (value || '').trim();
 }
 
+export function dashboardRouteIDFromPath(pathname: string): string {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'dashboards' || segments.length < 2) return '';
+  return normalizeDashboardRouteValue(segments.slice(1).map(decodeDashboardRouteSegment).join('/'));
+}
+
+export function encodeDashboardRouteID(dashboardID: string): string {
+  return normalizeDashboardRouteValue(dashboardID)
+    .split('/')
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join('/');
+}
+
 export function dashboardRouteSelectedID(
   dashboards: DashboardRouteSummary[],
   routeDashboardID: string,
@@ -63,15 +77,11 @@ export function resolveDashboardActiveSectionKey(
 
 export function dashboardTabSearchParams(
   currentParams: URLSearchParams,
-  dashboardID: string,
   sectionKey: string
 ): URLSearchParams {
   const params = new URLSearchParams(currentParams);
-  const normalizedDashboardID = normalizeDashboardRouteValue(dashboardID);
   const normalizedSectionKey = normalizeDashboardRouteValue(sectionKey);
-
-  if (normalizedDashboardID) params.set(DASHBOARD_ROUTE_DASHBOARD_PARAM, normalizedDashboardID);
-  else params.delete(DASHBOARD_ROUTE_DASHBOARD_PARAM);
+  params.delete(DASHBOARD_ROUTE_DASHBOARD_PARAM);
 
   if (normalizedSectionKey) params.set(DASHBOARD_ROUTE_TAB_PARAM, normalizedSectionKey);
   else params.delete(DASHBOARD_ROUTE_TAB_PARAM);
@@ -84,9 +94,17 @@ export function dashboardTabHref(
   dashboardID: string,
   sectionKey: string
 ): string {
-  const params = dashboardTabSearchParams(currentParams, dashboardID, sectionKey);
+  const params = dashboardTabSearchParams(currentParams, sectionKey);
+  return dashboardRouteHref(dashboardID, params);
+}
+
+export function dashboardRouteHref(dashboardID: string, currentParams?: URLSearchParams): string {
+  const params = new URLSearchParams(currentParams);
+  params.delete(DASHBOARD_ROUTE_DASHBOARD_PARAM);
+  const encodedDashboardID = encodeDashboardRouteID(dashboardID);
+  const route = encodedDashboardID ? `/dashboards/${encodedDashboardID}` : '/dashboards';
   const query = params.toString();
-  return query ? `/dashboards?${query}` : '/dashboards';
+  return query ? `${route}?${query}` : route;
 }
 
 function findDashboardRouteMatch(
@@ -107,4 +125,12 @@ function dashboardRouteValues(dashboard: DashboardRouteSummary): string[] {
     teamPath ? '' : slug,
     teamPath && slug ? `${teamPath}/${slug}` : '',
   ].filter(Boolean)));
+}
+
+function decodeDashboardRouteSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }

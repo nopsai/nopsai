@@ -515,6 +515,16 @@ Schedules should document:
 | `run_team_path` | Pipeline Runs team path and notification lineage. `root` means unassigned root. |
 | `variables` | Schedule-supplied run variable overrides. |
 
+The Schedules UI groups schedule resources by `run_team_path` when present,
+falling back to the schedule path for older rows. The registry table stays
+focused on schedule name, pipeline, cadence, next run, and latest status, with
+the latest status linking directly to Pipeline Run details when a run exists.
+Selecting a schedule navigates to `/schedules/<resource path/name>`.
+The detail panel owns mutation actions, ownership, GitOps source, runtime
+scope, run team, and variables. This presentation does not change the schedule
+YAML contract, AAA actions, monitoring filters, MCP proposal behavior, or
+CLI/API surface.
+
 External triggers should document:
 
 | Directive | Meaning |
@@ -543,6 +553,11 @@ Implemented workflow building blocks include:
 - manual, scheduled, Git, external-trigger, child-pipeline, and rerun entry
   points
 - final Markdown, JSON, HTML, PDF, and Excel deliverables
+
+UI detail selection uses path-backed routes for primary resources: schedules,
+LLM profiles, agent profiles, MCP servers/profiles, credentials, external API
+triggers, Git webhook sources, dashboards, and Monitoring tabs. Query
+parameters remain for filters, section/tab view state, and run drilldowns.
 
 The control plane includes the API, UI, AAA, dispatcher, git-bot, PostgreSQL,
 Gotenberg, and the restricted Docker socket proxy. The execution plane includes

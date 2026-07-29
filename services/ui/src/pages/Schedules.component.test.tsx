@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PipelineSchedule } from '../features/schedules/model';
 
@@ -15,6 +15,10 @@ const schedule: PipelineSchedule = {
   timezone: 'UTC',
   enabled: true,
   source: 'database',
+  latest_run: {
+    run_id: 'run-1',
+    status: 'success',
+  },
 };
 
 const api = vi.hoisted(() => ({
@@ -37,6 +41,11 @@ vi.mock('../features/schedules/api', () => ({
 
 import SchedulesPage from './Schedules';
 
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location">{location.pathname}{location.search}</span>;
+}
+
 describe('SchedulesPage modal flows', () => {
   beforeEach(() => {
     api.fetchSchedules.mockResolvedValue([schedule]);
@@ -58,14 +67,14 @@ describe('SchedulesPage modal flows', () => {
     );
 
     await screen.findByText('Nightly deploy');
-    const list = screen.getByTestId('schedule-card-list');
-    expect(list).toHaveClass('compact-resource-grid');
-    expect(list.querySelectorAll('.compact-resource-card')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Search schedules' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Refresh schedules' })).toBeVisible();
-    expect(screen.queryByLabelText('Filter by team')).not.toBeInTheDocument();
-    expect(screen.queryByText('Show disabled')).not.toBeInTheDocument();
-    expect(screen.queryByText('1 total')).not.toBeInTheDocument();
+    const table = screen.getByTestId('schedule-workspace-table');
+    expect(table).toHaveClass('schedule-workspace__table-shell');
+    expect(screen.getByRole('region', { name: 'Pipeline schedule workspace' })).toBeVisible();
+    expect(screen.getByRole('table', { name: 'Pipeline schedules' })).toBeVisible();
+    expect(screen.getByLabelText('Search schedules')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Reload schedules' })).toBeVisible();
+    expect(screen.getByLabelText('Filter by schedule path')).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Enabled' })).toBeVisible();
     const opener = screen.getByRole('button', { name: 'New schedule' });
     await userEvent.click(opener);
     const dialog = screen.getByRole('dialog', { name: 'New schedule' });
@@ -100,7 +109,63 @@ describe('SchedulesPage modal flows', () => {
     );
 
     await screen.findByText('Nightly deploy');
-    await userEvent.click(screen.getByTitle('Delete schedule'));
+    await userEvent.click(screen.getByRole('button', { name: 'Select schedule Nightly deploy' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Delete Nightly deploy' }));
     await waitFor(() => expect(api.deleteSchedule).toHaveBeenCalledWith('schedule-1'));
+  });
+
+  it('reflects selected schedules in the URL and opens direct schedule links', async () => {
+    const firstView = render(
+      <MemoryRouter initialEntries={['/schedules']}>
+        <SchedulesPage canWriteSchedules canDeleteSchedules />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await screen.findByText('Nightly deploy');
+    await userEvent.click(screen.getByRole('button', { name: 'Select schedule Nightly deploy' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/schedules/platform/nightly-deploy');
+    });
+    firstView.unmount();
+
+    render(
+      <MemoryRouter initialEntries={['/schedules/platform/nightly-deploy']}>
+        <SchedulesPage canWriteSchedules canDeleteSchedules />
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { name: 'Execution' });
+    expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
+  });
+
+  it('migrates legacy schedule query links to route-backed detail links', async () => {
+    render(
+      <MemoryRouter initialEntries={['/schedules?schedule=platform/nightly-deploy']}>
+        <SchedulesPage canWriteSchedules canDeleteSchedules />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/schedules/platform/nightly-deploy');
+    });
+    expect(await screen.findByRole('button', { name: 'List' })).toBeVisible();
+  });
+
+  it('opens latest runs on direct pipeline run detail routes', async () => {
+    render(
+      <MemoryRouter initialEntries={['/schedules']}>
+        <SchedulesPage canWriteSchedules canDeleteSchedules />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await screen.findByText('Nightly deploy');
+    await userEvent.click(screen.getByRole('button', { name: 'Open latest run for Nightly deploy' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/pipelineruns/recent/run-1');
+    });
   });
 });

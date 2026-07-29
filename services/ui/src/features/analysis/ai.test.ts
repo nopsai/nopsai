@@ -189,7 +189,7 @@ test('preserves selected resource team path rather than resource id for AI evalu
     kind: 'credential',
     label: 'aws-prod-admin',
     description: 'credential metadata only',
-    href: '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fpayments%2Faws-prod',
+    href: '/credentials/team/platform/payments/aws-prod',
     teamPath: 'platform/payments',
     source: 'database',
   };

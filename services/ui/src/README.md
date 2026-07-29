@@ -318,7 +318,8 @@ truth; this file is the source-adjacent placement guide.
 
 - Dashboard route composition lives in `pages/Dashboards.tsx`. Keep dashboard
   model rules, response normalization, API transport, and block rendering under
-  `features/dashboards`.
+  `features/dashboards`. Selected dashboards use `/dashboards/<dashboard-ref>`
+  routes; section tabs remain query-backed view state.
 - `features/dashboards/model.ts` owns dashboard/source/publication/refresh
   schedule types, ref/slug helpers, form defaults, stale labels, and
   publication grouping.
@@ -357,16 +358,20 @@ truth; this file is the source-adjacent placement guide.
   credentials-local filters, tabs, grouping controls, and selected-row
   presentation; `CredentialDetail.tsx` owns the
   slide-out detail drawer, rotation form, and version history; route composition
-  owns URL selection. Team references that repeat the selected team path are
-  normalized for display and create previews without changing the
+  owns `/credentials/<namespace>/<name>` URL selection plus legacy query-link
+  migration. Team references that repeat the selected team path are normalized
+  for display and create previews without changing the
   GitOps-compatible reference format.
 - Credential catalog rows stay single-line registry entries. Descriptions,
   parent paths, category hints, and secret metadata belong in the detail drawer
   or explicit columns, not under the credential name.
 - LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
   model/API/hook/panel code can remain under `features/system` while the route
-  wrappers live in `pages/`. Page visibility is topic-level: global system
-  permissions and scoped team/product grants can show the route, while the
+  wrappers live in `pages/`. LLM and agent profile detail selection lives in
+  `/llm-profiles/<team>/<profile>` and `/agent-profiles/<team>/<profile>`;
+  MCP uses `/mcp/servers/<team>/<server>` and
+  `/mcp/profiles/<team>/<profile>`. Page visibility is topic-level: global
+  system permissions and scoped team/product grants can show the route, while the
   backend list handlers filter individual LLM profiles, agent profiles, MCP
   servers, and MCP profiles by resource access before returning subjects.
 - `features/system/AIResourcePanel.tsx`, `features/system/AIResourceWorkspace.tsx`,
@@ -426,8 +431,23 @@ truth; this file is the source-adjacent placement guide.
 - Knowledge document collection rows stay single-line name entries; document
   path and source details remain in table columns or the selected detail panel.
 - Monitoring model rules own metric normalization and display teaming.
+  Monitoring tabs use `/monitoring/<tab>` routes; query parameters remain for
+  time windows, team filters, run drilldowns, and comparison filters.
 - Schedules model/API files own cron mode normalization, schedule request
   shaping, metadata normalization, and schedule transport.
+- `features/schedules/workspaceModel.ts` owns schedule workspace identifiers,
+  run-team path filtering, state filtering, GitOps/source detection,
+  latest-run labels, and overview metric shaping. When `run_team_path` is set,
+  it owns the schedule tree placement even if the pipeline lives under another
+  path; schedule path remains the fallback for older rows.
+  `ScheduleWorkspace.tsx` owns the LLM-profile-style schedule browser
+  composition: run-team path tree, registry table, inline metrics, detail
+  panel, and icon action placement. `pages/Schedules.tsx` owns URL pipeline
+  filters, `/schedules/<team>/<name>` detail routes, legacy query-link
+  migration, loading, API mutation orchestration, GitOps confirmation prompts,
+  and modal state only. This route keeps existing
+  `pipeline_schedule.*` AAA decisions, GitOps sync semantics, monitoring links,
+  MCP proposal behavior, and CLI/API contracts unchanged.
 - New route-level growth in these areas should first look for a tested
   feature-owned model, API, hook, or presentation boundary.
 
@@ -462,7 +482,8 @@ truth; this file is the source-adjacent placement guide.
   object types must extend that registry and its focused component test instead
   of adding inline SVGs or feature-local icon switches.
 - Collection routes should reuse `ResourceCollectionToolbar` for compact search,
-  refresh, create, summaries, and feature-owned filters. Create controls remain
+  refresh, create, summaries, and feature-owned filters unless a documented
+  route-specific workspace shell is a better fit. Create controls remain
   visible but disabled when AAA grants read-only access. Secondary detail panes
   should mount only after a resource is selected or deep-linked.
 - Form dialogs share the Pipeline themed surface and independently scrollable

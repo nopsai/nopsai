@@ -300,7 +300,7 @@ const resourceCatalog: TeamResourceCatalogState = {
       kind: 'credential',
       label: 'openai',
       description: 'api_key in platform',
-      href: '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fopenai',
+      href: '/credentials/team/platform/openai',
       teamPath: 'platform',
       source: 'database',
     },
@@ -471,7 +471,7 @@ describe('TeamsWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open MCP Profiles' }));
     expect(screen.getByRole('region', { name: 'MCP Profiles resources' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open github-global' })).toHaveAttribute('href', '/mcp?team=global&view=profiles');
+    expect(screen.getByRole('link', { name: 'Open github-global' })).toHaveAttribute('href', '/mcp/profiles?team=global');
 
     await user.click(screen.getByRole('tab', { name: 'Access' }));
     expect(screen.getByRole('heading', { name: 'Global Access' })).toBeVisible();
@@ -517,7 +517,7 @@ describe('TeamsWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open MCP Profiles' }));
     expect(screen.getByRole('region', { name: 'MCP Profiles resources' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open engineering-tools' })).toHaveAttribute('href', '/mcp?team=platform&view=profiles');
+    expect(screen.getByRole('link', { name: 'Open engineering-tools' })).toHaveAttribute('href', '/mcp/profiles?team=platform');
 
     await user.click(screen.getByRole('button', { name: 'Open Pipelines' }));
     expect(screen.getByRole('region', { name: 'Pipelines resources' })).toBeVisible();
@@ -555,7 +555,7 @@ describe('TeamsWorkspace', () => {
     expect(screen.getByRole('region', { name: 'Credentials resources' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open openai' })).toHaveAttribute(
       'href',
-      '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fopenai'
+      '/credentials/team/platform/openai'
     );
   });
 

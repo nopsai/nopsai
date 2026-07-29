@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import {
   cancelDashboardRefresh,
@@ -76,10 +76,11 @@ import {
 import {
   DASHBOARD_ROUTE_DASHBOARD_PARAM,
   DASHBOARD_ROUTE_TAB_PARAM,
+  dashboardRouteHref,
+  dashboardRouteIDFromPath,
   dashboardRouteParamForSelectedID,
   dashboardRouteSelectedID,
   dashboardTabHref,
-  dashboardTabSearchParams,
   normalizeDashboardRouteValue,
   resolveDashboardActiveSectionKey,
 } from '../features/dashboards/routes';
@@ -95,8 +96,12 @@ type RefreshModalState = {
 };
 
 export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards }: DashboardsPageProps) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const routeDashboardID = normalizeDashboardRouteValue(searchParams.get(DASHBOARD_ROUTE_DASHBOARD_PARAM));
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const routeDashboardPathID = useMemo(() => dashboardRouteIDFromPath(location.pathname), [location.pathname]);
+  const legacyRouteDashboardID = normalizeDashboardRouteValue(searchParams.get(DASHBOARD_ROUTE_DASHBOARD_PARAM));
+  const routeDashboardID = routeDashboardPathID || legacyRouteDashboardID;
   const routeSectionKey = normalizeDashboardRouteValue(searchParams.get(DASHBOARD_ROUTE_TAB_PARAM));
 
   const [dashboards, setDashboards] = useState<DashboardSummary[]>([]);
@@ -154,6 +159,11 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
       return next === current ? current : next;
     });
   }, [dashboards, routeDashboardID]);
+
+  useEffect(() => {
+    if (routeDashboardPathID || !legacyRouteDashboardID) return;
+    navigate(dashboardRouteHref(legacyRouteDashboardID, searchParams), { replace: true, preventScrollReset: true });
+  }, [legacyRouteDashboardID, navigate, routeDashboardPathID, searchParams]);
 
   const loadSelected = useCallback(async () => {
     if (!selectedID) {
@@ -242,20 +252,20 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
 
   useEffect(() => {
     if (!routeDashboardParam) return;
-    const nextParams = dashboardTabSearchParams(searchParams, routeDashboardParam, activeSectionKey);
-    if (nextParams.toString() === searchParams.toString()) return;
-    setSearchParams(nextParams, { replace: true });
-  }, [activeSectionKey, routeDashboardParam, searchParams, setSearchParams]);
+    const nextRoute = dashboardTabHref(searchParams, routeDashboardParam, activeSectionKey);
+    if (`${location.pathname}${location.search}` === nextRoute) return;
+    navigate(nextRoute, { replace: true, preventScrollReset: true });
+  }, [activeSectionKey, location.pathname, location.search, navigate, routeDashboardParam, searchParams]);
 
   const selectDashboard = useCallback((dashboardID: string) => {
     const normalizedDashboardID = normalizeDashboardRouteValue(dashboardID);
     setSelectedID(normalizedDashboardID);
-    setSearchParams(dashboardTabSearchParams(searchParams, normalizedDashboardID, ''));
-  }, [searchParams, setSearchParams]);
+    navigate(dashboardTabHref(searchParams, normalizedDashboardID, ''), { preventScrollReset: true });
+  }, [navigate, searchParams]);
 
   const selectDashboardSection = useCallback((sectionKey: string) => {
-    setSearchParams(dashboardTabSearchParams(searchParams, routeDashboardParam, sectionKey));
-  }, [routeDashboardParam, searchParams, setSearchParams]);
+    navigate(dashboardTabHref(searchParams, routeDashboardParam, sectionKey), { preventScrollReset: true });
+  }, [navigate, routeDashboardParam, searchParams]);
 
   const dashboardSectionHref = useCallback(
     (sectionKey: string) => dashboardTabHref(searchParams, routeDashboardParam, sectionKey),

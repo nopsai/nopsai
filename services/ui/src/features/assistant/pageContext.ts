@@ -20,6 +20,7 @@ export type AssistantPageContext = {
 
 const allowedQueryKeys = new Set([
   'area',
+  'credential',
   'dashboard',
   'id',
   'owner',
@@ -29,6 +30,7 @@ const allowedQueryKeys = new Set([
   'q',
   'resource',
   'run',
+  'runid',
   'schedule',
   'scope',
   'source',
@@ -121,18 +123,25 @@ export function buildAssistantPageContext(pathname: string, search = ''): Assist
       applyScopeContext(context, segments, query);
       break;
     case 'schedules':
-      context.route = '/schedules';
-      context.resource_type = query.schedule ? 'schedule' : 'schedules';
-      context.resource_id = query.schedule || '';
+      applyPathResourceContext(context, segments, query.schedule || '', 'schedule', '/schedules/:schedule_id');
       context.pipeline_id = query.pipeline || '';
       context.scope = query.scope || query.team || '';
       break;
     case 'dashboards':
-      context.route = '/dashboards';
-      context.resource_type = query.dashboard ? 'dashboard' : 'dashboards';
-      context.resource_id = query.dashboard || '';
-      context.resource_name = resourceName(context.resource_id);
+      applyPathResourceContext(context, segments, query.dashboard || '', 'dashboard', '/dashboards/:dashboard_id');
       context.tab = query.tab || '';
+      break;
+    case 'llm-profiles':
+      applyPathResourceContext(context, segments, query.profile || '', 'llm_profile', '/llm-profiles/:profile_id');
+      break;
+    case 'agent-profiles':
+      applyPathResourceContext(context, segments, query.profile || '', 'agent_profile', '/agent-profiles/:profile_id');
+      break;
+    case 'mcp':
+      applyMCPContext(context, segments, query);
+      break;
+    case 'credentials':
+      applyCredentialContext(context, segments, query);
       break;
     case 'triggers':
       applyRoutedResourceContext(context, segments, query, 'trigger', '/triggers/:trigger_id');
@@ -159,9 +168,12 @@ export function buildAssistantPageContext(pathname: string, search = ''): Assist
       context.resource_type = context.tab ? `system_${context.tab.replace(/-/g, '_')}` : 'system';
       break;
     case 'monitoring':
-      context.route = '/monitoring';
+      context.tab = normalizePathSegment(segments[1] || query.tab || '');
+      context.route = context.tab ? '/monitoring/:tab' : '/monitoring';
       context.resource_type = 'monitoring';
       context.pipeline_id = query.pipeline || '';
+      context.run_id = query.runid || query.run || '';
+      context.resource_id = context.run_id;
       context.scope = query.team || query.scope || '';
       break;
     default:
@@ -307,6 +319,51 @@ function applyRoutedResourceContext(
     context.team_path = context.team_path || parentPath(identifier);
   }
   if (resourceType === 'step') context.team_path = context.team_path || parentPath(identifier);
+}
+
+function applyPathResourceContext(
+  context: AssistantPageContext,
+  segments: string[],
+  legacyIdentifier: string,
+  resourceType: string,
+  selectedRoute: string,
+) {
+  const identifier = decodeTeamRouteSegments(segments.slice(1)) || legacyIdentifier;
+  context.route = identifier ? selectedRoute : `/${context.area}`;
+  context.resource_type = identifier ? resourceType : `${resourceType}s`;
+  context.resource_id = identifier;
+  context.resource_name = resourceName(identifier);
+  context.team_path = context.team_path || parentPath(identifier);
+}
+
+function applyMCPContext(context: AssistantPageContext, segments: string[], query: Record<string, string>) {
+  const view = segments[1] === 'profiles' || segments[1] === 'servers'
+    ? segments[1]
+    : normalizeToken(query.view || query.tab || 'servers');
+  const identifier = view === segments[1] ? decodeTeamRouteSegments(segments.slice(2)) : '';
+  context.tab = view === 'profiles' ? 'profiles' : 'servers';
+  if (identifier) {
+    context.route = context.tab === 'profiles' ? '/mcp/profiles/:profile_id' : '/mcp/servers/:server_id';
+    context.resource_type = context.tab === 'profiles' ? 'mcp_profile' : 'mcp_server';
+    context.resource_id = identifier;
+    context.resource_name = resourceName(identifier);
+    context.team_path = parentPath(identifier);
+    return;
+  }
+  context.route = context.tab === 'profiles' ? '/mcp/profiles' : '/mcp/servers';
+  context.resource_type = context.tab === 'profiles' ? 'mcp_profiles' : 'mcp_servers';
+}
+
+function applyCredentialContext(context: AssistantPageContext, segments: string[], query: Record<string, string>) {
+  const routeReferencePath = decodeTeamRouteSegments(segments.slice(1));
+  const reference = routeReferencePath ? `credential://${routeReferencePath}` : query.credential || '';
+  context.route = reference ? '/credentials/:credential_ref' : '/credentials';
+  context.resource_type = reference ? 'credential' : 'credentials';
+  context.resource_id = reference;
+  context.resource_name = resourceName(reference.replace(/^credential:\/\//i, ''));
+  const referencePath = routeReferencePath || reference.replace(/^credential:\/\//i, '');
+  const parts = referencePath.split('/').filter(Boolean);
+  context.team_path = parts[0] === 'team' ? parts.slice(1, -1).join('/') : '';
 }
 
 function applyScopeContext(context: AssistantPageContext, segments: string[], query: Record<string, string>) {

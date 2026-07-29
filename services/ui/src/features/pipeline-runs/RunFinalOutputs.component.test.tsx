@@ -123,7 +123,7 @@ test('links dashboard outputs to the generated dashboard section', async () => {
   renderFinalOutputs(<RunFinalOutputs runID="run-1" outputs={[dashboardOutput]} />);
 
   const dashboardLink = screen.getByRole('link', { name: 'Open dashboard platform/ops section overview' });
-  expect(dashboardLink).toHaveAttribute('href', '/dashboards?dashboard=platform%2Fops&tab=overview');
+  expect(dashboardLink).toHaveAttribute('href', '/dashboards/platform/ops?tab=overview');
 
   await user.click(screen.getByRole('button', { name: 'Preview Release health' }));
   expect(screen.getByRole('heading', { name: 'Release health' })).toBeVisible();
@@ -154,7 +154,7 @@ test('uses pipeline definition dashboard metadata when stored output target is a
 
   expect(screen.getByRole('link', { name: 'Open dashboard platform/ops section releases' })).toHaveAttribute(
     'href',
-    '/dashboards?dashboard=platform%2Fops&tab=releases'
+    '/dashboards/platform/ops?tab=releases'
   );
 });
 

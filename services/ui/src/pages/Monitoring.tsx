@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Bell, CheckCircle2, Download, Play, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { MonitoringDashboard } from '../features/monitoring/MonitoringDashboard';
 import {
   buildTeamContext,
@@ -32,6 +33,12 @@ import {
   type ServiceStatus,
 } from '../features/monitoring/model';
 import { requestMonitoringJson, sendMonitoringJson } from '../features/monitoring/api';
+import {
+  isMonitoringTab,
+  monitoringTabFromPath,
+  monitoringTabFromSearch,
+  monitoringTabRoute,
+} from '../features/monitoring/routes';
 import { fetchTeams } from '../features/teams/api';
 
 const WINDOW_OPTIONS = [
@@ -43,20 +50,6 @@ const WINDOW_OPTIONS = [
 
 const STATUS_OPTIONS = ['all', 'success', 'failure', 'running', 'cancelled', 'pending', 'waiting_approval'];
 const VIEW_STORAGE_KEY = 'nopsai.monitoring.view.v1';
-const MONITORING_TABS: readonly MonitoringTab[] = [
-  'overview',
-  'runs',
-  'pipelines',
-  'steps-tasks',
-  'triggers',
-  'external-triggers',
-  'runners',
-  'ai-usage',
-  'reliability',
-  'efficiency',
-  'security',
-];
-
 type MonitoringData = {
   summary: MonitoringSummary | null;
   runAnalytics: MonitoringRunAnalytics | null;
@@ -108,8 +101,13 @@ const emptyMonitoringData: MonitoringData = {
 };
 
 function MonitoringPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const savedView = useMemo(readSavedMonitoringView, []);
-  const linkedRunId = useMemo(readInitialMonitoringRunID, []);
+  const routeTab = useMemo(() => monitoringTabFromPath(location.pathname), [location.pathname]);
+  const legacySearchTab = useMemo(() => monitoringTabFromSearch(location.search), [location.search]);
+  const requestedRouteTab = routeTab ?? legacySearchTab;
+  const linkedRunId = useMemo(() => readInitialMonitoringRunID(location.search), [location.search]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [runners, setRunners] = useState<MonitoringRunner[]>([]);
@@ -134,7 +132,7 @@ function MonitoringPage() {
   const [statusFilter, setStatusFilter] = useState(savedView.statusFilter ?? 'all');
   const [comparePrevious, setComparePrevious] = useState(Boolean(savedView.comparePrevious));
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [activeTab, setActiveTab] = useState<MonitoringTab>(() => readInitialMonitoringTab(savedView.activeTab));
+  const [activeTab, setActiveTab] = useState<MonitoringTab>(() => routeTab ?? legacySearchTab ?? savedView.activeTab ?? 'overview');
   const [refreshedAt, setRefreshedAt] = useState<string>('');
   const [savedAt, setSavedAt] = useState<string>('');
   const [serverViewName, setServerViewName] = useState(savedView.activeTab ? `${savedView.activeTab} view` : 'Monitoring view');
@@ -296,8 +294,15 @@ function MonitoringPage() {
   }, [autoRefresh, loadMonitoringData]);
 
   useEffect(() => {
-    syncMonitoringTabToURL(activeTab);
-  }, [activeTab]);
+    if (!requestedRouteTab) return;
+    setActiveTab(current => current === requestedRouteTab ? current : requestedRouteTab);
+  }, [requestedRouteTab]);
+
+  useEffect(() => {
+    const target = monitoringTabRoute(activeTab, new URLSearchParams(location.search));
+    if (`${location.pathname}${location.search}` === target) return;
+    navigate(target, { replace: true, preventScrollReset: true });
+  }, [activeTab, location.pathname, location.search, navigate]);
 
   const teamContext = useMemo(() => buildTeamContext(teams), [teams]);
   const selectedTeamLabel = selectedTeamId === 'all' ? 'All accessible teams' : teamContext.labels.get(selectedTeamId) || 'Selected team';
@@ -861,36 +866,12 @@ function writeSavedMonitoringView(view: SavedMonitoringView) {
   localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(view));
 }
 
-function readInitialMonitoringTab(savedTab?: MonitoringTab): MonitoringTab {
-  const locationTab = readMonitoringTabFromLocation();
-  return locationTab ?? savedTab ?? 'overview';
-}
-
-function readMonitoringTabFromLocation(): MonitoringTab | null {
-  if (typeof window === 'undefined') return null;
-  const tab = new URLSearchParams(window.location.search).get('tab');
-  return isMonitoringTab(tab) ? tab : null;
-}
-
-function readInitialMonitoringRunID() {
-  if (typeof window === 'undefined') return '';
-  return (new URLSearchParams(window.location.search).get('runId') || '').trim();
-}
-
-function syncMonitoringTabToURL(tab: MonitoringTab) {
-  if (typeof window === 'undefined') return;
-  const url = new URL(window.location.href);
-  if (url.searchParams.get('tab') === tab) return;
-  url.searchParams.set('tab', tab);
-  window.history.replaceState(window.history.state, '', `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
+function readInitialMonitoringRunID(search: string) {
+  return (new URLSearchParams(search).get('runId') || '').trim();
 }
 
 function isMonitoringGitOpsManaged(item: { source?: string; managed_by_config_repo?: boolean }) {
   return Boolean(item.managed_by_config_repo || String(item.source || '').toLowerCase() === 'git');
-}
-
-function isMonitoringTab(value: string | null): value is MonitoringTab {
-  return MONITORING_TABS.includes(value as MonitoringTab);
 }
 
 function csvForMonitoringTab(activeTab: MonitoringTab, data: MonitoringData): string {

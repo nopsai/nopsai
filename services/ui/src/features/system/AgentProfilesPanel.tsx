@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Activity, Bot, Copy, Edit3, FileText, Plus, Power, RefreshCw, Trash2, X } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   agentProfileSourceLabel,
   type AgentProfileRecord,
@@ -25,6 +25,8 @@ import {
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
   aiResourceLocalName,
   aiResourceMatchesTeamFilter,
+  aiResourceRoute,
+  aiResourceSearchParamsForTeamFilter,
   aiResourceTeamFilterFromSearch,
   aiResourceTeamScope,
   buildAIResourceScopedID,
@@ -42,14 +44,31 @@ import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 
-function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
+type AgentProfilesPanelProps = {
+  canManage: boolean;
+  selectedProfileID?: string;
+  onSelectedProfileIDChange?: (profileID: string) => void;
+};
+
+function AgentProfilesPanel({
+  canManage,
+  selectedProfileID: controlledSelectedProfileID,
+  onSelectedProfileIDChange,
+}: AgentProfilesPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const location = useLocation();
+  const navigate = useNavigate();
   const requestedTeamFilter = useMemo(() => aiResourceTeamFilterFromSearch(location.search), [location.search]);
   const [searchTerm, setSearchTerm] = useState('');
   const [teamFilter, setTeamFilter] = useState(requestedTeamFilter);
   const [createTeamPath, setCreateTeamPath] = useState('');
-  const [selectedProfileID, setSelectedProfileID] = useState<string | null>(null);
+  const [uncontrolledSelectedProfileID, setUncontrolledSelectedProfileID] = useState('');
+  const selectedProfileID = controlledSelectedProfileID ?? uncontrolledSelectedProfileID;
+  const setSelectedProfileID = (profileID: string | null) => {
+    const nextProfileID = profileID || '';
+    if (onSelectedProfileIDChange) onSelectedProfileIDChange(nextProfileID);
+    else setUncontrolledSelectedProfileID(nextProfileID);
+  };
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
   const selectedTeamPath = useMemo(() => {
     if (teamFilter === AI_RESOURCE_TEAM_FILTER_ALL || teamFilter === AI_RESOURCE_TEAM_FILTER_GLOBAL) return '';
@@ -89,6 +108,11 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);
   }, [requestedTeamFilter]);
+
+  useEffect(() => {
+    if (!selectedProfileID) return;
+    setTeamFilter(aiResourceTreeFilterForResource(selectedProfileID));
+  }, [selectedProfileID]);
 
   useEffect(() => {
     void loadTeamProfiles(selectedTeamPath);
@@ -204,9 +228,13 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   };
   const openTeamFilter = (value: string) => {
     setTeamFilter(value);
-    setSelectedProfileID(null);
+    if (!onSelectedProfileIDChange) setUncontrolledSelectedProfileID('');
     setDeleteBlocker(null);
     setPanelMode(null);
+    navigate(
+      aiResourceRoute('/agent-profiles', '', aiResourceSearchParamsForTeamFilter(new URLSearchParams(location.search), value)),
+      { preventScrollReset: true }
+    );
   };
   const openCreate = () => {
     const initialTeamPath = selectedTeamPath;

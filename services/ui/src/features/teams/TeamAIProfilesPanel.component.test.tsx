@@ -85,7 +85,7 @@ describe('TeamAIProfilesPanel', () => {
     expect(screen.getByText('GitOps target: teams/platform/ai-profiles.yaml')).toBeVisible();
     expect(screen.getByRole('link', { name: 'LLM Profiles' })).toHaveAttribute('href', '/llm-profiles?team=platform');
     expect(screen.getByRole('link', { name: 'Agent Profiles' })).toHaveAttribute('href', '/agent-profiles?team=platform');
-    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp?team=platform&view=profiles');
+    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp/profiles?team=platform');
 
     const llmSection = screen.getByRole('region', { name: 'LLM profiles' });
     expect(within(llmSection).getByText('fast')).toBeVisible();
@@ -110,7 +110,7 @@ describe('TeamAIProfilesPanel', () => {
     expect(screen.getByText('Global profile defaults and tool access.')).toBeVisible();
     expect(screen.getByRole('link', { name: 'LLM Profiles' })).toHaveAttribute('href', '/llm-profiles?team=global');
     expect(screen.getByRole('link', { name: 'Agent Profiles' })).toHaveAttribute('href', '/agent-profiles?team=global');
-    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp?team=global&view=profiles');
+    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp/profiles?team=global');
     expect(screen.getByText('No global LLM profiles')).toBeVisible();
     expect(screen.getByText('No global agent profiles')).toBeVisible();
     expect(screen.getByText('No global MCP profiles')).toBeVisible();

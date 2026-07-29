@@ -94,7 +94,7 @@ test('formats, searches, and links run metadata', () => {
   assert.equal(formatRepoLabel(item), 'acme/api');
   assert.equal(formatBranchDisplay(item.git_ref, item.git_target_ref), 'feature -> main');
   assert.equal(buildPipelineLink(item), '/pipelines/platform/core/release');
-  assert.equal(buildRunMonitoringLink(item), '/monitoring?tab=ai-usage&runId=run-1');
+  assert.equal(buildRunMonitoringLink(item), '/monitoring/ai-usage?runId=run-1');
   assert.deepEqual(formatTriggerId('1234567890123456'), { display: '12345678', full: '1234567890123456' });
 });
 

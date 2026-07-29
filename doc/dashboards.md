@@ -442,7 +442,7 @@ focusing that indicator explains what happened and what to do next. Each
 section is one tab; selecting a tab renders only that section's cards, and the
 UI does not infer static categories
 such as release, monitoring, or activity from section names. Dashboard/tab URLs
-use `#/dashboards?dashboard=<dashboard-id>&tab=<section_key>` so each selected
+use `#/dashboards/<dashboard-id>?tab=<section_key>` so each selected
 dashboard section can be opened directly, copied, or shared. Refresh, schedule
 refresh, edit, Access, details, and delete actions stay grouped under the
 dashboard action menu so the primary screen remains focused on operational
