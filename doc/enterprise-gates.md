@@ -108,11 +108,13 @@ service except `services/ui`. This keeps frontend dependencies under
 `node_modules` outside Go package discovery. Docker Compose is reserved for the
 install/runtime stack and build-only service images.
 
-The gate itself has read-only repository permissions and never publishes PR
-artifacts to a registry. It uploads a release preview with the forecast version.
-Main-branch publication is owned by `.github/workflows/platform-release.yml`,
-which runs as a separate privileged workflow with job-scoped package and content
-permissions. See [release-bundles.md](./release-bundles.md).
+The local gate itself is read-only and never publishes artifacts to a registry.
+Main-branch publication is owned by
+`.nopsai/nopsai-platform-release.yaml`, which runs release metadata, backend
+quality gates, UI gates, container publication, Helm chart publication, CLI
+archive packaging, changelog generation, checksums, and GitHub Release
+publication as one GitOps-managed NopsAI pipeline. See
+[release-bundles.md](./release-bundles.md).
 
 Run the UI boundary gate from `services/ui` whenever a frontend change touches
 route pages, feature modules, hooks, or shared UI helpers:
@@ -147,7 +149,8 @@ Set `SKIP_DOCKER_BUILDS=1` when validating Go/lint/security gates without
 local Docker builds.
 
 Helm 3.17 or newer is required for release chart linting, packaging, and
-template validation. CI pins Helm 3.17.3 through `azure/setup-helm`.
+template validation. The `.nopsai` release pipeline installs Helm from
+`NOPSAI_RELEASE_HELM_VERSION`, defaulting to 3.17.3.
 
 `golangci-lint` must be built with the same Go major/minor version as the
 module target in `go.mod` or newer. If the local binary was built with an older
@@ -159,43 +162,38 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
 ## CI Gates
 
-`.github/workflows/enterprise-gates.yml` runs the same categories in CI:
+`.nopsai/nopsai-platform-release.yaml` is the GitOps-compatible CI and release
+workflow. It runs the same backend categories as the local gate before any
+publication step:
 
-- Go test, race test, vet, lint, gosec, and govulncheck
-- Go/UI license compatibility
-- Docker build checks for service images and the UI image
-- UI lint, boundary checks, unit/component tests, and production build
-- release-contract validation and a downloadable predicted/actual release
-  preview
+- `quality-gates` installs Helm plus pinned Go gate tools, then runs
+  `SKIP_DOCKER_BUILDS=1 scripts/enterprise-gates.sh` for Go tests, race tests,
+  release tooling, license compatibility, vet, lint, gosec, and govulncheck.
+- `ui-gates` runs in `node:22-alpine` and performs `npm ci`, lint, UI boundary
+  checks, unit/component tests, and the production build.
+- Docker build checks are enforced by the subsequent buildx publication stages,
+  which publish digest-pinned service, runner, socket-proxy, pipeline, and UI
+  images with SBOM and provenance metadata.
+- Helm lint/package, OCI chart publication, CLI archives, changelog, checksums,
+  and GitHub Release publication run only after backend, UI, and image gates
+  succeed.
 
-`.github/workflows/platform-release.yml` runs on pushes to `main` and manual
-dispatches for a selected `source_ref`. It validates release package contracts,
-publishes version-only GHCR tags and standalone CLI archives, publishes the
-versioned OCI Helm chart, and creates or recovers the changelog-backed GitHub
-Release only after every image, CLI target, and chart stage succeeds.
-
-`.github/workflows/ui-live-smoke.yml` provides the post-deployment UI gate. It
-can be called by a deployment workflow or dispatched manually against a
-protected GitHub environment. Configure that environment with:
-
-- variable `NOPS_UI_LIVE_BASE_URL`
-- secrets `NOPS_UI_LIVE_USERNAME` and `NOPS_UI_LIVE_PASSWORD`
-- secret `NOPS_UI_LIVE_PIPELINE_ID` for the optional mutation job
-
-The authentication job validates login, authorization-controlled navigation,
-and setup status. The mutation job only runs when explicitly enabled and
-round-trips a dedicated pipeline before starting a smoke run. Live CI fails
-closed for missing configuration, retains Playwright diagnostics on failure,
-and serializes runs per deployment environment.
+Post-deployment UI smoke coverage lives in `services/ui/e2e-live` and is run
+with `npm run test:e2e:live`, `npm run test:e2e:live:auth`, or
+`npm run test:e2e:live:mutation` from a deployment workflow or manual protected
+environment. Configure `NOPS_UI_LIVE_BASE_URL`, `NOPS_UI_LIVE_USERNAME`,
+`NOPS_UI_LIVE_PASSWORD`, and `NOPS_UI_LIVE_PIPELINE_ID` when mutation smoke is
+enabled. Live smoke fails closed for missing configuration and retains
+Playwright diagnostics on failure.
 
 Service Dockerfiles that depend on the base image accept `BASE_IMAGE`, so CI can
 build from the local `nopsai-base:ci` image instead of pulling a published base.
 AAA and agent images copy their binaries from that shared artifact path. The
 Docker socket proxy intentionally remains a separate scratch-based image because
 it exposes only the minimal read-only Docker API surface for System Logs.
-CI uses `golangci/golangci-lint-action@v7` and pins the `golangci-lint`
-binary to `v2.12.2`, which is built with a Go 1.26 toolchain and is compatible
-with the repository's `go 1.26.5` module target.
+The `.nopsai` quality gate pins `golangci-lint` to `v2.12.2`, `gosec` to
+`v2.27.1`, and `govulncheck` to `v1.6.0`, installing each with the Go 1.26.5
+toolchain from `golang:1.26.5-alpine`.
 
 ## Current Baseline Decision
 
