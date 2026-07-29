@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildPipelineGraphData,
+  filterVisiblePipelineList,
   formatPipelineGitRef,
   formatPipelineTriggerBranchField,
   formatPipelineTriggerEvent,
@@ -330,6 +331,27 @@ test('normalizes pipeline source labels', () => {
   assert.equal(normalizePipelineSource('GitOps'), 'git');
   assert.equal(normalizePipelineSource('draft'), 'draft');
   assert.equal(normalizePipelineSource('db'), 'database');
+});
+
+test('filters visible pipelines by all teams, selected team subtree, and search', () => {
+  const items = [
+    { id: 'platform/api/build' },
+    { id: 'platform/deploy' },
+    { id: 'sandbox/release' },
+  ];
+
+  assert.deepEqual(
+    filterVisiblePipelineList(items, '', '').map(item => item.id),
+    ['platform/api/build', 'platform/deploy', 'sandbox/release']
+  );
+  assert.deepEqual(
+    filterVisiblePipelineList(items, '', 'platform').map(item => item.id),
+    ['platform/api/build', 'platform/deploy']
+  );
+  assert.deepEqual(
+    filterVisiblePipelineList(items, 'build', 'sandbox').map(item => item.id),
+    ['platform/api/build']
+  );
 });
 
 test('formats pipeline activity presentation consistently', () => {

@@ -70,7 +70,12 @@ export const TASK_DIRECTIVES = [
   'variables',
 ];
 
-export type PipelineListItem = { id: string; source?: string };
+export type PipelineListItem = {
+  id: string;
+  source?: string;
+  version?: string;
+  updatedAt?: string;
+};
 
 export type PipelineDetail = {
   id: string;
@@ -85,6 +90,7 @@ export type PipelineDetail = {
   dependencyEdges: { from: string; to: string }[];
   containerImage?: string;
   source?: string;
+  updatedAt?: string;
 };
 
 export type PipelineGraphTaskDefinition = {
@@ -203,6 +209,21 @@ export function normalizePipelineSource(source?: string) {
   if (key.includes('draft')) return 'draft';
   if (key.includes('db')) return 'database';
   return key;
+}
+
+export function filterVisiblePipelineList(items: PipelineListItem[], searchTerm: string, activeTeam: string): PipelineListItem[] {
+  const query = searchTerm.trim().toLowerCase();
+  const normalizedTeam = normalizeRootPath(activeTeam);
+  const filtered = query ? items.filter(item => item.id.toLowerCase().includes(query)) : items;
+  const scoped = query || !normalizedTeam
+    ? filtered
+    : filtered.filter(item => pipelineListItemBelongsToTeam(item, normalizedTeam));
+  return [...scoped].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function pipelineListItemBelongsToTeam(item: PipelineListItem, normalizedTeam: string): boolean {
+  const resourcePath = normalizeRootPath(splitIdentifier(item.id).path);
+  return resourcePath === normalizedTeam || resourcePath.startsWith(`${normalizedTeam}/`);
 }
 
 export function formatPipelineRelativeTime(value?: string): string {
@@ -490,7 +511,7 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
   }
 }
 
-export function parsePipelineYaml(raw: string, id: string, source?: string): PipelineDetail {
+export function parsePipelineYaml(raw: string, id: string, source?: string, updatedAt?: string): PipelineDetail {
   let parsed: Record<string, unknown> | null = null;
   try {
     parsed = yaml.load(raw) as Record<string, unknown>;
@@ -538,5 +559,6 @@ export function parsePipelineYaml(raw: string, id: string, source?: string): Pip
     dependencyEdges,
     containerImage: safe((parsed as Record<string, unknown> | undefined)?.container_image ?? (parsed as Record<string, unknown> | undefined)?.containerImage),
     source,
+    updatedAt,
   };
 }

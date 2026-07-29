@@ -1,5 +1,7 @@
-import { Trash2 } from 'lucide-react';
-import { ObjectIcon } from '../../components/ObjectIcon';
+import { useMemo, type ReactNode } from 'react';
+import { ArrowRight, Trash2 } from 'lucide-react';
+import { ResourceCollectionWorkspace, type ResourceCollectionTreeNode } from '../editor/ResourceCollectionWorkspace';
+import { formatResourceListUpdatedAt } from '../editor/resourceCollectionModel';
 import type { StepListItem } from './api';
 import { normalizeSource, splitIdentifier } from './model';
 
@@ -15,8 +17,8 @@ type StepCollectionListProps = {
   listLoading: boolean;
   listError: string | null;
   visibleSteps: StepListItem[];
-  activeTeamNode: StepTreeNode;
-  searchTerm: string;
+  treeRoot: StepTreeNode;
+  activeTeam: string;
   canCreateStepHere: boolean;
   canUseStepDrafts: boolean;
   canDeleteSteps: boolean;
@@ -29,8 +31,8 @@ export function StepCollectionList({
   listLoading,
   listError,
   visibleSteps,
-  activeTeamNode,
-  searchTerm,
+  treeRoot,
+  activeTeam,
   canCreateStepHere,
   canUseStepDrafts,
   canDeleteSteps,
@@ -38,54 +40,147 @@ export function StepCollectionList({
   onOpenTeam,
   onDeleteStep,
 }: StepCollectionListProps) {
+  const resourceTreeRoot = useMemo(() => toResourceCollectionTreeNode(treeRoot), [treeRoot]);
+  const emptyMessage = canCreateStepHere ? 'Create a new step or adjust your filters.' : 'Adjust your filters or check your access.';
+
+  if (listLoading) {
+    return (
+      <StepWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
+        <ResourcePanel title="Reusable steps" countLabel="Loading"><div className="pipeline-runs-empty-state">Loading steps...</div></ResourcePanel>
+      </StepWorkspace>
+    );
+  }
+
+  if (listError) {
+    return (
+      <StepWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
+        <ResourcePanel title="Reusable steps" countLabel="Error"><div className="pipeline-runs-empty-state text-red-500">Failed to load steps: {listError}</div></ResourcePanel>
+      </StepWorkspace>
+    );
+  }
+
   return (
-    <div id="steps-list-view" className="pipelines-view">
-      <div className="space-y-3">
-        {listLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading steps...</div>
-        ) : listError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load steps: {listError}</div>
-        ) : (
-          <>
-            {visibleSteps.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines">
-                {visibleSteps.map(item => (
-                  <StepCard
-                    key={item.id}
-                    item={item}
-                    canUseStepDrafts={canUseStepDrafts}
-                    canDeleteSteps={canDeleteSteps}
-                    onSelectStep={onSelectStep}
-                    onDeleteStep={onDeleteStep}
-                  />
-                ))}
-              </div>
-            ) : null}
-
-            {searchTerm.trim() ? null : activeTeamNode.children.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {activeTeamNode.children.map(child => (
-                  <StepTeamCard key={`team-${child.id}`} node={child} onOpenTeam={onOpenTeam} />
-                ))}
-              </div>
-            ) : null}
-
-            {!visibleSteps.length && !activeTeamNode.children.length && (
-              <div id="steps-empty" className="pipelines-empty">
-                <h3 className="text-base font-semibold text-[var(--text-primary)]">No steps found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {canCreateStepHere ? 'Create a new step or adjust your filters.' : 'Adjust your filters or check your access.'}
-                </p>
-              </div>
-            )}
-          </>
-        )}
+    <StepWorkspace treeRoot={resourceTreeRoot} activeTeam={activeTeam} onOpenTeam={onOpenTeam}>
+      <div id="steps-list-view" className="pipelines-view pipeline-runs-content-grid">
+        <ResourcePanel title="Reusable steps" countLabel={`${visibleSteps.length} visible`}>
+          {visibleSteps.length ? (
+            <StepTable
+              steps={visibleSteps}
+              canUseStepDrafts={canUseStepDrafts}
+              canDeleteSteps={canDeleteSteps}
+              onSelectStep={onSelectStep}
+              onDeleteStep={onDeleteStep}
+            />
+          ) : (
+            <div id="steps-empty" className="pipeline-runs-empty-state">
+              <h3 className="text-base font-semibold text-[var(--text-primary)]">No steps found</h3>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">{emptyMessage}</p>
+            </div>
+          )}
+        </ResourcePanel>
       </div>
+    </StepWorkspace>
+  );
+}
+
+function StepWorkspace({
+  treeRoot,
+  activeTeam,
+  onOpenTeam,
+  children,
+}: {
+  treeRoot: ResourceCollectionTreeNode;
+  activeTeam: string;
+  onOpenTeam: (path: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <ResourceCollectionWorkspace
+      treeTitle="Teams"
+      rootLabel="All teams"
+      searchLabel="Search step teams"
+      searchPlaceholder="Find team"
+      emptyLabel="No step teams found."
+      activePath={activeTeam}
+      rootNode={treeRoot}
+      resizeStorageKey="steps"
+      resizeLabel="Resize step team tree"
+      onOpenPath={onOpenTeam}
+    >
+      {children}
+    </ResourceCollectionWorkspace>
+  );
+}
+
+function ResourcePanel({
+  title,
+  countLabel,
+  children,
+}: {
+  title: string;
+  countLabel: string;
+  children: ReactNode;
+}) {
+  const titleID = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-title`;
+  return (
+    <section className="pipeline-runs-panel resource-collection-panel" aria-labelledby={titleID}>
+      <header className="pipeline-runs-panel-head">
+        <div className="pipeline-runs-panel-title">
+          <h2 id={titleID}>{title}</h2>
+          <span>{countLabel}</span>
+        </div>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function StepTable({
+  steps,
+  canUseStepDrafts,
+  canDeleteSteps,
+  onSelectStep,
+  onDeleteStep,
+}: {
+  steps: StepListItem[];
+  canUseStepDrafts: boolean;
+  canDeleteSteps: boolean;
+  onSelectStep: (id: string) => void;
+  onDeleteStep: (id: string, name: string) => void;
+}) {
+  return (
+    <div className="pipeline-runs-table-wrap">
+      <table className="pipeline-runs-table resource-collection-table resource-collection-table--steps" data-testid="steps-resource-table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Step</th>
+            <th>Team</th>
+            <th>Updated</th>
+            <th>Identifier</th>
+            <th>
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {steps.map(item => (
+            <StepRow
+              key={item.id}
+              item={item}
+              canUseStepDrafts={canUseStepDrafts}
+              canDeleteSteps={canDeleteSteps}
+              onSelectStep={onSelectStep}
+              onDeleteStep={onDeleteStep}
+            />
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function StepCard({
+function StepRow({
   item,
   canUseStepDrafts,
   canDeleteSteps,
@@ -101,74 +196,69 @@ function StepCard({
   const { name, path } = splitIdentifier(item.id);
   const source = normalizeSource(item.source);
   const canDeleteThisStep = source === 'draft' ? canUseStepDrafts : canDeleteSteps && source !== 'git';
+  const displayName = name || item.id;
+  const updatedLabel = formatResourceListUpdatedAt(item.updatedAt);
 
   return (
-    <article className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4" onClick={() => onSelectStep(item.id)}>
-      <div className="pipeline-card-header">
-        <div className="pipeline-card-info">
-          <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="step" />
-          </span>
-          <div className="pipeline-card-text">
-            <h3 className="pipeline-card-title">{name || item.id}</h3>
-            <p className="pipeline-card-path">{path || 'root'}</p>
-            <p className="pipeline-card-description">Reusable workflow step.</p>
-          </div>
-        </div>
-        <div className="pipeline-card-actions">
+    <tr>
+      <td>
+        <ResourceSourcePill source={source} />
+      </td>
+      <td>
+        <button type="button" className="pipeline-runs-table-title" onClick={() => onSelectStep(item.id)}>
+          <span title={displayName}>{displayName}</span>
+          <small>Reusable workflow step</small>
+        </button>
+      </td>
+      <td>
+        <span className="pipeline-runs-mono">{path || 'root'}</span>
+      </td>
+      <td className="pipeline-runs-mono">{updatedLabel}</td>
+      <td className="pipeline-runs-mono">{item.id}</td>
+      <td>
+        <div className="pipeline-runs-row-actions">
           {canDeleteThisStep ? (
             <button
               type="button"
-              className="pipelines-delete-button"
+              className="pipeline-runs-icon-button pipeline-runs-icon-button--danger"
               title={source === 'draft' ? 'Discard draft' : 'Delete step'}
-              onClick={event => {
-                event.stopPropagation();
-                onDeleteStep(item.id, name || item.id);
-              }}
-              aria-label={source === 'draft' ? 'Discard draft step' : 'Delete step'}
+              onClick={() => onDeleteStep(item.id, displayName)}
+              aria-label={source === 'draft' ? `Discard draft step ${displayName}` : `Delete step ${displayName}`}
             >
               <Trash2 className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
+          <button
+            type="button"
+            className="pipeline-runs-icon-button"
+            onClick={() => onSelectStep(item.id)}
+            aria-label={`Open step ${displayName}`}
+          >
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-      </div>
-      <div className="pipeline-card-meta">
-        <div className="pipeline-card-meta-row">
-          <span className="pipeline-card-meta-label">Source</span>
-          <span className="pipeline-card-meta-value">{source}</span>
-        </div>
-      </div>
-    </article>
+      </td>
+    </tr>
   );
 }
 
-function StepTeamCard({ node, onOpenTeam }: { node: StepTreeNode; onOpenTeam: (path: string) => void }) {
+function ResourceSourcePill({ source }: { source: 'git' | 'database' | 'draft' }) {
+  const label = source === 'git' ? 'GitOps' : source === 'draft' ? 'Draft' : 'Database';
+  const status = source === 'git' ? 'success' : source === 'draft' ? 'waiting' : 'pending';
   return (
-    <article
-      className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onOpenTeam(node.fullPath)}
-    >
-      <div className="pipeline-card-header">
-        <div className="pipeline-card-info">
-          <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="team" />
-          </span>
-          <div className="pipeline-card-text">
-            <h3 className="pipeline-card-title">{node.name}</h3>
-          </div>
-        </div>
-        <span className="pipeline-team-chevron">›</span>
-      </div>
-      <div className="pipeline-team-meta">
-        <div className="pipeline-team-meta-row">
-          <span className="pipeline-card-meta-label">Steps:</span>
-          <span className="pipeline-card-meta-value">{node.stepIds.length}</span>
-        </div>
-        <div className="pipeline-team-meta-row">
-          <span className="pipeline-card-meta-label">Sub teams:</span>
-          <span className="pipeline-card-meta-value">{node.children.length}</span>
-        </div>
-      </div>
-    </article>
+    <span className={`pipeline-runs-status pipeline-runs-status-${status}`}>
+      <span aria-hidden="true" />
+      {label}
+    </span>
   );
+}
+
+function toResourceCollectionTreeNode(node: StepTreeNode): ResourceCollectionTreeNode {
+  return {
+    id: node.id,
+    name: node.name,
+    fullPath: node.fullPath,
+    resourceIds: node.stepIds,
+    children: node.children.map(toResourceCollectionTreeNode),
+  };
 }
