@@ -5,7 +5,7 @@ import {
   normalizeScheduleKind,
   normalizeScopeOption,
   type PipelineSchedule,
-} from './model';
+} from './model.js';
 
 export function sourceLabel(source?: string) {
   const normalized = (source || '').trim().toLowerCase();

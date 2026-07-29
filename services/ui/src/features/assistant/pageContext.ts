@@ -465,7 +465,12 @@ function normalizePath(value: string) {
 }
 
 function normalizePathValue(value: string) {
-  return trimContextValue(value).replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
+  const trimmed = trimContextValue(value);
+  const schemeMatch = trimmed.match(/^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i);
+  if (schemeMatch) {
+    return `${schemeMatch[1].toLowerCase()}${schemeMatch[2].replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '')}`;
+  }
+  return trimmed.replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
 }
 
 function normalizePathSegment(value: string) {

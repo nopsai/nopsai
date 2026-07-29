@@ -108,7 +108,7 @@ test('shows source details after selecting a row from the list route', async () 
   await user.click(screen.getByRole('button', { name: 'GitLab Platform' }));
 
   await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/git-webhook-sources/gitlab/platform'));
-  expect(await screen.findByText(/\/v1\/git\/webhooks\/gitlab\/platform$/)).toBeVisible();
+  expect(await screen.findByText(/\/v1\/git\/webhooks\/gitlab%2Fplatform$/)).toBeVisible();
   expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
 });
 

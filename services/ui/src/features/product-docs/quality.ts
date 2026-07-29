@@ -41,7 +41,7 @@ export const documentationSections: DocumentationSection[] = wikiSections.map(se
 export function normalizeArticle(article: WikiArticle): DocumentationArticle {
   return {
     ...article,
-    configRows: article.configRows.map(normalizeField),
+    configRows: uniquifyFieldAnchors(article.configRows.map(normalizeField)),
     sourceLinks: article.sourceLinks.map(normalizeSource),
     runbookEntries: article.runbookEntries.map(normalizeRunbook),
     metadata: {
@@ -51,6 +51,16 @@ export function normalizeArticle(article: WikiArticle): DocumentationArticle {
       sourceCommit: documentationMetadata.repositoryBranch,
     },
   };
+}
+
+function uniquifyFieldAnchors(fields: DocumentationField[]): DocumentationField[] {
+  const counts = new Map<string, number>();
+  return fields.map(field => {
+    const count = counts.get(field.anchor) || 0;
+    counts.set(field.anchor, count + 1);
+    if (count === 0) return field;
+    return { ...field, anchor: `${field.anchor}-${count + 1}` };
+  });
 }
 
 export function normalizeField(row: WikiConfigRow): DocumentationField {

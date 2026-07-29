@@ -24,6 +24,9 @@ const emptyPool = (): RuntimePoolConfig => ({
 export function RuntimePoolsEditor({ value, metadata, disabled, onChange }: RuntimePoolsEditorProps) {
   const pools = value || {};
   const poolNames = sortPoolNames(Object.keys(pools));
+  const [selectedPoolName, setSelectedPoolName] = useState('');
+  const activePoolName = poolNames.includes(selectedPoolName) ? selectedPoolName : poolNames[0] || '';
+  const activePool = activePoolName ? pools[activePoolName] || emptyPool() : null;
 
   const updatePool = (name: string, pool: RuntimePoolConfig) => {
     onChange({ ...pools, [name]: pool });
@@ -32,6 +35,7 @@ export function RuntimePoolsEditor({ value, metadata, disabled, onChange }: Runt
   const addPool = () => {
     const nextName = nextPoolName(pools);
     onChange({ ...pools, [nextName]: emptyPool() });
+    setSelectedPoolName(nextName);
   };
 
   const renamePool = (currentName: string, nextName: string) => {
@@ -42,6 +46,7 @@ export function RuntimePoolsEditor({ value, metadata, disabled, onChange }: Runt
     delete next[currentName];
     next[nextName] = pool;
     onChange(next);
+    setSelectedPoolName(nextName);
     return true;
   };
 
@@ -49,13 +54,15 @@ export function RuntimePoolsEditor({ value, metadata, disabled, onChange }: Runt
     const next = { ...pools };
     delete next[name];
     onChange(next);
+    const remainingPoolName = sortPoolNames(Object.keys(next))[0] || '';
+    setSelectedPoolName(remainingPoolName);
   };
 
   return (
-    <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="system-settings-card system-settings-card--tool system-settings-runtime-pools">
+      <div className="system-settings-card__toolbar system-settings-card__toolbar--compact">
         <div>
-          <p className="text-xs text-[var(--text-secondary)]">Kubernetes scheduling</p>
+          <p className="system-settings-card__eyebrow">Kubernetes scheduling</p>
           <h3 className="text-lg font-semibold text-[var(--text-primary)]">
             <span className="inline-flex flex-wrap items-center gap-2">
               <span>Runtime pools</span>
@@ -65,7 +72,7 @@ export function RuntimePoolsEditor({ value, metadata, disabled, onChange }: Runt
         </div>
         <button
           type="button"
-          className="glass-button-subtle self-start"
+          className="glass-button-subtle"
           onClick={addPool}
           disabled={disabled}
         >
@@ -74,22 +81,44 @@ export function RuntimePoolsEditor({ value, metadata, disabled, onChange }: Runt
       </div>
 
       {!poolNames.length ? (
-        <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+        <div className="system-settings-inline-alert system-settings-inline-alert--empty">
           No runtime pools configured. Kubernetes runners use their default scheduling.
         </div>
       ) : (
-        <div className="space-y-3">
-          {poolNames.map(name => (
+        <div className="system-settings-runtime-pool-workbench">
+          <div className="system-settings-runtime-pool-list" aria-label="Runtime pools">
+            {poolNames.map(name => {
+              const pool = pools[name] || emptyPool();
+              const ruleCount = runtimePoolRuleCount(pool);
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={`system-settings-runtime-pool-item ${activePoolName === name ? 'is-active' : ''}`}
+                  onClick={() => setSelectedPoolName(name)}
+                  aria-pressed={activePoolName === name}
+                  aria-label={`Edit runtime pool ${name}`}
+                >
+                  <span>
+                    <strong>{name}</strong>
+                    <small>{runtimePoolSummary(pool)}</small>
+                  </span>
+                  <em>{ruleCount === 1 ? '1 rule' : `${ruleCount} rules`}</em>
+                </button>
+              );
+            })}
+          </div>
+          {activePool && (
             <RuntimePoolSection
-              key={name}
-              name={name}
-              pool={pools[name] || emptyPool()}
+              key={activePoolName}
+              name={activePoolName}
+              pool={activePool}
               disabled={disabled}
-              onRename={nextName => renamePool(name, nextName)}
-              onRemove={() => removePool(name)}
-              onChange={pool => updatePool(name, pool)}
+              onRename={nextName => renamePool(activePoolName, nextName)}
+              onRemove={() => removePool(activePoolName)}
+              onChange={pool => updatePool(activePoolName, pool)}
             />
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -149,10 +178,10 @@ function RuntimePoolSection({
   };
 
   return (
-    <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Pool name</span>
+    <section className="system-settings-runtime-pool-detail" aria-label={`Runtime pool ${name}`}>
+      <div className="system-settings-runtime-pool__header">
+        <label className="system-settings-field">
+          <span className="system-settings-field__label">Pool name</span>
           <input
             type="text"
             className="pipelines-input"
@@ -169,7 +198,7 @@ function RuntimePoolSection({
         </label>
         <button
           type="button"
-          className="glass-button-danger justify-center"
+          className="glass-button-danger"
           onClick={onRemove}
           disabled={disabled}
         >
@@ -177,33 +206,35 @@ function RuntimePoolSection({
         </button>
       </div>
 
-      <RuntimePoolMapEditor
-        poolName={name}
-        title="Node selector"
-        keyPlaceholder="node-class"
-        valuePlaceholder="memory"
-        value={pool.node_selector || {}}
-        disabled={disabled}
-        onChange={next => updateMap('node_selector', next)}
-      />
-      <RuntimePoolMapEditor
-        poolName={name}
-        title="Resource requests"
-        keyPlaceholder="memory"
-        valuePlaceholder="4Gi"
-        value={pool.resources?.requests || {}}
-        disabled={disabled}
-        onChange={next => updateMap('requests', next)}
-      />
-      <RuntimePoolMapEditor
-        poolName={name}
-        title="Resource limits"
-        keyPlaceholder="memory"
-        valuePlaceholder="16Gi"
-        value={pool.resources?.limits || {}}
-        disabled={disabled}
-        onChange={next => updateMap('limits', next)}
-      />
+      <div className="system-settings-runtime-map-grid">
+        <RuntimePoolMapEditor
+          poolName={name}
+          title="Node selector"
+          keyPlaceholder="node-class"
+          valuePlaceholder="memory"
+          value={pool.node_selector || {}}
+          disabled={disabled}
+          onChange={next => updateMap('node_selector', next)}
+        />
+        <RuntimePoolMapEditor
+          poolName={name}
+          title="Resource requests"
+          keyPlaceholder="memory"
+          valuePlaceholder="4Gi"
+          value={pool.resources?.requests || {}}
+          disabled={disabled}
+          onChange={next => updateMap('requests', next)}
+        />
+        <RuntimePoolMapEditor
+          poolName={name}
+          title="Resource limits"
+          keyPlaceholder="memory"
+          valuePlaceholder="16Gi"
+          value={pool.resources?.limits || {}}
+          disabled={disabled}
+          onChange={next => updateMap('limits', next)}
+        />
+      </div>
     </section>
   );
 }
@@ -252,12 +283,12 @@ function RuntimePoolMapEditor({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">{title}</p>
+    <div className="system-settings-runtime-map">
+      <div className="system-settings-runtime-map__header">
+        <p>{title}</p>
         <button
           type="button"
-          className="glass-button-ghost px-3 py-1 text-xs"
+          className="glass-button-ghost"
           onClick={addRow}
           disabled={disabled}
           aria-label={`Add ${title.toLowerCase()} to ${poolName}`}
@@ -267,11 +298,11 @@ function RuntimePoolMapEditor({
       </div>
 
       {!entries.length ? (
-        <p className="text-xs text-[var(--text-secondary)]">No {title.toLowerCase()} configured.</p>
+        <p className="system-settings-muted">No {title.toLowerCase()} configured.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="system-settings-runtime-map__rows">
           {entries.map(([key, mapValue], index) => (
-            <div key={`${poolName}-${title}-${index}`} className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+            <div key={`${poolName}-${title}-${index}`} className="system-settings-runtime-map__row">
               <input
                 type="text"
                 className="pipelines-input"
@@ -292,7 +323,7 @@ function RuntimePoolMapEditor({
               />
               <button
                 type="button"
-                className="glass-button-ghost justify-center"
+                className="glass-button-ghost"
                 onClick={() => removeRow(key)}
                 disabled={disabled}
                 aria-label={`Remove ${poolName} ${title} row ${index + 1}`}
@@ -331,4 +362,19 @@ function sortPoolNames(names: string[]) {
     if (b === 'default' && a !== 'default') return 1;
     return a.localeCompare(b);
   });
+}
+
+function runtimePoolRuleCount(pool: RuntimePoolConfig) {
+  return (
+    Object.keys(pool.node_selector || {}).length +
+    Object.keys(pool.resources?.requests || {}).length +
+    Object.keys(pool.resources?.limits || {}).length
+  );
+}
+
+function runtimePoolSummary(pool: RuntimePoolConfig) {
+  const selectors = Object.keys(pool.node_selector || {}).length;
+  const requests = Object.keys(pool.resources?.requests || {}).length;
+  const limits = Object.keys(pool.resources?.limits || {}).length;
+  return `${selectors} selectors / ${requests} requests / ${limits} limits`;
 }

@@ -39,8 +39,11 @@ browser profile or Playwright before changing UI listener code. See
 - `src/app/useInitialSetupRedirect.ts` owns first-install setup routing.
 - `src/app/runSidebarApi.ts` and `src/app/usePipelineRunsSidebar.ts` own run-sidebar transport, caching, pagination, expansion, active-run synchronization, polling, and tested failure fallbacks.
 - `src/features/system/api.ts` centralizes System-area JSON API behavior on top of `apiClient`.
+- `src/features/system/config` owns the Settings Config workspace presentation,
+  runtime config model/API/hook orchestration, notification mail settings, and
+  global config repository sync/drift/write-back controls.
 - `src/features/system/access` owns Access entity loading, user/service-account/role/policy catalogs, token workflows, destructive confirmations, resource catalogs, mutations, form state, the shared basic-grant editor/reconciliation model, focused policy-rule rendering/normalization, and role presentation. Basic grants keep the API value `root` but label that target as Global in the UI.
-- `src/features/system/dispatcher` owns Dispatcher status, polling, runner actions, deployment scopes, install-template generation, private registry credential selection for runner installs, and guide state.
+- `src/features/system/dispatcher` owns Dispatcher status, polling, runner actions, live routing operations, deployment scopes, install-template generation, private registry credential selection for runner installs, and guide state.
 - `src/features/schedules`, `knowledge-context`, `triggers`, and `scopes` own their workflow models, metadata/usage loading, and API clients.
 - `src/features/scopes/ScopeUsagePanel.tsx`, `scopes/ScopeWorkflowModals.tsx`, `triggers/TriggerRecentRuns.tsx`, `triggers/TriggerWorkflowModals.tsx`, `lab/LabRunControls.tsx`, `lab/LabVariableOverrides.tsx`, `lab/LabDependencyPanel.tsx`, and `editor/ResourceWorkflowModals.tsx` own focused workflow rendering delegated by the remaining editor pages.
 - Feature hooks under `pipelines/`, `steps/`, `triggers/`, and `scopes/` own request-keyed permission orchestration; `lab/useLabRunAuthorization.ts` owns dependency discovery and debounced run authorization.

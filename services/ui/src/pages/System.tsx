@@ -116,6 +116,7 @@ function SystemPage({
           canManageRuntimeConfig={permissions.canManageRuntimeConfig}
           canViewGlobalConfigRepo={permissions.canViewGlobalConfigRepo}
           canManageGlobalConfigRepo={permissions.canManageGlobalConfigRepo}
+          canViewDispatcher={permissions.canViewDispatcher}
         />
       )}
       {visibleTab === 'setup' && (

@@ -62,7 +62,8 @@ test('adds, renames, and removes runtime pools', async () => {
   await user.click(screen.getByRole('button', { name: 'Add runtime pool' }));
   await user.click(screen.getByLabelText('Runtime pool name pool-1'));
   await user.keyboard('{Control>}a{/Control}high-memory{Enter}');
-  await user.click(screen.getAllByRole('button', { name: 'Remove pool' })[0]);
+  await user.click(screen.getByRole('button', { name: 'Edit runtime pool default' }));
+  await user.click(screen.getByRole('button', { name: 'Remove pool' }));
 
   expect(screen.getByTestId('runtime-pools-state')).toHaveTextContent(
     JSON.stringify({
