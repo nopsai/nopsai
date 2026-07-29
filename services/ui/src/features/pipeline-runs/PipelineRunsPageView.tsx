@@ -187,7 +187,7 @@ export function PipelineRunsPageView({
 
   return (
     <div data-page="pipelineruns" className="active h-full min-h-0 flex flex-col overflow-hidden">
-      <div className="px-6 pt-6 flex-shrink-0 tabs-nav-wrapper">
+      <div className={`${isViewingDetail ? 'px-6 pt-4' : 'px-6 pt-6'} flex-shrink-0 tabs-nav-wrapper`}>
         <div className="border-b border-[var(--border-primary)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <nav className="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
@@ -297,7 +297,7 @@ export function PipelineRunsPageView({
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        <main id="main-content-runs" ref={mainContentRef} className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-6 space-y-4">
+        <main id="main-content-runs" ref={mainContentRef} className={`pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto ${activeRunId ? 'p-4 space-y-3' : 'p-6 space-y-4'}`}>
           {activeRunId ? (
             runDetail ? (
               <RunDetailView

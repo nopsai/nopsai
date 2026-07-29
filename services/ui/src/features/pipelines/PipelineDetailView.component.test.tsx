@@ -5,8 +5,23 @@ import { expect, test, vi } from 'vitest';
 import { PipelineDetailView } from './PipelineDetailView';
 
 vi.mock('../pipeline-runs/RunGraph', () => ({
-  StepsGraph: ({ steps, onSelectStep }: { steps: Array<{ name: string }>; onSelectStep: (step: string | null) => void }) => (
-    <button type="button" onClick={() => onSelectStep(steps[0]?.name || null)}>
+  StepsGraph: ({
+    steps,
+    onSelectStep,
+    presentation,
+    ariaLabel,
+  }: {
+    steps: Array<{ name: string }>;
+    onSelectStep: (step: string | null) => void;
+    presentation?: string;
+    ariaLabel?: string;
+  }) => (
+    <button
+      type="button"
+      data-aria-label={ariaLabel}
+      data-presentation={presentation}
+      onClick={() => onSelectStep(steps[0]?.name || null)}
+    >
       Graph with {steps.length} steps
     </button>
   ),
@@ -126,13 +141,12 @@ test('keeps pipeline detail actions and tab callbacks wired after redesign', asy
   render(<PipelineDetailView {...props} />);
 
   expect(screen.getByRole('heading', { name: 'release' })).toBeVisible();
-  expect(screen.getByText('Graph with 2 steps')).toBeVisible();
+  expect(screen.queryByLabelText('Pipeline summary')).not.toBeInTheDocument();
+  expect(screen.getByText('Graph with 2 steps')).toHaveAttribute('data-presentation', 'embedded');
+  expect(screen.getByText('Graph with 2 steps')).toHaveAttribute('data-aria-label', 'Pipeline graph');
 
   await user.click(screen.getByRole('button', { name: 'Execute' }));
   expect(props.onExecute).toHaveBeenCalledTimes(1);
-
-  await user.click(screen.getByTitle('Open platform/build-base'));
-  expect(props.onOpenDependency).toHaveBeenCalledWith('platform/build-base');
 
   await user.click(screen.getByRole('button', { name: 'Edit' }));
   expect(props.onEdit).toHaveBeenCalledTimes(1);
@@ -150,6 +164,8 @@ test('keeps pipeline detail actions and tab callbacks wired after redesign', asy
   expect(props.onOpenRun).toHaveBeenCalledWith('run-123456789');
 
   await user.click(screen.getByRole('tab', { name: /Dependencies/ }));
+  await user.click(screen.getByTitle('Open platform/build-base'));
+  expect(props.onOpenDependency).toHaveBeenCalledWith('platform/build-base');
   await user.click(screen.getByTitle('Copy shared/notify'));
   expect(props.onCopyDependency).toHaveBeenCalledWith('shared/notify');
 });

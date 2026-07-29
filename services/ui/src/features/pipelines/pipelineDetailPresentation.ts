@@ -1,14 +1,6 @@
 import type { AnalysisFinding, AnalysisResult, AnalysisSeverity } from '../analysis/model.js';
-import type { PipelineRun, PipelineTrigger } from './api.js';
+import type { PipelineRun } from './api.js';
 import { formatPipelineGitRef, normalizePipelineSource, pipelineRunStatusLabel, type PipelineDetail, type PipelineGraphData } from './model.js';
-
-export type PipelineDetailMetric = {
-  id: 'steps' | 'tasks' | 'triggers' | 'runs' | 'health';
-  label: string;
-  value: string;
-  detail: string;
-  tone: 'neutral' | 'success' | 'warning' | 'danger';
-};
 
 export type PipelineDetailSourceState = {
   label: string;
@@ -75,69 +67,6 @@ export function countPipelineGraphTasks(graphData: PipelineGraphData): number {
     }
     return total;
   }, 0);
-}
-
-export function buildPipelineDetailMetrics({
-  graphData,
-  triggers,
-  recentRuns,
-  analysis,
-  validationErrorCount,
-}: {
-  graphData: PipelineGraphData;
-  triggers: PipelineTrigger[];
-  recentRuns: PipelineRun[];
-  analysis: AnalysisResult | null;
-  validationErrorCount: number;
-}): PipelineDetailMetric[] {
-  const blockingFindings = analysis
-    ? analysis.findings.filter(finding => finding.severity === 'critical' || finding.severity === 'high').length
-    : 0;
-  return [
-    {
-      id: 'steps',
-      label: 'Steps',
-      value: String(graphData.steps.length),
-      detail: graphData.error ? 'Graph issue' : 'Executable graph nodes',
-      tone: graphData.error ? 'danger' : 'neutral',
-    },
-    {
-      id: 'tasks',
-      label: 'Tasks',
-      value: String(countPipelineGraphTasks(graphData)),
-      detail: 'Step and task work units',
-      tone: 'neutral',
-    },
-    {
-      id: 'triggers',
-      label: 'Trigger Rules',
-      value: String(triggers.length),
-      detail: triggers.length === 1 ? 'Automation binding' : 'Automation bindings',
-      tone: triggers.length ? 'success' : 'warning',
-    },
-    {
-      id: 'runs',
-      label: 'Recent Runs',
-      value: String(recentRuns.length),
-      detail: 'Loaded run history',
-      tone: recentRuns.length ? 'success' : 'neutral',
-    },
-    {
-      id: 'health',
-      label: 'Health',
-      value: analysis ? `${analysis.healthScore}` : '—',
-      detail: validationErrorCount
-        ? `${validationErrorCount} validation issue${validationErrorCount === 1 ? '' : 's'}`
-        : blockingFindings
-          ? `${blockingFindings} blocking finding${blockingFindings === 1 ? '' : 's'}`
-          : 'Current snapshot',
-      tone: validationErrorCount || blockingFindings
-        ? 'danger'
-        : analysis && analysis.healthScore >= 85
-          ? 'success'
-          : 'warning',
-    },
-  ];
 }
 
 export function buildPipelineDetailHealthSummary(analysis: AnalysisResult | null): PipelineDetailHealthSummary {

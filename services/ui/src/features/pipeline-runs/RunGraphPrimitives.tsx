@@ -286,8 +286,8 @@ export function TaskRevealContext({
   const lastTasks = lastTaskNodes(layout);
   const upstream = context.upstream[0] || null;
   const downstream = context.downstream[0] || null;
-  const upstreamBox = upstream ? { x: 18, y: 236, width: 154, height: 64 } : null;
-  const downstreamBox = downstream ? { x: 1048, y: 236, width: 154, height: 64 } : null;
+  const upstreamBox = upstream ? { x: 18, y: 158, width: 154, height: 64 } : null;
+  const downstreamBox = downstream ? { x: 1048, y: 158, width: 154, height: 64 } : null;
 
   return (
     <>

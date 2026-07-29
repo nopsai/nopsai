@@ -1,22 +1,13 @@
 import type { KeyboardEvent, ReactElement, ReactNode, RefObject, UIEvent } from 'react';
-import { Activity, GitBranch, Layers3, Network, ShieldCheck } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import type { PipelineAnalysisScope } from '../analysis/model';
 import { analysisCategoryLabel, type AnalysisFinding } from '../analysis/model';
-import { formatPipelineDetailPath, formatPipelineDetailSource, type PipelineDetailMetric } from './pipelineDetailPresentation';
+import { formatPipelineDetailPath, formatPipelineDetailSource } from './pipelineDetailPresentation';
 import type { PipelineDependencyReference, PipelineDetail } from './model';
 
 export type DetailTabID = 'flow' | 'definition' | 'triggers' | 'runs' | 'health' | 'dependencies';
-
-const metricIcons: Record<PipelineDetailMetric['id'], typeof Network> = {
-  steps: Network,
-  tasks: Layers3,
-  triggers: GitBranch,
-  runs: Activity,
-  health: ShieldCheck,
-};
 
 export function MetaItem({ id, icon, label, value }: { id: string; icon: ReactElement; label: string; value: string }) {
   return (
@@ -25,20 +16,6 @@ export function MetaItem({ id, icon, label, value }: { id: string; icon: ReactEl
       <span>{label}</span>
       <b id={id}>{value}</b>
     </span>
-  );
-}
-
-export function PipelineMetricCard({ metric }: { metric: PipelineDetailMetric }) {
-  const Icon = metricIcons[metric.id];
-  return (
-    <article className={`pipeline-detail-metric pipeline-detail-metric--${metric.tone}`}>
-      <div className="pipeline-detail-metric__top">
-        <span>{metric.label}</span>
-        <Icon className="h-4 w-4" aria-hidden="true" />
-      </div>
-      <strong>{metric.value}</strong>
-      <p>{metric.detail}</p>
-    </article>
   );
 }
 
