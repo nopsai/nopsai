@@ -36,10 +36,8 @@ import {
   knowledgeConnectionMatchesIdentifier,
   knowledgeTreePathToTeam,
   loadKnowledgeDraft,
-  matchesKnowledgeSourceFilter,
   normalizeKnowledgeConnectionProvider,
   normalizeTeamPath,
-  normalizeKnowledgeSourceFilter,
   normalizeKnowledgeWorkspaceTab,
   saveKnowledgeDraft,
   splitKnowledgeContentForPreview,
@@ -52,7 +50,6 @@ import {
   type KnowledgeConnectionProvider,
   type KnowledgeContextDetail,
   type KnowledgeContextListItem,
-  type KnowledgeSourceFilter,
 } from '../features/knowledge-context/model';
 import {
   KnowledgeContextModals,
@@ -113,7 +110,6 @@ export default function KnowledgeContextPage({
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<KnowledgeSourceFilter>('all');
   const [draftID, setDraftID] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [formModal, setFormModal] = useState<KnowledgeFormModalState | null>(null);
@@ -235,13 +231,12 @@ export default function KnowledgeContextPage({
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const sourceFiltered = items.filter(item => matchesKnowledgeSourceFilter(item, sourceFilter));
-    if (!term) return sourceFiltered;
-    return sourceFiltered.filter(item =>
+    if (!term) return items;
+    return items.filter(item =>
       [item.kind, item.team, item.name, item.description, item.source]
         .some(value => (value || '').toLowerCase().includes(term))
     );
-  }, [items, search, sourceFilter]);
+  }, [items, search]);
 
   const activeTeam = useMemo(() => {
     const routeTeam = isTeamRoute ? decodeTeamRouteSegments(routeSegments.slice(2)) : '';
@@ -252,7 +247,7 @@ export default function KnowledgeContextPage({
   const knowledgeTree = useMemo(() => buildKnowledgeTree(items, resourceTeamPaths), [items, resourceTeamPaths]);
   const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
   const activeTeamDocuments = useMemo(() => collectKnowledgeTeamDocs(activeTeamNode), [activeTeamNode]);
-  const hasDocumentFilters = Boolean(search.trim() || sourceFilter !== 'all');
+  const hasDocumentFilters = Boolean(search.trim());
   const collectionDocuments = hasDocumentFilters ? filteredItems : activeTeamDocuments;
   const workspaceMetrics = useMemo(() => summarizeKnowledgeWorkspace(items), [items]);
   const activeConnectionTeam = useMemo(() => knowledgeTreePathToTeam(activeTeam), [activeTeam]);
@@ -1012,7 +1007,6 @@ export default function KnowledgeContextPage({
           listLoading={activeWorkspaceTab === 'connections' ? connectionsLoading : listLoading}
           listError={activeWorkspaceTab === 'connections' ? connectionsError : listError}
           search={search}
-          sourceFilter={sourceFilter}
           collectionDocuments={collectionDocuments}
           selectedID={selectedID}
           detailLoading={detailLoading}
@@ -1051,7 +1045,6 @@ export default function KnowledgeContextPage({
           canWriteKnowledge={activeWorkspaceTab === 'connections' ? canWriteConnections : canWriteKnowledge}
           canDeleteKnowledge={activeWorkspaceTab === 'connections' ? canDeleteConnections : canDeleteKnowledge}
           onSearchChange={setSearch}
-          onSourceFilterChange={value => setSourceFilter(normalizeKnowledgeSourceFilter(value))}
           onSwitchTab={switchWorkspaceTab}
           onOpenTeam={openTeam}
           onSelectConnectionTeam={openConnectionTeam}

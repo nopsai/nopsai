@@ -180,13 +180,7 @@ function SystemConfigWorkspace({
 
   return (
     <div id="system-config-section" className="system-settings-workspace">
-      <header className="system-settings-header">
-        <div className="system-settings-header__copy">
-          <p className="system-settings-eyebrow">System Config</p>
-          <h2>Settings Config</h2>
-          <p>Runtime defaults, notifications, and GitOps source state for the NopsAI control plane.</p>
-        </div>
-      </header>
+      <h2 className="sr-only">System settings</h2>
 
       <div className="system-settings-summary-grid" aria-label="Settings summary">
         {summaryCards.map(card => (
@@ -224,23 +218,14 @@ function SystemConfigWorkspace({
             />
           </label>
         </div>
-        <div className="system-settings-context-strip">
-          <div className="system-settings-context-item system-settings-context-item--wide">
-            <span>Ownership</span>
-            <strong>Config stores persisted defaults. Dispatcher owns live runner status, routing operations, and runner installs.</strong>
-            {canViewDispatcher && (
-              <Link to="/system/dispatcher" className="system-settings-inline-link">
-                Open Dispatcher
-              </Link>
-            )}
-          </div>
-          {envPath && (
+        {envPath && (
+          <div className="system-settings-context-strip">
             <div className="system-settings-context-item">
               <span>Env file</span>
               <code>{envPath}</code>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <main className="system-settings-content">

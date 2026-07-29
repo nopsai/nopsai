@@ -5,13 +5,9 @@ import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { buildApiUrl } from '../../lib/api';
 import { AutomationResourceTree } from '../event-automation/AutomationResourceTree';
-import {
-  buildAutomationResourceTree,
-  findAutomationResourceTreeNode,
-} from '../event-automation/resourceTreeModel';
+import { buildAutomationResourceTree } from '../event-automation/resourceTreeModel';
 import { CredentialReferenceLink } from '../system/credentials/CredentialReferenceLink';
 import {
-  buildGitWebhookSourceMetrics,
   deliveryStatusClass,
   formatGitWebhookDate,
   gitWebhookSourceConnectedCount,
@@ -20,11 +16,11 @@ import {
   sourceStatusLabel,
   type GitWebhookDelivery,
   type GitWebhookSource,
+  type GitWebhookSourceMetrics,
   type GitWebhookSourceTreeItem,
 } from './model';
 
 type GitWebhookSourcesWorkspaceProps = {
-  sources: GitWebhookSource[];
   visibleSources: GitWebhookSource[];
   treeItems: GitWebhookSourceTreeItem[];
   activeTeamPath: string;
@@ -44,7 +40,6 @@ type GitWebhookSourcesWorkspaceProps = {
 };
 
 export function GitWebhookSourcesWorkspace({
-  sources,
   visibleSources,
   treeItems,
   activeTeamPath,
@@ -62,13 +57,7 @@ export function GitWebhookSourcesWorkspace({
   onToggle,
   onDelete,
 }: GitWebhookSourcesWorkspaceProps) {
-  const metrics = buildGitWebhookSourceMetrics(sources);
   const treeRoot = useMemo(() => buildAutomationResourceTree(treeItems), [treeItems]);
-  const activeTeamNode = useMemo(
-    () => findAutomationResourceTreeNode(treeRoot, activeTeamPath),
-    [activeTeamPath, treeRoot]
-  );
-  const activeTeamLabel = activeTeamPath ? activeTeamPath : 'All teams';
   const emptyTitle = searchTerm.trim()
     ? 'No matching webhook sources'
     : activeTeamPath
@@ -132,34 +121,11 @@ export function GitWebhookSourcesWorkspace({
         />
         <TreeColumnResizeHandle {...treeResize} label="Resize team tree" />
         <section className="triggers-browser-main" aria-label="Git webhook source collection">
-          <div className="triggers-metrics-grid" aria-label="Git webhook source summary">
-            <Metric icon={<Webhook className="h-4 w-4" aria-hidden="true" />} label="Webhook sources" value={metrics.total} />
-            <Metric icon={<Activity className="h-4 w-4" aria-hidden="true" />} label="Receiving" value={metrics.enabled} tone="green" />
-            <Metric icon={<ObjectIcon type="gitops" />} label="GitOps managed" value={metrics.gitManaged} tone="blue" />
-            <Metric icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Secured" value={metrics.secured} tone="amber" />
-            <Metric icon={<Webhook className="h-4 w-4" aria-hidden="true" />} label="Workspace-shared" value={metrics.workspaceShared} tone="blue" />
-          </div>
-
           <div className="triggers-list-container">
             {loading ? (
               <div className="triggers-workspace-empty">Loading sources...</div>
             ) : (
               <>
-                <div className="triggers-collection-head">
-                  <div>
-                    <h3>{searchTerm.trim() ? 'Search results' : activeTeamLabel}</h3>
-                    <p>
-                      {visibleSources.length} source{visibleSources.length === 1 ? '' : 's'}
-                      {searchTerm.trim() ? ` matching "${searchTerm.trim()}"` : ''}
-                    </p>
-                  </div>
-                  {!searchTerm.trim() && activeTeamNode.children.length ? (
-                    <span className="triggers-badge triggers-badge--neutral">
-                      {activeTeamNode.children.length} nested team{activeTeamNode.children.length === 1 ? '' : 's'}
-                    </span>
-                  ) : null}
-                </div>
-
                 {visibleSources.length ? (
                   <div className="triggers-resource-table-shell">
                     <table className="triggers-resource-table">
@@ -201,6 +167,17 @@ export function GitWebhookSourcesWorkspace({
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+export function GitWebhookSourceMetricGrid({ metrics }: { metrics: GitWebhookSourceMetrics }) {
+  return (
+    <div className="triggers-metrics-grid" aria-label="Git webhook source summary">
+      <Metric icon={<Webhook className="h-4 w-4" aria-hidden="true" />} label="Webhook sources" value={metrics.total} />
+      <Metric icon={<Activity className="h-4 w-4" aria-hidden="true" />} label="Receiving" value={metrics.enabled} tone="green" />
+      <Metric icon={<ObjectIcon type="gitops" />} label="GitOps managed" value={metrics.gitManaged} tone="blue" />
+      <Metric icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Secured" value={metrics.secured} tone="amber" />
     </div>
   );
 }

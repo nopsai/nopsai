@@ -1,4 +1,4 @@
-import { ChevronDown, Globe2, KeyRound, ListFilter, MoreVertical, Search, Users } from 'lucide-react';
+import { ChevronDown, Globe2, KeyRound, ListFilter, MoreVertical, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { CredentialCatalogGroup, CredentialRecord } from './model';
 import { credentialReferenceDisplay } from './model';
@@ -13,18 +13,12 @@ export type CredentialScopeTab = {
 
 type CredentialCatalogProps = {
   groups: CredentialCatalogGroup[];
-  isNopsAIAdmin: boolean;
-  namespaces: string[];
   scopeTabs: CredentialScopeTab[];
   selectedID?: string;
-  query: string;
-  status: string;
   scope: string;
   grouped: boolean;
   loading: boolean;
   teamPaths: string[];
-  onQueryChange: (value: string) => void;
-  onStatusChange: (value: string) => void;
   onScopeChange: (value: string) => void;
   onGroupedChange: (value: boolean) => void;
   onSelect: (credential: CredentialRecord) => void;
@@ -32,77 +26,22 @@ type CredentialCatalogProps = {
 
 export function CredentialCatalog({
   groups,
-  isNopsAIAdmin,
-  namespaces,
   scopeTabs,
   selectedID,
-  query,
-  status,
   scope,
   grouped,
   loading,
   teamPaths,
-  onQueryChange,
-  onStatusChange,
   onScopeChange,
   onGroupedChange,
   onSelect,
 }: CredentialCatalogProps) {
   const visibleCount = groups.reduce((count, group) => count + group.credentials.length, 0);
-  const visibleScopeCount = groups.length;
-  const scopeOptions = [...new Set([...namespaces, scope])]
-    .filter(value => value && !['all', 'team', 'system'].includes(value))
-    .filter(value => isNopsAIAdmin || value === 'team')
-    .sort((left, right) => left.localeCompare(right));
   const allRows = groups.flatMap(group => group.credentials.map(credential => ({ credential, group })));
 
   return (
     <section className="credential-registry__catalog" aria-labelledby="credential-catalog-heading">
-      <div>
-        <div className="credential-registry__toolbar">
-          <label className="credential-registry__search">
-            <span className="sr-only">Search credentials</span>
-            <Search className="credential-registry__search-icon h-4 w-4" aria-hidden="true" />
-            <input
-              className="credential-registry__field"
-              value={query}
-              onChange={event => onQueryChange(event.target.value)}
-              placeholder="Search credentials by name, type, or description..."
-            />
-          </label>
-          <label>
-            <span className="sr-only">Filter by scope</span>
-            <select className="credential-registry__field" value={scope} onChange={event => onScopeChange(event.target.value)}>
-              <option value="all">All scopes</option>
-              <option value="team">Teams</option>
-              {isNopsAIAdmin ? <option value="system">System</option> : null}
-              {scopeOptions.map(value => <option key={value} value={value}>{formatCredentialLabel(value)}</option>)}
-            </select>
-          </label>
-          <label>
-            <span className="sr-only">Filter by status</span>
-            <select className="credential-registry__field" value={status} onChange={event => onStatusChange(event.target.value)}>
-              <option value="all">All statuses</option>
-              <option value="active">Active</option>
-              <option value="pending">Pending</option>
-              <option value="disabled">Disabled</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className="credential-registry__button credential-registry__button--ghost"
-            aria-pressed={grouped}
-            onClick={() => onGroupedChange(!grouped)}
-          >
-            <ListFilter className="h-4 w-4" aria-hidden="true" />
-            {grouped ? 'Flat list' : 'Group by scope'}
-          </button>
-        </div>
-        <h3 id="credential-catalog-heading" className="sr-only">Credential catalog</h3>
-        <p className="credential-registry__result-count">
-          {loading ? 'Loading credentials...' : `${visibleCount} credential${visibleCount === 1 ? '' : 's'} shown`}
-        </p>
-      </div>
+      <h3 id="credential-catalog-heading" className="sr-only">Credential catalog</h3>
 
       <div className="credential-registry__catalog-top">
         <div className="credential-registry__tabs" aria-label="Credential scopes">
@@ -130,7 +69,7 @@ export function CredentialCatalog({
           onClick={() => onGroupedChange(!grouped)}
         >
           <ListFilter className="h-4 w-4" aria-hidden="true" />
-          {grouped ? 'Group by scope' : 'Flat list'}
+          {grouped ? 'Flat list' : 'Group by scope'}
         </button>
       </div>
 
@@ -172,9 +111,6 @@ export function CredentialCatalog({
           ))
         )}
 
-        <div className="credential-registry__footer-note">
-          Showing {visibleCount} credential{visibleCount === 1 ? '' : 's'} across {visibleScopeCount} scope{visibleScopeCount === 1 ? '' : 's'}
-        </div>
       </div>
     </section>
   );

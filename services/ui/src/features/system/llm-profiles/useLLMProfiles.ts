@@ -40,6 +40,7 @@ export function useLLMProfiles({
 }) {
   const [payload, setPayload] = useState(emptyLLMProfilesPayload);
   const [teamProfilesPayload, setTeamProfilesPayload] = useState<TeamLLMProfilesResponse | null>(null);
+  const [teamProfilesByPath, setTeamProfilesByPath] = useState<Record<string, TeamLLMProfilesResponse>>({});
   const [loading, setLoading] = useState(true);
   const [teamProfilesLoading, setTeamProfilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +54,15 @@ export function useLLMProfiles({
   const [deleteBlocker, setDeleteBlocker] = useState<LLMProfileDeleteBlocker | null>(null);
   const [panelMode, setPanelMode] = useState<LLMProfilePanelMode | null>(null);
   const teamProfilesRequestRef = useRef(0);
+  const teamProfilesCacheRef = useRef<Set<string>>(new Set());
+  const teamProfilesPendingRef = useRef<Set<string>>(new Set());
+
+  const cacheTeamProfilesPayload = useCallback((result: TeamLLMProfilesResponse) => {
+    const normalizedTeamPath = normalizeAIResourceTeamPath(result.team_path || '');
+    if (!normalizedTeamPath) return;
+    teamProfilesCacheRef.current.add(normalizedTeamPath);
+    setTeamProfilesByPath(previous => ({ ...previous, [normalizedTeamPath]: result }));
+  }, []);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -82,18 +92,35 @@ export function useLLMProfiles({
 
     setTeamProfilesLoading(true);
     setTeamProfilesError(null);
+    teamProfilesPendingRef.current.add(normalizedTeamPath);
     try {
       const result = await fetchTeamLLMProfiles(normalizedTeamPath);
       if (teamProfilesRequestRef.current !== requestID) return;
       setTeamProfilesPayload(result);
+      cacheTeamProfilesPayload(result);
     } catch (err) {
       if (teamProfilesRequestRef.current !== requestID) return;
       setTeamProfilesPayload(null);
       setTeamProfilesError(err instanceof Error ? err.message : 'Unable to load team LLM profiles');
     } finally {
+      teamProfilesPendingRef.current.delete(normalizedTeamPath);
       if (teamProfilesRequestRef.current === requestID) setTeamProfilesLoading(false);
     }
-  }, []);
+  }, [cacheTeamProfilesPayload]);
+
+  const loadTeamProfilesForTree = useCallback((teamPaths: string[]) => {
+    const paths = Array.from(new Set(teamPaths.map(normalizeAIResourceTeamPath).filter(Boolean)))
+      .filter(teamPath => !teamProfilesCacheRef.current.has(teamPath) && !teamProfilesPendingRef.current.has(teamPath));
+    paths.forEach(teamPath => {
+      teamProfilesPendingRef.current.add(teamPath);
+      void fetchTeamLLMProfiles(teamPath)
+        .then(cacheTeamProfilesPayload)
+        .catch(() => undefined)
+        .finally(() => {
+          teamProfilesPendingRef.current.delete(teamPath);
+        });
+    });
+  }, [cacheTeamProfilesPayload]);
 
   const startCreate = useCallback(() => {
     setEditingName(null);
@@ -167,6 +194,7 @@ export function useLLMProfiles({
             }
           }
           setTeamProfilesPayload(result);
+          cacheTeamProfilesPayload(result);
           setEditingName(targetName);
           setEditingTeamPath(targetTeamPath);
           setForm(prev => ({ ...prev, name: targetName }));
@@ -199,7 +227,7 @@ export function useLLMProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, editingName, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, editingName, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles]
   );
 
   const saveDefaultProfile = useCallback(
@@ -215,7 +243,9 @@ export function useLLMProfiles({
         setSaving(true);
         setError(null);
         try {
-          setTeamProfilesPayload(await setTeamDefaultLLMProfile(teamPath, defaultForAPI));
+          const result = await setTeamDefaultLLMProfile(teamPath, defaultForAPI);
+          setTeamProfilesPayload(result);
+          cacheTeamProfilesPayload(result);
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Unable to update team default profile');
         } finally {
@@ -234,7 +264,7 @@ export function useLLMProfiles({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, payload.profiles, teamProfilesPayload]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, payload.profiles, teamProfilesPayload]
   );
 
   const deleteProfile = useCallback(
@@ -308,6 +338,7 @@ export function useLLMProfiles({
   return {
     payload,
     teamProfilesPayload,
+    teamProfilesByPath,
     loading,
     teamProfilesLoading,
     error,
@@ -324,6 +355,7 @@ export function useLLMProfiles({
     setPanelMode,
     loadProfiles,
     loadTeamProfiles,
+    loadTeamProfilesForTree,
     startCreate,
     startEdit,
     saveProfile,

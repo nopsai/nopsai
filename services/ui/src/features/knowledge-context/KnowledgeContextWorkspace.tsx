@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpenText, ChevronRight, Download, Edit3, ExternalLink, Filter, FolderTree, GitBranch, Link2, MoreHorizontal, Plus, RotateCw, Search, Trash2, UsersRound } from 'lucide-react';
+import { BookOpenText, ChevronRight, Download, Edit3, ExternalLink, FolderTree, GitBranch, Link2, MoreHorizontal, Plus, RotateCw, Search, Trash2, UsersRound, X } from 'lucide-react';
 
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
@@ -17,14 +17,12 @@ import {
   knowledgeConnectionDisplayName,
   knowledgeContentSource,
   knowledgeSyncStatusLabel,
-  knowledgeSourceFilterOptions,
   normalizeTeamPath,
   splitKnowledgePath,
   sourceLabel,
   type KnowledgeConnectionListItem,
   type KnowledgeConnectionTeamSummary,
   type KnowledgeContextListItem,
-  type KnowledgeSourceFilter,
   type KnowledgeTeamNode,
   type KnowledgeWorkspaceMetrics,
   type KnowledgeWorkspaceTab,
@@ -42,7 +40,6 @@ type KnowledgeContextWorkspaceProps = {
   listLoading: boolean;
   listError: string | null;
   search: string;
-  sourceFilter: KnowledgeSourceFilter;
   collectionDocuments: KnowledgeContextListItem[];
   selectedID: string;
   selectedDetail: KnowledgeContextDetailViewProps;
@@ -50,7 +47,6 @@ type KnowledgeContextWorkspaceProps = {
   canWriteKnowledge: boolean;
   canDeleteKnowledge: boolean;
   onSearchChange: (term: string) => void;
-  onSourceFilterChange: (filter: KnowledgeSourceFilter) => void;
   onSwitchTab: (tab: KnowledgeWorkspaceTab) => void;
   onOpenTeam: (team: string) => void;
   onSelectConnectionTeam: (team: string) => void;
@@ -76,6 +72,61 @@ const statCards = [
   { key: 'teams', label: 'Teams', icon: UsersRound, tone: 'cyan' },
 ] as const;
 
+function KnowledgeWorkspaceMetricGrid({ metrics }: { metrics: KnowledgeWorkspaceMetrics }) {
+  return (
+    <div className="kc-demo-stats kc-demo-stats--toolbar" aria-label="Knowledge Context summary">
+      {statCards.map(stat => {
+        const Icon = stat.icon;
+        return (
+          <article key={stat.key} className="kc-demo-stat">
+            <span className={`kc-demo-stat-icon kc-demo-stat-icon--${stat.tone}`} aria-hidden="true">
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="kc-demo-stat-label">{stat.label}</span>
+            <strong>{metrics[stat.key]}</strong>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function summarizeKnowledgeConnections(teams: KnowledgeConnectionTeamSummary[]) {
+  const connections = teams.flatMap(team => team.connections);
+  return {
+    configured: connections.length,
+    connected: connections.filter(connection => connection.status === 'connected' && !connection.disabled).length,
+    authRequired: connections.filter(connection => connection.status === 'authentication_required').length,
+    disabled: connections.filter(connection => connection.disabled).length,
+  };
+}
+
+function KnowledgeConnectionSummaryGrid({ summary }: { summary: ReturnType<typeof summarizeKnowledgeConnections> }) {
+  const cards = [
+    { label: 'Configured', value: summary.configured, icon: Link2, tone: 'green' },
+    { label: 'Connected', value: summary.connected, icon: UsersRound, tone: 'blue' },
+    { label: 'Auth required', value: summary.authRequired, icon: BookOpenText, tone: 'purple' },
+    { label: 'Disabled', value: summary.disabled, icon: UsersRound, tone: 'cyan' },
+  ] as const;
+
+  return (
+    <div className="kc-demo-stats kc-demo-stats--toolbar" aria-label="Knowledge connection summary">
+      {cards.map(card => {
+        const Icon = card.icon;
+        return (
+          <article key={card.label} className="kc-demo-stat">
+            <span className={`kc-demo-stat-icon kc-demo-stat-icon--${card.tone}`} aria-hidden="true">
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="kc-demo-stat-label">{card.label}</span>
+            <strong>{card.value}</strong>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export function KnowledgeContextWorkspace({
   activeTeam,
   activeConnectionTeam,
@@ -87,7 +138,6 @@ export function KnowledgeContextWorkspace({
   listLoading,
   listError,
   search,
-  sourceFilter,
   collectionDocuments,
   selectedID,
   selectedDetail,
@@ -95,7 +145,6 @@ export function KnowledgeContextWorkspace({
   canWriteKnowledge,
   canDeleteKnowledge,
   onSearchChange,
-  onSourceFilterChange,
   onSwitchTab,
   onOpenTeam,
   onSelectConnectionTeam,
@@ -114,6 +163,7 @@ export function KnowledgeContextWorkspace({
   onDeleteConnection,
 }: KnowledgeContextWorkspaceProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [selectedConnectionID, setSelectedConnectionID] = useState('');
   const [selectedConnectionTeamPath, setSelectedConnectionTeamPath] = useState('');
   const treeResize = useResizableTreeColumn({
@@ -124,9 +174,15 @@ export function KnowledgeContextWorkspace({
   });
   const actionLabel = activeTab === 'connections' ? 'New connection' : 'New context';
   const searchPlaceholder = activeTab === 'connections' ? 'Search connections' : 'Search knowledge contexts';
+  const searchLabel = activeTab === 'connections' ? 'Search connections' : 'Search knowledge contexts';
+  const searchActive = searchOpen || Boolean(search.trim());
   const activeSelectedConnectionID = activeTab === 'connections' ? selectedConnectionID : '';
   const activeSelectedConnectionTeamPath = activeTab === 'connections' ? selectedConnectionTeamPath : '';
   const connectionActionTeam = activeSelectedConnectionTeamPath || activeConnectionTeam;
+  const connectionSummary = useMemo(
+    () => summarizeKnowledgeConnections(connectionTeams),
+    [connectionTeams]
+  );
 
   const handleSwitchTab = (tab: KnowledgeWorkspaceTab) => {
     if (tab !== 'connections') {
@@ -190,33 +246,12 @@ export function KnowledgeContextWorkspace({
             Connections
           </button>
         </div>
+        {activeTab === 'connections' ? (
+          <KnowledgeConnectionSummaryGrid summary={connectionSummary} />
+        ) : (
+          <KnowledgeWorkspaceMetricGrid metrics={metrics} />
+        )}
         <div className="kc-demo-top-actions">
-          <label className="kc-demo-global-search">
-            <Search className="h-4 w-4" aria-hidden="true" />
-            <input
-              ref={searchInputRef}
-              type="search"
-              aria-label="Search knowledge context"
-              placeholder={searchPlaceholder}
-              value={search}
-              onChange={event => onSearchChange(event.target.value)}
-            />
-            <span>Ctrl K</span>
-          </label>
-          {activeTab === 'documents' ? (
-            <label className="kc-demo-filter">
-              <Filter className="h-4 w-4" aria-hidden="true" />
-              <select
-                aria-label="Filter knowledge sources"
-                value={sourceFilter}
-                onChange={event => onSourceFilterChange(event.target.value as KnowledgeSourceFilter)}
-              >
-                {knowledgeSourceFilterOptions.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
           <button
             type="button"
             className="kc-demo-primary-btn"
@@ -228,6 +263,51 @@ export function KnowledgeContextWorkspace({
             <Plus className="h-4 w-4" aria-hidden="true" />
             {actionLabel}
           </button>
+          <div className={`pipelines-search-shell kc-demo-global-search-shell ${searchActive ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="pipelines-search-toggle"
+              aria-label={searchLabel}
+              title={searchLabel}
+              onClick={() => {
+                setSearchOpen(true);
+                requestAnimationFrame(() => searchInputRef.current?.focus());
+              }}
+            >
+              <Search className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <input
+              ref={searchInputRef}
+              type="search"
+              className="pipelines-search-input"
+              aria-label={`${searchLabel} query`}
+              placeholder={searchPlaceholder}
+              value={search}
+              onFocus={() => setSearchOpen(true)}
+              onChange={event => {
+                onSearchChange(event.target.value);
+                if (event.target.value && !searchOpen) setSearchOpen(true);
+              }}
+              onBlur={() => {
+                if (!search.trim()) setSearchOpen(false);
+              }}
+            />
+            {search || searchOpen ? (
+              <button
+                type="button"
+                className="pipelines-search-clear"
+                aria-label="Clear search"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => {
+                  onSearchChange('');
+                  setSearchOpen(false);
+                  searchInputRef.current?.blur();
+                }}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -274,7 +354,6 @@ export function KnowledgeContextWorkspace({
         ) : (
           <KnowledgeDocumentCollection
             documents={collectionDocuments}
-            metrics={metrics}
             listLoading={listLoading}
             listError={listError}
             canDeleteKnowledge={canDeleteKnowledge}
@@ -573,7 +652,6 @@ function knowledgeTreeAncestorIDs(path: string) {
 
 function KnowledgeDocumentCollection({
   documents,
-  metrics,
   listLoading,
   listError,
   canDeleteKnowledge,
@@ -587,7 +665,6 @@ function KnowledgeDocumentCollection({
   onDeleteDocument,
 }: {
   documents: KnowledgeContextListItem[];
-  metrics: KnowledgeWorkspaceMetrics;
   listLoading: boolean;
   listError: string | null;
   canDeleteKnowledge: boolean;
@@ -621,30 +698,7 @@ function KnowledgeDocumentCollection({
 
   return (
     <section className="kc-demo-browser-main" aria-label="Knowledge contexts collection">
-      <div className="kc-demo-stats" aria-label="Knowledge Context summary">
-        {statCards.map(stat => {
-          const Icon = stat.icon;
-          return (
-            <article key={stat.key} className="kc-demo-stat">
-              <span className={`kc-demo-stat-icon kc-demo-stat-icon--${stat.tone}`} aria-hidden="true">
-                <Icon className="h-4 w-4" />
-              </span>
-              <span className="kc-demo-stat-label">{stat.label}</span>
-              <strong>{metrics[stat.key]}</strong>
-            </article>
-          );
-        })}
-      </div>
-
       <div className="kc-demo-collection">
-        <div className="kc-demo-collection-head">
-          <div>
-            <h2>All knowledge</h2>
-            <p>{sortedDocuments.length} {sortedDocuments.length === 1 ? 'document' : 'documents'} across {metrics.teams} {metrics.teams === 1 ? 'team' : 'teams'}</p>
-          </div>
-          <span className="kc-demo-badge purple"><span className="dot" />{metrics.externalDocuments} external pages</span>
-        </div>
-
         {sortedDocuments.length ? (
           <div className="kc-demo-table-wrap">
             <table className="kc-demo-resource-table">

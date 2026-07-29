@@ -190,7 +190,7 @@ export function PipelineRunsPageView({
     <div data-page="pipelineruns" className="active h-full min-h-0 flex flex-col overflow-hidden">
       <div className={`${isViewingDetail ? 'px-4 pt-3' : 'px-4 pt-4'} flex-shrink-0 tabs-nav-wrapper`}>
         <div className="border-b border-[var(--border-primary)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 pipeline-runs-tabs-row">
             <nav className="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
               {tabs.map(tab => (
                 <NavLink
@@ -207,83 +207,83 @@ export function PipelineRunsPageView({
                 </NavLink>
               ))}
             </nav>
-          </div>
-          {!isViewingDetail && (
-            <div className="pipeline-runs-filterbar">
-              <div className={`pipelines-search-shell pipeline-runs-search-shell ${runSearchActive ? 'open' : ''}`}>
-                <button
-                  type="button"
-                  className="pipelines-search-toggle"
-                  aria-label="Search pipeline runs"
-                  title="Search pipeline runs"
-                  onClick={() => {
-                    setSearchOpen(true);
-                    requestAnimationFrame(() => searchInputRef.current?.focus());
-                  }}
-                >
-                  <Search className="h-4 w-4" aria-hidden="true" />
-                </button>
-                <input
-                  ref={searchInputRef}
-                  id="pipeline-runs-search"
-                  type="search"
-                  className="pipelines-search-input"
-                  aria-label="Search pipeline runs"
-                  placeholder="Search pipeline, branch, commit, or run ID"
-                  value={searchTerm}
-                  onFocus={() => setSearchOpen(true)}
-                  onChange={event => {
-                    setSearchTerm(event.target.value);
-                    if (event.target.value && !searchOpen) setSearchOpen(true);
-                    updateSearchParams({ q: event.target.value || null });
-                  }}
-                  onBlur={() => {
-                    if (!searchTerm.trim()) setSearchOpen(false);
-                  }}
-                />
-                {(searchTerm || searchOpen) && (
+            {!isViewingDetail && (
+              <div className="pipeline-runs-filterbar pipeline-runs-filterbar--tabs">
+                <div className={`pipelines-search-shell pipeline-runs-search-shell ${runSearchActive ? 'open' : ''}`}>
                   <button
                     type="button"
-                    className="pipelines-search-clear"
-                    onMouseDown={event => event.preventDefault()}
+                    className="pipelines-search-toggle"
+                    aria-label="Search pipeline runs"
+                    title="Search pipeline runs"
                     onClick={() => {
-                      setSearchTerm('');
-                      setSearchOpen(false);
-                      updateSearchParams({ q: null });
-                      searchInputRef.current?.blur();
+                      setSearchOpen(true);
+                      requestAnimationFrame(() => searchInputRef.current?.focus());
                     }}
-                    aria-label="Clear search"
                   >
-                    <X className="h-4 w-4" aria-hidden="true" />
+                    <Search className="h-4 w-4" aria-hidden="true" />
                   </button>
-                )}
+                  <input
+                    ref={searchInputRef}
+                    id="pipeline-runs-search"
+                    type="search"
+                    className="pipelines-search-input"
+                    aria-label="Search pipeline runs"
+                    placeholder="Search pipeline, branch, commit, or run ID"
+                    value={searchTerm}
+                    onFocus={() => setSearchOpen(true)}
+                    onChange={event => {
+                      setSearchTerm(event.target.value);
+                      if (event.target.value && !searchOpen) setSearchOpen(true);
+                      updateSearchParams({ q: event.target.value || null });
+                    }}
+                    onBlur={() => {
+                      if (!searchTerm.trim()) setSearchOpen(false);
+                    }}
+                  />
+                  {(searchTerm || searchOpen) && (
+                    <button
+                      type="button"
+                      className="pipelines-search-clear"
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => {
+                        setSearchTerm('');
+                        setSearchOpen(false);
+                        updateSearchParams({ q: null });
+                        searchInputRef.current?.blur();
+                      }}
+                      aria-label="Clear search"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+                <select
+                  className="pipeline-runs-select"
+                  aria-label="Filter by run status"
+                  value={statusFilter}
+                  onChange={event => onStatusFilterChange(event.target.value as PipelineRunStatusFilter)}
+                >
+                  {statusFilterOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <div className="pipeline-runs-segmented" role="group" aria-label="Filter by run source">
+                  {sourceFilterOptions.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`pipeline-runs-segment ${sourceFilter === option.value ? 'pipeline-runs-segment--active' : ''}`}
+                      aria-pressed={sourceFilter === option.value}
+                      onClick={() => onSourceFilterChange(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {activeTab === 'recent' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
               </div>
-              <div className="pipeline-runs-segmented" role="group" aria-label="Filter by run source">
-                {sourceFilterOptions.map(option => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`pipeline-runs-segment ${sourceFilter === option.value ? 'pipeline-runs-segment--active' : ''}`}
-                    aria-pressed={sourceFilter === option.value}
-                    onClick={() => onSourceFilterChange(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <select
-                className="pipeline-runs-select"
-                aria-label="Filter by run status"
-                value={statusFilter}
-                onChange={event => onStatusFilterChange(event.target.value as PipelineRunStatusFilter)}
-              >
-                {statusFilterOptions.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-              {activeTab === 'recent' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
-            </div>
-          )}
+            )}
+          </div>
           {showSelectionBar && (
             <div className="mt-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg px-4 py-3 text-sm">

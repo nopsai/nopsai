@@ -1,28 +1,25 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { Plus, Search, X } from 'lucide-react';
 import { EventAutomationSwitch } from '../event-automation/EventAutomationSwitch';
-import type { TriggerSourceFilter } from './model';
 
 type TriggerCollectionToolbarProps = {
   searchTerm: string;
-  sourceFilter: TriggerSourceFilter;
   searchOpen: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
   canCreateTriggerHere: boolean;
+  summary?: ReactNode;
   onSearchTermChange: (value: string) => void;
-  onSourceFilterChange: (value: TriggerSourceFilter) => void;
   onSearchOpenChange: (open: boolean) => void;
   onCreate: () => void;
 };
 
 export function TriggerCollectionToolbar({
   searchTerm,
-  sourceFilter,
   searchOpen,
   searchInputRef,
   canCreateTriggerHere,
+  summary,
   onSearchTermChange,
-  onSourceFilterChange,
   onSearchOpenChange,
   onCreate,
 }: TriggerCollectionToolbarProps) {
@@ -32,6 +29,7 @@ export function TriggerCollectionToolbar({
     <div className="triggers-page-toolbar triggers-page-toolbar--compact">
       <div className="triggers-page-toolbar-head triggers-page-toolbar-head--compact">
         <EventAutomationSwitch active="triggers" />
+        {summary ? <div className="triggers-page-toolbar-summary">{summary}</div> : null}
         <div className="triggers-page-toolbar-actions">
           <div className={`pipelines-search-shell ${searchActive ? 'open' : ''}`}>
             <button
@@ -76,16 +74,6 @@ export function TriggerCollectionToolbar({
               </button>
             )}
           </div>
-          <select
-            className="triggers-source-filter"
-            aria-label="Filter triggers by source"
-            value={sourceFilter}
-            onChange={event => onSourceFilterChange(event.target.value as TriggerSourceFilter)}
-          >
-            <option value="all">All sources</option>
-            <option value="git">GitOps</option>
-            <option value="database">Database</option>
-          </select>
           <button
             id="triggers-new-btn"
             type="button"

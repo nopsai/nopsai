@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
 import { TriggerCollectionList } from './TriggerCollectionList';
-import { buildTriggerTree, findTriggerTreeNode } from './treeModel';
+import { buildTriggerTree } from './treeModel';
 
 const allTriggers = [
   { slug: 'platform/api', source: 'gitops', scopes: ['prod'], teamPath: 'platform' },
@@ -11,9 +11,8 @@ const allTriggers = [
   { slug: 'external/service', source: 'database', scopes: ['prod'], teamPath: 'platform' },
 ];
 const treeRoot = buildTriggerTree(allTriggers);
-const activeTreeNode = findTriggerTreeNode(treeRoot, 'external', 'platform');
 
-test('renders trigger metrics, subtree table rows, and tree navigation', async () => {
+test('renders subtree table rows and tree navigation', async () => {
   const user = userEvent.setup();
   const onSelectTrigger = vi.fn();
   const onOpenOwner = vi.fn();
@@ -29,9 +28,7 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
         { slug: 'external/service', source: 'database', scopes: ['prod'], teamPath: 'platform' },
       ]}
       treeRoot={treeRoot}
-      activeTreeNode={activeTreeNode}
-      activeOwnerPath="external"
-      activeTeamPath="platform"
+      activeOwner="platform"
       searchTerm=""
       selectedSlug="external/service"
       canCreateTriggerHere
@@ -46,13 +43,9 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
   expect(screen.getByText('Trigger tree')).toBeVisible();
   expect(screen.getByRole('separator', { name: 'Resize trigger tree' })).toBeVisible();
   expect(screen.getByRole('button', { name: /All owners/ })).toBeVisible();
-  expect(screen.getByText('Triggers')).toBeVisible();
-  expect(screen.getByText('GitOps')).toBeVisible();
-  expect(screen.getByText('Owners')).toBeVisible();
-  expect(screen.getByText('Teams')).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'external / platform' })).toBeVisible();
-  expect(screen.getByText('external/service').closest('tr')).toHaveClass('selected');
-  expect(screen.queryByText('platform/api')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Trigger summary')).not.toBeInTheDocument();
+  expect(screen.getByText('platform/api').closest('tr')).toHaveClass('selected');
+  expect(screen.getByText('platform/apps/checkout')).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
   expect(screen.getByText('prod')).toBeVisible();
 

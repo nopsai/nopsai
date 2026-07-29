@@ -8,7 +8,7 @@ import {
   buildTriggerEditorSuggestion,
   type TriggerEditorSuggestion,
 } from '../features/triggers/editorAutocomplete';
-import { TriggerCollectionList } from '../features/triggers/TriggerCollectionList';
+import { TriggerCollectionList, TriggerMetricGrid } from '../features/triggers/TriggerCollectionList';
 import { TriggerCollectionToolbar } from '../features/triggers/TriggerCollectionToolbar';
 import { TriggerDetailView } from '../features/triggers/TriggerDetailView';
 import { TriggerWorkflowModals } from '../features/triggers/TriggerWorkflowModals';
@@ -26,6 +26,7 @@ import { useTriggerPermissions } from '../features/triggers/useTriggerPermission
 import {
   applyTriggerDetailsToYaml,
   asRecord,
+  buildTriggerCollectionMetrics,
   buildPipelineIdentifierFromRun,
   encodeTriggerSlug,
   filterTriggerListItems,
@@ -44,10 +45,9 @@ import {
   type TriggerDetail,
   type TriggerListItem,
   type TriggerRun,
-  type TriggerSourceFilter,
   type TriggerWebhookSourceOption,
 } from '../features/triggers/model';
-import { buildTriggerTree, findTriggerTreeNode } from '../features/triggers/treeModel';
+import { buildTriggerTree } from '../features/triggers/treeModel';
 import { fetchResourceTeamPaths } from '../lib/resourceTeams';
 import { buildPipelineRunsRoute } from '../lib/teamRoutes';
 
@@ -107,7 +107,6 @@ function TriggersPage({
   const [activeOwnerPath, setActiveOwnerPath] = useState('');
   const [activeTeamPath, setActiveTeamPath] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<TriggerSourceFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -782,8 +781,8 @@ function TriggersPage({
   }, [detail]);
 
   const filteredTriggers = useMemo(() => {
-    return filterTriggerListItems(serverTriggers, { query: searchTerm, source: sourceFilter });
-  }, [serverTriggers, searchTerm, sourceFilter]);
+    return filterTriggerListItems(serverTriggers, { query: searchTerm, source: 'all' });
+  }, [serverTriggers, searchTerm]);
 
   const triggerDetails = useMemo(
     () => triggerDetailsFormFromYaml(editorValue || detail?.rawYaml || '', detail),
@@ -801,9 +800,10 @@ function TriggersPage({
     return buildTriggerTree(serverTriggers);
   }, [serverTriggers]);
 
-  const activeTreeNode = useMemo(() => {
-    return findTriggerTreeNode(buildTree, activeOwnerForTree, activeTeamForTree);
-  }, [activeOwnerForTree, activeTeamForTree, buildTree]);
+  const triggerMetrics = useMemo(
+    () => buildTriggerCollectionMetrics(serverTriggers, workspaceOwner),
+    [serverTriggers, workspaceOwner]
+  );
 
   const handleIndentTab = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget;
@@ -861,12 +861,11 @@ function TriggersPage({
     <div data-page="triggers" className="active h-full flex flex-col">
       <TriggerCollectionToolbar
         searchTerm={searchTerm}
-        sourceFilter={sourceFilter}
         searchOpen={searchOpen}
         searchInputRef={searchInputRef}
         canCreateTriggerHere={canCreateTriggerHere}
+        summary={<TriggerMetricGrid metrics={triggerMetrics} />}
         onSearchTermChange={setSearchTerm}
-        onSourceFilterChange={setSourceFilter}
         onSearchOpenChange={setSearchOpen}
         onCreate={openCreateModal}
       />
@@ -952,9 +951,7 @@ function TriggersPage({
               allTriggers={serverTriggers}
               visibleTriggers={visibleTriggers}
               treeRoot={buildTree}
-              activeTreeNode={activeTreeNode}
-              activeOwnerPath={activeOwnerPath}
-              activeTeamPath={activeTeamPath}
+              activeOwner={workspaceOwner}
               searchTerm={searchTerm}
               selectedSlug={selectedSlug}
               canCreateTriggerHere={canCreateTriggerHere}

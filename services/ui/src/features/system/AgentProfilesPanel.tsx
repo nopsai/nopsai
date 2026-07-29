@@ -13,13 +13,13 @@ import {
 import { useTeamProfileWriteAccess } from './useTeamProfileWriteAccess';
 import {
   AIResourceEmptyState,
+  AIResourceExpandableSearch,
   AIResourceIconAction,
   AIResourceTeamBadge,
-  AIResourceTeamFilter,
   AIResourceTeamPlacementField,
   AIResourceTableHeader,
 } from './AIResourcePanel';
-import { AIResourceMetricGrid, AIResourceWorkspace, type AIResourceWorkspaceItem } from './AIResourceWorkspace';
+import { AIResourceWorkspace, type AIResourceWorkspaceItem } from './AIResourceWorkspace';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
@@ -34,11 +34,7 @@ import {
   formatAIResourceTeamLabel,
   normalizeAIResourceTeamPath,
 } from './aiResourceTeams';
-import {
-  formatAIResourceRatio,
-  formatFilteredCount,
-  matchesAIResourceSearch,
-} from './aiResourcePresentation';
+import { formatFilteredCount, matchesAIResourceSearch } from './aiResourcePresentation';
 import { aiResourceTreeFilterForResource } from './aiResourceTree';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import { ObjectIcon } from '../../components/ObjectIcon';
@@ -79,6 +75,7 @@ function AgentProfilesPanel({
   const {
     payload,
     teamProfilesPayload,
+    teamProfilesByPath,
     loading,
     teamProfilesLoading,
     error,
@@ -94,6 +91,7 @@ function AgentProfilesPanel({
     setPanelMode,
     loadProfiles,
     loadTeamProfiles,
+    loadTeamProfilesForTree,
     openUsage,
     openSource,
     startCreate,
@@ -135,6 +133,9 @@ function AgentProfilesPanel({
     () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.id), teamPaths),
     [payload.profiles, teamPaths]
   );
+  useEffect(() => {
+    loadTeamProfilesForTree(teamFilterOptions);
+  }, [loadTeamProfilesForTree, teamFilterOptions]);
   const selectedTeamPayload = selectedTeamPath && normalizeAIResourceTeamPath(teamProfilesPayload?.team_path || '') === selectedTeamPath
     ? teamProfilesPayload
     : null;
@@ -146,19 +147,29 @@ function AgentProfilesPanel({
     () => selectedTeamPath ? payload.profiles.filter(profile => aiResourceTeamScope(profile.id).teamPath === selectedTeamPath) : [],
     [payload.profiles, selectedTeamPath]
   );
+  const cachedTeamScopedProfiles = useMemo(
+    () => Object.values(teamProfilesByPath).flatMap(teamAgentProfileRecords),
+    [teamProfilesByPath]
+  );
   const sourceProfiles = useMemo(() => {
-    if (!selectedTeamPath) return payload.profiles;
     const byID = new Map<string, AgentProfileRecord>();
+    payload.profiles.forEach(profile => byID.set(profile.id, profile));
+    if (!selectedTeamPath) {
+      cachedTeamScopedProfiles.forEach(profile => byID.set(profile.id, profile));
+      return Array.from(byID.values()).sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
+    }
+    byID.clear();
     catalogScopedProfiles.forEach(profile => byID.set(profile.id, profile));
     teamScopedProfiles.forEach(profile => byID.set(profile.id, profile));
     return Array.from(byID.values()).sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
-  }, [catalogScopedProfiles, payload.profiles, selectedTeamPath, teamScopedProfiles]);
+  }, [cachedTeamScopedProfiles, catalogScopedProfiles, payload.profiles, selectedTeamPath, teamScopedProfiles]);
   const workspaceProfiles = useMemo(() => {
     const byID = new Map<string, AgentProfileRecord>();
     payload.profiles.forEach(profile => byID.set(profile.id, profile));
+    cachedTeamScopedProfiles.forEach(profile => byID.set(profile.id, profile));
     teamScopedProfiles.forEach(profile => byID.set(profile.id, profile));
     return Array.from(byID.values()).sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
-  }, [payload.profiles, teamScopedProfiles]);
+  }, [cachedTeamScopedProfiles, payload.profiles, teamScopedProfiles]);
   const activeDefaultProfile = selectedTeamPath
     ? teamScopedDefaultID(selectedTeamPath, selectedTeamPayload?.default_profile || '')
     : payload.default_profile;
@@ -202,9 +213,6 @@ function AgentProfilesPanel({
   const showForm = panelMode === 'create' || panelMode === 'edit';
   const detailProfile = (panelMode ? selectedProfile : null) ?? selectedListProfile;
   const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
-  const visibleEnabledCount = visibleProfiles.filter(profile => profile.enabled).length;
-  const visibleUsageCount = visibleProfiles.reduce((total, profile) => total + profile.usage_count, 0);
-  const visibleGitOpsCount = visibleProfiles.filter(profile => profile.source === 'gitops' || Boolean(profile.source_path)).length;
   const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
     () => workspaceProfiles.map(profile => ({
       id: profile.id,
@@ -289,27 +297,28 @@ function AgentProfilesPanel({
             <strong>{defaultProfileRecord?.display_name || activeDefaultProfile || (selectedTeamPath ? 'No default' : '-')}</strong>
           )}
         </div>
-        {!detailOpen && (
-          <AIResourceMetricGrid
-            metrics={[
-              { label: 'Profiles', value: visibleProfiles.length, icon: <Bot className="h-4 w-4" /> },
-              { label: 'Enabled', value: formatAIResourceRatio(visibleEnabledCount, visibleProfiles.length), icon: <Power className="h-4 w-4" />, tone: visibleProfiles.length === 0 || visibleEnabledCount === visibleProfiles.length ? 'ok' : 'warning' },
-              { label: 'Pipeline refs', value: visibleUsageCount, icon: <Activity className="h-4 w-4" />, tone: 'info' },
-              { label: 'GitOps managed', value: visibleGitOpsCount, icon: <FileText className="h-4 w-4" />, tone: visibleGitOpsCount > 0 ? 'muted' : 'default' },
-            ]}
-          />
-        )}
-        <div className="ai-resource-page-actions">
-          {!canManageCurrentScope && <span className="runner-pill runner-pill--muted">Read-only</span>}
-          <button type="button" className="ai-resource-icon-button" onClick={reloadProfiles} disabled={defaultControlLoading} aria-label="Reload">
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-          </button>
-          {canManageCurrentScope && (
-            <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New profile
+        <div className="ai-resource-page-actions ai-resource-page-actions--stacked">
+          <div className="ai-resource-page-action-row">
+            {!canManageCurrentScope && <span className="runner-pill runner-pill--muted">Read-only</span>}
+            {!detailOpen && (
+              <AIResourceExpandableSearch
+                label="Search agent profiles"
+                placeholder="Search agent profiles..."
+                value={searchTerm}
+                onChange={setSearchTerm}
+                className="ai-resource-header-search"
+              />
+            )}
+            <button type="button" className="ai-resource-icon-button" onClick={reloadProfiles} disabled={defaultControlLoading} aria-label="Reload">
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
             </button>
-          )}
+            {canManageCurrentScope && (
+              <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                New profile
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -337,18 +346,6 @@ function AgentProfilesPanel({
             title="Profiles"
             count={formatFilteredCount(visibleProfiles.length, sourceProfiles.length, filteredCountToken)}
             loading={listLoading}
-            searchLabel="Search agent profiles"
-            searchPlaceholder="Search agent profiles..."
-            searchValue={searchTerm}
-            onSearchChange={setSearchTerm}
-            filters={(
-              <AIResourceTeamFilter
-                value={teamFilter}
-                onChange={openTeamFilter}
-                teamPaths={teamFilterOptions}
-                disabled={teamPathsLoading && teamFilterOptions.length === 0}
-              />
-            )}
           />
         )}
         list={(

@@ -11,17 +11,21 @@
   position: relative;
 }
 
-.schedule-workspace .ai-resource-metrics-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .schedule-workspace .schedule-workspace__header-actions {
-  display: grid;
-  align-self: stretch;
+  display: flex;
+  align-self: center;
   align-content: center;
   justify-items: end;
-  gap: 7px;
   margin-left: auto;
+}
+
+.schedule-workspace__header-leading {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: min(100%, 520px);
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .schedule-workspace__header-action-row {
@@ -29,6 +33,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .schedule-workspace .ai-resource-icon-button,
@@ -64,25 +69,6 @@
   font-weight: 700;
 }
 
-.schedule-workspace__filters {
-  display: flex;
-  min-width: 0;
-  flex: 0 1 auto;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 8px;
-}
-
-.schedule-workspace__table-header {
-  justify-content: flex-start;
-  min-height: 46px;
-  padding-inline: 12px;
-}
-
-.schedule-workspace__table-header .ai-resource-table-controls {
-  justify-content: flex-start;
-}
-
 .schedule-workspace__state-filter {
   display: inline-flex;
   max-width: 100%;
@@ -95,6 +81,9 @@
 }
 
 .schedule-workspace__state-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 28px;
   border: 0;
   border-radius: 6px;
@@ -104,6 +93,18 @@
   font-size: 0.72rem;
   font-weight: 750;
   white-space: nowrap;
+}
+
+.schedule-workspace__state-filter button strong {
+  min-width: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 88%, var(--border-primary));
+  color: var(--text-primary);
+  padding: 1px 6px;
+  font-size: 0.68rem;
+  font-weight: 780;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .schedule-workspace__state-filter button[aria-selected='true'] {
@@ -273,25 +274,13 @@ html.dark .schedule-workspace__state-filter button[aria-selected='true'] {
 }
 
 @media (max-width: 1180px) {
-  .schedule-workspace .ai-resource-metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .schedule-workspace__filters {
-    justify-content: flex-start;
-  }
-
   .schedule-detail__grid {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 760px) {
-  .schedule-workspace .ai-resource-metrics-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .schedule-workspace__path-filter,
+  .schedule-workspace__header-leading,
   .schedule-workspace__state-filter {
     flex: 1 1 100%;
   }

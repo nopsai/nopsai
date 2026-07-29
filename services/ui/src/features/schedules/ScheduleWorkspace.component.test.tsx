@@ -101,7 +101,7 @@ describe('ScheduleWorkspace', () => {
 
     expect(screen.getByRole('region', { name: 'Pipeline schedule workspace' })).toBeVisible();
     expect(screen.getAllByText('platform/deploy').length).toBeGreaterThan(0);
-    expect(screen.getByText('1/2')).toBeVisible();
+    expect(screen.getByRole('tab', { name: /Enabled.*1/ })).toBeVisible();
     expect(screen.getByRole('table', { name: 'Pipeline schedules' })).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Select schedule Nightly deploy' }));
@@ -140,7 +140,7 @@ describe('ScheduleWorkspace', () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    await user.click(screen.getByRole('tab', { name: 'GitOps' }));
+    await user.click(screen.getByRole('tab', { name: /GitOps/ }));
     const table = screen.getByRole('table', { name: 'Pipeline schedules' });
     expect(within(table).queryByText('Nightly deploy')).not.toBeInTheDocument();
     expect(within(table).getByText('Release window')).toBeVisible();

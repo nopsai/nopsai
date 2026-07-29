@@ -99,7 +99,8 @@ function StepWorkspace({
       treeTitle="Teams"
       rootLabel="All teams"
       searchLabel="Search step teams"
-      searchPlaceholder="Find team"
+      searchPlaceholder=""
+      showTreeSearch={false}
       emptyLabel="No step teams found."
       activePath={activeTeam}
       rootNode={treeRoot}

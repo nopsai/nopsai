@@ -48,6 +48,7 @@ export function useMCPRegistry({
   const [servers, setServers] = useState<MCPServerRecord[]>([]);
   const [profiles, setProfiles] = useState<MCPProfileRecord[]>([]);
   const [teamProfilesPayload, setTeamProfilesPayload] = useState<TeamMCPProfilesResponse | null>(null);
+  const [teamProfilesByPath, setTeamProfilesByPath] = useState<Record<string, TeamMCPProfilesResponse>>({});
   const [loading, setLoading] = useState(true);
   const [teamProfilesLoading, setTeamProfilesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,6 +63,15 @@ export function useMCPRegistry({
   const [editingProfileTeamPath, setEditingProfileTeamPath] = useState('');
   const [panelMode, setPanelMode] = useState<MCPPanelMode | null>(null);
   const teamProfilesRequestRef = useRef(0);
+  const teamProfilesCacheRef = useRef<Set<string>>(new Set());
+  const teamProfilesPendingRef = useRef<Set<string>>(new Set());
+
+  const cacheTeamProfilesPayload = useCallback((result: TeamMCPProfilesResponse) => {
+    const normalizedTeamPath = normalizeAIResourceTeamPath(result.team_path || '');
+    if (!normalizedTeamPath) return;
+    teamProfilesCacheRef.current.add(normalizedTeamPath);
+    setTeamProfilesByPath(previous => ({ ...previous, [normalizedTeamPath]: result }));
+  }, []);
 
   const loadMCP = useCallback(async () => {
     setLoading(true);
@@ -89,18 +99,35 @@ export function useMCPRegistry({
 
     setTeamProfilesLoading(true);
     setTeamProfilesError(null);
+    teamProfilesPendingRef.current.add(normalizedTeamPath);
     try {
       const result = await fetchTeamMCPProfiles(normalizedTeamPath);
       if (teamProfilesRequestRef.current !== requestID) return;
       setTeamProfilesPayload(result);
+      cacheTeamProfilesPayload(result);
     } catch (err) {
       if (teamProfilesRequestRef.current !== requestID) return;
       setTeamProfilesPayload(null);
       setTeamProfilesError(err instanceof Error ? err.message : 'Unable to load team MCP profiles');
     } finally {
+      teamProfilesPendingRef.current.delete(normalizedTeamPath);
       if (teamProfilesRequestRef.current === requestID) setTeamProfilesLoading(false);
     }
-  }, []);
+  }, [cacheTeamProfilesPayload]);
+
+  const loadTeamProfilesForTree = useCallback((teamPaths: string[]) => {
+    const paths = Array.from(new Set(teamPaths.map(normalizeAIResourceTeamPath).filter(Boolean)))
+      .filter(teamPath => !teamProfilesCacheRef.current.has(teamPath) && !teamProfilesPendingRef.current.has(teamPath));
+    paths.forEach(teamPath => {
+      teamProfilesPendingRef.current.add(teamPath);
+      void fetchTeamMCPProfiles(teamPath)
+        .then(cacheTeamProfilesPayload)
+        .catch(() => undefined)
+        .finally(() => {
+          teamProfilesPendingRef.current.delete(teamPath);
+        });
+    });
+  }, [cacheTeamProfilesPayload]);
 
   useEffect(() => {
     void loadMCP();
@@ -283,6 +310,7 @@ export function useMCPRegistry({
             }
           }
           setTeamProfilesPayload(result);
+          cacheTeamProfilesPayload(result);
           const saved = teamMCPProfileRecords(result).find(profile => profile.name === targetName) || null;
           setEditingProfile(targetName);
           setEditingProfileTeamPath(targetTeamPath);
@@ -318,7 +346,7 @@ export function useMCPRegistry({
         setSaving(false);
       }
     },
-    [canManage, canManageTeamProfiles, editingProfile, editingProfileTeamPath, loadTeamProfiles, profileForm]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, editingProfile, editingProfileTeamPath, loadTeamProfiles, profileForm]
   );
 
   const deleteProfile = useCallback(
@@ -388,6 +416,7 @@ export function useMCPRegistry({
     servers,
     profiles,
     teamProfilesPayload,
+    teamProfilesByPath,
     loading,
     teamProfilesLoading,
     saving,
@@ -405,6 +434,7 @@ export function useMCPRegistry({
     setPanelMode,
     loadMCP,
     loadTeamProfiles,
+    loadTeamProfilesForTree,
     startServerCreate,
     startServerEdit,
     saveServer,
