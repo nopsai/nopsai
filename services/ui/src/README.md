@@ -257,16 +257,27 @@ truth; this file is the source-adjacent placement guide.
   state. The log hook/model owns those filter semantics.
 - Graph controls and log dialogs must keep keyboard paths, labelled controls,
   and serious/critical axe gates green.
-- Clicking a pipeline-run or pipeline-definition graph step should preserve the
-  step expansion affordance while framing that step with its direct dependency
-  and dependent neighbors when the step has tasks. Clicking the expanded step
-  again must collapse it and clear the selected step. Clicking a step with no
-  displayable tasks should open logs filtered to that step. Manual graph
-  navigation after a click, including wheel zoom, pan, and zoom controls, must
-  clear the transient selected-step focus so later run refreshes do not jump
-  back to that step. Graph rendering should ignore single placeholder task rows
-  that only repeat the step name when the pipeline definition has no matching
-  task.
+- Clicking a pipeline-run graph step with displayable tasks reveals its task DAG
+  in the lower overlay stage while the step overview remains visible above it.
+  The reveal keeps direct dependency and dependent context nodes, search/status
+  dimming, zoom/fit/pan controls, and copyable step/task selection URLs.
+  Node-level info affordances open the full step-detail modal, including a
+  preselected task when the affordance belongs to a task, without changing the
+  primary click behavior: multi-task steps reveal tasks, atomic steps open step
+  logs, and task clicks open task logs. Clicking the open step again must
+  collapse it and clear selection. Manual graph navigation after a click,
+  including wheel zoom, pan, Fit, and zoom controls, must preserve the current
+  step/task selection and keep the task reveal open.
+  Opening a run, changing runs, and pressing Fit must center the graph bounds in
+  the canvas for both single-step and multi-step runs. Graph rendering should
+  ignore single placeholder task rows that only repeat the step name when the
+  pipeline definition has no matching task.
+- Run detail keeps the execution graph and final outputs in sibling Graph and
+  Outputs tabs so deliverables do not crowd the graph canvas.
+- Pipeline-definition graph steps keep their existing expansion and dependency
+  framing behavior; run-detail graph ownership stays in
+  `features/pipeline-runs/RunGraph.tsx`, with API/polling owned by
+  `pages/PipelineRuns.tsx` and layout/model helpers beside the graph renderer.
 
 ### Lab
 

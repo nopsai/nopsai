@@ -36,3 +36,48 @@ test('renders step and task LLM usage in the step detail modal', () => {
   expect(screen.getByText('60 tokens')).toBeVisible();
   expect(screen.getByText('42 tokens prompt / 18 tokens completion')).toBeVisible();
 });
+
+test('opens the step detail modal with an initial task selection', () => {
+  render(
+    <StepDetailModal
+      step={{
+        name: 'build',
+        status: 'failure',
+        depends_on: [],
+        configuration: {
+          tasks: [
+            { name: 'compile' },
+            { name: 'package' },
+          ],
+        },
+        tasks: [
+          {
+            task_id: 'task-1',
+            step_name: 'build',
+            task_name: 'compile',
+            status: 'success',
+            task_index: 0,
+          },
+          {
+            task_id: 'task-2',
+            step_name: 'build',
+            task_name: 'package',
+            status: 'failure',
+            exit_code: 1,
+            task_index: 1,
+            ai_usage: { total_tokens: 42 },
+          },
+        ],
+      }}
+      initialTaskName="package"
+      onClose={vi.fn()}
+      onViewLogs={vi.fn()}
+      pipelineDefinition={{ steps: [{ name: 'build', tasks: [{ name: 'compile' }, { name: 'package' }] }] }}
+    />
+  );
+
+  expect(screen.getByText('package')).toBeVisible();
+  expect(screen.getByText('42 tokens')).toBeVisible();
+  expect(screen.getByText('Exit code')).toBeVisible();
+  expect(screen.getAllByText('1').length).toBeGreaterThan(0);
+});

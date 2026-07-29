@@ -4,6 +4,7 @@ import {
   calculateGraphLayout,
   deriveGraphEdgeStatus,
   deriveTaskGraphStatus,
+  fitGraphLayoutToRegion,
   normalizeGraphStatus,
 } from './graphLayout.js';
 
@@ -47,4 +48,25 @@ test('handles cyclic dependencies without unbounded recursion', () => {
   );
   assert.equal(layout.nodes.length, 2);
   assert.equal(layout.edges.length, 2);
+});
+
+test('fits graph layouts into a fixed reveal region without mutating source layout', () => {
+  const layout = calculateGraphLayout(
+    [
+      { id: 'resolve', status: 'success' as const },
+      { id: 'publish', dependsOn: ['resolve'], status: 'running' as const },
+    ],
+    () => ({ width: 180, height: 64 }),
+    120,
+    20
+  );
+  const originalFirstX = layout.nodes[0]?.x;
+  const fitted = fitGraphLayoutToRegion(layout, { x: 10, y: 20, width: 300, height: 120 });
+
+  assert.equal(layout.nodes[0]?.x, originalFirstX);
+  assert.ok(fitted.scale < 1);
+  assert.ok(fitted.nodes.every(node => node.x >= 10 && node.y >= 20));
+  assert.ok(fitted.nodes.every(node => node.x + node.width <= 310.001));
+  assert.ok(fitted.nodes.every(node => node.y + node.height <= 140.001));
+  assert.equal(fitted.edges.length, 1);
 });

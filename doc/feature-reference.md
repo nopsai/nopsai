@@ -829,6 +829,18 @@ Run organization behavior:
 - Pipeline Runs overview renders successful final-output aggregate state as
   compact `success` text to fit the operational table, while detail and
   run-list surfaces keep richer output labels and tooltips.
+- Pipeline Runs run detail renders a hierarchical execution graph: the step
+  overview remains visible, selecting a multi-task step opens its task DAG in a
+  lower reveal stage with direct upstream/downstream context, node info
+  affordances open the full step-detail modal with optional task preselection,
+  and graph controls keep search/status filtering, zoom/pan, and copyable
+  selection links in the existing `pipeline_run.read` surface. Wheel zoom,
+  toolbar zoom, Fit, and pan preserve any open task reveal. Opening a run and
+  pressing Fit center the graph bounds for single-step and multi-step executions.
+  Run detail separates the execution graph and final deliverables into Graph and
+  Outputs tabs.
+- The graph redesign is UI-only: GitOps YAML shape, AAA checks, run APIs, MCP
+  monitoring tools, CLI commands, and persisted run/task records are unchanged.
 - pipeline path is used as the run owner when a run has no repository or
   explicit team path
 - repository metadata remains a source/runtime identity for Git-triggered runs,
