@@ -29,6 +29,11 @@ export type YamlResourceDeleteModal = {
   error?: string;
 };
 
+export type YamlResourceSaveOptions = {
+  resourceID?: string;
+  rawYaml?: string;
+};
+
 type ToastTone = 'success' | 'error' | 'info';
 
 type YamlResourceMutationOptions<TDetail extends ResourceDetail> = {
@@ -164,13 +169,31 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
     });
   }, [normalizeSource, resources]);
 
-  const save = useCallback(async () => {
-    if (!detail || !editorValue.trim()) return false;
+  const save = useCallback(async (options: YamlResourceSaveOptions = {}) => {
+    if (!detail) return false;
+    const targetID = (options.resourceID || detail.id).trim();
+    const yamlBody = options.rawYaml ?? editorValue;
+    const identityChanged = targetID !== detail.id;
+    if (!targetID || !yamlBody.trim()) return false;
     const detailSource = normalizeSource(detail.source);
     const canPersist = detailSource === 'draft' ? canCreate : canUpdate;
     if (!canPersist) {
       addToast(`You have read-only access to ${resourcePlural}.`, 'info');
       return false;
+    }
+    if (identityChanged) {
+      if (detailSource !== 'draft' && !canDelete) {
+        addToast(`You need delete access to move this ${resourceLabel}.`, 'info');
+        return false;
+      }
+      if (resources.some(item => item.id === targetID)) {
+        addToast(`A ${resourceLabel} with that identifier already exists.`, 'error');
+        return false;
+      }
+      if (!(await checkCreatePermission(`${resourceLabel}.create`, targetID))) {
+        addToast(`You do not have permission to create ${resourcePlural} in this path.`, 'error');
+        return false;
+      }
     }
     if (validationErrorCount > 0) {
       addToast(validationMessage, 'error');
@@ -179,21 +202,28 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
 
     setSaving(true);
     try {
-      await persistYaml(detail.id, editorValue);
+      await persistYaml(targetID, yamlBody);
+      if (identityChanged && detailSource !== 'draft') {
+        await deleteResource(detail.id);
+      }
       const wasGit = detailSource === 'git';
-      addToast(
-        wasGit
-          ? `${resourceTitle} saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.`
-          : `${resourceTitle} saved.`,
-        'success'
-      );
+      let successMessage = `${resourceTitle} saved.`;
+      if (identityChanged && wasGit) {
+        successMessage = `${resourceTitle} moved to ${targetID} as a database override. The original GitOps row can return unless it is renamed in GitOps.`;
+      } else if (identityChanged) {
+        successMessage = `${resourceTitle} moved to ${targetID}.`;
+      } else if (wasGit) {
+        successMessage = `${resourceTitle} saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.`;
+      }
+      addToast(successMessage, 'success');
       const wasDraft = detailSource === 'draft';
-      const resolvedSource = wasDraft || wasGit
+      const resolvedSource = identityChanged || wasDraft || wasGit
         ? 'database'
         : resources.find(item => item.id === detail.id)?.source;
-      onSaved(parseSaved(editorValue, detail.id, resolvedSource));
+      onSaved(parseSaved(yamlBody, targetID, resolvedSource));
       await reloadResources({ quiet: true });
       if (wasDraft) removeDraft(detail.id);
+      if (identityChanged) onSelect(targetID);
       return true;
     } catch (error) {
       console.error('Save failed', error);
@@ -208,10 +238,14 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
   }, [
     addToast,
     canCreate,
+    canDelete,
     canUpdate,
+    checkCreatePermission,
+    deleteResource,
     detail,
     editorValue,
     normalizeSource,
+    onSelect,
     onSaved,
     parseSaved,
     persistYaml,

@@ -155,6 +155,39 @@ test('persists an editable draft and converts it to a database resource', async 
   expect(result.current.saving).toBe(false);
 });
 
+test('moves a persisted resource when save receives a new identifier', async () => {
+  const detail: TestDetail = {
+    id: 'team/release',
+    name: 'release',
+    rawYaml: 'name: release\nsteps: []\n',
+    source: 'database',
+  };
+  const { result } = renderHook(() =>
+    useYamlResourceMutations(
+      buildOptions({
+        resources: [{ id: detail.id, source: 'database' }],
+        detail,
+        editorValue: 'name: release\nsteps: []\n',
+      })
+    )
+  );
+
+  await act(async () => {
+    expect(await result.current.save({
+      resourceID: 'platform/release-v2',
+      rawYaml: 'name: release-v2\nsteps: []\n',
+    })).toBe(true);
+  });
+
+  expect(checkCreatePermission).toHaveBeenCalledWith('pipeline.create', 'platform/release-v2');
+  expect(persistYaml).toHaveBeenCalledWith('platform/release-v2', 'name: release-v2\nsteps: []\n');
+  expect(deleteResource).toHaveBeenCalledWith('team/release');
+  expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'platform/release-v2', source: 'database' }));
+  expect(reloadResources).toHaveBeenCalledWith({ quiet: true });
+  expect(onSelect).toHaveBeenCalledWith('platform/release-v2');
+  expect(addToast).toHaveBeenCalledWith('Pipeline moved to platform/release-v2.', 'success');
+});
+
 test('saves GitOps resources as database overrides and handles draft and persisted deletion separately', async () => {
   const git = renderHook(() =>
     useYamlResourceMutations(

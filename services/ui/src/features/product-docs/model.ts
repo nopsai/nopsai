@@ -3347,10 +3347,12 @@ const baseWikiSections: WikiSectionInput[] = [
           'Analyse Resources reviews visible team or application resources for duplicate resources, unused or inactive candidates, unclear ownership, GitOps/database drift, privileged credentials, global inheritance, and reuse opportunities.',
           'Every visible resource row also has an Analyse action that focuses the same reviewer on that pipeline, credential, schedule, trigger, profile, scope, or knowledge context.',
           'Analyse Pipeline reviews the current saved pipeline snapshot for static YAML, security, reliability, monitoring, maintainability, performance, and pre-execution readiness findings.',
+          'Pipeline detail shows a task-oriented reviewer surface: KPI metrics, source state, latest run summary, full-width trigger/run/dependency row tabs, and the complete deterministic plus AI Evaluation reviewer inside the Health tab without adding a new API or mutation path.',
+          'Pipeline detail actions for clone, edit, access, YAML download, and YAML copy live beside Execute. Editing can update the YAML, pipeline name, and team path together, with identity moves using the existing AAA and GitOps-aware resource mutation path.',
           'Analyse Run classifies failed runs into likely domains such as pipeline definition, application tests, credentials, runner infrastructure, timeout/capacity, approval/policy, or unknown, and also flags degradation in successful runs.',
           'Reviewer results include health score, category scores, score basis, severity counts, affected resources, evidence, recommendations, confidence, generated timestamp, and a stable snapshot revision.',
           'Health and metric scores start at 100 and subtract weighted visible findings: critical x 25, high x 15, medium x 8, low x 3, and opportunity x 1. Category scores use the same weights filtered to that category. Structured AI Evaluation can replace the displayed number with an AI-reviewed score. Exact snapshot matches are current reviews; older same-subject reviews are labeled as previous-snapshot context.',
-          'AI Evaluation calls POST /v1/analysis/evaluate with the default or first usable selectable LLM profile from the unscoped Assistant profile picker and the redacted reviewer snapshot. Team/resource reviewers keep cache/API subject IDs separate from the scope path sent to the evaluation endpoint for backend validation. It does not create an Assistant conversation or hosted MCP planner chain. Run analysis starts that second pass automatically; resource and pipeline analysis expose it as an explicit Generate AI action.',
+          'AI Evaluation calls POST /v1/analysis/evaluate with the default or first usable selectable LLM profile from the unscoped Assistant profile picker and the redacted reviewer snapshot. Team/resource reviewers keep cache/API subject IDs separate from the scope path sent to the evaluation endpoint for backend validation. It does not create an Assistant conversation or hosted MCP planner chain. Run analysis starts that second pass automatically; pipeline detail also starts it when the operator selects Analyse Pipeline and lands on the Health tab.',
           'Pipeline AI Evaluation includes bounded redacted page context: saved YAML, validation errors, parsed step/task graph, trigger bindings, dependencies, and recent-run summaries when run history is enabled.',
           'Team and resource AI Evaluation includes bounded redacted page context: visible resource rows, selected-resource peers, resource counts by kind and source, GitOps state, notification route counts, AI profile counts/defaults, access grant counts, and current-user permission labels.',
           'Run AI Evaluation includes bounded redacted failed-step context: step/task identity, configured script or goal, safe configuration metadata, YAML around the failed step when available, and tail-preserving selected log lines around the failed task or error signal.',
@@ -3362,6 +3364,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'The shared finding contract matches the product analysis model: subject type and ID, category, severity, summary, evidence, affected resources, recommendations, confidence, generatedAt, and snapshotRevision.',
           'Score basis is shown in the modal and copied reports. It records the formula, visible inputs, severity counts, total deduction, and limitations so operators can see whether the number is the deterministic baseline or the AI-reviewed overlay for the same snapshot.',
           'Pipeline analysis can include recent run history when the detail page has it loaded. The pre-execution mode reports readiness as Yes or No from static blockers such as YAML parse issues, missing dependencies, implicit runner pool, missing credential declarations, and unclear production approval boundaries.',
+          'Pipeline detail tabs reuse the existing page data and callbacks: the Flow tab renders the parsed dependency graph, Definition reuses the shared YAML editor and GitOps override warning, Trigger rules/Runs/Dependencies render dense full-width object rows, and Health renders the complete read-only analysis workspace inline.',
           'Pipeline, team, and resource AI Evaluation use local page context builders before calling the LLM profile. They do not rely on hosted MCP to rediscover the pipeline definition, resource catalog, or team operations metadata.',
           'Run analysis uses the visible run detail and peer run list to find the first failed step/task, compare with the last successful run of the same pipeline, keep evidence separate from inference, fetch bounded failed-task log context for AI Evaluation, and ask the selected LLM profile to explain the likely problem and safe fix suggestions from the redacted snapshot.',
           'Recommendations are proposal-oriented. Follow-up actions in the modal navigate to existing resources or logs; they do not automatically edit YAML, rerun steps, delete resources, or change grants.',
@@ -3452,9 +3455,9 @@ const baseWikiSections: WikiSectionInput[] = [
             purpose: 'Builds bounded redacted resource catalog, selected-resource peer, GitOps, notification, AI-profile, access, and permission context before team/resource AI Evaluation.',
           },
           {
-            title: 'Reviewer modal renderer',
+            title: 'Reviewer renderer',
             repositoryPath: 'services/ui/src/features/analysis/AnalysisModal.tsx',
-            purpose: 'Renders left-rail deterministic or AI-reviewed health and hoverable metric score provenance, structured AI Evaluation, focused findings, evidence, recommendations, affected resources, and copy actions.',
+            purpose: 'Renders modal and inline analysis workspaces with left-rail deterministic or AI-reviewed health, hoverable metric score provenance, structured AI Evaluation, focused findings, evidence, recommendations, affected resources, and copy actions.',
           },
           {
             title: 'Teams reviewer wiring',
@@ -3464,7 +3467,17 @@ const baseWikiSections: WikiSectionInput[] = [
           {
             title: 'Pipeline reviewer wiring',
             repositoryPath: 'services/ui/src/features/pipelines/PipelineDetailView.tsx',
-            purpose: 'Places Analyse Pipeline beside Execute and owns mode controls.',
+            purpose: 'Renders the tabbed pipeline detail workspace, places Analyse Pipeline beside Execute, and owns reviewer mode controls.',
+          },
+          {
+            title: 'Pipeline detail sections',
+            repositoryPath: 'services/ui/src/features/pipelines/PipelineDetailSections.tsx',
+            purpose: 'Renders the tab panels for graph, definition metadata, trigger rules, runs, dependencies, and analysis controls.',
+          },
+          {
+            title: 'Pipeline detail presentation',
+            repositoryPath: 'services/ui/src/features/pipelines/pipelineDetailPresentation.ts',
+            purpose: 'Derives pipeline detail KPI metrics, source state, latest-run summary, and deterministic health summary from already-loaded page data.',
           },
           {
             title: 'Run reviewer wiring',

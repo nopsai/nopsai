@@ -41,6 +41,7 @@ type ResourceYamlDetailPanelProps = {
   isGitSource: boolean;
   saving: boolean;
   autocompleteWidth?: number;
+  showActions?: boolean;
   onCopy: () => void;
   onDownload: () => void;
   onEdit: () => void;
@@ -77,6 +78,7 @@ export function ResourceYamlDetailPanel({
   isGitSource,
   saving,
   autocompleteWidth,
+  showActions = true,
   onCopy,
   onDownload,
   onEdit,
@@ -141,42 +143,44 @@ export function ResourceYamlDetailPanel({
     <div className="glass-card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
         <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
-        <div className="flex items-center gap-2 flex-wrap">
-          {!isEditing ? (
-            <>
-              <button className="glass-button-ghost" onClick={onCopy} title="Copy YAML" aria-label="Copy YAML">
-                <Copy className="h-4 w-4" aria-hidden="true" />
-              </button>
-              <button className="glass-button-ghost" onClick={onDownload} title="Download YAML" aria-label="Download YAML">
-                <Download className="h-4 w-4" aria-hidden="true" />
-              </button>
-              {access ? <ResourceAccessCard resourceType={access.resourceType} resourceID={access.resourceID} label={access.label} /> : null}
-              {!canUpdate && !canCreate ? null : (
-                <>
-                  {canUpdate ? (
-                    <button className="glass-button-primary" onClick={onEdit}>
-                      Edit
-                    </button>
-                  ) : null}
-                  {canCreate ? (
-                    <button className="glass-button-subtle" onClick={onClone}>
-                      Clone
-                    </button>
-                  ) : null}
-                </>
-              )}
-            </>
-          ) : canUpdate ? (
-            <>
-              <button className="glass-button-ghost" onClick={onDiscard}>
-                Discard
-              </button>
-              <button className="glass-button-primary" onClick={onSave} disabled={saving || validationErrors.length > 0}>
-                {saving ? 'Saving...' : 'Save'}
-              </button>
-            </>
-          ) : null}
-        </div>
+        {showActions ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {!isEditing ? (
+              <>
+                <button className="glass-button-ghost" onClick={onCopy} title="Copy YAML" aria-label="Copy YAML">
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button className="glass-button-ghost" onClick={onDownload} title="Download YAML" aria-label="Download YAML">
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                </button>
+                {access ? <ResourceAccessCard resourceType={access.resourceType} resourceID={access.resourceID} label={access.label} /> : null}
+                {!canUpdate && !canCreate ? null : (
+                  <>
+                    {canUpdate ? (
+                      <button className="glass-button-primary" onClick={onEdit}>
+                        Edit
+                      </button>
+                    ) : null}
+                    {canCreate ? (
+                      <button className="glass-button-subtle" onClick={onClone}>
+                        Clone
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </>
+            ) : canUpdate ? (
+              <>
+                <button className="glass-button-ghost" onClick={onDiscard}>
+                  Discard
+                </button>
+                <button className="glass-button-primary" onClick={onSave} disabled={saving || validationErrors.length > 0}>
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="p-4 space-y-3">
         {isGitSource ? (
