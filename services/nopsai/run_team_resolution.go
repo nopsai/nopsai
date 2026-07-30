@@ -133,3 +133,12 @@ func nullableGitCheckRunID(gitContext map[string]string) sql.NullInt64 {
 	}
 	return sql.NullInt64{Int64: parsed, Valid: true}
 }
+
+func hasGitHubCheckRunContext(gitContext map[string]string) bool {
+	if gitContext == nil {
+		return false
+	}
+	return strings.TrimSpace(gitContext["repo_owner"]) != "" &&
+		strings.TrimSpace(gitContext["repo_name"]) != "" &&
+		strings.TrimSpace(gitContext["commit_sha"]) != ""
+}

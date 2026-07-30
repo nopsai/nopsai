@@ -12911,6 +12911,7 @@ html.dark .triggers-runs-item:focus-within {
     justify-content: flex-end;
     flex-wrap: nowrap;
     margin-left: auto;
+    margin-right: 12px;
 }
 
 .triggers-page-toolbar-summary {
@@ -13083,7 +13084,7 @@ html.dark .triggers-runs-item:focus-within {
     overflow: auto;
     padding: 12px;
     border-right: 0;
-    background: var(--bg-primary);
+    background: var(--bg-secondary);
 }
 
 .triggers-explorer-head {
@@ -13369,9 +13370,9 @@ html.dark .triggers-runs-item:focus-within {
     color: var(--text-secondary);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-primary);
-    font-size: 0.68rem;
+    font-size: 0.66rem;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
     text-transform: uppercase;
 }
 
@@ -13379,6 +13380,7 @@ html.dark .triggers-runs-item:focus-within {
     padding: 10px 13px;
     border-bottom: 1px solid var(--border-primary);
     color: var(--text-primary);
+    font-size: 0.78rem;
     vertical-align: middle;
 }
 
@@ -13477,7 +13479,7 @@ html.dark .triggers-runs-item:focus-within {
 .triggers-team-row-body strong {
     display: block;
     color: var(--text-primary);
-    font-size: 0.9rem;
+    font-size: 0.78rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -13488,7 +13490,7 @@ html.dark .triggers-runs-item:focus-within {
     display: block;
     margin-top: 2px;
     color: var(--text-secondary);
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -13497,7 +13499,7 @@ html.dark .triggers-runs-item:focus-within {
 .triggers-mono {
     color: var(--text-secondary);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-    font-size: 0.74rem;
+    font-size: 0.78rem;
 }
 
 .triggers-badge {
@@ -16477,6 +16479,7 @@ html.dark [data-page="knowledge-context"] .kc-demo-tree-row-wrap.active {
     min-width: 0;
     min-height: 0;
     padding: 18px;
+    background: var(--bg-primary);
     overflow: auto;
 }
 
@@ -16551,6 +16554,12 @@ html.dark [data-page="knowledge-context"] .kc-demo-tree-row-wrap.active {
 
 [data-page="knowledge-context"] .kc-demo-collection {
     overflow: hidden;
+}
+
+[data-page="knowledge-context"] .kc-demo-browser-main .kc-demo-collection {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
 }
 
 [data-page="knowledge-context"] .kc-demo-collection-head {
@@ -17585,7 +17594,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 
 html:not(.dark) [data-page="knowledge-context"] .kc-demo-browser-main,
 html:not(.dark) [data-page="knowledge-context"] .kc-demo-detail {
-    background: #fff;
+    background: var(--bg-primary);
 }
 
 html:not(.dark) [data-page="knowledge-context"] .kc-demo-card,
@@ -17593,6 +17602,11 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-collection,
 html:not(.dark) [data-page="knowledge-context"] .kc-demo-stat {
     border-color: #d8e0ec;
     background: #fff;
+}
+
+html:not(.dark) [data-page="knowledge-context"] .kc-demo-browser-main .kc-demo-collection {
+    border-color: transparent;
+    background: transparent;
 }
 
 html:not(.dark) [data-page="knowledge-context"] .kc-demo-collection-head,
@@ -17912,6 +17926,31 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-detail-empty {
     box-shadow: none !important;
 }
 
+.app-header-titlebar {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: baseline;
+    gap: 0.65rem;
+}
+
+.app-header-titlebar h1 {
+    flex: 0 1 auto;
+    max-width: min(44vw, 24rem);
+}
+
+.app-header-description {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .app-header-icon-button {
     display: inline-flex;
     width: 2.25rem;
@@ -17938,6 +17977,20 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-detail-empty {
 .app-header-icon-button svg {
     width: 1.1rem;
     height: 1.1rem;
+}
+
+@media (max-width: 640px) {
+    .app-header-titlebar {
+        gap: 0.45rem;
+    }
+
+    .app-header-titlebar h1 {
+        max-width: 46vw;
+    }
+
+    .app-header-description {
+        font-size: 0.72rem;
+    }
 }
 
 .app-sidebar-shell,
@@ -18168,6 +18221,7 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
 
 [data-page="knowledge-context"] .kc-demo-browser-main {
     padding-top: 0;
+    background: var(--bg-primary);
 }
 
 @media (max-width: 1180px) {
