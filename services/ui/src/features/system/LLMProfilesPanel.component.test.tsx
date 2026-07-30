@@ -129,6 +129,7 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   await waitFor(() => expect(apiMocks.testLLMProfile).toHaveBeenCalledWith('hosted'));
   expect(await screen.findByText('hosted: ok')).toBeVisible();
 
+  await user.click(screen.getByRole('button', { name: 'List' }));
   await user.click(screen.getByRole('button', { name: /new profile/i }));
   const profileForm = screen.getByRole('heading', { name: 'New LLM profile' }).closest('section') as HTMLElement;
   const form = within(profileForm);
@@ -325,12 +326,14 @@ test('applies the team filter from the route query', async () => {
 });
 
 test('counts cached team-owned LLM profiles in the tree', async () => {
+  const user = userEvent.setup();
   render(
     <MemoryRouter>
       <LLMProfilesPanel canManage />
     </MemoryRouter>
   );
 
+  await user.click(await screen.findByRole('button', { name: 'Expand platform' }));
   const teamButton = await screen.findByRole('button', { name: 'Open team platform/ml' });
   await waitFor(() => expect(teamProfileMocks.fetchTeamLLMProfiles).toHaveBeenCalledWith('platform/ml'));
   await waitFor(() => expect(within(teamButton).getByText('2')).toBeVisible());

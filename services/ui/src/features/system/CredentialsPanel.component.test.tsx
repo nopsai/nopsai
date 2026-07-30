@@ -150,7 +150,7 @@ test('filters by team scope and toggles registry grouping', async () => {
 
   expect(await screen.findByLabelText('Credential summary')).toBeVisible();
   expect(screen.getByRole('button', { name: /all credentials/i })).toBeVisible();
-  expect(screen.getByRole('button', { name: /system \(1\)/i })).toBeVisible();
+  expect(await screen.findByRole('button', { name: /system \(1\)/i })).toBeVisible();
   expect(screen.queryByLabelText('Filter by scope')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Filter by status')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: /teams \(1\)/i }));
@@ -178,7 +178,7 @@ test('limits non-admin credentials to team scopes and team creation', async () =
   );
 
   expect(await screen.findByLabelText('Credential summary')).toBeVisible();
-  expect(screen.getByRole('button', { name: /teams \(1\)/i })).toBeVisible();
+  expect(await screen.findByRole('button', { name: /teams \(1\)/i })).toBeVisible();
   expect(screen.queryByText('OpenAI Primary')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /system/i })).not.toBeInTheDocument();
 

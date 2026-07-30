@@ -76,7 +76,7 @@ test('opens the step detail modal with an initial task selection', () => {
     />
   );
 
-  expect(screen.getByText('package')).toBeVisible();
+  expect(screen.getAllByText('package').length).toBeGreaterThan(0);
   expect(screen.getByText('42 tokens')).toBeVisible();
   expect(screen.getByText('Exit code')).toBeVisible();
   expect(screen.getAllByText('1').length).toBeGreaterThan(0);

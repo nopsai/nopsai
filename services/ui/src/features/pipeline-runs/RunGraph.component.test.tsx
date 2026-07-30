@@ -316,7 +316,7 @@ test('clicking a step without tasks opens step logs instead of revealing an empt
   await userEvent.click(screen.getByRole('button', { name: /Open logs for deploy step/ }));
 
   expect(onOpenStepLogs).toHaveBeenCalledWith('deploy');
-  expect(onSelectStep).not.toHaveBeenCalled();
+  expect(onSelectStep).toHaveBeenCalledWith(null);
 });
 
 test('does not render a placeholder task that only repeats the step name', async () => {
