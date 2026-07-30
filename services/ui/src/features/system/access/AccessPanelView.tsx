@@ -31,16 +31,13 @@ export function AccessPanelView({
     identityProviders,
     filteredIdentityProviders,
     identityProviderSettingsDraft,
-    setIdentityProviderSettingsDraft,
-    identityProviderDomainMappingDraft,
-    setIdentityProviderDomainMappingDraft,
     identityProviderForm,
     setIdentityProviderForm,
     selectedIdentityProvider,
+    identityProviderEditorOpen,
     identityProvidersLoading,
     identityProvidersError,
     savingIdentityProvider,
-    savingIdentityProviderSettings,
     policiesLoading,
     policiesError,
     resourceCatalog,
@@ -101,6 +98,7 @@ export function AccessPanelView({
     filteredRoleDefinitions,
     visiblePolicies,
     filteredPolicies,
+    summaryMetrics,
     sectionContent,
     userRoleAssignmentsLocked,
     userRoleAssignmentsLockLabel,
@@ -126,6 +124,7 @@ export function AccessPanelView({
     openCreatePolicyEditor,
     openCreateIdentityProvider,
     openEditIdentityProvider,
+    closeIdentityProviderEditor,
     openEditRoleEditor,
     openPolicyEditModal,
     openUserAccessModal,
@@ -155,7 +154,6 @@ export function AccessPanelView({
     confirmDeletePolicy,
     confirmDeleteIdentityProvider,
     handleConfirmDialog,
-    handleSaveIdentityProviderSettings,
     handleSaveIdentityProvider,
     handleStageBasicGrant,
     removeBasicGrantDraft,
@@ -164,6 +162,23 @@ export function AccessPanelView({
     handleRevokeServiceAccountToken,
     copyCreatedServiceAccountToken,
   } = controller;
+
+  const closeCreateUserEditor = () => {
+    setAwaitingUserCreateReset(false);
+    setShowUserModal(false);
+    setBasicGrantError(null);
+    setBasicGrantDraft({ role: "", scope: ROOT_ACCESS_SCOPE });
+    setBasicGrantEntries([]);
+  };
+
+  const closeCreateServiceAccountEditor = () => {
+    setAwaitingServiceAccountCreateReset(false);
+    setShowServiceAccountModal(false);
+    setCreatedServiceAccountToken(null);
+    setBasicGrantError(null);
+    setBasicGrantDraft({ role: "", scope: ROOT_ACCESS_SCOPE });
+    setBasicGrantEntries([]);
+  };
 
   const createUserEditor = (
     <CreateUserEditor
@@ -178,13 +193,7 @@ export function AccessPanelView({
       toneClassForRole={accessPresetToneClass}
       onChangeUser={onChangeUser}
       onSubmit={handleCreateUserInline}
-      onClose={() => {
-        setAwaitingUserCreateReset(false);
-        setShowUserModal(false);
-        setBasicGrantError(null);
-        setBasicGrantDraft({ role: "", scope: ROOT_ACCESS_SCOPE });
-        setBasicGrantEntries([]);
-      }}
+      onClose={closeCreateUserEditor}
       onUpdateRoleEntry={updateNewUserRoleEntry}
       onRemoveRoleEntry={removeNewUserRoleEntry}
       onNextRoleChange={setNextUserRole}
@@ -210,14 +219,7 @@ export function AccessPanelView({
       toneClassForRole={accessPresetToneClass}
       onChangeServiceAccount={onChangeServiceAccount}
       onSubmit={handleCreateServiceAccountInline}
-      onClose={() => {
-        setAwaitingServiceAccountCreateReset(false);
-        setShowServiceAccountModal(false);
-        setCreatedServiceAccountToken(null);
-        setBasicGrantError(null);
-        setBasicGrantDraft({ role: "", scope: ROOT_ACCESS_SCOPE });
-        setBasicGrantEntries([]);
-      }}
+      onClose={closeCreateServiceAccountEditor}
       onCopyToken={copyCreatedServiceAccountToken}
       onUpdateRoleEntry={updateNewServiceAccountRoleEntry}
       onRemoveRoleEntry={removeNewServiceAccountRoleEntry}
@@ -235,7 +237,7 @@ export function AccessPanelView({
       : sectionContent.searchPlaceholder;
   const accessSearchControl = (
     <div
-      className={`pipelines-search-shell access-search-shell ${searchOpen ? "open" : ""}`}
+      className={`pipelines-search-shell access-search-shell ${searchOpen || searchTerm ? "open" : ""}`}
     >
       <button
         type="button"
@@ -267,6 +269,7 @@ export function AccessPanelView({
         <button
           type="button"
           className="pipelines-search-clear"
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
             setSearchTerm("");
             setSearchOpen(false);
@@ -308,6 +311,7 @@ export function AccessPanelView({
       onEdit={openUserAccessModal}
       onDelete={confirmDeleteUser}
       onCloseEditor={() => setUserAccessEditor(null)}
+      onCloseCreate={closeCreateUserEditor}
       onSubmit={handleSaveUserAccess}
       onChangeEmail={(email) =>
         setUserAccessEditor((prev) => (prev ? { ...prev, email } : prev))
@@ -356,6 +360,7 @@ export function AccessPanelView({
       onEdit={openServiceAccountAccessModal}
       onDelete={confirmDeleteServiceAccount}
       onCloseEditor={() => setServiceAccountEditor(null)}
+      onCloseCreate={closeCreateServiceAccountEditor}
       onSubmit={handleSaveServiceAccountAccess}
       onChangeEmail={(email) =>
         setServiceAccountEditor((prev) => (prev ? { ...prev, email } : prev))
@@ -381,14 +386,46 @@ export function AccessPanelView({
     />
   );
 
+  const activeCreateAction = (() => {
+    if (accessMode === "basic" || activeSection === "users") {
+      return { label: "Add user", onClick: openCreateUserEditor };
+    }
+    if (activeSection === "service-accounts") {
+      return {
+        label: "Add service account",
+        onClick: openCreateServiceAccountEditor,
+      };
+    }
+    if (activeSection === "roles") {
+      return { label: "Add role", onClick: openCreateRoleEditor };
+    }
+    if (activeSection === "identity-providers") {
+      return { label: "Add provider", onClick: openCreateIdentityProvider };
+    }
+    return { label: "Add policy", onClick: openCreatePolicyEditor };
+  })();
+
   return (
     <div className="access-layout pb-24" data-access-build={ACCESS_UI_BUILD_ID}>
-      <div className="access-shell">
-        <div className="access-header">
-          <div className="access-title-team">
-            <h3 className="access-header__title">Access</h3>
+      <div className="access-shell access-shell--redesign">
+        <div className="access-overview-row">
+          <div className="access-summary-grid" aria-label="Access summary">
+            {summaryMetrics.map((metric) => (
+              <div
+                key={metric.id}
+                className={`access-summary-card access-summary-card--${metric.tone || "neutral"}`}
+              >
+                <div>
+                  <p className="access-summary-card__label">{metric.label}</p>
+                  <p className="access-summary-card__hint">{metric.hint}</p>
+                </div>
+                <strong className="access-summary-card__value">
+                  {metric.value}
+                </strong>
+              </div>
+            ))}
           </div>
-          <div className="access-header__actions">
+          <div className="access-overview-actions">
             <div
               className="access-mode-switch"
               role="tablist"
@@ -416,13 +453,15 @@ export function AccessPanelView({
           </div>
         </div>
 
-        {accessMode === "advanced" && (
-          <div className="access-nav">
-            <div className="access-tabs">
+        <div className={`access-nav ${accessMode === "basic" ? "access-nav--basic" : ""}`}>
+          {accessMode === "advanced" ? (
+            <div className="access-tabs" role="tablist" aria-label="Advanced access sections">
               {tabItems.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
+                  role="tab"
+                  aria-selected={activeSection === tab.id}
                   className={`access-tab ${activeSection === tab.id ? "access-tab--active" : ""}`}
                   onClick={() => setActiveSection(tab.id)}
                 >
@@ -433,174 +472,113 @@ export function AccessPanelView({
                 </button>
               ))}
             </div>
+          ) : (
+            <div className="access-tabs access-tabs--empty" aria-hidden="true" />
+          )}
+          <div className="access-nav__actions">
+            {accessSearchControl}
+            <button
+              type="button"
+              className="glass-button-primary access-create-button"
+              aria-label={activeCreateAction.label}
+              title={activeCreateAction.label}
+              onClick={activeCreateAction.onClick}
+            >
+              <PlusIcon />
+            </button>
           </div>
-        )}
+        </div>
 
-        {accessMode === "basic" ? (
-          <div className="access-panel-card">
-            <div className="access-section-header">
-              <div className="space-y-1">
-                <h4 className="access-section-title">People and basic roles</h4>
-              </div>
-              <div className="access-section-tools">
-                {accessSearchControl}
-                <button
-                  type="button"
-                  className="glass-button-primary access-section-action"
-                  onClick={openCreateUserEditor}
-                >
-                  <PlusIcon />
-                  <span>Add user</span>
-                </button>
-              </div>
-            </div>
-            {usersWorkspace}
-          </div>
-        ) : (
-          <div className="access-panel-card">
-            <div className="access-section-header">
-              <div className="space-y-1">
-                <h4 className="access-section-title">{sectionContent.title}</h4>
-              </div>
-              <div className="access-section-tools">
-                {accessSearchControl}
-                {activeSection === "users" && (
-                  <button
-                    type="button"
-                    className="glass-button-primary access-section-action"
-                    onClick={openCreateUserEditor}
-                  >
-                    <PlusIcon />
-                    <span>Add user</span>
-                  </button>
-                )}
-                {activeSection === "service-accounts" && (
-                  <button
-                    type="button"
-                    className="glass-button-primary access-section-action"
-                    onClick={openCreateServiceAccountEditor}
-                  >
-                    <PlusIcon />
-                    <span>Add service account</span>
-                  </button>
-                )}
-                {activeSection === "roles" && (
-                  <button
-                    type="button"
-                    className="glass-button-primary access-section-action"
-                    onClick={openCreateRoleEditor}
-                  >
-                    <PlusIcon />
-                    <span>Add role</span>
-                  </button>
-                )}
-                {activeSection === "identity-providers" && (
-                  <button
-                    type="button"
-                    className="glass-button-primary access-section-action"
-                    onClick={openCreateIdentityProvider}
-                  >
-                    <PlusIcon />
-                    <span>Add provider</span>
-                  </button>
-                )}
-                {activeSection === "policies" && (
-                  <button
-                    type="button"
-                    className="glass-button-primary access-section-action"
-                    onClick={openCreatePolicyEditor}
-                  >
-                    <PlusIcon />
-                    <span>Add policy</span>
-                  </button>
-                )}
-              </div>
-            </div>
+        <div className="access-panel-card access-panel-card--redesign">
+          {accessMode === "basic" ? (
+            usersWorkspace
+          ) : (
+            <>
+              {activeSection === "users" && usersWorkspace}
 
-            {activeSection === "users" && usersWorkspace}
+              {activeSection === "service-accounts" &&
+                serviceAccountsWorkspace}
 
-            {activeSection === "service-accounts" && serviceAccountsWorkspace}
+              {activeSection === "roles" && (
+                <RolesWorkspace
+                  roles={roleDefinitions}
+                  filteredRoles={filteredRoleDefinitions}
+                  roleUserMap={roleUserMap}
+                  selectedRole={roleEditor?.role}
+                  loading={loading || policiesLoading}
+                  error={policiesError || error}
+                  roleEditor={roleEditor}
+                  availablePolicies={availablePoliciesForRoleEditor}
+                  nextPolicyKey={nextPolicyKey}
+                  saving={savingRoleEditor}
+                  onEdit={openEditRoleEditor}
+                  onDelete={confirmDeleteRoleDefinition}
+                  onCloseEditor={() => setRoleEditor(null)}
+                  onSubmit={handleSaveRoleEditor}
+                  onChangeRoleName={(role) =>
+                    setRoleEditor((prev) =>
+                      prev ? { ...prev, role } : prev,
+                    )
+                  }
+                  onRemovePolicyDraft={removeRolePolicyDraft}
+                  onNextPolicyKeyChange={setNextPolicyKey}
+                  onAddPolicyDraft={addExistingPolicyDraft}
+                />
+              )}
 
-            {activeSection === "roles" && (
-              <RolesWorkspace
-                roles={roleDefinitions}
-                filteredRoles={filteredRoleDefinitions}
-                roleUserMap={roleUserMap}
-                selectedRole={roleEditor?.role}
-                loading={loading || policiesLoading}
-                error={policiesError || error}
-                roleEditor={roleEditor}
-                availablePolicies={availablePoliciesForRoleEditor}
-                nextPolicyKey={nextPolicyKey}
-                saving={savingRoleEditor}
-                onEdit={openEditRoleEditor}
-                onDelete={confirmDeleteRoleDefinition}
-                onCloseEditor={() => setRoleEditor(null)}
-                onSubmit={handleSaveRoleEditor}
-                onChangeRoleName={(role) =>
-                  setRoleEditor((prev) => (prev ? { ...prev, role } : prev))
-                }
-                onRemovePolicyDraft={removeRolePolicyDraft}
-                onNextPolicyKeyChange={setNextPolicyKey}
-                onAddPolicyDraft={addExistingPolicyDraft}
-              />
-            )}
+              {activeSection === "identity-providers" && (
+                <IdentityProvidersWorkspace
+                  providers={identityProviders}
+                  filteredProviders={filteredIdentityProviders}
+                  settings={identityProviderSettingsDraft}
+                  form={identityProviderForm}
+                  selectedProvider={selectedIdentityProvider}
+                  editorOpen={identityProviderEditorOpen}
+                  loading={identityProvidersLoading}
+                  error={identityProvidersError}
+                  savingProvider={savingIdentityProvider}
+                  onFormChange={setIdentityProviderForm}
+                  onEdit={openEditIdentityProvider}
+                  onCreate={openCreateIdentityProvider}
+                  onCloseEditor={closeIdentityProviderEditor}
+                  onDelete={confirmDeleteIdentityProvider}
+                  onSubmitProvider={handleSaveIdentityProvider}
+                />
+              )}
 
-            {activeSection === "identity-providers" && (
-              <IdentityProvidersWorkspace
-                providers={identityProviders}
-                filteredProviders={filteredIdentityProviders}
-                settings={identityProviderSettingsDraft}
-                domainMappingDraft={identityProviderDomainMappingDraft}
-                form={identityProviderForm}
-                selectedProvider={selectedIdentityProvider}
-                loading={identityProvidersLoading}
-                error={identityProvidersError}
-                savingSettings={savingIdentityProviderSettings}
-                savingProvider={savingIdentityProvider}
-                onSettingsChange={setIdentityProviderSettingsDraft}
-                onDomainMappingChange={setIdentityProviderDomainMappingDraft}
-                onFormChange={setIdentityProviderForm}
-                onEdit={openEditIdentityProvider}
-                onCreate={openCreateIdentityProvider}
-                onDelete={confirmDeleteIdentityProvider}
-                onSubmitSettings={handleSaveIdentityProviderSettings}
-                onSubmitProvider={handleSaveIdentityProvider}
-              />
-            )}
-
-            {activeSection === "policies" && (
-              <PoliciesWorkspace
-                policies={visiblePolicies}
-                filteredPolicies={filteredPolicies}
-                selectedPolicy={policyEditor?.original}
-                loading={policiesLoading}
-                error={policiesError}
-                policyEditor={policyEditor}
-                showPolicyModal={showPolicyModal}
-                newPermission={newPermission}
-                resourceCatalog={resourceCatalog}
-                saving={savingPolicy}
-                creating={creatingPolicyInline}
-                onEdit={openPolicyEditModal}
-                onDelete={confirmDeletePolicy}
-                onCloseEditor={() => setPolicyEditor(null)}
-                onCloseCreate={() => {
-                  setAwaitingPolicyCreateReset(false);
-                  setShowPolicyModal(false);
-                }}
-                onSubmitEdit={handleSavePolicyEdit}
-                onSubmitCreate={handleCreatePolicyInline}
-                onChangeEditor={(next) =>
-                  setPolicyEditor((prev) =>
-                    prev ? { ...prev, ...next } : prev,
-                  )
-                }
-                onChangeCreate={onChangePermission}
-              />
-            )}
-          </div>
-        )}
+              {activeSection === "policies" && (
+                <PoliciesWorkspace
+                  policies={visiblePolicies}
+                  filteredPolicies={filteredPolicies}
+                  selectedPolicy={policyEditor?.original}
+                  loading={policiesLoading}
+                  error={policiesError}
+                  policyEditor={policyEditor}
+                  showPolicyModal={showPolicyModal}
+                  newPermission={newPermission}
+                  resourceCatalog={resourceCatalog}
+                  saving={savingPolicy}
+                  creating={creatingPolicyInline}
+                  onEdit={openPolicyEditModal}
+                  onDelete={confirmDeletePolicy}
+                  onCloseEditor={() => setPolicyEditor(null)}
+                  onCloseCreate={() => {
+                    setAwaitingPolicyCreateReset(false);
+                    setShowPolicyModal(false);
+                  }}
+                  onSubmitEdit={handleSavePolicyEdit}
+                  onSubmitCreate={handleCreatePolicyInline}
+                  onChangeEditor={(next) =>
+                    setPolicyEditor((prev) =>
+                      prev ? { ...prev, ...next } : prev,
+                    )
+                  }
+                  onChangeCreate={onChangePermission}
+                />
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {confirmDialog && (

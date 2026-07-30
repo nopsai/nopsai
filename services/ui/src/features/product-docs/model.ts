@@ -2736,6 +2736,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Product roles are viewer, developer, owner, and platform admin; admin is granted only on the platform resource.',
           'Only one external identity provider can be enabled per installation; local login and the protected break-glass administrator remain available.',
           'GitOps owns identity-provider settings through setting/system/auth.yaml and credential references; provider users and IdP-managed grants are runtime state.',
+          'System > Access provides Basic and Advanced modes with top-row summary metrics, Pipeline Runs-style advanced tabs, full-width table-first catalogs, status dots beside identities, drawer create/edit flows, toolbar search, and icon add actions without extra state/scope filters or export controls.',
           'Runnable SSO examples live under examples/sso/keycloak and examples/sso/idp-test-pack; they are test fixtures, not production config.',
           'Scopes are runtime context such as dev, test, production, or platform/prod. They are not run-navigation parents.',
           'The Scopes detail page combines variables, secrets, usage relationships, access controls, GitOps encryption, and runner assignments for the selected runtime scope.',
@@ -2743,6 +2744,7 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'Teams form hierarchical product boundaries for ownership, access, run navigation, config repository delegation, notifications, team AI overlays, and repository-to-application matching.',
           'Cross-team execution requires access to every concrete resource used by the run, not only the pipeline.',
+          'System Access create/edit/delete workflows continue to use the existing users, service-account token, access-grant, role/policy, and identity-provider APIs, so UI changes do not create a second AAA mutation path.',
           'Scope variables can be revealed and copied when the current subject has value-read access; secret values stay write-only in the UI and are managed through create/update flows or GitOps encryption.',
         ],
         configRows: [

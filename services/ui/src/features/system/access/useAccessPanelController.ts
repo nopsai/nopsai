@@ -55,6 +55,7 @@ import type {
 import {
   ACCESS_SECTION_CONTENT,
   accessPresetForRole,
+  buildAccessSummaryMetrics,
   matchesAccessSearch,
 } from "./presentation";
 import { copyTextToClipboard } from "../../../lib/clipboard";
@@ -305,6 +306,8 @@ export function useAccessPanelController({
   const [basicGrantError, setBasicGrantError] = useState<string | null>(null);
   const [selectedIdentityProviderID, setSelectedIdentityProviderID] =
     useState("");
+  const [identityProviderEditorOpen, setIdentityProviderEditorOpen] =
+    useState(false);
   const [identityProviderForm, setIdentityProviderForm] =
     useState<IdentityProviderFormState>(emptyIdentityProviderForm);
   const [identityProviderSettingsDraft, setIdentityProviderSettingsDraft] =
@@ -467,15 +470,23 @@ export function useAccessPanelController({
   const openCreateIdentityProvider = useCallback(() => {
     setSelectedIdentityProviderID("");
     setIdentityProviderForm(emptyIdentityProviderForm());
+    setIdentityProviderEditorOpen(true);
   }, []);
 
   const openEditIdentityProvider = useCallback(
     (provider: IdentityProviderRecord) => {
       setSelectedIdentityProviderID(provider.id);
       setIdentityProviderForm(identityProviderFormFromRecord(provider));
+      setIdentityProviderEditorOpen(true);
     },
     [],
   );
+
+  const closeIdentityProviderEditor = useCallback(() => {
+    setIdentityProviderEditorOpen(false);
+    setSelectedIdentityProviderID("");
+    setIdentityProviderForm(emptyIdentityProviderForm());
+  }, []);
 
   const openEditRoleEditor = (role: RoleDefinition) => {
     if (isProtectedAccessRole(role.role)) return;
@@ -930,7 +941,6 @@ export function useAccessPanelController({
 
   const sectionContent = ACCESS_SECTION_CONTENT[activeSection];
   const filteredUsers = useMemo(() => {
-    if (!searchQuery) return users;
     return users.filter((user) => {
       const grants = basicUserGrantMap.get(user.id) || [];
       return matchesAccessSearch(
@@ -952,7 +962,6 @@ export function useAccessPanelController({
   }, [basicUserGrantMap, searchQuery, users]);
 
   const filteredServiceAccounts = useMemo(() => {
-    if (!searchQuery) return serviceAccounts;
     return serviceAccounts.filter((account) => {
       const grants = basicServiceAccountGrantMap.get(account.sub) || [];
       return matchesAccessSearch(
@@ -965,10 +974,13 @@ export function useAccessPanelController({
         grants.map((grant) => basicAccessGrantLabel(grant)).join(" "),
       );
     });
-  }, [basicServiceAccountGrantMap, searchQuery, serviceAccounts]);
+  }, [
+    basicServiceAccountGrantMap,
+    searchQuery,
+    serviceAccounts,
+  ]);
 
   const filteredRoleDefinitions = useMemo(() => {
-    if (!searchQuery) return roleDefinitions;
     return roleDefinitions.filter((role) => {
       const assignedUsers = roleUserMap.get(role.id) || [];
       const preset = accessPresetForRole(role.role);
@@ -986,15 +998,15 @@ export function useAccessPanelController({
   }, [roleDefinitions, roleUserMap, searchQuery]);
 
   const filteredIdentityProviders = useMemo(() => {
-    if (!searchQuery) return identityProviders;
-    return identityProviders.filter((provider) =>
-      matchesAccessSearch(
+    return identityProviders.filter((provider) => {
+      return matchesAccessSearch(
         searchQuery,
         provider.id,
         provider.display_name,
         provider.type,
         provider.issuer,
         provider.client_id,
+        provider.enabled ? "enabled" : "disabled",
         (provider.allowed_email_domains || []).join(" "),
         Object.entries(provider.role_mapping || {})
           .map(([team, role]) => `${team} ${role}`)
@@ -1002,12 +1014,11 @@ export function useAccessPanelController({
         Object.entries(provider.basic_role_mapping || {})
           .map(([team, grant]) => `${team} ${grant.role} ${grant.resource || `${grant.resource_type || ""}:${grant.resource_id || ""}`}`)
           .join(" "),
-      ),
-    );
+      );
+    });
   }, [identityProviders, searchQuery]);
 
   const filteredPolicies = useMemo(() => {
-    if (!searchQuery) return visiblePolicies;
     return visiblePolicies.filter((policy) =>
       matchesAccessSearch(
         searchQuery,
@@ -1021,6 +1032,18 @@ export function useAccessPanelController({
       ),
     );
   }, [searchQuery, visiblePolicies]);
+
+  const summaryMetrics = useMemo(
+    () =>
+      buildAccessSummaryMetrics({
+        users,
+        serviceAccounts,
+        roles: roleDefinitions,
+        policies: visiblePolicies,
+        identityProviders,
+      }),
+    [identityProviders, roleDefinitions, serviceAccounts, users, visiblePolicies],
+  );
 
   const isNewUserPristine =
     !newUser.sub.trim() &&
@@ -1073,6 +1096,11 @@ export function useAccessPanelController({
   const selectedBasicGrants = selectedBasicServiceAccount
     ? selectedBasicServiceAccountGrants
     : selectedBasicUserGrants;
+  const selectedBasicSubjectKey = selectedBasicServiceAccount
+    ? `service-account:${selectedBasicServiceAccount.sub}`
+    : selectedBasicUser
+      ? `user:${selectedBasicUser.id}`
+      : "";
   const basicGrantDirty = useMemo(
     () => areBasicGrantEntriesDirty(selectedBasicGrants, basicGrantEntries),
     [basicGrantEntries, selectedBasicGrants],
@@ -1080,7 +1108,7 @@ export function useAccessPanelController({
 
   useEffect(() => {
     setNextAccessRole("");
-  }, [userAccessEditor]);
+  }, [serviceAccountEditor, userAccessEditor]);
 
   useEffect(() => {
     setIdentityProviderSettingsDraft(identityProviderSettings);
@@ -1096,10 +1124,21 @@ export function useAccessPanelController({
   }, [identityProviderDomainMappings]);
 
   useEffect(() => {
+    if (!selectedBasicSubjectKey) {
+      if (!showUserModal && !showServiceAccountModal) {
+        setBasicGrantEntries([]);
+      }
+      return;
+    }
     setBasicGrantEntries(
-      selectedBasicUserGrants.map(editableAccessGrantFromRecord),
+      selectedBasicGrants.map(editableAccessGrantFromRecord),
     );
-  }, [selectedBasicUserGrants]);
+  }, [
+    selectedBasicGrants,
+    selectedBasicSubjectKey,
+    showServiceAccountModal,
+    showUserModal,
+  ]);
 
   useEffect(() => {
     if (!resourceSearchQuery) {
@@ -1107,7 +1146,20 @@ export function useAccessPanelController({
       setSearchOpen(false);
     }
     setBasicGrantError(null);
+    setShowUserModal(false);
+    setShowServiceAccountModal(false);
+    setShowPolicyModal(false);
+    setRoleEditor(null);
+    setPolicyEditor(null);
     setUserAccessEditor(null);
+    setServiceAccountEditor(null);
+    setCreatedServiceAccountToken(null);
+    setAwaitingUserCreateReset(false);
+    setAwaitingServiceAccountCreateReset(false);
+    setAwaitingPolicyCreateReset(false);
+    setSelectedIdentityProviderID("");
+    setIdentityProviderEditorOpen(false);
+    setIdentityProviderForm(emptyIdentityProviderForm());
     setBasicGrantEntries([]);
   }, [accessMode, resourceSearchQuery]);
 
@@ -1124,7 +1176,7 @@ export function useAccessPanelController({
   useEffect(() => {
     setBasicGrantError(null);
     setBasicGrantDraft({ role: "", scope: ROOT_ACCESS_SCOPE });
-  }, [userAccessEditor?.user.id]);
+  }, [selectedBasicSubjectKey]);
 
   useEffect(() => {
     if (!resourceSearchQuery) {
@@ -1132,16 +1184,21 @@ export function useAccessPanelController({
       setSearchOpen(false);
     }
     setShowUserModal(false);
+    setShowServiceAccountModal(false);
     setShowPolicyModal(false);
     setRoleEditor(null);
     setPolicyEditor(null);
     setUserAccessEditor(null);
+    setServiceAccountEditor(null);
+    setCreatedServiceAccountToken(null);
     setAwaitingUserCreateReset(false);
+    setAwaitingServiceAccountCreateReset(false);
     setAwaitingPolicyCreateReset(false);
-    if (activeSection === "identity-providers") {
-      setIdentityProviderForm(emptyIdentityProviderForm());
-      setSelectedIdentityProviderID("");
-    }
+    setBasicGrantError(null);
+    setBasicGrantEntries([]);
+    setIdentityProviderForm(emptyIdentityProviderForm());
+    setSelectedIdentityProviderID("");
+    setIdentityProviderEditorOpen(false);
   }, [activeSection, resourceSearchQuery]);
 
   useEffect(() => {
@@ -1516,6 +1573,7 @@ export function useAccessPanelController({
       await onSaveIdentityProvider(identityProviderForm);
       setIdentityProviderForm(emptyIdentityProviderForm());
       setSelectedIdentityProviderID("");
+      setIdentityProviderEditorOpen(false);
     } finally {
       setSavingIdentityProvider(false);
     }
@@ -1549,6 +1607,7 @@ export function useAccessPanelController({
     setIdentityProviderForm,
     selectedIdentityProvider,
     selectedIdentityProviderID,
+    identityProviderEditorOpen,
     identityProvidersLoading,
     identityProvidersError,
     savingIdentityProvider,
@@ -1613,6 +1672,7 @@ export function useAccessPanelController({
     filteredRoleDefinitions,
     visiblePolicies,
     filteredPolicies,
+    summaryMetrics,
     sectionContent,
     userRoleAssignmentsLocked,
     userRoleAssignmentsLockLabel,
@@ -1638,6 +1698,7 @@ export function useAccessPanelController({
     openCreatePolicyEditor,
     openCreateIdentityProvider,
     openEditIdentityProvider,
+    closeIdentityProviderEditor,
     openEditRoleEditor,
     openPolicyEditModal,
     openUserAccessModal,

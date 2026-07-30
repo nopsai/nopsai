@@ -44,6 +44,7 @@ test("renders user assignments and delegates edit and delete actions", async () 
 
   expect(screen.getByText("developer")).toBeInTheDocument();
   expect(screen.getByText(/viewer/i)).toBeInTheDocument();
+  expect(screen.getByLabelText("Status: Active")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Edit alice" }));
   await user.click(screen.getByRole("button", { name: "Delete alice" }));
   expect(onEdit).toHaveBeenCalledWith(account);
