@@ -1,10 +1,18 @@
 import type { FormEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import { AccessPoliciesCatalog, AccessRolesCatalog } from './AccessEntityCatalogs';
-import { AccessEditorEmptyState } from './AccessModal';
+import { AccessEditorDrawer } from './AccessEditorDrawer';
 import { AccessPolicyRuleFields } from './AccessPolicyRuleFields';
+import {
+  AccessFormCard,
+  AccessReviewRow,
+  AccessReviewStat,
+  AccessSectionedEditor,
+  type AccessEditorSection,
+} from './AccessSectionedEditor';
 import { formatAccessCount } from './presentation';
 import { policyLabel, type RoleDefinition, type RolePermission, type RolePolicyDraft } from './model';
+import { parseAAAActionValue } from './policyRuleModel';
 import type { AccessResourceCatalog } from './resourceCatalog';
 import type { PolicyEditorState, RoleEditorState } from './panelTypes';
 
@@ -22,6 +30,12 @@ type AvailablePolicyOption = {
   name?: string;
   label: string;
 };
+
+function titleCase(value: string) {
+  return (value || 'unknown')
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase());
+}
 
 export type RolesWorkspaceProps = {
   roles: RoleDefinition[];
@@ -64,60 +78,67 @@ export function RolesWorkspace({
   onNextPolicyKeyChange,
   onAddPolicyDraft,
 }: RolesWorkspaceProps) {
-  return (
-    <div className="access-workspace">
-      <div className="space-y-4 access-workspace__list">
-        <AccessRolesCatalog
-          roles={roles}
-          filteredRoles={filteredRoles}
-          roleUserMap={roleUserMap}
-          selectedRole={selectedRole}
-          loading={loading}
-          error={error}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
-      </div>
-      <aside className="access-editor-pane">
-        {roleEditor ? (
-          <div className="access-editor-surface access-editor-surface--minimal">
-            <div className="access-editor-header">
-              <div>
-                <p className="access-editor-kicker">{roleEditor.mode === 'create' ? 'Create role' : 'Edit role'}</p>
-                <h5 className="access-editor-title">{roleEditor.mode === 'create' ? 'Role definition' : roleEditor.role}</h5>
-                <p className="access-editor-text">Assign reusable policies.</p>
-              </div>
-              <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={onCloseEditor}>
-                Close
-              </button>
-            </div>
-            <form className="access-editor-form access-editor-form--compact" onSubmit={onSubmit}>
-              <label className="access-minimal-label">
-                <span>Role name</span>
-                <input
-                  className="pipelines-input"
-                  value={roleEditor.role}
-                  onChange={event => onChangeRoleName(event.target.value)}
-                  placeholder="developer"
-                  required
-                  disabled={roleEditor.mode === 'edit'}
-                />
-              </label>
-              <div className="access-editor-section access-editor-section--plain">
-                <div className="access-minimal-section__header">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">Policies</p>
-                  <span className="text-[11px] text-[var(--text-secondary)]">{formatAccessCount(roleEditor.policies.length, 'policy', 'policies')}</span>
-                </div>
-                <div className="space-y-2">
-                  {roleEditor.policies.map((policy, index) => (
-                    <RolePolicyDraftRow key={`policy-${index}`} policy={policy} index={index} onRemove={onRemovePolicyDraft} />
-                  ))}
+  const editorContent = roleEditor
+    ? (() => {
+        const selectedDefinition = roles.find(role => role.role === roleEditor.role);
+        const assignees = selectedDefinition ? roleUserMap.get(selectedDefinition.id) || [] : [];
+        const roleTitle = roleEditor.role || 'Role definition';
+        const sections: AccessEditorSection[] = [
+          {
+            id: 'details',
+            label: 'Details',
+            description: 'Name and type',
+            children: (
+              <AccessFormCard
+                title="Role identity"
+                description="A stable role name makes assignment reviews easier."
+                badge={roleEditor.mode === 'edit' ? 'Existing role' : 'New role'}
+              >
+                <label className="access-minimal-label">
+                  <span>Role name</span>
+                  <input
+                    className="pipelines-input"
+                    value={roleEditor.role}
+                    onChange={event => onChangeRoleName(event.target.value)}
+                    placeholder="developer"
+                    required
+                    disabled={roleEditor.mode === 'edit'}
+                  />
+                </label>
+                <dl className="access-review-list">
+                  <AccessReviewRow
+                    label="Role type"
+                    value={roleEditor.mode === 'edit' ? 'Custom reusable role' : 'Custom role'}
+                  />
+                  <AccessReviewRow
+                    label="Current assignees"
+                    value={formatAccessCount(assignees.length, 'assignee')}
+                  />
+                </dl>
+              </AccessFormCard>
+            ),
+          },
+          {
+            id: 'permissions',
+            label: 'Permissions',
+            description: 'AAA policies',
+            children: (
+              <>
+                <AccessFormCard
+                  title="Add policy"
+                  description="Attach one reusable low-level policy at a time."
+                  badge={`${availablePolicies.length} available`}
+                >
                   <div className="access-editor-inline-add">
                     {availablePolicies.length > 0 ? (
                       <>
-                        <select className="pipelines-input w-full" value={nextPolicyKey} onChange={event => onNextPolicyKeyChange(event.target.value)}>
+                        <select
+                          className="pipelines-input w-full"
+                          value={nextPolicyKey}
+                          onChange={event => onNextPolicyKeyChange(event.target.value)}
+                        >
                           <option value="" disabled>
-                            Add policy…
+                            Add policy...
                           </option>
                           {availablePolicies.map(item => (
                             <option key={item.key} value={item.key}>
@@ -143,19 +164,100 @@ export function RolesWorkspace({
                       <p className="text-sm text-[var(--text-secondary)]">No reusable policies available</p>
                     )}
                   </div>
+                </AccessFormCard>
+                <AccessFormCard
+                  title="Included policies"
+                  description="Review the low-level actions bundled by this role."
+                  badge={formatAccessCount(roleEditor.policies.length, 'policy', 'policies')}
+                >
+                  <div className="access-permission-list">
+                    {roleEditor.policies.length ? (
+                      roleEditor.policies.map((policy, index) => (
+                        <RolePolicyDraftRow key={`policy-${index}`} policy={policy} index={index} onRemove={onRemovePolicyDraft} />
+                      ))
+                    ) : (
+                      <p className="access-empty-card">No policies added.</p>
+                    )}
+                  </div>
+                </AccessFormCard>
+              </>
+            ),
+          },
+          {
+            id: 'review',
+            label: 'Review',
+            description: 'Save impact',
+            children: (
+              <>
+                <div className="access-review-grid">
+                  <AccessReviewStat label="Policies" value={roleEditor.policies.length} />
+                  <AccessReviewStat label="Assignees" value={assignees.length} />
+                  <AccessReviewStat label="Mode" value={titleCase(roleEditor.mode)} />
                 </div>
-              </div>
-              <div className="access-editor-footer access-editor-footer--inline">
-                <button type="submit" className="glass-button-primary" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save role'}
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : (
-          <AccessEditorEmptyState sectionLabel="Role details" hint="Select a role to edit policies." />
-        )}
-      </aside>
+                <AccessFormCard
+                  title="Role summary"
+                  description="Reusable access bundle."
+                  badge={roleEditor.mode === 'edit' ? 'Update' : 'Create'}
+                >
+                  <dl className="access-review-list">
+                    <AccessReviewRow label="Name" value={roleTitle} />
+                    <AccessReviewRow label="Type" value="Custom" />
+                    <AccessReviewRow
+                      label="Policies"
+                      value={formatAccessCount(roleEditor.policies.length, 'policy', 'policies')}
+                    />
+                  </dl>
+                </AccessFormCard>
+              </>
+            ),
+          },
+        ];
+
+        return (
+          <AccessSectionedEditor
+            modeLabel={roleEditor.mode === 'create' ? 'Create' : 'Edit'}
+            entityLabel="Role"
+            title={roleTitle}
+            subtitle="Assign reusable policies and review the effective access bundle."
+            icon="R"
+            sections={sections}
+            resetKey={`role-${roleEditor.mode}-${roleTitle}`}
+            saveLabel={roleEditor.mode === 'create' ? 'Create role' : 'Save role'}
+            savingLabel="Saving..."
+            saving={saving}
+            deleteLabel="Delete role"
+            onClose={onCloseEditor}
+            onDelete={
+              selectedDefinition
+                ? () => {
+                    onCloseEditor();
+                    onDelete(selectedDefinition);
+                  }
+                : undefined
+            }
+            onSubmit={onSubmit}
+          />
+        );
+      })()
+    : null;
+
+  return (
+    <div className="access-workspace">
+      <div className="space-y-4 access-workspace__list">
+        <AccessRolesCatalog
+          roles={roles}
+          filteredRoles={filteredRoles}
+          roleUserMap={roleUserMap}
+          selectedRole={selectedRole}
+          loading={loading}
+          error={error}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      </div>
+      <AccessEditorDrawer open={Boolean(editorContent)} label="Role editor" onClose={onCloseEditor}>
+        {editorContent}
+      </AccessEditorDrawer>
     </div>
   );
 }
@@ -203,6 +305,161 @@ export function PoliciesWorkspace({
   onChangeEditor,
   onChangeCreate,
 }: PoliciesWorkspaceProps) {
+  const editorContent = policyEditor
+    ? (() => {
+        const parsedAction = parseAAAActionValue(policyEditor.act);
+        const effectLabel = titleCase(parsedAction.effect);
+        const sections: AccessEditorSection[] = [
+          {
+            id: 'rule',
+            label: 'Rule',
+            description: 'Resource and action',
+            children: (
+              <>
+                <AccessFormCard
+                  title="Rule definition"
+                  description="The label, resource selector, effect, and action evaluated by the access engine."
+                  badge={effectLabel}
+                >
+                  <AccessPolicyRuleFields policy={policyEditor} onChange={onChangeEditor} resourceCatalog={resourceCatalog} />
+                </AccessFormCard>
+                <AccessFormCard
+                  title="Assignment"
+                  description="Policies are consumed through reusable roles rather than assigned directly."
+                  badge={policyEditor.role}
+                >
+                  <dl className="access-review-list">
+                    <AccessReviewRow label="Reusable role" value={policyEditor.role} />
+                    <AccessReviewRow label="Original label" value={policyLabel(policyEditor.original)} />
+                  </dl>
+                </AccessFormCard>
+              </>
+            ),
+          },
+          {
+            id: 'review',
+            label: 'Review',
+            description: 'Save impact',
+            children: (
+              <>
+                <AccessFormCard
+                  title="Effective rule"
+                  description="The expression that will be evaluated by the access engine."
+                  badge={effectLabel}
+                >
+                  <div className="access-permission-row">
+                    <div>
+                      <div className="access-permission-expression">
+                        {policyEditor.obj} - {parsedAction.action || policyEditor.act}
+                      </div>
+                      <div className="access-permission-meta">
+                        {effectLabel} through {policyEditor.role}
+                      </div>
+                    </div>
+                    <span className={`access-chip ${parsedAction.effect === 'deny' ? 'access-chip--danger' : 'access-chip--success'}`}>
+                      {effectLabel}
+                    </span>
+                  </div>
+                </AccessFormCard>
+                <AccessFormCard
+                  title="Summary"
+                  description="Assignment and selector state."
+                  badge="Update"
+                >
+                  <dl className="access-review-list">
+                    <AccessReviewRow label="Policy" value={policyEditor.name || policyLabel(policyEditor)} />
+                    <AccessReviewRow label="Resource" value={policyEditor.obj || 'Not selected'} />
+                    <AccessReviewRow label="Action" value={parsedAction.action || 'Not selected'} />
+                    <AccessReviewRow label="Role" value={policyEditor.role} />
+                  </dl>
+                </AccessFormCard>
+              </>
+            ),
+          },
+        ];
+
+        return (
+          <AccessSectionedEditor
+            modeLabel="Edit"
+            entityLabel="Policy"
+            title={policyEditor.name || policyLabel(policyEditor)}
+            subtitle="Update this reusable AAA rule."
+            icon="P"
+            sections={sections}
+            resetKey={`policy-${policyEditor.original.role}-${policyEditor.original.obj}-${policyEditor.original.act}`}
+            saveLabel="Save changes"
+            savingLabel="Saving..."
+            saving={saving}
+            deleteLabel="Delete policy"
+            onClose={onCloseEditor}
+            onDelete={() => {
+              onCloseEditor();
+              onDelete(policyEditor.original);
+            }}
+            onSubmit={onSubmitEdit}
+          />
+        );
+      })()
+    : showPolicyModal
+      ? (() => {
+          const parsedAction = parseAAAActionValue(newPermission.act);
+          const effectLabel = titleCase(parsedAction.effect);
+          const sections: AccessEditorSection[] = [
+            {
+              id: 'rule',
+              label: 'Rule',
+              description: 'Resource and action',
+              children: (
+                <AccessFormCard
+                  title="Rule definition"
+                  description="The label, resource selector, effect, and action evaluated by the access engine."
+                  badge={effectLabel}
+                >
+                  <AccessPolicyRuleFields policy={newPermission} onChange={onChangeCreate} resourceCatalog={resourceCatalog} />
+                </AccessFormCard>
+              ),
+            },
+            {
+              id: 'review',
+              label: 'Review',
+              description: 'Create impact',
+              children: (
+                <AccessFormCard
+                  title="Effective rule"
+                  description="The rule that will be made available for role assignment."
+                  badge="Template"
+                >
+                  <dl className="access-review-list">
+                    <AccessReviewRow label="Policy" value={newPermission.name || 'Not entered'} />
+                    <AccessReviewRow label="Resource" value={newPermission.obj || 'Not selected'} />
+                    <AccessReviewRow label="Action" value={parsedAction.action || 'Not selected'} />
+                    <AccessReviewRow label="Effect" value={effectLabel} />
+                  </dl>
+                </AccessFormCard>
+              ),
+            },
+          ];
+
+          return (
+            <AccessSectionedEditor
+              modeLabel="Create"
+              entityLabel="Policy"
+              title="Reusable AAA rule"
+              subtitle="Define a reusable rule for the access role catalog."
+              icon="P"
+              sections={sections}
+              resetKey="policy-create"
+              saveLabel="Add policy"
+              savingLabel="Adding..."
+              saving={creating}
+              onClose={onCloseCreate}
+              onSubmit={onSubmitCreate}
+            />
+          );
+        })()
+      : null;
+  const closeDrawer = policyEditor ? onCloseEditor : onCloseCreate;
+
   return (
     <div className="access-workspace">
       <div className="space-y-4 access-workspace__list">
@@ -216,53 +473,9 @@ export function PoliciesWorkspace({
           onDelete={onDelete}
         />
       </div>
-      <aside className="access-editor-pane">
-        {policyEditor ? (
-          <div className="access-editor-surface access-editor-surface--minimal">
-            <div className="access-editor-header">
-              <div>
-                <p className="access-editor-kicker">Edit policy</p>
-                <h5 className="access-editor-title">{policyEditor.name || policyLabel(policyEditor)}</h5>
-                <p className="access-editor-text">Update this reusable rule.</p>
-              </div>
-              <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={onCloseEditor}>
-                Close
-              </button>
-            </div>
-            <form className="access-editor-form access-editor-form--compact" onSubmit={onSubmitEdit}>
-              <AccessPolicyRuleFields policy={policyEditor} onChange={onChangeEditor} resourceCatalog={resourceCatalog} />
-              <div className="access-editor-footer access-editor-footer--inline">
-                <button type="submit" className="glass-button-primary" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save changes'}
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : showPolicyModal ? (
-          <div className="access-editor-surface access-editor-surface--minimal">
-            <div className="access-editor-header">
-              <div>
-                <p className="access-editor-kicker">Create policy</p>
-                <h5 className="access-editor-title">Reusable AAA rule</h5>
-                <p className="access-editor-text">Define a reusable rule.</p>
-              </div>
-              <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={onCloseCreate}>
-                Close
-              </button>
-            </div>
-            <form className="access-editor-form access-editor-form--compact" onSubmit={onSubmitCreate}>
-              <AccessPolicyRuleFields policy={newPermission} onChange={onChangeCreate} resourceCatalog={resourceCatalog} />
-              <div className="access-editor-footer access-editor-footer--inline">
-                <button type="submit" className="glass-button-primary" disabled={creating}>
-                  {creating ? 'Adding…' : 'Add policy'}
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : (
-          <AccessEditorEmptyState sectionLabel="Policy details" hint="Select a policy to edit rules." />
-        )}
-      </aside>
+      <AccessEditorDrawer open={Boolean(editorContent)} label="Policy editor" onClose={closeDrawer}>
+        {editorContent}
+      </AccessEditorDrawer>
     </div>
   );
 }
@@ -276,18 +489,22 @@ function RolePolicyDraftRow({
   index: number;
   onRemove: (index: number) => void;
 }) {
+  const parsedAction = parseAAAActionValue(policy.act);
   return (
-    <div className="access-minimal-row">
-      <div className="flex-1 space-y-1">
-        <p className="font-semibold truncate">{policyLabel(policy)}</p>
-        <p className="text-[11px] text-[var(--text-secondary)] truncate">{policy.obj || 'Select an object'}</p>
-        <p className="text-[11px] text-[var(--text-secondary)] truncate">{policy.act || 'Select an action'}</p>
+    <div className="access-permission-row">
+      <div className="min-w-0">
+        <p className="access-permission-title">{policyLabel(policy)}</p>
+        <p className="access-permission-expression">
+          {policy.obj || 'Select a resource'} - {parsedAction.action || policy.act || 'Select an action'}
+        </p>
+        <p className="access-permission-meta">{titleCase(parsedAction.effect)} through this role</p>
       </div>
       <button
         type="button"
-        className="access-inline-btn access-inline-btn--danger"
+        className="access-permission-remove"
         onClick={() => onRemove(index)}
         title="Remove policy"
+        aria-label={`Remove ${policyLabel(policy)}`}
       >
         <TrashIcon />
       </button>

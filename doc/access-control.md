@@ -251,6 +251,50 @@ Resource-use grant requests accept `subject_type: "repository"` with `subject_id
 
 `pipeline_runs` stores the run authorization context in `trigger_source`, `requested_by_type`, `requested_by_id`, `effective_subject_type`, `effective_subject_id`, and `authorization_snapshot`. The snapshot records the caller and the resource-use checks that were allowed for the created run.
 
+## System Access Page
+
+The System > Access workspace is the administrator-facing control surface for
+the same AAA-backed records described in this document. It has two modes:
+
+- `Basic` shows people and scoped product roles for day-to-day IAM operations.
+- `Advanced` separates users, service accounts, reusable roles, identity
+  providers, and low-level AAA policies for security review and platform
+  administration.
+
+The page shows compact summary metrics for active users, service accounts,
+reusable roles, and policy coverage in the top mode row beside the
+Basic/Advanced switch. Advanced sections use the same lightweight tab treatment
+as Pipeline Runs, then go directly to table-first catalogs with selectable rows,
+compact chips, status dots, and a drawer editor that opens only when creating or
+editing records, so user, service-account, role, identity-provider, and policy
+review does not reduce the main table width. Drawer editors use the shared
+sectioned editor shell with a left configuration rail, focused
+details/access/credential/rule cards, compact review panels, sticky save
+actions, and the shared modal focus trap and Escape-to-close behavior used by
+the rest of the UI. The identity-provider tab lists configured providers
+directly; creation and editing use the sectioned provider drawer for provider
+metadata, OIDC connection fields, per-provider login defaults, group/role
+mappings, and review before save.
+The compact magnifier search filters over the already authorized records
+returned by the access APIs, and the icon add action opens the matching create
+drawer without adding extra table filters or export controls.
+
+All create/edit/delete workflows still use the same API and GitOps-compatible
+mutation paths:
+
+- local users and global access-role bindings use `/v1/admin/users` and
+  `/v1/admin/user-roles`
+- service-account identities, role bindings, and token rotation use
+  `/v1/admin/service-accounts` and the token subroutes
+- scoped Basic roles use `/v1/access/grants`
+- reusable roles and policy templates use `/v1/admin/roles`
+- identity-provider runtime settings use `/v1/admin/identity-providers`
+
+GitOps-managed access remains declarative authority when records are synced
+from config repositories. The UI can still show and filter those records, but
+GitOps-owned fields should be changed in the owning repository and reviewed
+through the normal drift/export flow.
+
 ## GitOps Access Manifests
 
 Config repositories can manage access records from YAML under `access/`.

@@ -1,10 +1,17 @@
 import type { FormEvent, ReactNode } from "react";
 import { Trash2 } from "lucide-react";
-import { AccessEditorEmptyState } from "./AccessModal";
+import { AccessEditorDrawer } from "./AccessEditorDrawer";
 import {
   AccessServiceAccountsCatalog,
   AccessUsersCatalog,
 } from "./AccessEntityCatalogs";
+import {
+  AccessFormCard,
+  AccessReviewRow,
+  AccessReviewStat,
+  AccessSectionedEditor,
+  type AccessEditorSection,
+} from "./AccessSectionedEditor";
 import { BasicAccessGrantEditor } from "./BasicAccessGrantEditor";
 import {
   ServiceAccountTokenPanel,
@@ -47,6 +54,12 @@ type SharedBasicGrantProps = {
   onReset: () => void;
 };
 
+function titleCase(value: string) {
+  return (value || "unknown")
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export type UsersWorkspaceProps = SharedBasicGrantProps & {
   users: UserSummary[];
   filteredUsers: UserSummary[];
@@ -67,6 +80,7 @@ export type UsersWorkspaceProps = SharedBasicGrantProps & {
   onEdit: (user: UserSummary) => void;
   onDelete: (userID: string) => void;
   onCloseEditor: () => void;
+  onCloseCreate: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onChangeEmail: (value: string) => void;
   onChangeStatus: (value: string) => void;
@@ -103,6 +117,7 @@ export function UsersWorkspace({
   onEdit,
   onDelete,
   onCloseEditor,
+  onCloseCreate,
   onSubmit,
   onChangeEmail,
   onChangeStatus,
@@ -115,55 +130,39 @@ export function UsersWorkspace({
   onRemove,
   onReset,
 }: UsersWorkspaceProps) {
-  return (
-    <div className="access-workspace">
-      <div className="space-y-4 access-workspace__list">
-        <AccessUsersCatalog
-          users={users}
-          filteredUsers={filteredUsers}
-          grantMap={grantMap}
-          selectedUserID={selectedUserID}
-          loading={loading}
-          error={error}
-          grantsLoading={grantsLoading}
-          grantsError={grantsError}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
-      </div>
-      <aside className="access-editor-pane">
-        {userAccessEditor ? (
-          (() => {
-            const externalManaged = isExternallyManagedUser(
-              userAccessEditor.user,
-            );
-            const providerLabel = userProviderLabel(userAccessEditor.user);
-            const displayName = userDisplayName(userAccessEditor.user);
-            return (
-              <div className="access-editor-surface access-editor-surface--minimal">
-                <div className="access-editor-header">
-                  <div>
-                    <p className="access-editor-kicker">
-                      {externalManaged ? "External sign-in" : "Edit user"}
-                    </p>
-                    <h5 className="access-editor-title">{displayName}</h5>
-                    <p className="access-editor-text">
-                      {externalManaged
-                        ? `Authenticated by ${providerLabel}. Local access roles and basic roles can still be managed here.`
-                        : "Manage account details, access roles, and team-scoped basic roles."}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="access-inline-btn access-inline-btn--pill"
-                    onClick={onCloseEditor}
-                  >
-                    Close
-                  </button>
-                </div>
-                <form
-                  className="access-editor-form access-editor-form--compact"
-                  onSubmit={onSubmit}
+  const editorContent = userAccessEditor
+    ? (() => {
+        const externalManaged = isExternallyManagedUser(userAccessEditor.user);
+        const providerLabel = userProviderLabel(userAccessEditor.user);
+        const displayName = userDisplayName(userAccessEditor.user);
+        const identityTeamCount =
+          (userAccessEditor.user.external_teams || []).length +
+          (userAccessEditor.user.external_auth_teams || []).length;
+        const resetBasicRolesAction = basicGrantDirty ? (
+          <button
+            type="button"
+            className="access-inline-btn access-inline-btn--pill"
+            onClick={onReset}
+            disabled={
+              userRoleAssignmentsLocked ||
+              basicGrantSaving ||
+              savingUserAccess
+            }
+          >
+            Reset basic roles
+          </button>
+        ) : null;
+        const sections: AccessEditorSection[] = [
+          {
+            id: "details",
+            label: "Profile",
+            description: "Identity and state",
+            children: (
+              <>
+                <AccessFormCard
+                  title="Identity"
+                  description="The fields administrators use to recognize and contact this person."
+                  badge={externalManaged ? "External" : "Local"}
                 >
                   <div className="access-editor-grid">
                     <label className="access-minimal-label">
@@ -199,6 +198,49 @@ export function UsersWorkspace({
                       placeholder="Leave blank to keep current password"
                     />
                   </label>
+                </AccessFormCard>
+                <AccessFormCard
+                  title="Authentication"
+                  description="Authentication source stays explicit so operators know who owns lifecycle and profile claims."
+                  badge={providerLabel}
+                >
+                  <dl className="access-review-list">
+                    <AccessReviewRow
+                      label="Subject"
+                      value={userAccessEditor.user.sub || displayName}
+                    />
+                    <AccessReviewRow
+                      label="Source"
+                      value={
+                        externalManaged
+                          ? `Authenticated by ${providerLabel}`
+                          : "Platform-managed local account"
+                      }
+                    />
+                    <AccessReviewRow
+                      label="Identity teams"
+                      value={String(identityTeamCount)}
+                    />
+                  </dl>
+                </AccessFormCard>
+              </>
+            ),
+          },
+          {
+            id: "access",
+            label: "Access",
+            description: "Roles and scopes",
+            children: (
+              <>
+                <AccessFormCard
+                  title="Access roles"
+                  description="Reusable bundles for low-level permissions."
+                  badge={
+                    userRoleAssignmentsLocked
+                      ? "Locked"
+                      : `${userAccessEditor.entries.length} assigned`
+                  }
+                >
                   <AssignedRoleEditor
                     entries={userAccessEditor.entries}
                     allRoleOptions={allRoleOptions}
@@ -210,6 +252,12 @@ export function UsersWorkspace({
                     onAdd={onAddAccessEntry}
                     onRemove={onRemoveAccessEntry}
                   />
+                </AccessFormCard>
+                <AccessFormCard
+                  title="Basic roles"
+                  description="Simple product roles with an explicit team target."
+                  badge={userRoleAssignmentsLocked ? "Locked" : `${entries.length} listed`}
+                >
                   <BasicAccessGrantEditor
                     entries={entries}
                     draft={draft}
@@ -218,53 +266,115 @@ export function UsersWorkspace({
                     disabled={userRoleAssignmentsLocked}
                     saving={basicGrantSaving}
                     plain
-                    countLabel={
-                      userRoleAssignmentsLocked ? "Locked" : undefined
-                    }
+                    countLabel={userRoleAssignmentsLocked ? "Locked" : undefined}
                     showGrantedBy
                     toneClassForRole={toneClassForRole}
                     onDraftChange={onDraftChange}
                     onAdd={onAdd}
                     onRemove={onRemove}
                   />
-                  <div className="access-editor-footer gap-2">
-                    {basicGrantDirty && (
-                      <button
-                        type="button"
-                        className="access-inline-btn access-inline-btn--pill"
-                        onClick={onReset}
-                        disabled={
-                          userRoleAssignmentsLocked ||
-                          basicGrantSaving ||
-                          savingUserAccess
-                        }
-                      >
-                        Reset basic roles
-                      </button>
-                    )}
-                    <button
-                      type="submit"
-                      className="glass-button-primary"
-                      disabled={savingUserAccess || basicGrantSaving}
-                    >
-                      {savingUserAccess || basicGrantSaving
-                        ? "Saving…"
-                        : "Save changes"}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            );
-          })()
-        ) : showUserModal ? (
-          createUserEditor
-        ) : (
-          <AccessEditorEmptyState
-            sectionLabel="User details"
-            hint="Select a user to edit access."
+                </AccessFormCard>
+              </>
+            ),
+          },
+          {
+            id: "review",
+            label: "Review",
+            description: "Save impact",
+            children: (
+              <>
+                <div className="access-review-grid">
+                  <AccessReviewStat label="Basic roles" value={entries.length} />
+                  <AccessReviewStat
+                    label="Access roles"
+                    value={userAccessEditor.entries.length}
+                  />
+                  <AccessReviewStat
+                    label="Identity teams"
+                    value={identityTeamCount}
+                  />
+                </div>
+                <AccessFormCard
+                  title="Summary"
+                  description="The account state that will be written through the access API."
+                  badge={titleCase(userAccessEditor.status)}
+                >
+                  <dl className="access-review-list">
+                    <AccessReviewRow label="User" value={displayName} />
+                    <AccessReviewRow
+                      label="Email"
+                      value={userAccessEditor.email || "No email address"}
+                    />
+                    <AccessReviewRow
+                      label="Authentication"
+                      value={externalManaged ? providerLabel : "Local account"}
+                    />
+                    <AccessReviewRow
+                      label="Status"
+                      value={titleCase(userAccessEditor.status)}
+                    />
+                  </dl>
+                </AccessFormCard>
+              </>
+            ),
+          },
+        ];
+        return (
+          <AccessSectionedEditor
+            modeLabel="Edit"
+            entityLabel={externalManaged ? "External user" : "User"}
+            title={displayName}
+            subtitle={
+              externalManaged
+                ? `Authenticated by ${providerLabel}. Local access can still be managed here.`
+                : "Manage account details, access roles, and team-scoped basic roles."
+            }
+            icon={(displayName || userAccessEditor.email || "U").charAt(0).toUpperCase()}
+            sections={sections}
+            resetKey={`user-${userAccessEditor.user.id}`}
+            saveLabel="Save changes"
+            savingLabel="Saving..."
+            saving={savingUserAccess || basicGrantSaving}
+            deleteLabel="Delete user"
+            deleteDisabled={userAccessEditor.user.sub === "admin"}
+            secondaryFooterAction={resetBasicRolesAction}
+            onClose={onCloseEditor}
+            onDelete={() => {
+              onCloseEditor();
+              onDelete(userAccessEditor.user.id);
+            }}
+            onSubmit={onSubmit}
           />
-        )}
-      </aside>
+        );
+      })()
+    : showUserModal
+      ? createUserEditor
+      : null;
+  const closeDrawer = userAccessEditor ? onCloseEditor : onCloseCreate;
+
+  return (
+    <div className="access-workspace">
+      <div className="space-y-4 access-workspace__list">
+        <AccessUsersCatalog
+          users={users}
+          filteredUsers={filteredUsers}
+          grantMap={grantMap}
+          selectedUserID={selectedUserID}
+          loading={loading}
+          error={error}
+          grantsLoading={grantsLoading}
+          grantsError={grantsError}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      </div>
+      <AccessEditorDrawer
+        open={Boolean(editorContent)}
+        label="User editor"
+        onClose={closeDrawer}
+      >
+        {editorContent}
+      </AccessEditorDrawer>
     </div>
   );
 }
@@ -289,6 +399,7 @@ export type ServiceAccountsWorkspaceProps = SharedBasicGrantProps & {
   onEdit: (account: ServiceAccountSummary) => void;
   onDelete: (serviceAccountID: string) => void;
   onCloseEditor: () => void;
+  onCloseCreate: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onChangeEmail: (value: string) => void;
   onChangeStatus: (value: string) => void;
@@ -328,6 +439,7 @@ export function ServiceAccountsWorkspace({
   onEdit,
   onDelete,
   onCloseEditor,
+  onCloseCreate,
   onSubmit,
   onChangeEmail,
   onChangeStatus,
@@ -343,6 +455,215 @@ export function ServiceAccountsWorkspace({
   onRemove,
   onReset,
 }: ServiceAccountsWorkspaceProps) {
+  const editorContent = serviceAccountEditor ? (
+    (() => {
+      const resetBasicRolesAction = basicGrantDirty ? (
+        <button
+          type="button"
+          className="access-inline-btn access-inline-btn--pill"
+          onClick={onReset}
+          disabled={basicGrantSaving || savingServiceAccountAccess}
+        >
+          Reset basic roles
+        </button>
+      ) : null;
+      const sections: AccessEditorSection[] = [
+        {
+          id: "details",
+          label: "Account",
+          description: "Owner and state",
+          children: (
+            <>
+              <ServiceAccountTokenReveal
+                token={createdToken}
+                copyLabel={copyTokenLabel}
+                onCopy={onCopyToken}
+              />
+              <AccessFormCard
+                title="Account details"
+                description="Contact, provider, and lifecycle state for this token-only identity."
+                badge={titleCase(serviceAccountEditor.status)}
+              >
+                <div className="access-editor-grid">
+                  <label className="access-minimal-label">
+                    <span>Contact email</span>
+                    <input
+                      className="pipelines-input"
+                      type="email"
+                      value={serviceAccountEditor.email}
+                      onChange={(event) => onChangeEmail(event.target.value)}
+                      placeholder="platform@example.com"
+                    />
+                  </label>
+                  <label className="access-minimal-label">
+                    <span>Status</span>
+                    <select
+                      className="pipelines-input"
+                      value={serviceAccountEditor.status}
+                      onChange={(event) => onChangeStatus(event.target.value)}
+                    >
+                      <option value="active">Active</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
+                  </label>
+                  <label className="access-minimal-label">
+                    <span>Provider</span>
+                    <input
+                      className="pipelines-input"
+                      value={serviceAccountEditor.account.provider || "service-account"}
+                      readOnly
+                    />
+                  </label>
+                </div>
+              </AccessFormCard>
+            </>
+          ),
+        },
+        {
+          id: "credentials",
+          label: "Credentials",
+          description: "Tokens",
+          children: (
+            <AccessFormCard
+              title="Tokens"
+              description="Issue or revoke service-account tokens. Generated tokens are shown only once."
+              badge={`${serviceAccountEditor.tokens.length} active`}
+            >
+              <ServiceAccountTokenPanel
+                tokens={serviceAccountEditor.tokens}
+                loading={serviceAccountEditor.tokensLoading}
+                error={serviceAccountEditor.tokensError}
+                tokenName={serviceAccountEditor.tokenName}
+                onTokenNameChange={onChangeTokenName}
+                onCreate={onCreateToken}
+                onRevoke={onRevokeToken}
+              />
+            </AccessFormCard>
+          ),
+        },
+        {
+          id: "access",
+          label: "Access",
+          description: "Roles and scopes",
+          children: (
+            <>
+              <AccessFormCard
+                title="Access roles"
+                description="Reusable permissions assigned to this service identity."
+                badge={`${serviceAccountEditor.entries.length} assigned`}
+              >
+                <AssignedRoleEditor
+                  entries={serviceAccountEditor.entries}
+                  allRoleOptions={allRoleOptions}
+                  nextAccessRole={nextAccessRole}
+                  locked={false}
+                  lockedLabel="Remove assignment"
+                  toneClassForRole={toneClassForRole}
+                  onNextAccessRoleChange={onNextAccessRoleChange}
+                  onAdd={onAddAccessEntry}
+                  onRemove={onRemoveAccessEntry}
+                />
+              </AccessFormCard>
+              <AccessFormCard
+                title="Basic roles"
+                description="Team-scoped product roles granted to the service identity."
+                badge={`${entries.length} listed`}
+              >
+                <BasicAccessGrantEditor
+                  entries={entries}
+                  draft={draft}
+                  options={options}
+                  error={basicGrantError}
+                  saving={basicGrantSaving}
+                  plain
+                  showGrantedBy
+                  toneClassForRole={toneClassForRole}
+                  onDraftChange={onDraftChange}
+                  onAdd={onAdd}
+                  onRemove={onRemove}
+                />
+              </AccessFormCard>
+            </>
+          ),
+        },
+        {
+          id: "review",
+          label: "Review",
+          description: "Save impact",
+          children: (
+            <>
+              <div className="access-review-grid">
+                <AccessReviewStat label="Basic roles" value={entries.length} />
+                <AccessReviewStat
+                  label="Access roles"
+                  value={serviceAccountEditor.entries.length}
+                />
+                <AccessReviewStat
+                  label="Tokens"
+                  value={serviceAccountEditor.tokens.length}
+                />
+              </div>
+              <AccessFormCard
+                title="Summary"
+                description="Machine identity configuration."
+                badge={titleCase(serviceAccountEditor.status)}
+              >
+                <dl className="access-review-list">
+                  <AccessReviewRow
+                    label="Name"
+                    value={serviceAccountEditor.account.sub}
+                  />
+                  <AccessReviewRow
+                    label="Contact"
+                    value={serviceAccountEditor.email || "No contact email"}
+                  />
+                  <AccessReviewRow
+                    label="Status"
+                    value={titleCase(serviceAccountEditor.status)}
+                  />
+                  <AccessReviewRow
+                    label="Token activity"
+                    value={
+                      serviceAccountEditor.account.last_used_at
+                        ? serviceAccountEditor.account.last_used_at
+                        : "No token activity"
+                    }
+                  />
+                </dl>
+              </AccessFormCard>
+            </>
+          ),
+        },
+      ];
+
+      return (
+        <AccessSectionedEditor
+          modeLabel="Edit"
+          entityLabel="Service account"
+          title={serviceAccountEditor.account.sub}
+          subtitle="Manage token-only integration access and scoped basic roles."
+          icon="SA"
+          sections={sections}
+          resetKey={`service-account-${serviceAccountEditor.account.id}`}
+          saveLabel="Save changes"
+          savingLabel="Saving..."
+          saving={savingServiceAccountAccess || basicGrantSaving}
+          deleteLabel="Delete service account"
+          secondaryFooterAction={resetBasicRolesAction}
+          onClose={onCloseEditor}
+          onDelete={() => {
+            onCloseEditor();
+            onDelete(serviceAccountEditor.account.id);
+          }}
+          onSubmit={onSubmit}
+        />
+      );
+    })()
+  ) : showServiceAccountModal ? (
+    createServiceAccountEditor
+  ) : null;
+  const closeDrawer = serviceAccountEditor ? onCloseEditor : onCloseCreate;
+
   return (
     <div className="access-workspace">
       <div className="space-y-4 access-workspace__list">
@@ -359,124 +680,13 @@ export function ServiceAccountsWorkspace({
           onDelete={onDelete}
         />
       </div>
-      <aside className="access-editor-pane">
-        {serviceAccountEditor ? (
-          <div className="access-editor-surface access-editor-surface--minimal">
-            <div className="access-editor-header">
-              <div>
-                <p className="access-editor-kicker">Edit service account</p>
-                <h5 className="access-editor-title">
-                  {serviceAccountEditor.account.sub}
-                </h5>
-                <p className="access-editor-text">
-                  Manage token-only integration access and scoped basic roles.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="access-inline-btn access-inline-btn--pill"
-                onClick={onCloseEditor}
-              >
-                Close
-              </button>
-            </div>
-            <ServiceAccountTokenReveal
-              token={createdToken}
-              copyLabel={copyTokenLabel}
-              onCopy={onCopyToken}
-            />
-            <form
-              className="access-editor-form access-editor-form--compact"
-              onSubmit={onSubmit}
-            >
-              <div className="access-editor-grid">
-                <label className="access-minimal-label">
-                  <span>Contact email</span>
-                  <input
-                    className="pipelines-input"
-                    type="email"
-                    value={serviceAccountEditor.email}
-                    onChange={(event) => onChangeEmail(event.target.value)}
-                    placeholder="platform@example.com"
-                  />
-                </label>
-                <label className="access-minimal-label">
-                  <span>Status</span>
-                  <select
-                    className="pipelines-input"
-                    value={serviceAccountEditor.status}
-                    onChange={(event) => onChangeStatus(event.target.value)}
-                  >
-                    <option value="active">Active</option>
-                    <option value="disabled">Disabled</option>
-                  </select>
-                </label>
-              </div>
-              <ServiceAccountTokenPanel
-                tokens={serviceAccountEditor.tokens}
-                loading={serviceAccountEditor.tokensLoading}
-                error={serviceAccountEditor.tokensError}
-                tokenName={serviceAccountEditor.tokenName}
-                onTokenNameChange={onChangeTokenName}
-                onCreate={onCreateToken}
-                onRevoke={onRevokeToken}
-              />
-              <AssignedRoleEditor
-                entries={serviceAccountEditor.entries}
-                allRoleOptions={allRoleOptions}
-                nextAccessRole={nextAccessRole}
-                locked={false}
-                lockedLabel="Remove assignment"
-                toneClassForRole={toneClassForRole}
-                onNextAccessRoleChange={onNextAccessRoleChange}
-                onAdd={onAddAccessEntry}
-                onRemove={onRemoveAccessEntry}
-              />
-              <BasicAccessGrantEditor
-                entries={entries}
-                draft={draft}
-                options={options}
-                error={basicGrantError}
-                saving={basicGrantSaving}
-                plain
-                showGrantedBy
-                toneClassForRole={toneClassForRole}
-                onDraftChange={onDraftChange}
-                onAdd={onAdd}
-                onRemove={onRemove}
-              />
-              <div className="access-editor-footer gap-2">
-                {basicGrantDirty && (
-                  <button
-                    type="button"
-                    className="access-inline-btn access-inline-btn--pill"
-                    onClick={onReset}
-                    disabled={basicGrantSaving || savingServiceAccountAccess}
-                  >
-                    Reset basic roles
-                  </button>
-                )}
-                <button
-                  type="submit"
-                  className="glass-button-primary"
-                  disabled={savingServiceAccountAccess || basicGrantSaving}
-                >
-                  {savingServiceAccountAccess || basicGrantSaving
-                    ? "Saving…"
-                    : "Save changes"}
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : showServiceAccountModal ? (
-          createServiceAccountEditor
-        ) : (
-          <AccessEditorEmptyState
-            sectionLabel="Service account details"
-            hint="Select a service account to edit access and tokens."
-          />
-        )}
-      </aside>
+      <AccessEditorDrawer
+        open={Boolean(editorContent)}
+        label="Service account editor"
+        onClose={closeDrawer}
+      >
+        {editorContent}
+      </AccessEditorDrawer>
     </div>
   );
 }

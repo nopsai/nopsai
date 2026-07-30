@@ -1,6 +1,22 @@
-import { DEFAULT_ADMIN_ROLE } from './model.js';
+import {
+  DEFAULT_ADMIN_ROLE,
+  isProtectedAccessRole,
+  type IdentityProviderRecord,
+  type RoleDefinition,
+  type RolePermission,
+  type ServiceAccountSummary,
+  type UserSummary,
+} from './model.js';
 
 export type AccessPresetID = 'viewer' | 'developer' | 'owner' | 'admin';
+
+export type AccessSummaryMetric = {
+  id: string;
+  label: string;
+  value: string;
+  hint: string;
+  tone?: 'success' | 'warning' | 'neutral';
+};
 
 export const ACCESS_ROLE_PRESETS: Array<{
   id: AccessPresetID;
@@ -99,4 +115,64 @@ export function formatAccessTimestamp(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleString();
+}
+
+export function buildAccessSummaryMetrics(input: {
+  users: UserSummary[];
+  serviceAccounts: ServiceAccountSummary[];
+  roles: RoleDefinition[];
+  policies: RolePermission[];
+  identityProviders: IdentityProviderRecord[];
+}): AccessSummaryMetric[] {
+  const activeUsers = input.users.filter(
+    user => (user.status || '').trim().toLowerCase() === 'active',
+  ).length;
+  const inactiveUsers = Math.max(input.users.length - activeUsers, 0);
+  const tokenCount = input.serviceAccounts.reduce(
+    (total, account) => total + (account.token_count || 0),
+    0
+  );
+  const protectedRoles = input.roles.filter(role =>
+    isProtectedAccessRole(role.role)
+  ).length;
+  const rolesWithPolicies = input.roles.filter(role => role.policies.length > 0).length;
+  const policyCoverage = input.roles.length
+    ? Math.round((rolesWithPolicies / input.roles.length) * 100)
+    : 0;
+  const enabledProviders = input.identityProviders.filter(provider => provider.enabled).length;
+
+  return [
+    {
+      id: 'active-users',
+      label: 'Active users',
+      value: String(activeUsers),
+      hint: inactiveUsers
+        ? `${inactiveUsers} inactive or pending`
+        : `${input.users.length} total local and SSO users`,
+      tone: 'success',
+    },
+    {
+      id: 'service-accounts',
+      label: 'Service accounts',
+      value: String(input.serviceAccounts.length),
+      hint: `${formatAccessCount(tokenCount, 'registered token')}`,
+      tone: 'neutral',
+    },
+    {
+      id: 'reusable-roles',
+      label: 'Reusable roles',
+      value: String(input.roles.length),
+      hint: `${formatAccessCount(protectedRoles, 'protected system role')}`,
+      tone: protectedRoles ? 'warning' : 'neutral',
+    },
+    {
+      id: 'policy-coverage',
+      label: 'Policy coverage',
+      value: `${policyCoverage}%`,
+      hint: `${formatAccessCount(input.policies.length, 'visible AAA rule')}${
+        enabledProviders ? `, ${formatAccessCount(enabledProviders, 'IdP')} enabled` : ''
+      }`,
+      tone: policyCoverage >= 90 ? 'success' : 'warning',
+    },
+  ];
 }

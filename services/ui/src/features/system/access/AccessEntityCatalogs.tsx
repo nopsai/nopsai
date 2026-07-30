@@ -1,9 +1,9 @@
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Edit3, Server, Trash2 } from "lucide-react";
 import {
   basicAccessGrantLabel,
   isExternallyManagedUser,
   isProtectedAccessRole,
-  policyKey,
   policyLabel,
   userDisplayName,
   userProviderLabel,
@@ -27,12 +27,47 @@ import {
   formatAccessTimestamp,
 } from "./presentation";
 
+type AccessChipItem = {
+  id: string;
+  label: string;
+  className?: string;
+  title?: string;
+};
+
 function statusKey(value: string) {
   const key = (value || "").toLowerCase();
-  if (key.includes("active")) return "ok";
-  if (key.includes("pending")) return "warn";
-  if (key.includes("blocked") || key.includes("disabled")) return "danger";
+  if (key.includes("active") || key.includes("enabled")) return "ok";
+  if (key.includes("pending") || key.includes("invited")) return "warn";
+  if (
+    key.includes("blocked") ||
+    key.includes("disabled") ||
+    key.includes("suspended")
+  ) {
+    return "danger";
+  }
   return "muted";
+}
+
+function titleCase(value: string) {
+  return (value || "unknown")
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function rowActivationHandler(onActivate: () => void) {
+  return (event: KeyboardEvent<HTMLTableRowElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onActivate();
+  };
+}
+
+function stopRowAction(
+  event: MouseEvent<HTMLButtonElement>,
+  action: () => void,
+) {
+  event.stopPropagation();
+  action();
 }
 
 function CatalogEmptyState({
@@ -47,6 +82,183 @@ function CatalogEmptyState({
       <p className="font-medium text-[var(--text-primary)]">{title}</p>
       <p className="text-sm text-[var(--text-secondary)]">{detail}</p>
     </div>
+  );
+}
+
+function AccessCatalogTable({
+  label,
+  columns,
+  children,
+  minWidth = 900,
+}: {
+  label: string;
+  columns: string[];
+  children: ReactNode;
+  minWidth?: number;
+}) {
+  return (
+    <div className="access-table-shell" aria-label={label}>
+      <div className="access-table-wrap">
+        <table className="access-table" style={{ minWidth }}>
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <th
+                  key={column}
+                  className={column === "Actions" ? "access-table__right" : ""}
+                >
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>{children}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AccessEntityCell({
+  avatar,
+  service = false,
+  title,
+  status,
+  meta,
+  detail,
+}: {
+  avatar: ReactNode;
+  service?: boolean;
+  title: ReactNode;
+  status?: string;
+  meta: ReactNode;
+  detail?: ReactNode;
+}) {
+  const titleContent = status ? (
+    <span className="access-table-title-line">
+      {title}
+      <AccessStatusDot value={status} />
+    </span>
+  ) : (
+    title
+  );
+
+  return (
+    <div className="access-table-entity">
+      <div className={`access-avatar ${service ? "access-avatar--service" : ""}`}>
+        {avatar}
+      </div>
+      <div className="access-table-entity__copy">
+        <div className="access-table-entity__title">{titleContent}</div>
+        <div className="access-table-entity__meta">{meta}</div>
+        {detail ? <div className="access-table-entity__detail">{detail}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function AccessStatusDot({ value }: { value: string }) {
+  const label = titleCase(value || "unknown");
+  return (
+    <span
+      className={`access-status-dot access-status-dot--${statusKey(value)}`}
+      title={label}
+      aria-label={`Status: ${label}`}
+    />
+  );
+}
+
+function AccessChipList({
+  items,
+  emptyLabel = "None",
+  limit = 3,
+}: {
+  items: AccessChipItem[];
+  emptyLabel?: string;
+  limit?: number;
+}) {
+  if (!items.length) {
+    return <span className="access-cell-muted">{emptyLabel}</span>;
+  }
+  const visible = items.slice(0, limit);
+  const remaining = items.length - visible.length;
+  return (
+    <div
+      className="access-chip-list access-chip-list--compact"
+      title={items.map((item) => item.title || item.label).join(", ")}
+    >
+      {visible.map((item) => (
+        <span
+          key={item.id}
+          className={`access-chip ${item.className || "access-chip--muted"}`}
+        >
+          {item.label}
+        </span>
+      ))}
+      {remaining > 0 && (
+        <span className="access-chip access-chip--more">+{remaining}</span>
+      )}
+    </div>
+  );
+}
+
+function roleChipItems(
+  ownerID: string,
+  roles: Array<{ role: string }> = [],
+): AccessChipItem[] {
+  return roles.map((role, index) => ({
+    id: `${ownerID}-role-${role.role}-${index}`,
+    label: role.role,
+    className: accessPresetToneClass(role.role),
+  }));
+}
+
+function grantChipItems(
+  grants: AccessGrantRecord[],
+  ownerID: string,
+): AccessChipItem[] {
+  return grants.map((grant) => ({
+    id: `${ownerID}-grant-${grant.id}`,
+    label: basicAccessGrantLabel(grant),
+    className: accessPresetToneClass(grant.role),
+  }));
+}
+
+function ActionButtons({
+  editLabel,
+  deleteLabel,
+  disabled = false,
+  onEdit,
+  onDelete,
+}: {
+  editLabel: string;
+  deleteLabel: string;
+  disabled?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <span className="access-row-actions">
+      <button
+        type="button"
+        className="access-card-action"
+        title="Edit"
+        aria-label={editLabel}
+        onClick={(event) => stopRowAction(event, onEdit)}
+      >
+        <Edit3 className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="access-card-action access-card-action--danger"
+        title="Delete"
+        aria-label={deleteLabel}
+        onClick={(event) => stopRowAction(event, onDelete)}
+        disabled={disabled}
+      >
+        <Trash2 className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+      </button>
+    </span>
   );
 }
 
@@ -110,153 +322,104 @@ export function AccessUsersCatalog({
   }
 
   return (
-    <div className="access-entity-grid access-entity-grid--users">
+    <AccessCatalogTable
+      label="Users"
+      columns={[
+        "User",
+        "Basic roles",
+        "Access roles",
+        "Identity teams",
+        "Last sign-in",
+        "Actions",
+      ]}
+      minWidth={1040}
+    >
       {filteredUsers.map((user) => {
         const grants = grantMap.get(user.id) || [];
         const displayName = userDisplayName(user);
         const providerLabel = userProviderLabel(user);
         const subjectLabel = userSubjectLabel(user);
         const externalManaged = isExternallyManagedUser(user);
+        const identityTeams: AccessChipItem[] = [
+          ...(user.external_teams || []).map((team) => ({
+            id: `${user.id}-external-${team}`,
+            label: `IdP: ${team}`,
+            className: "access-chip--team",
+          })),
+          ...(user.external_auth_teams || []).map((team) => ({
+            id: `${user.id}-auth-${team.id || team.name}`,
+            label: `NopsAI: ${team.name}`,
+            className: "access-chip--accent",
+          })),
+        ];
         return (
-          <article
+          <tr
             key={user.id}
-            className={`access-card access-card--user ${selectedUserID === user.id ? "access-card--selected" : ""}`}
+            tabIndex={0}
+            className={`access-table-row ${selectedUserID === user.id ? "access-table-row--selected" : ""}`}
+            onClick={() => onEdit(user)}
+            onKeyDown={rowActivationHandler(() => onEdit(user))}
           >
-            <div className="access-card__header">
-              <div className="min-w-0 flex items-center gap-3">
-                <div className="access-avatar">
-                  {(displayName || user.email || "U").charAt(0).toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="access-card__title">{displayName}</p>
-                    <span
-                      className={`access-status access-status--${statusKey(user.status)}`}
-                    >
-                      {user.status || "unknown"}
+            <td>
+              <AccessEntityCell
+                avatar={(displayName || user.email || "U")
+                  .charAt(0)
+                  .toUpperCase()}
+                title={displayName}
+                status={user.status}
+                meta={
+                  externalManaged
+                    ? `External subject ${subjectLabel || user.sub}`
+                    : user.email || "No email address"
+                }
+                detail={
+                  externalManaged ? (
+                    <span className="access-chip access-chip--muted">
+                      Authenticated by {providerLabel}
                     </span>
-                    {externalManaged && (
-                      <span className="access-chip access-chip--muted">
-                        Authenticated by {providerLabel}
-                      </span>
-                    )}
-                  </div>
-                  <p className="access-card__subtitle">
-                    {externalManaged
-                      ? `External subject ${subjectLabel || user.sub}`
-                      : user.email || "No email address"}
-                  </p>
-                  <p className="access-card__meta-line">
-                    {user.last_login
-                      ? `Last sign-in ${formatAccessTimestamp(user.last_login)}`
-                      : "Never signed in"}
-                  </p>
-                </div>
-              </div>
-              <div className="access-card__actions">
-                <button
-                  type="button"
-                  className="access-card-action"
-                  title="Edit user"
-                  aria-label={`Edit ${displayName || user.email || "user"}`}
-                  onClick={() => onEdit(user)}
-                >
-                  <Edit3
-                    className="h-4 w-4"
-                    strokeWidth={1.8}
-                    aria-hidden="true"
-                  />
-                </button>
-                <button
-                  type="button"
-                  className="access-card-action access-card-action--danger"
-                  title="Delete user"
-                  aria-label={`Delete ${displayName || user.email || "user"}`}
-                  onClick={() => onDelete(user.id)}
-                  disabled={loading}
-                >
-                  <Trash2
-                    className="h-4 w-4"
-                    strokeWidth={1.9}
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="access-card__label">Access roles</p>
-              <div className="flex flex-wrap gap-2">
-                {(user.roles || []).length ? (
-                  (user.roles || []).map((role) => (
-                    <span
-                      key={`${user.id}-${role.role}`}
-                      className={`access-chip ${accessPresetToneClass(role.role)}`}
-                    >
-                      {role.role}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-sm text-[var(--text-secondary)]">
-                    No roles assigned yet
-                  </span>
-                )}
-              </div>
-            </div>
-            {externalManaged &&
-              ((user.external_teams || []).length ||
-                (user.external_auth_teams || []).length) && (
-                <div className="space-y-2">
-                  <p className="access-card__label">Identity teams</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(user.external_teams || []).slice(0, 3).map((team) => (
-                      <span
-                        key={`${user.id}-external-${team}`}
-                        className="access-chip access-chip--muted"
-                      >
-                        IdP: {team}
-                      </span>
-                    ))}
-                    {(user.external_auth_teams || [])
-                      .slice(0, 3)
-                      .map((team) => (
-                        <span
-                          key={`${user.id}-auth-${team.id || team.name}`}
-                          className="access-chip access-chip--accent"
-                        >
-                          NopsAI: {team.name}
-                        </span>
-                      ))}
-                  </div>
-                </div>
-              )}
-            <div className="space-y-2">
-              <p className="access-card__label">Basic roles</p>
-              <div className="flex flex-wrap gap-2">
-                {grants.length ? (
-                  grants.slice(0, 4).map((grant) => (
-                    <span
-                      key={grant.id}
-                      className={`access-chip ${accessPresetToneClass(grant.role)}`}
-                    >
-                      {basicAccessGrantLabel(grant)}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-sm text-[var(--text-secondary)]">
-                    No basic roles yet
-                  </span>
-                )}
-                {grants.length > 4 && (
-                  <span className="access-chip access-chip--muted">
-                    + {grants.length - 4} more
-                  </span>
-                )}
-              </div>
-            </div>
-          </article>
+                  ) : null
+                }
+              />
+            </td>
+            <td>
+              <AccessChipList
+                items={grantChipItems(grants, user.id)}
+                emptyLabel="No basic roles"
+                limit={2}
+              />
+            </td>
+            <td>
+              <AccessChipList
+                items={roleChipItems(user.id, user.roles)}
+                emptyLabel="No access roles"
+                limit={2}
+              />
+            </td>
+            <td>
+              <AccessChipList
+                items={identityTeams}
+                emptyLabel={externalManaged ? "No mapped teams" : "Local account"}
+                limit={2}
+              />
+            </td>
+            <td className="access-cell-muted">
+              {user.last_login
+                ? formatAccessTimestamp(user.last_login)
+                : "Never signed in"}
+            </td>
+            <td className="access-table__right">
+              <ActionButtons
+                editLabel={`Edit ${displayName || user.email || "user"}`}
+                deleteLabel={`Delete ${displayName || user.email || "user"}`}
+                disabled={loading}
+                onEdit={() => onEdit(user)}
+                onDelete={() => onDelete(user.id)}
+              />
+            </td>
+          </tr>
         );
       })}
-    </div>
+    </AccessCatalogTable>
   );
 }
 
@@ -320,116 +483,73 @@ export function AccessServiceAccountsCatalog({
   }
 
   return (
-    <div className="access-entity-grid access-entity-grid--users">
+    <AccessCatalogTable
+      label="Service accounts"
+      columns={[
+        "Service account",
+        "Access roles",
+        "Basic roles",
+        "Tokens",
+        "Last used",
+        "Actions",
+      ]}
+      minWidth={980}
+    >
       {filteredAccounts.map((account) => {
         const grants = grantMap.get(account.sub) || [];
         return (
-          <article
+          <tr
             key={account.id}
-            className={`access-card access-card--user ${selectedAccountID === account.id ? "access-card--selected" : ""}`}
+            tabIndex={0}
+            className={`access-table-row ${selectedAccountID === account.id ? "access-table-row--selected" : ""}`}
+            onClick={() => onEdit(account)}
+            onKeyDown={rowActivationHandler(() => onEdit(account))}
           >
-            <div className="access-card__header">
-              <div className="min-w-0 flex items-center gap-3">
-                <div className="access-avatar">
-                  <Server className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="access-card__title">{account.sub}</p>
-                    <span
-                      className={`access-status access-status--${statusKey(account.status)}`}
-                    >
-                      {account.status || "unknown"}
-                    </span>
-                  </div>
-                  <p className="access-card__subtitle">
-                    {account.email || "No contact email"}
-                  </p>
-                  <p className="access-card__meta-line">
-                    {account.last_used_at
-                      ? `Last token use ${formatAccessTimestamp(account.last_used_at)}`
-                      : "No token activity yet"}{" "}
-                    · {formatAccessCount(account.token_count || 0, "token")}
-                  </p>
-                </div>
-              </div>
-              <div className="access-card__actions">
-                <button
-                  type="button"
-                  className="access-card-action"
-                  title="Edit service account"
-                  aria-label={`Edit ${account.sub || "service account"}`}
-                  onClick={() => onEdit(account)}
-                >
-                  <Edit3
-                    className="h-4 w-4"
-                    strokeWidth={1.8}
-                    aria-hidden="true"
-                  />
-                </button>
-                <button
-                  type="button"
-                  className="access-card-action access-card-action--danger"
-                  title="Delete service account"
-                  aria-label={`Delete ${account.sub || "service account"}`}
-                  onClick={() => onDelete(account.id)}
-                  disabled={loading}
-                >
-                  <Trash2
-                    className="h-4 w-4"
-                    strokeWidth={1.9}
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="access-card__label">Access roles</p>
-              <div className="flex flex-wrap gap-2">
-                {(account.roles || []).length ? (
-                  (account.roles || []).map((role) => (
-                    <span
-                      key={`${account.id}-${role.role}`}
-                      className={`access-chip ${accessPresetToneClass(role.role)}`}
-                    >
-                      {role.role}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-sm text-[var(--text-secondary)]">
-                    No roles assigned yet
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="access-card__label">Basic roles</p>
-              <div className="flex flex-wrap gap-2">
-                {grants.length ? (
-                  grants.slice(0, 4).map((grant) => (
-                    <span
-                      key={grant.id}
-                      className={`access-chip ${accessPresetToneClass(grant.role)}`}
-                    >
-                      {basicAccessGrantLabel(grant)}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-sm text-[var(--text-secondary)]">
-                    No basic roles yet
-                  </span>
-                )}
-                {grants.length > 4 && (
-                  <span className="access-chip access-chip--muted">
-                    + {grants.length - 4} more
-                  </span>
-                )}
-              </div>
-            </div>
-          </article>
+            <td>
+              <AccessEntityCell
+                avatar={<Server className="h-4 w-4" aria-hidden="true" />}
+                service
+                title={account.sub}
+                status={account.status}
+                meta={account.email || "No contact email"}
+                detail={account.provider || "Service account"}
+              />
+            </td>
+            <td>
+              <AccessChipList
+                items={roleChipItems(account.id, account.roles)}
+                emptyLabel="No access roles"
+                limit={2}
+              />
+            </td>
+            <td>
+              <AccessChipList
+                items={grantChipItems(grants, account.id)}
+                emptyLabel="No basic roles"
+                limit={2}
+              />
+            </td>
+            <td className="access-cell-muted">
+              {formatAccessCount(account.token_count || 0, "token")}
+            </td>
+            <td className="access-cell-muted">
+              {account.last_used_at
+                ? formatAccessTimestamp(account.last_used_at)
+                : "No token activity"}
+            </td>
+            <td className="access-table__right">
+              <ActionButtons
+                editLabel={`Edit ${account.sub || "service account"}`}
+                deleteLabel={`Delete ${account.sub || "service account"}`}
+                disabled={loading}
+                onEdit={() => onEdit(account)}
+                onDelete={() => onDelete(account.id)}
+              />
+            </td>
+          </tr>
         );
       })}
-    </div>
+    </AccessCatalogTable>
   );
 }
 
@@ -488,124 +608,96 @@ export function AccessRolesCatalog({
     );
 
   return (
-    <div className="access-entity-grid access-entity-grid--roles">
+    <AccessCatalogTable
+      label="Roles"
+      columns={[
+        "Role",
+        "Type",
+        "Coverage",
+        "Policies",
+        "Assignees",
+        "Actions",
+      ]}
+      minWidth={920}
+    >
       {filteredRoles.map((role) => {
         const assignedUsers = roleUserMap.get(role.id) || [];
         const preset = accessPresetForRole(role.role);
         const coverage = summarizeRoleCoverage(role.policies);
         const protectedRole = isProtectedAccessRole(role.role);
         return (
-          <article
+          <tr
             key={role.id}
-            className={`access-card access-card--role ${selectedRole === role.role ? "access-card--selected" : ""}`}
+            tabIndex={protectedRole ? -1 : 0}
+            className={`access-table-row ${selectedRole === role.role ? "access-table-row--selected" : ""}`}
+            onClick={() => {
+              if (!protectedRole) onEdit(role);
+            }}
+            onKeyDown={rowActivationHandler(() => {
+              if (!protectedRole) onEdit(role);
+            })}
           >
-            <div className="access-card__header">
-              <div className="space-y-2 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="access-card__title">{role.role}</p>
-                  {preset && (
-                    <span
-                      className={`access-chip ${accessPresetToneClass(role.role)}`}
-                    >
-                      {preset.label}
-                    </span>
-                  )}
-                  {protectedRole && (
-                    <span className="access-chip access-chip--muted">
-                      Protected
-                    </span>
-                  )}
-                </div>
-                <p className="access-card__subtitle">
-                  {preset?.description ||
-                    "Reusable role bundle for assigning multiple low-level AAA policies together."}
-                </p>
-                <p className="access-card__meta-line">
-                  {formatAccessCount(
-                    role.policies.length,
-                    "policy",
-                    "policies",
-                  )}{" "}
-                  · {formatAccessCount(assignedUsers.length, "assignee")}
-                </p>
-              </div>
-              <div className="access-card__actions">
-                {protectedRole ? (
-                  <span className="access-chip access-chip--muted">
-                    Protected
+            <td>
+              <AccessEntityCell
+                avatar="R"
+                title={
+                  <span className="access-table-title-line">
+                    {role.role}
+                    {preset ? (
+                      <span
+                        className={`access-chip ${accessPresetToneClass(role.role)}`}
+                      >
+                        {preset.label}
+                      </span>
+                    ) : null}
                   </span>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="access-card-action"
-                      title="Edit role"
-                      aria-label={`Edit ${role.role}`}
-                      onClick={() => onEdit(role)}
-                    >
-                      <Edit3
-                        className="h-4 w-4"
-                        strokeWidth={1.8}
-                        aria-hidden="true"
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      className="access-card-action access-card-action--danger"
-                      title="Delete role"
-                      aria-label={`Delete ${role.role}`}
-                      onClick={() => onDelete(role)}
-                    >
-                      <Trash2
-                        className="h-4 w-4"
-                        strokeWidth={1.9}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="access-card__label">Coverage</p>
-              <div className="flex flex-wrap gap-2">
-                {coverage.map((label) => (
-                  <span
-                    key={`${role.id}-coverage-${label}`}
-                    className="access-chip access-chip--muted"
-                  >
-                    {label}
-                  </span>
-                ))}
-                {!coverage.length && (
-                  <span className="text-sm text-[var(--text-secondary)]">
-                    No coverage yet
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="access-card__label">Includes</p>
-              <div className="flex flex-wrap gap-2">
-                {role.policies.slice(0, 4).map((policy) => (
-                  <span
-                    key={policyKey(policy)}
-                    className="access-chip access-chip--muted"
-                  >
-                    {policyLabel(policy)}
-                  </span>
-                ))}
-                {role.policies.length > 4 && (
-                  <span className="access-chip access-chip--muted">
-                    + {role.policies.length - 4} more
-                  </span>
-                )}
-              </div>
-            </div>
-          </article>
+                }
+                meta={
+                  preset?.description ||
+                  "Reusable role bundle for low-level AAA policies."
+                }
+              />
+            </td>
+            <td>
+              <span
+                className={`access-chip ${protectedRole ? "access-chip--brand" : "access-chip--muted"}`}
+              >
+                {protectedRole ? "Protected" : "Custom"}
+              </span>
+            </td>
+            <td>
+              <AccessChipList
+                items={coverage.map((label) => ({
+                  id: `${role.id}-coverage-${label}`,
+                  label,
+                  className: "access-chip--muted",
+                }))}
+                emptyLabel="No coverage"
+                limit={2}
+              />
+            </td>
+            <td className="access-cell-muted">
+              {formatAccessCount(role.policies.length, "policy", "policies")}
+            </td>
+            <td className="access-cell-muted">
+              {formatAccessCount(assignedUsers.length, "assignee")}
+            </td>
+            <td className="access-table__right">
+              {protectedRole ? (
+                <span className="access-chip access-chip--muted">Protected</span>
+              ) : (
+                <ActionButtons
+                  editLabel={`Edit ${role.role}`}
+                  deleteLabel={`Delete ${role.role}`}
+                  onEdit={() => onEdit(role)}
+                  onDelete={() => onDelete(role)}
+                />
+              )}
+            </td>
+          </tr>
         );
       })}
-    </div>
+    </AccessCatalogTable>
   );
 }
 
@@ -657,7 +749,18 @@ export function AccessPoliciesCatalog({
     );
 
   return (
-    <div className="access-policy-stack">
+    <AccessCatalogTable
+      label="Policies"
+      columns={[
+        "Policy",
+        "Resource",
+        "Effect",
+        "Action",
+        "Assigned role",
+        "Actions",
+      ]}
+      minWidth={980}
+    >
       {filteredPolicies.map((policy) => {
         const protectedPolicy = isProtectedAccessRole(policy.role);
         const parsedAction = parseAAAActionValue(policy.act);
@@ -667,85 +770,70 @@ export function AccessPoliciesCatalog({
           selectedPolicy.obj === policy.obj &&
           selectedPolicy.act === policy.act;
         return (
-          <article
+          <tr
             key={`${policy.role}-${policy.obj}-${policy.act}`}
-            className={`access-card access-card--policy ${isSelected ? "access-card--selected" : ""}`}
+            tabIndex={protectedPolicy ? -1 : 0}
+            className={`access-table-row ${isSelected ? "access-table-row--selected" : ""}`}
+            onClick={() => {
+              if (!protectedPolicy) onEdit(policy);
+            }}
+            onKeyDown={rowActivationHandler(() => {
+              if (!protectedPolicy) onEdit(policy);
+            })}
           >
-            <div className="access-card__header">
-              <div className="space-y-2 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="access-card__title">{policyLabel(policy)}</p>
-                  <span
-                    className={`access-chip ${accessPresetToneClass(policy.role)}`}
-                  >
-                    {policy.role}
-                  </span>
-                  {parsedAction.effect === "deny" && (
-                    <span className="access-chip access-chip--danger">
-                      Deny
-                    </span>
-                  )}
-                  {protectedPolicy && (
+            <td>
+              <AccessEntityCell
+                avatar="P"
+                title={policyLabel(policy)}
+                meta={`${preset ? `${preset.label} role` : "Role"} can ${formatAccessActionSummary(policy.act)} on ${formatAccessResourceSummary(policy.obj)}.`}
+                detail={
+                  protectedPolicy ? (
                     <span className="access-chip access-chip--muted">
                       Protected
                     </span>
-                  )}
-                </div>
-                <p className="access-card__subtitle">
-                  {preset ? `${preset.label} role` : "Role"} can{" "}
-                  {formatAccessActionSummary(policy.act)} on{" "}
-                  {formatAccessResourceSummary(policy.obj)}.
-                </p>
-              </div>
-              <div className="access-card__actions">
-                {protectedPolicy ? (
-                  <span className="access-chip access-chip--muted">
-                    Protected
-                  </span>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="access-card-action"
-                      title="Edit policy"
-                      aria-label={`Edit ${policyLabel(policy)}`}
-                      onClick={() => onEdit(policy)}
-                    >
-                      <Edit3
-                        className="h-4 w-4"
-                        strokeWidth={1.8}
-                        aria-hidden="true"
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      className="access-card-action access-card-action--danger"
-                      title="Delete policy"
-                      aria-label={`Delete ${policyLabel(policy)}`}
-                      onClick={() => onDelete(policy)}
-                    >
-                      <Trash2
-                        className="h-4 w-4"
-                        strokeWidth={1.9}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="access-policy-preview access-policy-preview--minimal">
+                  ) : null
+                }
+              />
+            </td>
+            <td>
               <span className="access-policy-chip access-policy-chip--path">
                 {policy.obj}
               </span>
-              <span className="access-policy-arrow">-&gt;</span>
+            </td>
+            <td>
+              <span
+                className={`access-chip ${parsedAction.effect === "deny" ? "access-chip--danger" : "access-chip--success"}`}
+              >
+                {titleCase(parsedAction.effect || "allow")}
+              </span>
+            </td>
+            <td>
               <span className="access-policy-chip access-policy-chip--act">
                 {policy.act}
               </span>
-            </div>
-          </article>
+            </td>
+            <td>
+              <span
+                className={`access-chip ${accessPresetToneClass(policy.role)}`}
+              >
+                {policy.role}
+              </span>
+            </td>
+            <td className="access-table__right">
+              {protectedPolicy ? (
+                <span className="access-chip access-chip--muted">Protected</span>
+              ) : (
+                <ActionButtons
+                  editLabel={`Edit ${policyLabel(policy)}`}
+                  deleteLabel={`Delete ${policyLabel(policy)}`}
+                  onEdit={() => onEdit(policy)}
+                  onDelete={() => onDelete(policy)}
+                />
+              )}
+            </td>
+          </tr>
         );
       })}
-    </div>
+    </AccessCatalogTable>
   );
 }
