@@ -616,6 +616,13 @@ The Scopes detail route renders scope metrics, combined variable/secret search
 and type filters, selected-item value inspection, relationship columns, access
 controls, GitOps encryption, and collapsible runner assignments while keeping
 secret values write-only and using existing AAA/GitOps/MCP-safe contracts.
+The System Dispatcher workspace separates compact overview metrics,
+runtime-filtered table-first runner fleet operations, route editing/effective
+routing tables, and install command generation. Runner detail sits below the
+fleet table only after an operator selects a runner.
+Routing tables use the effective dispatcher routing view: paused or unreachable
+runner IDs stay visible for diagnosis, while only reachable dispatch-enabled
+runners are treated as dispatchable targets.
 
 The control plane includes the API, UI, AAA, dispatcher, git-bot, PostgreSQL,
 Gotenberg, and the restricted Docker socket proxy. The execution plane includes
