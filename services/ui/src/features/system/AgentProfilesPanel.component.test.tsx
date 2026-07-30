@@ -279,6 +279,7 @@ test('applies the team filter from the route query', async () => {
 });
 
 test('counts cached team-owned agent profiles in the tree', async () => {
+  const user = userEvent.setup();
   apiMocks.fetchAgentProfiles.mockResolvedValueOnce({
     default_profile: 'devops-engineer',
     profiles: [
@@ -303,6 +304,7 @@ test('counts cached team-owned agent profiles in the tree', async () => {
     </MemoryRouter>
   );
 
+  await user.click(await screen.findByRole('button', { name: 'Expand platform' }));
   const teamButton = await screen.findByRole('button', { name: 'Open team platform/ml' });
   await waitFor(() => expect(teamProfileMocks.fetchTeamAgentProfiles).toHaveBeenCalledWith('platform/ml'));
   await waitFor(() => expect(within(teamButton).getByText('2')).toBeVisible());
