@@ -2410,15 +2410,17 @@ const baseWikiSections: WikiSectionInput[] = [
         level: 'Operate',
         audience: 'Operators scaling or isolating execution capacity',
         summary:
-          'Runner installs are generated from System > Dispatcher > Runner Installs and use one-time download tokens to produce Docker or Kubernetes runner configuration.',
+          'Runner installs are generated from System > Dispatcher > Install runner and use one-time download tokens to produce Docker or Kubernetes runner configuration.',
         keyFacts: [
           'Runner tokens expire after ten minutes and are consumed after the first successful download.',
           'Each runner should have a unique ID, capacity, allowed scope list, and network path to the dispatcher.',
           'Separate runners are the natural boundary for production versus non-production, region, team, security zone, or workload class.',
+          'The Dispatcher workspace separates compact overview metrics, runtime-filtered table-first runner fleet operations, route editing/effective-routing tables, and install command generation so operators can validate changes before they affect scheduling.',
           'Ejecting a runner removes its dispatcher registration, cleans configured dispatcher routing references for that runner ID, blocks the same runner ID from registering again, and disconnects any live runner stream.',
         ],
         details: [
           'The dispatcher checks runner availability, scope compatibility, routing, affinity, and load before assignment.',
+          'The routing tables read the same effective routing status shown to the dispatcher UI. Runner detail sits below the fleet table only after selection, and paused, stale, or unreachable runners stay visible in route pools for operator diagnosis but are excluded from the dispatchable target set.',
           'For Kubernetes, runner manifests include namespace, ServiceAccount, namespace-scoped Role, RoleBinding, dispatcher auth Secret, runtime ConfigMap, and Deployment.',
           'Runner defaults and hard routing can live in setting/system/runner.yaml. Dispatcher routing updates are exposed through internal runtime config and do not require a dispatcher container restart.',
           'The ejected runner ID blocklist wins over GitOps routing at runtime. Remove ejected runner IDs from setting/system/runner.yaml to keep declarative routing clean.',

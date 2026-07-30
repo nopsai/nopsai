@@ -952,7 +952,7 @@ Pages present in the current UI:
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
 - `Knowledge Context`: kind/team/document browser, top-toolbar document/connection metrics aligned with actions, compact magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
+- `System`: config, data management, compact dispatcher overview/runners/routing/install tabs, runtime-filtered table-first runner fleet controls with runner detail below the table after selection, route edit/effective-routing tables, runtime pool management, user/role/access management, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 
@@ -965,6 +965,7 @@ Operational support already in the code:
 - dedicated runner capacities and scope declarations
 - Kubernetes runner one-time install commands, GitOps manifests, namespace-scoped RBAC, agent-owned PVC workspaces, runtime pools, and agent-to-step node-affinity controls
 - dispatcher queue visibility
+- dispatcher routing tables that keep paused or unreachable route-pool members visible while excluding them from dispatchable targets
 - durable pending-run recovery that resubmits eligible queued pipeline runs after
   dispatcher restarts or runner outages
 - active runner metadata display
