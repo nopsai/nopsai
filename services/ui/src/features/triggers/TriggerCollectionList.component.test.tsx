@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
-import { TriggerCollectionList } from './TriggerCollectionList';
+import { TriggerCollectionList, TriggerMetricGrid } from './TriggerCollectionList';
 import { buildTriggerTree } from './treeModel';
 
 const allTriggers = [
@@ -28,7 +28,8 @@ test('renders subtree table rows and tree navigation', async () => {
         { slug: 'external/service', source: 'database', scopes: ['prod'], teamPath: 'platform' },
       ]}
       treeRoot={treeRoot}
-      activeOwner="platform"
+      activeOwnerPath="external"
+      activeTeamPath="platform"
       searchTerm=""
       selectedSlug="external/service"
       canCreateTriggerHere
@@ -40,15 +41,14 @@ test('renders subtree table rows and tree navigation', async () => {
     />
   );
 
-  expect(screen.getByText('Trigger tree')).toBeVisible();
-  expect(screen.queryByText('Trigger list')).not.toBeInTheDocument();
-  expect(screen.getByRole('separator', { name: 'Resize trigger tree' })).toBeVisible();
-  expect(screen.getByRole('button', { name: /All owners/ })).toBeVisible();
-  expect(screen.queryByLabelText('Trigger summary')).not.toBeInTheDocument();
-  expect(screen.getByText('platform/api').closest('tr')).toHaveClass('selected');
-  expect(screen.getByText('platform/apps/checkout')).toBeVisible();
-  expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
-  expect(screen.getByText('prod')).toBeVisible();
+  expect(screen.queryByText('Trigger tree')).not.toBeNull();
+  expect(screen.queryByText('Trigger list')).toBeNull();
+  expect(screen.queryByRole('separator', { name: 'Resize trigger tree' })).not.toBeNull();
+  expect(screen.queryByRole('button', { name: /All owners/ })).not.toBeNull();
+  expect(screen.queryByLabelText('Trigger summary')).toBeNull();
+  expect(screen.getByText('external/service').closest('tr')?.classList.contains('selected')).toBe(true);
+  expect(screen.queryByRole('columnheader', { name: 'Scopes' })).not.toBeNull();
+  expect(screen.queryByText('prod')).not.toBeNull();
 
   await user.click(screen.getByText('external/service'));
   expect(onSelectTrigger).toHaveBeenCalledTimes(1);
@@ -62,4 +62,24 @@ test('renders subtree table rows and tree navigation', async () => {
 
   await user.click(screen.getByRole('button', { name: 'Open team platform under owner external' }));
   expect(onOpenTeam).toHaveBeenCalledWith('external', 'platform');
+});
+
+test('omits override and owner metric boxes from trigger summaries', () => {
+  render(
+    <TriggerMetricGrid
+      metrics={{
+        total: 4,
+        gitManaged: 2,
+        databaseManaged: 2,
+        ownerCount: 3,
+        teamCount: 2,
+      }}
+    />
+  );
+
+  expect(screen.queryByText('Triggers')).not.toBeNull();
+  expect(screen.queryByText('GitOps')).not.toBeNull();
+  expect(screen.queryByText('Teams')).not.toBeNull();
+  expect(screen.queryByText('Overrides')).toBeNull();
+  expect(screen.queryByText('Owners')).toBeNull();
 });

@@ -75,7 +75,7 @@ describe('SchedulesPage modal flows', () => {
     expect(screen.queryByRole('button', { name: 'Reload schedules' })).not.toBeInTheDocument();
     expect(screen.queryByText('Schedule view')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Filter by schedule path')).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Enabled' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: /Enabled.*1/ })).toBeVisible();
     const opener = screen.getByRole('button', { name: 'New schedule' });
     await userEvent.click(opener);
     const dialog = screen.getByRole('dialog', { name: 'New schedule' });

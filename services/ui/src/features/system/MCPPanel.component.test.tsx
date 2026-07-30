@@ -324,6 +324,7 @@ test('applies the team filter and profiles view from the route query', async () 
 });
 
 test('counts cached team-owned MCP profiles in the tree', async () => {
+  const user = userEvent.setup();
   apiMocks.fetchMCPRegistry.mockResolvedValueOnce({
     servers: [],
     profiles: [],
@@ -348,6 +349,7 @@ test('counts cached team-owned MCP profiles in the tree', async () => {
     </MemoryRouter>
   );
 
+  await user.click(await screen.findByRole('button', { name: 'Expand platform' }));
   const teamButton = await screen.findByRole('button', { name: 'Open team platform/ml' });
   await waitFor(() => expect(teamProfileMocks.fetchTeamMCPProfiles).toHaveBeenCalledWith('platform/ml'));
   await waitFor(() => expect(within(teamButton).getByText('1')).toBeVisible());

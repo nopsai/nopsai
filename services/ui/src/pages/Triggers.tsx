@@ -801,8 +801,8 @@ function TriggersPage({
   }, [serverTriggers]);
 
   const triggerMetrics = useMemo(
-    () => buildTriggerCollectionMetrics(serverTriggers, workspaceOwner),
-    [serverTriggers, workspaceOwner]
+    () => buildTriggerCollectionMetrics(serverTriggers, activeOwnerPath, activeTeamPath),
+    [activeOwnerPath, activeTeamPath, serverTriggers]
   );
 
   const handleIndentTab = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -951,7 +951,8 @@ function TriggersPage({
               allTriggers={serverTriggers}
               visibleTriggers={visibleTriggers}
               treeRoot={buildTree}
-              activeOwner={workspaceOwner}
+              activeOwnerPath={activeOwnerPath}
+              activeTeamPath={activeTeamPath}
               searchTerm={searchTerm}
               selectedSlug={selectedSlug}
               canCreateTriggerHere={canCreateTriggerHere}

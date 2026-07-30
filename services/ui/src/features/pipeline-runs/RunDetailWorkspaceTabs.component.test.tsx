@@ -34,9 +34,9 @@ test('switches between the run graph and final outputs tabs', async () => {
   expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByText('Execution Graph')).toBeVisible();
 
-  await user.click(screen.getByRole('tab', { name: 'Outputs 1' }));
+  await user.click(screen.getByRole('tab', { name: /Outputs.*1/ }));
 
-  expect(screen.getByRole('tab', { name: 'Outputs 1' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tab', { name: /Outputs.*1/ })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByText('Final Outputs')).toBeVisible();
   expect(screen.getByText('Summary')).toBeVisible();
 });
