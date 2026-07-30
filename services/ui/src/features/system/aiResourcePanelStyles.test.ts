@@ -45,6 +45,7 @@ test('keeps AI resource workspaces free of the extra outer border line', () => {
   const darkWorkspaceCard = cssBlock(aiStyles, 'html.dark .ai-resource-workspace-card');
 
   assert.equal(declarationValue(workspaceCard, 'border'), '0');
+  assert.equal(declarationValue(workspaceCard, 'overflow'), 'visible');
   assert.equal(declarationValue(workspaceCard, 'box-shadow'), 'none');
   assert.equal(declarationValue(darkWorkspaceCard, 'box-shadow'), 'none');
 });
@@ -52,13 +53,17 @@ test('keeps AI resource workspaces free of the extra outer border line', () => {
 test('keeps AI resource list actions above tables and aligned to the table edge', () => {
   const aiStyles = readFileSync(resolve(sourceRoot, 'features/system/aiResourcePanel.css'), 'utf8');
   const listActions = cssBlock(aiStyles, '.ai-resource-table-head--list-actions');
+  const list = cssBlock(aiStyles, '.ai-resource-browser-list');
   const listTableShell = cssBlock(
     aiStyles,
     '.ai-resource-table-head--list-actions + .ai-resource-browser-list .ai-resource-table-shell'
   );
 
-  assert.equal(declarationValue(listActions, 'position'), 'static');
+  assert.equal(declarationValue(listActions, 'position'), 'absolute');
+  assert.equal(declarationValue(listActions, 'top'), '-44px');
+  assert.equal(declarationValue(listActions, 'right'), '12px');
   assert.equal(declarationValue(listActions, 'justify-content'), 'flex-end');
-  assert.equal(declarationValue(listActions, 'padding'), '0 12px');
+  assert.equal(declarationValue(listActions, 'padding'), '0');
+  assert.equal(declarationValue(list, 'padding'), '0 12px 12px');
   assert.equal(declarationValue(listTableShell, 'padding-right'), '0');
 });

@@ -516,6 +516,7 @@
 }
 
 .ai-resource-workspace-card {
+  overflow: visible;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -538,13 +539,16 @@
 }
 
 .ai-resource-table-head--list-actions {
-  position: static;
+  position: absolute;
+  top: -44px;
+  right: 12px;
+  z-index: 2;
   width: auto;
   min-width: 0;
   min-height: 36px;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 12px;
+  padding: 0;
   border-bottom: 0;
   background: transparent;
 }
@@ -1125,7 +1129,7 @@
 
 .ai-resource-browser-list {
   min-width: 0;
-  padding: 12px;
+  padding: 0 12px 12px;
 }
 
 .ai-resource-table-head--list-actions + .ai-resource-browser-list {
