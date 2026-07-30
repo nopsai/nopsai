@@ -1159,9 +1159,9 @@
   border-bottom: 1px solid var(--border-primary);
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1171,7 +1171,7 @@
   padding: 10px 13px;
   border-bottom: 1px solid var(--border-primary);
   color: var(--text-primary);
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
@@ -1223,7 +1223,7 @@
 .ai-resource-table-resource-name strong {
   display: block;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.78rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1233,7 +1233,7 @@
   display: block;
   margin-top: 2px;
   color: var(--text-secondary);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1242,7 +1242,7 @@
 .ai-resource-table-mono {
   color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-  font-size: 0.74rem;
+  font-size: 0.78rem;
 }
 
 .ai-resource-table-number {

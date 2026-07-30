@@ -46,5 +46,5 @@ test('coordinates pipeline, scope, and run actions', async () => {
   expect(onPipelineChange).toHaveBeenCalledWith('platform/release');
   expect(onScopeChange).toHaveBeenCalledWith('production');
   expect(onRun).toHaveBeenCalledOnce();
-  expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/pipelineruns/main');
+  expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/pipelineruns/recent/run-1');
 });

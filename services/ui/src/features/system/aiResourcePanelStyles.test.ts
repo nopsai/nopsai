@@ -19,24 +19,28 @@ function declarationValue(block: string, property: string): string {
   return (match[1] || '').trim();
 }
 
-test('keeps AI resource table typography aligned with trigger tables', () => {
-  const triggerStyles = readFileSync(resolve(sourceRoot, 'styles.css'), 'utf8');
+test('keeps AI resource table typography aligned with pipeline tables', () => {
+  const appStyles = readFileSync(resolve(sourceRoot, 'styles.css'), 'utf8');
   const aiStyles = readFileSync(resolve(sourceRoot, 'features/system/aiResourcePanel.css'), 'utf8');
 
-  const triggerHeader = cssBlock(triggerStyles, '.triggers-resource-table th');
+  const pipelineHeader = cssBlock(appStyles, '.pipeline-runs-table th');
+  const pipelineCell = cssBlock(appStyles, '.pipeline-runs-table td');
   const aiHeader = cssBlock(aiStyles, '.ai-resource-registry-table th');
-  assert.equal(declarationValue(aiHeader, 'font-size'), declarationValue(triggerHeader, 'font-size'));
-  assert.equal(declarationValue(aiHeader, 'letter-spacing'), declarationValue(triggerHeader, 'letter-spacing'));
-
-  const triggerMono = cssBlock(triggerStyles, '.triggers-mono');
+  const aiCell = cssBlock(aiStyles, '.ai-resource-registry-table td');
   const aiMono = cssBlock(aiStyles, '.ai-resource-table-mono');
-  assert.equal(declarationValue(aiMono, 'font-family'), declarationValue(triggerMono, 'font-family'));
-  assert.equal(declarationValue(aiMono, 'font-size'), declarationValue(triggerMono, 'font-size'));
+  const aiName = cssBlock(aiStyles, '.ai-resource-table-resource-name strong');
 
-  const triggerBadge = cssBlock(triggerStyles, '.triggers-badge');
+  assert.equal(declarationValue(aiHeader, 'font-size'), declarationValue(pipelineHeader, 'font-size'));
+  assert.equal(declarationValue(aiHeader, 'letter-spacing'), declarationValue(pipelineHeader, 'letter-spacing'));
+  assert.equal(declarationValue(aiCell, 'font-size'), declarationValue(pipelineCell, 'font-size'));
+  assert.equal(declarationValue(aiMono, 'font-family'), declarationValue(cssBlock(appStyles, '.pipeline-runs-mono'), 'font-family'));
+  assert.equal(declarationValue(aiMono, 'font-size'), declarationValue(pipelineCell, 'font-size'));
+  assert.equal(declarationValue(aiName, 'font-size'), declarationValue(pipelineCell, 'font-size'));
+
+  const pipelineBadge = cssBlock(appStyles, '.pipeline-runs-status');
   const aiHealth = cssBlock(aiStyles, '.ai-resource-health');
-  assert.equal(declarationValue(aiHealth, 'font-size'), declarationValue(triggerBadge, 'font-size'));
-  assert.equal(declarationValue(aiHealth, 'font-weight'), declarationValue(triggerBadge, 'font-weight'));
+  assert.equal(declarationValue(aiHealth, 'font-size'), declarationValue(pipelineBadge, 'font-size'));
+  assert.equal(declarationValue(aiHealth, 'font-weight'), declarationValue(pipelineBadge, 'font-weight'));
 });
 
 test('keeps AI resource workspaces free of the extra outer border line', () => {

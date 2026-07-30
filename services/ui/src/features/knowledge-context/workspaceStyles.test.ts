@@ -22,6 +22,9 @@ function declarationValue(block: string, property: string): string {
 test('aligns the Knowledge Context list table with the tree top edge', () => {
   const styles = readFileSync(resolve(sourceRoot, 'styles.css'), 'utf8');
   const browserMain = cssBlock(styles, '[data-page="knowledge-context"] .kc-demo-browser-main');
+  const collection = cssBlock(styles, '[data-page="knowledge-context"] .kc-demo-browser-main .kc-demo-collection');
 
   assert.equal(declarationValue(browserMain, 'padding-top'), '0');
+  assert.equal(declarationValue(browserMain, 'background'), 'var(--bg-primary)');
+  assert.equal(declarationValue(collection, 'background'), 'transparent');
 });

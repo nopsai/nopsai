@@ -105,6 +105,29 @@ func TestNullableGitCheckRunID(t *testing.T) {
 	}
 }
 
+func TestHasGitHubCheckRunContext(t *testing.T) {
+	tests := []struct {
+		name    string
+		context map[string]string
+		want    bool
+	}{
+		{name: "nil context", context: nil, want: false},
+		{name: "missing owner", context: map[string]string{"repo_name": "service", "commit_sha": "abc"}, want: false},
+		{name: "missing repo", context: map[string]string{"repo_owner": "acme", "commit_sha": "abc"}, want: false},
+		{name: "missing commit", context: map[string]string{"repo_owner": "acme", "repo_name": "service"}, want: false},
+		{name: "blank values", context: map[string]string{"repo_owner": " ", "repo_name": "service", "commit_sha": "abc"}, want: false},
+		{name: "complete context", context: map[string]string{"repo_owner": " acme ", "repo_name": " service ", "commit_sha": " abc "}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasGitHubCheckRunContext(tt.context); got != tt.want {
+				t.Fatalf("hasGitHubCheckRunContext() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMarkRunRunningPromotesNonTerminalRun(t *testing.T) {
 	runner := &recordingRunExecRunner{}
 

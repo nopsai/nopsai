@@ -43,6 +43,10 @@ function formatRunCheck(check: LabRunResourceCheck) {
   return `${type} ${id}`.trim();
 }
 
+function pipelineRunDetailRoute(runId: string) {
+  return `/pipelineruns/recent/${encodeURIComponent(runId)}`;
+}
+
 export function LabRunControls({
   pipelines,
   pipelinesLoading,
@@ -62,6 +66,7 @@ export function LabRunControls({
   onRun,
 }: LabRunControlsProps) {
   const runDisabled = runPending || yamlLoading || validationErrorCount > 0 || accessLoading || accessBlocked;
+  const feedbackRunHref = feedback?.runId ? pipelineRunDetailRoute(feedback.runId) : '';
   const readinessLabel = validationErrorCount
     ? 'Cannot run yet'
     : accessLoading
@@ -165,7 +170,7 @@ export function LabRunControls({
             {feedback.runId ? (
               <>
                 {' '}
-                <NavLink className="underline" to="/pipelineruns/main">
+                <NavLink className="underline" to={feedbackRunHref}>
                   View
                 </NavLink>
               </>

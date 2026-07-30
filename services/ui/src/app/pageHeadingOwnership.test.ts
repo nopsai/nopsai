@@ -32,3 +32,13 @@ test('keeps authenticated route h1 ownership in the app shell', () => {
     assert.doesNotMatch(source, /<h1\b/, `${relativePath} must defer its h1 to AppShell`);
   }
 });
+
+test('keeps authenticated route description ownership in the app shell', () => {
+  const shellSource = readFileSync(resolve(sourceRoot, 'app/AppShell.tsx'), 'utf8');
+  const navigationSource = readFileSync(resolve(sourceRoot, 'app/navigation.tsx'), 'utf8');
+
+  assert.match(shellSource, /description=\{description\}/);
+  assert.match(shellSource, /<p className="app-header-description"[\s\S]*?\{description\}<\/p>/);
+  assert.match(navigationSource, /export const descriptionMap: Record<string, string>/);
+  assert.match(navigationSource, /'knowledge-context': 'Manage run-time knowledge documents and provider connections.'/);
+});

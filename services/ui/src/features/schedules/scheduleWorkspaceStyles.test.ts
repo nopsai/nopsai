@@ -22,6 +22,8 @@ function declarationValue(block: string, property: string): string {
 test('aligns the schedule list table with the tree top edge', () => {
   const styles = readFileSync(resolve(sourceRoot, 'features/schedules/scheduleWorkspace.css'), 'utf8');
   const list = cssBlock(styles, '.schedule-workspace .ai-resource-browser-list');
+  const headerActions = cssBlock(styles, '.schedule-workspace .schedule-workspace__header-actions');
 
   assert.equal(declarationValue(list, 'padding-top'), '0');
+  assert.equal(declarationValue(headerActions, 'margin-right'), '12px');
 });
