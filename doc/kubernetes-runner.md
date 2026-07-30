@@ -220,7 +220,7 @@ suggestions, or type the pool name directly.
 
 ## Installing From The UI
 
-Go to **System > Dispatcher > Runner Installs** and generate a Kubernetes
+Go to **System > Dispatcher > Install runner** and generate a Kubernetes
 one-time install command. The command downloads a single-use install script and
 executes it locally, so the long-lived service auth and TLS secrets are not
 printed in the UI. The token expires after 10 minutes and is consumed by the

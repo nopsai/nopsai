@@ -393,8 +393,11 @@ truth; this file is the source-adjacent placement guide.
   compose the config hook/component and pass route-level permissions.
 - Dispatcher involvement on System config is limited to handoff links and
   persisted runtime defaults. `features/system/dispatcher` owns live runner
-  status, dispatch pause/eject actions, route editing operations, scope loading,
-  runner install templates, polling, and dispatcher API calls.
+  status, the compact tabbed overview/runners/routing/install workspaces,
+  runtime-filtered table-first fleet rendering with runner detail below the
+  table only after selection, dispatch pause/eject actions, route editing,
+  effective-routing tables, scope loading, runner install templates, polling,
+  and dispatcher API calls.
 - Runtime config, dispatcher, data management, setup, access, and logs stay
   under the System route.
 - Credentials are a first-class left-navigation route composed by

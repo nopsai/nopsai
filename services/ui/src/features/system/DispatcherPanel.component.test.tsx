@@ -60,6 +60,7 @@ test('loads runner scopes and generates an install command through the dispatche
         status={null}
         pendingActions={new Set()}
         pendingEjections={new Set()}
+        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={async () => undefined}
         canManageDispatcher
@@ -81,6 +82,7 @@ test('loads runner scopes and generates an install command through the dispatche
     </MemoryRouter>
   );
 
+  await user.click(screen.getByRole('tab', { name: /install runner/i }));
   expect(await screen.findByText('staging')).toBeVisible();
   expect(await screen.findByText('production-ghcr')).toBeVisible();
   await user.click(screen.getByRole('checkbox', { name: /production-ghcr/i }));
@@ -110,6 +112,7 @@ test('edits dispatcher routing from the dispatcher panel and saves runtime confi
         status={{ queuedJobs: 0, runners: [], routing: {}, effectiveRouting: {}, fetchedAt: Date.now() }}
         pendingActions={new Set()}
         pendingEjections={new Set()}
+        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={async () => undefined}
         canManageDispatcher
@@ -126,6 +129,7 @@ test('edits dispatcher routing from the dispatcher panel and saves runtime confi
     </MemoryRouter>
   );
 
+  await user.click(screen.getByRole('tab', { name: /routing/i }));
   expect(screen.getByDisplayValue('prod')).toBeVisible();
   await user.click(screen.getByRole('button', { name: 'Add route' }));
   expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -172,6 +176,7 @@ test('shows previously registered unreachable runners with a warning', () => {
         }}
         pendingActions={new Set()}
         pendingEjections={new Set()}
+        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={async () => undefined}
         canManageDispatcher
@@ -188,8 +193,198 @@ test('shows previously registered unreachable runners with a warning', () => {
     </MemoryRouter>
   );
 
-  expect(screen.getByText('1 unreachable')).toBeVisible();
-  expect(screen.getByText('Unreachable')).toBeVisible();
+  expect(screen.getByText('runner-offline is offline')).toBeVisible();
+  expect(screen.getByText(/Last heartbeat was 1m ago/)).toBeVisible();
+});
+
+test('filters the runner fleet by runtime and shows detail only after selection', async () => {
+  const user = userEvent.setup();
+
+  render(
+    <MemoryRouter>
+      <DispatcherPanel
+        loading={false}
+        error={null}
+        status={{
+          queuedJobs: 0,
+          runners: [
+            {
+              runnerId: 'runner-prod',
+              scopes: ['prod'],
+              capacity: 4,
+              activeJobs: 2,
+              inflightJobs: 2,
+              lastHeartbeatUnix: Date.now() / 1000,
+              allowDispatch: true,
+              reachable: true,
+              connectionStatus: 'connected',
+              metadata: { runtime: 'docker', hostname: 'prod-host' },
+            },
+            {
+              runnerId: 'runner-k8s',
+              scopes: ['dev'],
+              capacity: 6,
+              activeJobs: 0,
+              inflightJobs: 0,
+              lastHeartbeatUnix: Date.now() / 1000,
+              allowDispatch: true,
+              reachable: true,
+              connectionStatus: 'connected',
+              metadata: { runtime: 'kubernetes', kubernetes_node: 'node-a' },
+            },
+          ],
+          routing: {},
+          effectiveRouting: {},
+          fetchedAt: Date.now(),
+        }}
+        pendingActions={new Set()}
+        pendingEjections={new Set()}
+        onRefresh={() => undefined}
+        onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={async () => undefined}
+        canManageDispatcher
+        canViewRuntimeConfig
+        canManageRuntimeConfig
+        runnerDefaults={{ runner_id: 'runner-test', runner_scopes: 'prod', runner_capacity: '2' } as ConfigFormState}
+        config={{ dispatcher_routing: {} } as ConfigFormState}
+        fieldMetadata={{}}
+        configLoading={false}
+        saving={false}
+        onConfigChange={() => undefined}
+        onSaveConfig={async () => undefined}
+      />
+    </MemoryRouter>
+  );
+
+  await user.click(screen.getByRole('tab', { name: /runners/i }));
+  expect(screen.queryByText('node-a / Kubernetes')).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: 'Kubernetes' }));
+
+  expect(screen.getByText('runner-k8s')).toBeVisible();
+  expect(screen.queryByText('runner-prod')).not.toBeInTheDocument();
+  await user.click(screen.getByText('runner-k8s'));
+  expect(screen.getByText('node-a / Kubernetes')).toBeVisible();
+});
+
+test('shows routing tables with healthy and unavailable route targets', async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <DispatcherPanel
+        loading={false}
+        error={null}
+        status={{
+          queuedJobs: 0,
+          runners: [
+            {
+              runnerId: 'runner-prod',
+              scopes: ['prod'],
+              capacity: 4,
+              activeJobs: 1,
+              inflightJobs: 1,
+              lastHeartbeatUnix: Date.now() / 1000,
+              allowDispatch: true,
+              reachable: true,
+              connectionStatus: 'connected',
+              metadata: { runtime: 'docker' },
+            },
+            {
+              runnerId: 'runner-paused',
+              scopes: ['prod'],
+              capacity: 4,
+              activeJobs: 0,
+              inflightJobs: 0,
+              lastHeartbeatUnix: Date.now() / 1000,
+              allowDispatch: false,
+              reachable: true,
+              connectionStatus: 'connected',
+              metadata: { runtime: 'docker' },
+            },
+          ],
+          routing: { prod: ['runner-prod', 'runner-paused'] },
+          effectiveRouting: { prod: ['runner-prod', 'runner-paused'] },
+          fetchedAt: Date.now(),
+        }}
+        pendingActions={new Set()}
+        pendingEjections={new Set()}
+        onRefresh={() => undefined}
+        onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={async () => undefined}
+        canManageDispatcher
+        canViewRuntimeConfig
+        canManageRuntimeConfig
+        runnerDefaults={{ runner_id: 'runner-test', runner_scopes: 'prod', runner_capacity: '2' } as ConfigFormState}
+        config={{ dispatcher_routing: { prod: ['runner-prod', 'runner-paused'] } } as ConfigFormState}
+        fieldMetadata={{}}
+        configLoading={false}
+        saving={false}
+        onConfigChange={() => undefined}
+        onSaveConfig={async () => undefined}
+      />
+    </MemoryRouter>
+  );
+
+  await user.click(screen.getByRole('tab', { name: /routing/i }));
+
+  expect(screen.getAllByText('runner-prod').length).toBeGreaterThan(0);
+  expect(screen.getByText('runner-paused')).toBeVisible();
+  expect(screen.queryByText('Routing preview')).not.toBeInTheDocument();
+  expect(screen.queryByText('Routing safeguards')).not.toBeInTheDocument();
+});
+
+test('shows live routing scopes for previously registered unreachable runners', async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <DispatcherPanel
+        loading={false}
+        error={null}
+        status={{
+          queuedJobs: 0,
+          runners: [
+            {
+              runnerId: 'runner-offline',
+              scopes: ['prod'],
+              capacity: 2,
+              activeJobs: 0,
+              inflightJobs: 0,
+              lastHeartbeatUnix: 1_783_000_000,
+              allowDispatch: true,
+              reachable: false,
+              connectionStatus: 'unreachable',
+              metadata: {
+                runtime: 'docker',
+                connection_status: 'unreachable',
+                reachable: 'false',
+                last_disconnected_at: '2026-07-14T10:00:00Z',
+              },
+            },
+          ],
+          routing: { prod: ['runner-offline'] },
+          effectiveRouting: { prod: ['runner-offline'] },
+          fetchedAt: Date.parse('2026-07-14T10:01:00Z'),
+        }}
+        pendingActions={new Set()}
+        pendingEjections={new Set()}
+        onRefresh={() => undefined}
+        onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={async () => undefined}
+        canManageDispatcher
+        canViewRuntimeConfig
+        canManageRuntimeConfig
+        runnerDefaults={{ runner_id: 'runner-test', runner_scopes: 'prod', runner_capacity: '2' } as ConfigFormState}
+        config={{ dispatcher_routing: { prod: ['runner-offline'] } } as ConfigFormState}
+        fieldMetadata={{}}
+        configLoading={false}
+        saving={false}
+        onConfigChange={() => undefined}
+        onSaveConfig={async () => undefined}
+      />
+    </MemoryRouter>
+  );
+
+  await user.click(screen.getByRole('tab', { name: /routing/i }));
   expect(screen.getByText('No live runner scopes.')).toBeVisible();
 });
 
@@ -228,6 +423,7 @@ test('offers a permanent runner eject action from runner cards', async () => {
         }}
         pendingActions={new Set()}
         pendingEjections={new Set()}
+        onRefresh={() => undefined}
         onToggleRunnerDispatch={async () => undefined}
         onEjectRunner={onEjectRunner}
         canManageDispatcher
@@ -244,6 +440,7 @@ test('offers a permanent runner eject action from runner cards', async () => {
     </MemoryRouter>
   );
 
-  await user.click(screen.getByRole('button', { name: 'Eject' }));
+  await user.click(screen.getByRole('tab', { name: /runners/i }));
+  await user.click(screen.getByRole('button', { name: 'Eject runner-prod-5' }));
   expect(onEjectRunner).toHaveBeenCalledWith(expect.objectContaining({ runnerId: 'runner-prod-5' }));
 });
