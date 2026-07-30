@@ -924,7 +924,7 @@ Important behavior:
 
 Pages present in the current UI:
 
-- Authenticated operational workspaces use compact enterprise density: 56px app
+- Authenticated operational workspaces use compact enterprise density: 48px transparent app
   headers, roughly 220-260px default expanded sidebars, 32-40px controls, 12-14px body
   text, 18-22px page headings, 8-12px frames, and 16px default page padding.
   Larger display type, deeper shadows, and 16px+ radii are reserved for Login,
@@ -934,6 +934,10 @@ Pages present in the current UI:
   magnifier searches keep the icon anchored and expand left without pushing
   toolbar controls onto another row, and page create actions use consistent
   36px blue icon-only plus buttons with accessible labels.
+- The left sidebar groups primary work into Observe, Build & Automate, Lab,
+  AI & Knowledge, Workspace, and a default-collapsed Administration section.
+  Product Wiki, user profile/theme/logout, and the final version row live as
+  separated sidebar footer sections so route headers stay compact.
 - `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail

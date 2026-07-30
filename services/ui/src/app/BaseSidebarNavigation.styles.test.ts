@@ -18,4 +18,12 @@ describe('BaseSidebarNavigation styles', () => {
       /\.sidebar-nav-toggle\[aria-expanded="false"\] \.sidebar-nav-toggle-chevron\s*\{[\s\S]*transform:\s*rotate\(-90deg\);/
     );
   });
+
+  it('keeps sidebar footer utilities compact when the rail is collapsed', () => {
+    assert.match(styles, /\.sidebar-footer\s*\{[\s\S]*display:\s*grid;[\s\S]*flex:\s*0 0 auto;/);
+    assert.match(styles, /\.sidebar-footer-section \+ \.sidebar-footer-section\s*\{[\s\S]*border-top:\s*1px solid/);
+    assert.match(styles, /\.sidebar-footer-section--version\s*\{[\s\S]*justify-content:\s*space-between;/);
+    assert.match(styles, /\.app-sidebar-shell--collapsed \.sidebar-footer-section--version\s*\{[\s\S]*display:\s*none;/);
+    assert.match(styles, /\.app-sidebar-shell--collapsed \.sidebar-footer-action\s*\{[\s\S]*width:\s*2\.5rem;/);
+  });
 });

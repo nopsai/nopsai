@@ -12,10 +12,13 @@ truth; this file is the source-adjacent placement guide.
   HashRouter URLs must be canonicalized by app-shell code so stale pre-hash
   paths such as `/system/config?...#/dashboards` are replaced with root hash
   routes.
-  Primary sidebar categories remain collapsible app-shell state: Organization
-  follows Build & Automate, System Settings owns config/setup/data-management
-  links, and only System Settings starts collapsed when no system route is
-  active.
+  Primary sidebar categories remain collapsible app-shell state: Observe,
+  Build & Automate, Lab, AI & Knowledge, Workspace, and Administration.
+  Administration owns identity/access, general config, Git Apps, security
+  setup, data, runtime, and system-log links; it starts collapsed when no
+  administration route is active and auto-expands for active administration
+  routes. The sidebar footer separates Product Wiki, user profile/theme/logout,
+  and the final muted version row.
 - `auth/` owns session state, current-user loading, capability normalization,
   route guards, and redirect safety.
 - `lib/api.ts` owns API base URL resolution, token persistence, bearer-token
@@ -548,7 +551,7 @@ truth; this file is the source-adjacent placement guide.
   object types must extend that registry and its focused component test instead
   of adding inline SVGs or feature-local icon switches.
 - Normal authenticated workspace density should stay compact and enterprise:
-  56px app headers, roughly 220-260px default expanded sidebars, 32-40px controls,
+  48px transparent app headers, roughly 220-260px default expanded sidebars, 32-40px controls,
   12-14px body text, 18-22px page headings, 8-12px frames, and 16px default
   page padding. Reserve larger display type, deep shadows, and 16px+ radii for
   standalone routes such as Login, authored documentation, or genuinely framed
