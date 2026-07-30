@@ -7,7 +7,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_SCROLL_BUFFER,
 } from './constants';
-import { baseNavItems, baseSystemSubNav, eventAutomationNavPath, pipelineRunsNavPath, titleMap } from './navigation';
+import { baseNavItems, baseSystemSubNav, descriptionMap, eventAutomationNavPath, pipelineRunsNavPath, titleMap } from './navigation';
 import {
   formatBranch,
   formatBranchDisplay,
@@ -225,10 +225,12 @@ function AppShell() {
     pathname: location.pathname,
   });
 
-  const title = useMemo(() => {
+  const pageKey = useMemo(() => {
     const key = location.pathname.split('/').filter(Boolean)[0] || 'pipelineruns';
-    return titleMap[key] || 'Dashboard';
+    return key;
   }, [location.pathname]);
+  const title = titleMap[pageKey] || 'Dashboard';
+  const description = descriptionMap[pageKey] || '';
   const isLoginRoute = location.pathname === '/login';
 
   return (
@@ -285,6 +287,7 @@ function AppShell() {
             <main className="flex-1 flex flex-col overflow-hidden">
               <Header
                 title={title}
+                description={description}
                 theme={theme}
                 onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                 onOpenSidebar={sidebar.openSidebar}
@@ -1039,6 +1042,7 @@ function StatusDot({ status, complete }: { status: string; complete?: boolean })
 
 function Header({
   title,
+  description,
   onOpenSidebar,
   theme,
   onToggleTheme,
@@ -1048,6 +1052,7 @@ function Header({
   onOpenProfile,
 }: {
   title: string;
+  description?: string;
   onOpenSidebar: () => void;
   theme: Theme;
   onToggleTheme: () => void;
@@ -1097,7 +1102,10 @@ function Header({
       >
         <IconMenu />
       </button>
-      <h1 id="main-header" className="flex-1 text-lg font-semibold min-w-0 truncate">{title}</h1>
+      <div className="app-header-titlebar">
+        <h1 id="main-header" className="text-lg font-semibold min-w-0 truncate">{title}</h1>
+        {description ? <p className="app-header-description" title={description}>{description}</p> : null}
+      </div>
       <div className="flex items-center gap-2">
         <NavLink
           to="/docs"

@@ -796,6 +796,10 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if hasGitHubCheckRunContext(gitContext) {
+		a.ensureCheckRunAsync(runID, preparedRun.Pipeline, preparedRun.PipelineDefinition, gitContext, pipelineSourceDB.String, true)
+	}
+
 	runs.launchPipeline(runID, "", "", preparedRun.Pipeline, preparedRun.PipelineDefinition, timeoutDuration, gitContext, "", scope.String, nil)
 
 	w.Header().Set("Content-Type", "application/json")

@@ -86,7 +86,8 @@ article's scroll position.
 Authenticated operational workspaces should stay compact and enterprise:
 56px app headers, roughly 220-260px default expanded sidebars, 32-40px controls,
 12-14px body text, 18-22px page headings, 8-12px frames, and 16px default page
-padding. Larger display type, deep shadows, and 16px+ radii belong only on
+padding. The authenticated app header owns both the route title and a single-line
+route description for every page. Larger display type, deep shadows, and 16px+ radii belong only on
 standalone routes, authored documentation, or genuinely framed previews, not
 normal tables, cards, trees, modals, or split panes. Summary and metric cards
 align icon, label, and value on one row when they fit, with secondary hints

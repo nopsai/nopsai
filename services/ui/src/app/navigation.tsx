@@ -118,3 +118,27 @@ export const titleMap: Record<string, string> = {
   system: 'System',
   profile: 'Profile',
 };
+
+export const descriptionMap: Record<string, string> = {
+  pipelineruns: 'Track executions, approvals, logs, and reruns.',
+  monitoring: 'Watch platform health, recommendations, AI usage, and reliability.',
+  dashboards: 'Publish and review pipeline output dashboards.',
+  teams: 'Manage team hierarchy, repository ownership, and config scopes.',
+  assistant: 'Ask NopsAI for operational guidance and controlled actions.',
+  'llm-profiles': 'Manage approved model providers and defaults.',
+  'agent-profiles': 'Manage reusable agent behavior and runtime permissions.',
+  mcp: 'Manage MCP servers, profiles, tools, and access.',
+  credentials: 'Manage credential metadata and encrypted versions.',
+  docs: 'Read product documentation and operating guidance.',
+  pipelines: 'Create, inspect, and run pipeline definitions.',
+  schedules: 'Manage timed pipeline automation.',
+  triggers: 'Manage repository event automation.',
+  'external-triggers': 'Manage webhook endpoints for external automation.',
+  'git-webhook-sources': 'Manage Git webhook ingress sources.',
+  scopes: 'Manage scoped variables and secrets.',
+  lab: 'Experiment with pipeline YAML before saving.',
+  steps: 'Build reusable step definitions.',
+  'knowledge-context': 'Manage run-time knowledge documents and provider connections.',
+  system: 'Configure platform services, access, setup, and operations.',
+  profile: 'Manage your profile, password, and tokens.',
+};
