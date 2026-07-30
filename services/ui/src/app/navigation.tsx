@@ -19,36 +19,6 @@ export const baseNavItems: NavItem[] = [
     icon: <ObjectIcon type="dashboard" />,
   },
   {
-    label: 'Teams',
-    path: '/teams',
-    icon: <ObjectIcon type="team" />,
-  },
-  {
-    label: 'Assistant',
-    path: '/assistant',
-    icon: <ObjectIcon type="assistant" />,
-  },
-  {
-    label: 'LLM Profiles',
-    path: '/llm-profiles',
-    icon: <ObjectIcon type="llm-profile" />,
-  },
-  {
-    label: 'Agent Profiles',
-    path: '/agent-profiles',
-    icon: <ObjectIcon type="agent-profile" />,
-  },
-  {
-    label: 'MCP',
-    path: '/mcp',
-    icon: <ObjectIcon type="mcp-profile" />,
-  },
-  {
-    label: 'Credentials',
-    path: '/credentials',
-    icon: <ObjectIcon type="credential" />,
-  },
-  {
     label: 'Pipelines',
     path: '/pipelines',
     icon: <ObjectIcon type="pipeline" />,
@@ -64,9 +34,9 @@ export const baseNavItems: NavItem[] = [
     icon: <ObjectIcon type="trigger" />,
   },
   {
-    label: 'Scopes',
-    path: '/scopes',
-    icon: <ObjectIcon type="scope" />,
+    label: 'Steps',
+    path: '/steps',
+    icon: <ObjectIcon type="step" />,
   },
   {
     label: 'Lab',
@@ -74,25 +44,55 @@ export const baseNavItems: NavItem[] = [
     icon: <ObjectIcon type="lab" />,
   },
   {
-    label: 'Steps',
-    path: '/steps',
-    icon: <ObjectIcon type="step" />,
+    label: 'Assistant',
+    path: '/assistant',
+    icon: <ObjectIcon type="assistant" />,
   },
   {
-    label: 'Knowledge Context',
+    label: 'Agent roles',
+    path: '/agent-profiles',
+    icon: <ObjectIcon type="agent-profile" />,
+  },
+  {
+    label: 'Models',
+    path: '/llm-profiles',
+    icon: <ObjectIcon type="llm-profile" />,
+  },
+  {
+    label: 'Knowledge',
     path: '/knowledge-context',
     icon: <ObjectIcon type="knowledge-context" />,
+  },
+  {
+    label: 'MCP',
+    path: '/mcp',
+    icon: <ObjectIcon type="mcp-profile" />,
+  },
+  {
+    label: 'Teams',
+    path: '/teams',
+    icon: <ObjectIcon type="team" />,
+  },
+  {
+    label: 'Scopes',
+    path: '/scopes',
+    icon: <ObjectIcon type="scope" />,
+  },
+  {
+    label: 'Credentials',
+    path: '/credentials',
+    icon: <ObjectIcon type="credential" />,
   },
 ];
 
 export const baseSystemSubNav: NavItem[] = [
-  { label: 'Config', path: '/system/config', icon: <ObjectIcon type="system-config" /> },
+  { label: 'Identity & Access', path: '/system/access', icon: <ObjectIcon type="access" /> },
+  { label: 'General', path: '/system/config', icon: <ObjectIcon type="system-config" /> },
   { label: 'Git Apps', path: '/system/git-apps', icon: <ObjectIcon type="git-app" /> },
-  { label: 'Setup', path: '/system/setup', icon: <ObjectIcon type="setup" /> },
-  { label: 'Data Management', path: '/system/data-management', icon: <ObjectIcon type="data-management" /> },
-  { label: 'Dispatcher', path: '/system/dispatcher', icon: <ObjectIcon type="dispatcher" /> },
-  { label: 'Logs', path: '/system/logs', icon: <ObjectIcon type="system-logs" /> },
-  { label: 'Access', path: '/system/access', icon: <ObjectIcon type="access" /> },
+  { label: 'Security', path: '/system/setup', icon: <ObjectIcon type="setup" /> },
+  { label: 'Data', path: '/system/data-management', icon: <ObjectIcon type="data-management" /> },
+  { label: 'Runtime', path: '/system/dispatcher', icon: <ObjectIcon type="dispatcher" /> },
+  { label: 'System Logs', path: '/system/logs', icon: <ObjectIcon type="system-logs" /> },
 ];
 
 export const titleMap: Record<string, string> = {
@@ -101,11 +101,11 @@ export const titleMap: Record<string, string> = {
   dashboards: 'Dashboards',
   teams: 'Teams',
   assistant: 'Assistant',
-  'llm-profiles': 'LLM Profiles',
-  'agent-profiles': 'Agent Profiles',
+  'llm-profiles': 'Models',
+  'agent-profiles': 'Agent roles',
   mcp: 'MCP',
   credentials: 'Credentials',
-  docs: 'Docs',
+  docs: 'Wiki',
   pipelines: 'Pipelines',
   schedules: 'Schedules',
   triggers: 'Triggers',
@@ -114,8 +114,8 @@ export const titleMap: Record<string, string> = {
   scopes: 'Scopes',
   lab: 'Lab',
   steps: 'Steps',
-  'knowledge-context': 'Knowledge Context',
-  system: 'System',
+  'knowledge-context': 'Knowledge',
+  system: 'Administration',
   profile: 'Profile',
 };
 
@@ -126,7 +126,7 @@ export const descriptionMap: Record<string, string> = {
   teams: 'Manage team hierarchy, repository ownership, and config scopes.',
   assistant: 'Ask NopsAI for operational guidance and controlled actions.',
   'llm-profiles': 'Manage approved model providers and defaults.',
-  'agent-profiles': 'Manage reusable agent behavior and runtime permissions.',
+  'agent-profiles': 'Manage reusable agent roles, behavior, and runtime permissions.',
   mcp: 'Manage MCP servers, profiles, tools, and access.',
   credentials: 'Manage credential metadata and encrypted versions.',
   docs: 'Read product documentation and operating guidance.',
@@ -139,6 +139,6 @@ export const descriptionMap: Record<string, string> = {
   lab: 'Experiment with pipeline YAML before saving.',
   steps: 'Build reusable step definitions.',
   'knowledge-context': 'Manage run-time knowledge documents and provider connections.',
-  system: 'Configure platform services, access, setup, and operations.',
+  system: 'Configure identity, Git apps, data, runtime, logs, and security posture.',
   profile: 'Manage your profile, password, and tokens.',
 };

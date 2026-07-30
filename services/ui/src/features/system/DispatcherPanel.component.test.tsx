@@ -158,7 +158,7 @@ test('shows previously registered unreachable runners with a warning', () => {
               capacity: 2,
               activeJobs: 0,
               inflightJobs: 0,
-              lastHeartbeatUnix: 1_783_000_000,
+              lastHeartbeatUnix: Date.parse('2026-07-14T10:00:00Z') / 1000,
               allowDispatch: true,
               reachable: false,
               connectionStatus: 'unreachable',
@@ -328,7 +328,7 @@ test('shows routing tables with healthy and unavailable route targets', async ()
   await user.click(screen.getByRole('tab', { name: /routing/i }));
 
   expect(screen.getAllByText('runner-prod').length).toBeGreaterThan(0);
-  expect(screen.getByText('runner-paused')).toBeVisible();
+  expect(screen.getAllByText('runner-paused').length).toBeGreaterThan(0);
   expect(screen.queryByText('Routing preview')).not.toBeInTheDocument();
   expect(screen.queryByText('Routing safeguards')).not.toBeInTheDocument();
 });

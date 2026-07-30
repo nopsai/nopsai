@@ -3583,7 +3583,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Advanced manifest-based Helm deploys remain available for internal CI workflows that explicitly provide a manifest.',
           'Release locks are GitOps-readable evidence for deployed version state.',
           'GET /version is public and returns build, API, CLI, runner, and capability identity without deployment secrets.',
-          'The authenticated UI reads GET /version and shows a version-only footer at the far right of the app chrome.',
+          'The authenticated UI reads GET /version and shows the version in the left sidebar footer.',
           'Breaking API, CLI, runner protocol, or deployment changes require a new major compatibility line.',
         ],
         details: [

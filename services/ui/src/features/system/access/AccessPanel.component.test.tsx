@@ -177,7 +177,7 @@ test('closes drawer editors when access mode or advanced section changes', async
   const dialog = screen.getByRole('dialog', { name: 'Service account editor' });
   expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus();
   await user.click(within(dialog).getByRole('button', { name: /Credentials/ }));
-  expect(within(dialog).getByText('Tokens')).toBeVisible();
+  expect(within(dialog).getByRole('heading', { name: 'Tokens' })).toBeVisible();
   await user.click(within(dialog).getByRole('button', { name: /Review/ }));
   expect(within(dialog).getByText('Token activity')).toBeVisible();
 

@@ -49,25 +49,32 @@ describe('groupNavItemsByTopic', () => {
   it('groups sidebar navigation into enterprise product topics', () => {
     const topics = groupNavItemsByTopic([
       { label: 'Pipeline runs', path: '/pipelineruns/main' },
+      { label: 'Monitoring', path: '/monitoring' },
       { label: 'Dashboards', path: '/dashboards' },
-      { label: 'Teams', path: '/teams' },
       { label: 'Pipelines', path: '/pipelines' },
+      { label: 'Schedules', path: '/schedules' },
       { label: 'Triggers', path: '/triggers' },
+      { label: 'Steps', path: '/steps' },
+      { label: 'Lab', path: '/lab' },
       { label: 'Assistant', path: '/assistant' },
-      { label: 'Credentials', path: '/credentials' },
+      { label: 'Agent roles', path: '/agent-profiles' },
+      { label: 'Models', path: '/llm-profiles' },
+      { label: 'Knowledge', path: '/knowledge-context' },
       { label: 'MCP', path: '/mcp' },
+      { label: 'Teams', path: '/teams' },
       { label: 'Scopes', path: '/scopes' },
+      { label: 'Credentials', path: '/credentials' },
       { label: 'Custom Console', path: '/custom-console' },
     ]);
 
     assert.deepEqual(
       topics.map(topic => [topic.label, topic.items.map(item => item.label)]),
       [
-        ['Operate', ['Pipeline runs', 'Dashboards']],
-        ['Build & Automate', ['Pipelines', 'Triggers']],
-        ['Organization', ['Teams', 'Scopes']],
-        ['AI & Knowledge', ['Assistant', 'MCP']],
-        ['Platform', ['Credentials']],
+        ['Observe', ['Pipeline runs', 'Monitoring', 'Dashboards']],
+        ['Build & Automate', ['Pipelines', 'Schedules', 'Triggers', 'Steps']],
+        ['Lab', ['Lab']],
+        ['AI & Knowledge', ['Assistant', 'Agent roles', 'Models', 'Knowledge', 'MCP']],
+        ['Workspace', ['Teams', 'Scopes', 'Credentials']],
         ['Other', ['Custom Console']],
       ]
     );
@@ -78,7 +85,7 @@ describe('groupNavItemsByTopic', () => {
 
     assert.deepEqual(
       topics.map(topic => topic.label),
-      ['Operate']
+      ['Observe']
     );
   });
 });

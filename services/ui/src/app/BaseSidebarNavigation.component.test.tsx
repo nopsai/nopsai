@@ -14,12 +14,15 @@ describe('BaseSidebarNavigation', () => {
             { label: 'Pipelines', path: '/pipelines', icon: <span /> },
             { label: 'Triggers', path: '/triggers', icon: <span /> },
             { label: 'Assistant', path: '/assistant', icon: <span /> },
+            { label: 'Agent roles', path: '/agent-profiles', icon: <span /> },
+            { label: 'Models', path: '/llm-profiles', icon: <span /> },
+            { label: 'Knowledge', path: '/knowledge-context', icon: <span /> },
             { label: 'Teams', path: '/teams', icon: <span /> },
-            { label: 'LLM Profiles', path: '/llm-profiles', icon: <span /> },
+            { label: 'Scopes', path: '/scopes', icon: <span /> },
             { label: 'Credentials', path: '/credentials', icon: <span /> },
             { label: 'System', path: '/system/config', icon: <span /> },
           ]}
-          systemSubNav={[{ label: 'Access', path: '/system/access', icon: <span /> }]}
+          systemSubNav={[{ label: 'Identity & Access', path: '/system/access', icon: <span /> }]}
         />
       </MemoryRouter>
     );
@@ -27,30 +30,50 @@ describe('BaseSidebarNavigation', () => {
     expect(screen.getByRole('link', { name: 'Pipeline runs' })).toHaveAttribute('href', '/pipelineruns/main');
     expect(screen.getByRole('link', { name: 'Pipeline runs' })).toHaveAttribute('title', 'Pipeline runs');
     expect(screen.getAllByRole('group').map(group => group.getAttribute('aria-label'))).toEqual([
-      'Operate navigation',
+      'Observe navigation',
       'Build & Automate navigation',
-      'Organization navigation',
       'AI & Knowledge navigation',
-      'Platform navigation',
-      'System Settings navigation',
+      'Workspace navigation',
+      'Administration navigation',
     ]);
     expect(screen.getByRole('link', { name: 'Pipelines' }).closest('[aria-label="Build & Automate navigation"]')).not.toBeNull();
     expect(screen.getByRole('link', { name: 'Assistant' }).closest('[aria-label="AI & Knowledge navigation"]')).not.toBeNull();
-    expect(screen.getByRole('link', { name: 'Teams' }).closest('[aria-label="Organization navigation"]')).not.toBeNull();
-    const llmProfilesLink = screen.getByRole('link', { name: 'LLM Profiles' });
-    expect(llmProfilesLink).toHaveAttribute('href', '/llm-profiles');
-    expect(llmProfilesLink.closest('[aria-label="System Settings navigation"]')).toBeNull();
-    expect(screen.getByRole('link', { name: 'Credentials' }).closest('[aria-label="Platform navigation"]')).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'System Settings' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('link', { name: 'Access' })).toHaveAttribute('aria-label', 'Access');
-    expect(screen.getByRole('link', { name: 'Access' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Access' })).toHaveClass('active');
-    expect(screen.getByRole('link', { name: 'Access' }).closest('[aria-label="System Settings navigation"]')).not.toBeNull();
+    expect(screen.getByRole('link', { name: 'Teams' }).closest('[aria-label="Workspace navigation"]')).not.toBeNull();
+    const modelsLink = screen.getByRole('link', { name: 'Models' });
+    expect(modelsLink).toHaveAttribute('href', '/llm-profiles');
+    expect(modelsLink.closest('[aria-label="Administration navigation"]')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Credentials' }).closest('[aria-label="Workspace navigation"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Administration' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: 'Identity & Access' })).toHaveAttribute('aria-label', 'Identity & Access');
+    expect(screen.getByRole('link', { name: 'Identity & Access' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Identity & Access' })).toHaveClass('active');
+    expect(screen.getByRole('link', { name: 'Identity & Access' }).closest('[aria-label="Administration navigation"]')).not.toBeNull();
     expect(screen.queryByRole('link', { name: 'System' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Schedules' })).not.toBeInTheDocument();
   });
 
-  it('defaults System Settings to collapsed and lets categories toggle', () => {
+  it('renders a dedicated Lab section when it is visible', () => {
+    render(
+      <MemoryRouter initialEntries={['/lab']}>
+        <BaseSidebarNavigation
+          locationPathname="/lab"
+          navItems={[
+            { label: 'Pipeline runs', path: '/pipelineruns/main', icon: <span /> },
+            { label: 'Lab', path: '/lab', icon: <span /> },
+          ]}
+          systemSubNav={[]}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getAllByRole('group').map(group => group.getAttribute('aria-label'))).toEqual([
+      'Observe navigation',
+      'Lab navigation',
+    ]);
+    expect(screen.getByRole('link', { name: 'Lab' }).closest('[aria-label="Lab navigation"]')).not.toBeNull();
+  });
+
+  it('defaults Administration to collapsed and lets categories toggle', () => {
     render(
       <MemoryRouter initialEntries={['/pipelines']}>
         <BaseSidebarNavigation
@@ -59,22 +82,22 @@ describe('BaseSidebarNavigation', () => {
             { label: 'Pipeline runs', path: '/pipelineruns/main', icon: <span /> },
             { label: 'Pipelines', path: '/pipelines', icon: <span /> },
           ]}
-          systemSubNav={[{ label: 'Config', path: '/system/config', icon: <span /> }]}
+          systemSubNav={[{ label: 'General', path: '/system/config', icon: <span /> }]}
         />
       </MemoryRouter>
     );
 
     const buildButton = screen.getByRole('button', { name: 'Build & Automate' });
-    const systemButton = screen.getByRole('button', { name: 'System Settings' });
+    const administrationButton = screen.getByRole('button', { name: 'Administration' });
 
     expect(buildButton).toHaveAttribute('aria-expanded', 'true');
-    expect(systemButton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('link', { name: 'Config' })).not.toBeInTheDocument();
+    expect(administrationButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: 'General' })).not.toBeInTheDocument();
 
-    fireEvent.click(systemButton);
+    fireEvent.click(administrationButton);
 
-    expect(systemButton).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('link', { name: 'Config' })).toBeVisible();
+    expect(administrationButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: 'General' })).toBeVisible();
 
     fireEvent.click(buildButton);
 

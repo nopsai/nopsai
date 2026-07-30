@@ -1,32 +1,31 @@
-const SIDEBAR_NAV_PLATFORM_TOPIC_ID = 'platform';
-export const SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID = 'system-settings';
-export const SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_LABEL = 'System Settings';
+export const SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID = 'administration';
+export const SIDEBAR_NAV_ADMINISTRATION_TOPIC_LABEL = 'Administration';
 
 export const sidebarNavTopics = [
   {
-    id: 'operate',
-    label: 'Operate',
-    itemLabels: ['Pipeline runs', 'Dashboards', 'Monitoring'],
+    id: 'observe',
+    label: 'Observe',
+    itemLabels: ['Pipeline runs', 'Monitoring', 'Dashboards'],
   },
   {
     id: 'build-automate',
     label: 'Build & Automate',
-    itemLabels: ['Pipelines', 'Schedules', 'Triggers', 'Lab', 'Steps'],
+    itemLabels: ['Pipelines', 'Schedules', 'Triggers', 'Steps'],
   },
   {
-    id: 'organization',
-    label: 'Organization',
-    itemLabels: ['Teams', 'Scopes'],
+    id: 'lab',
+    label: 'Lab',
+    itemLabels: ['Lab'],
   },
   {
     id: 'ai-knowledge',
     label: 'AI & Knowledge',
-    itemLabels: ['Assistant', 'LLM Profiles', 'Agent Profiles', 'MCP', 'Knowledge Context'],
+    itemLabels: ['Assistant', 'Agent roles', 'Models', 'Knowledge', 'MCP'],
   },
   {
-    id: SIDEBAR_NAV_PLATFORM_TOPIC_ID,
-    label: 'Platform',
-    itemLabels: ['Credentials'],
+    id: 'workspace',
+    label: 'Workspace',
+    itemLabels: ['Teams', 'Scopes', 'Credentials'],
   },
 ] as const;
 

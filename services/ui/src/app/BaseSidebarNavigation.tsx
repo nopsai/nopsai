@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   groupNavItemsByTopic,
-  SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID,
-  SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_LABEL,
+  SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID,
+  SIDEBAR_NAV_ADMINISTRATION_TOPIC_LABEL,
   sidebarNavItemIsActive,
 } from './navigationModel';
 import type { NavItem } from './types';
@@ -26,24 +26,24 @@ export function BaseSidebarNavigation({
   const topLevelNav = navItems.filter(item => !item.path.startsWith('/system'));
   const topics = groupNavItemsByTopic(topLevelNav);
   const [collapsedSectionState, setCollapsedSections] = useState<Set<string>>(
-    () => new Set(isSystemRoute ? [] : [SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID])
+    () => new Set(isSystemRoute ? [] : [SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID])
   );
-  const [systemSettingsManualCollapsePath, setSystemSettingsManualCollapsePath] = useState('');
+  const [administrationManualCollapsePath, setAdministrationManualCollapsePath] = useState('');
   const collapsedSections = useMemo(() => {
-    const shouldAutoExpandSystemSettings =
+    const shouldAutoExpandAdministration =
       isSystemRoute &&
       systemSubNav.length > 0 &&
-      systemSettingsManualCollapsePath !== locationPathname &&
-      collapsedSectionState.has(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID);
-    if (!shouldAutoExpandSystemSettings) return collapsedSectionState;
+      administrationManualCollapsePath !== locationPathname &&
+      collapsedSectionState.has(SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID);
+    if (!shouldAutoExpandAdministration) return collapsedSectionState;
     const next = new Set(collapsedSectionState);
-    next.delete(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID);
+    next.delete(SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID);
     return next;
-  }, [collapsedSectionState, isSystemRoute, locationPathname, systemSettingsManualCollapsePath, systemSubNav.length]);
+  }, [administrationManualCollapsePath, collapsedSectionState, isSystemRoute, locationPathname, systemSubNav.length]);
 
   const toggleSection = (sectionID: string) => {
-    if (sectionID === SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID && isSystemRoute && systemSubNav.length > 0) {
-      setSystemSettingsManualCollapsePath(collapsedSections.has(sectionID) ? '' : locationPathname);
+    if (sectionID === SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID && isSystemRoute && systemSubNav.length > 0) {
+      setAdministrationManualCollapsePath(collapsedSections.has(sectionID) ? '' : locationPathname);
     }
     setCollapsedSections(current => {
       const next = new Set(current);
@@ -72,13 +72,13 @@ export function BaseSidebarNavigation({
       ))}
       {systemSubNav.length > 0 ? (
         <SidebarNavSection
-          sectionID={`${SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID}-navigation`}
-          topicID={SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID}
-          label={SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_LABEL}
+          sectionID={`${SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID}-navigation`}
+          topicID={SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID}
+          label={SIDEBAR_NAV_ADMINISTRATION_TOPIC_LABEL}
           items={systemSubNav}
           locationPathname={locationPathname}
-          expanded={!collapsedSections.has(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID)}
-          onToggle={() => toggleSection(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID)}
+          expanded={!collapsedSections.has(SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID)}
+          onToggle={() => toggleSection(SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID)}
         />
       ) : null}
     </nav>
