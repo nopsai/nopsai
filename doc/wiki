@@ -101,6 +101,18 @@ duplicated scope filtering. LLM, Agent, and MCP pages keep the default profile
 or MCP tab control on the left, no summary boxes, and compact list-header
 search/create actions without a generic Reload button. Their team tree counts
 include cached team-owned profiles.
+System Access uses a compact settings workspace with Basic and Advanced modes,
+top-row summary metrics beside the Basic/Advanced switch, Pipeline Runs-style
+advanced tabs, shared table-first catalogs for every advanced tab, compact
+magnifier search, and icon create actions without extra table filters. User,
+service-account, role, provider, and policy edit drawers use the shared
+full-height sectioned editor shell with configuration rails, focused form cards,
+scrollable content, compact review panels, and sticky save actions; the
+identity-provider tab lists providers directly while provider create/edit flows
+own provider details, OIDC connection, login defaults, mapping, and review
+panels. These controls are UI affordances over the existing AAA, GitOps,
+identity-provider, and service-account token APIs; the page must not introduce a
+separate policy mutation path.
 Schedules use counted state tabs instead of separate summary boxes so
 All/Enabled/Disabled/GitOps/One-time stays left aligned above the schedule tree;
 the Schedule view card is not shown.
