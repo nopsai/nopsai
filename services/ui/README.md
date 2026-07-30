@@ -31,6 +31,10 @@ browser profile or Playwright before changing UI listener code. See
 
 - `src/App.tsx` is only the router/bootstrap wrapper.
 - `src/app/AppShell.tsx` composes the authenticated layout and navigation.
+  `src/app/navigationModel.ts` owns the Observe, Build & Automate, Lab,
+  AI & Knowledge, Workspace, and default-collapsed Administration grouping,
+  while `src/app/SidebarFooter.tsx` owns separated Product Wiki, profile,
+  theme/logout, and the final version row at the bottom of the left rail.
 - `src/app/AppRoutes.tsx` owns lazy route composition and capability guards.
 - `src/auth/*` owns current-user loading, capability normalization, derived permissions, and route guards.
 - `src/lib/api.ts` exposes `apiClient`; UI code should call `apiClient.fetch(...)` instead of raw `fetch(...)` for NopsAI API requests.

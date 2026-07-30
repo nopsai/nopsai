@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { BranchIcon, IconDocs, IconMenu, IconX, RunIdIcon } from './icons';
+import { BranchIcon, IconMenu, IconX, RunIdIcon } from './icons';
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_MAX_WIDTH,
@@ -43,7 +43,6 @@ import { useInitialSetupRedirect } from './useInitialSetupRedirect';
 import { usePipelineRunsSidebar } from './usePipelineRunsSidebar';
 import { shouldShowSidebarContextNav } from './sidebarContextVisibility';
 import { AppRoutes, PageLoading } from './AppRoutes';
-import AppFooter from './AppFooter';
 import { getAppAccess } from '../auth/capabilities';
 import { useAuth } from '../auth/AuthContext';
 import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
@@ -51,7 +50,7 @@ import AssistantDock from '../components/AssistantDock';
 import BrandIdentity from '../components/BrandIdentity';
 import { logoutCurrentSession } from '../lib/api';
 import { buildPipelineRunsRoute, extractTeamPathFromRoute, teamScopedRoute } from '../lib/teamRoutes';
-import { currentUserDisplayName } from './userIdentity';
+import SidebarFooter from './SidebarFooter';
 
 const LoginPage = lazy(() => import('../pages/Login'));
 
@@ -267,6 +266,12 @@ function AppShell() {
               navigateTo={navigate}
               onSelectPipelineTeam={path => navigate(teamScopedRoute('/pipelines', path))}
               onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
+              theme={theme}
+              onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              onLogout={handleLogout}
+              currentUser={currentUser}
+              userLoading={currentUserLoading}
+              onOpenProfile={handleOpenProfile}
             />
             {!sidebar.collapsed ? (
               <div
@@ -288,13 +293,7 @@ function AppShell() {
               <Header
                 title={title}
                 description={description}
-                theme={theme}
-                onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                 onOpenSidebar={sidebar.openSidebar}
-                onLogout={handleLogout}
-                currentUser={currentUser}
-                userLoading={currentUserLoading}
-                onOpenProfile={handleOpenProfile}
               />
               <div id="page-content-wrapper" className="flex-1 min-h-0 overflow-auto overscroll-contain">
                 <AppRoutes
@@ -309,7 +308,6 @@ function AppShell() {
                   onUserUpdated={handleUserUpdated}
                 />
               </div>
-              <AppFooter />
             </main>
           </div>
           <div id="toast-container" className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3"></div>
@@ -340,6 +338,12 @@ function Sidebar({
   navigateTo,
   onSelectPipelineTeam,
   onSelectStepTeam,
+  theme,
+  onToggleTheme,
+  onLogout,
+  currentUser,
+  userLoading,
+  onOpenProfile,
 }: {
   navItems: NavItem[];
   systemSubNav: NavItem[];
@@ -360,6 +364,12 @@ function Sidebar({
   navigateTo: (path: string) => void;
   onSelectPipelineTeam: (path: string) => void;
   onSelectStepTeam: (path: string) => void;
+  theme: Theme;
+  onToggleTheme: () => void;
+  onLogout?: () => void;
+  currentUser?: CurrentUser | null;
+  userLoading?: boolean;
+  onOpenProfile?: () => void;
 }) {
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : width;
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
@@ -590,6 +600,16 @@ function Sidebar({
             </nav>
           )}
         </div>
+        <SidebarFooter
+          collapsed={collapsed}
+          currentUser={currentUser}
+          onLogout={onLogout}
+          onNavigate={onClose}
+          onOpenProfile={onOpenProfile}
+          onToggleTheme={onToggleTheme}
+          theme={theme}
+          userLoading={userLoading}
+        />
       </aside>
     </>
   );
@@ -1044,55 +1064,14 @@ function Header({
   title,
   description,
   onOpenSidebar,
-  theme,
-  onToggleTheme,
-  onLogout,
-  currentUser,
-  userLoading,
-  onOpenProfile,
 }: {
   title: string;
   description?: string;
   onOpenSidebar: () => void;
-  theme: Theme;
-  onToggleTheme: () => void;
-  onLogout?: () => void;
-  currentUser?: CurrentUser | null;
-  userLoading?: boolean;
-  onOpenProfile?: () => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const displayName = currentUserDisplayName(currentUser);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handleClick = (event: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false);
-        requestAnimationFrame(() => menuButtonRef.current?.focus());
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, [menuOpen]);
-
-  const closeMenu = () => setMenuOpen(false);
-
   return (
     <header
-      className="app-header-shell relative flex items-center justify-between px-5 py-2 themed-bg-blur backdrop-blur-sm z-40 flex-shrink-0"
+      className="app-header-shell relative flex items-center justify-between px-5 py-1.5 z-30 flex-shrink-0"
     >
       <button
         id="open-sidebar-btn"
@@ -1105,80 +1084,6 @@ function Header({
       <div className="app-header-titlebar">
         <h1 id="main-header" className="text-lg font-semibold min-w-0 truncate">{title}</h1>
         {description ? <p className="app-header-description" title={description}>{description}</p> : null}
-      </div>
-      <div className="flex items-center gap-2">
-        <NavLink
-          to="/docs"
-          className={({ isActive }) => `app-header-icon-button ${isActive ? 'app-header-icon-button--active' : ''}`}
-          aria-label="Open product wiki"
-          title="Product wiki"
-        >
-          <IconDocs />
-        </NavLink>
-        <div className="relative" ref={menuRef}>
-          <button
-            ref={menuButtonRef}
-            type="button"
-            onClick={() => setMenuOpen(open => !open)}
-            className={`flex items-center gap-2 px-3 h-10 rounded-lg border bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm transition-all ${
-              menuOpen ? 'border-[var(--border-accent)]' : 'border-[var(--border-primary)] hover:border-[var(--border-accent)]'
-            } focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]`}
-            aria-label={`Open user menu for ${displayName}`}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-controls={menuOpen ? 'user-menu' : undefined}
-          >
-            <span className="text-sm font-semibold text-[var(--text-primary)] max-w-[160px] truncate">{displayName}</span>
-          </button>
-          {menuOpen && (
-            <div
-              id="user-menu"
-              className="absolute right-0 mt-2 w-72 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-lg overflow-hidden z-[500]"
-              role="menu"
-              aria-label="User menu"
-            >
-              <div className="p-3 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
-                <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Signed in as</p>
-                <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : displayName}</p>
-                <p className="text-xs text-[var(--text-secondary)] mt-2">Global access model</p>
-              </div>
-              <div className="p-2 space-y-1">
-                <button
-                  role="menuitem"
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
-                  onClick={() => {
-                    closeMenu();
-                    onOpenProfile?.();
-                  }}
-                >
-                  View profile
-                </button>
-                <button
-                  role="menuitem"
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
-                  onClick={() => {
-                    closeMenu();
-                    onToggleTheme();
-                  }}
-                >
-                  {theme === 'dark' ? 'Use light mode' : 'Use dark mode'}
-                </button>
-                {onLogout && (
-                  <button
-                    role="menuitem"
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
-                    onClick={() => {
-                      closeMenu();
-                      onLogout();
-                    }}
-                  >
-                    Logout
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
     </header>
   );
