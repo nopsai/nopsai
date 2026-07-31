@@ -8,6 +8,7 @@ import (
 
 func TestLicenseCommandPrintsOwnershipAndLicenceRequirement(t *testing.T) {
 	command := newLicenseCommand()
+	command.SetArgs([]string{})
 	var output bytes.Buffer
 	command.SetOut(&output)
 
