@@ -20,7 +20,7 @@ RUN apk add --no-cache ca-certificates && \
 WORKDIR /app
 COPY --from=base /nopsai-api /usr/local/bin/nopsai-api
 COPY --from=base /app/config.yml .
-COPY --from=base /usr/share/licenses/nopsai /usr/share/licenses/nopsai
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/
 
 USER nopsai
 ENTRYPOINT ["nopsai-api"]
