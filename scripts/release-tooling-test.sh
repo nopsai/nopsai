@@ -50,6 +50,10 @@ chart_file="$temp_dir/chart/nopsai-$actual.tgz"
 helm show chart "$chart_file" >"$temp_dir/chart-metadata.yaml"
 require_text "version: $actual" "$temp_dir/chart-metadata.yaml" "the chart version"
 require_text "appVersion: $actual" "$temp_dir/chart-metadata.yaml" "the chart application version"
+require_text "nopsai.com/license: LicenseRef-NopsAI-Proprietary" "$temp_dir/chart-metadata.yaml" "the proprietary licence annotation"
+tar -tzf "$chart_file" >"$temp_dir/chart-contents.txt"
+require_text "nopsai/LICENSE" "$temp_dir/chart-contents.txt" "the packaged proprietary notice"
+require_text "nopsai/THIRD_PARTY_NOTICES.md" "$temp_dir/chart-contents.txt" "the packaged third-party notice index"
 helm show values "$chart_file" >"$temp_dir/chart-values.yaml"
 require_text "repository: ghcr.io/nopsai/nopsai-api" "$temp_dir/chart-values.yaml" "the API image repository"
 
@@ -70,6 +74,34 @@ for image_name in "${image_names[@]}"; do
     "the $image_name repository"
 done
 require_text "repository: postgres" "$temp_dir/chart-values.yaml" "the PostgreSQL image repository"
+
+container_dockerfiles=(
+  Dockerfile
+  container/Dockerfile.aaa
+  container/Dockerfile.agent
+  container/Dockerfile.dispatcher
+  container/Dockerfile.docker-runner
+  container/Dockerfile.git-bot
+  container/Dockerfile.k8s-runner
+  container/Dockerfile.nopsai
+  container/Dockerfile.pipeline
+  container/Dockerfile.socket-proxy
+  services/ui/Dockerfile
+)
+for dockerfile in "${container_dockerfiles[@]}"; do
+  require_text \
+    "org.opencontainers.image.licenses=\"LicenseRef-NopsAI-Proprietary\"" \
+    "$ROOT_DIR/$dockerfile" \
+    "the proprietary OCI licence label"
+  require_text \
+    "/usr/share/licenses/nopsai" \
+    "$ROOT_DIR/$dockerfile" \
+    "the packaged licence directory"
+done
+
+(cd "$ROOT_DIR" && go run ./cmd/nopsai-cli license >"$temp_dir/cli-license.txt")
+require_text "Hossein Yousefi" "$temp_dir/cli-license.txt" "the copyright owner"
+require_text "written agreement" "$temp_dir/cli-license.txt" "the commercial licence requirement"
 
 (cd "$ROOT_DIR" && go run ./cmd/nopsai-cli install docker-compose --version "$actual" --output-dir "$temp_dir/compose-install" --force >/dev/null)
 require_text "NOPSAI_VERSION=$actual" "$temp_dir/compose-install/.env" "the generated Compose release version"
