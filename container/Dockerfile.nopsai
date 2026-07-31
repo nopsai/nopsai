@@ -10,7 +10,9 @@ ARG SOURCE_URL=https://github.com/nopsai/nopsai
 LABEL org.opencontainers.image.version="${VERSION}" \
   org.opencontainers.image.revision="${COMMIT}" \
   org.opencontainers.image.created="${BUILD_DATE}" \
-  org.opencontainers.image.source="${SOURCE_URL}"
+  org.opencontainers.image.source="${SOURCE_URL}" \
+  org.opencontainers.image.licenses="LicenseRef-NopsAI-Proprietary" \
+  org.opencontainers.image.vendor="NopsAI"
 
 RUN apk add --no-cache ca-certificates && \
   addgroup -S nopsai && adduser -S nopsai -G nopsai
@@ -18,6 +20,7 @@ RUN apk add --no-cache ca-certificates && \
 WORKDIR /app
 COPY --from=base /nopsai-api /usr/local/bin/nopsai-api
 COPY --from=base /app/config.yml .
+COPY --from=base /usr/share/licenses/nopsai /usr/share/licenses/nopsai
 
 USER nopsai
 ENTRYPOINT ["nopsai-api"]
