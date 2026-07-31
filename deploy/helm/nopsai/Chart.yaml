@@ -9,3 +9,6 @@ home: https://github.com/nopsai/nopsai
 icon: https://raw.githubusercontent.com/nopsai/nopsai/main/services/ui/public/brand/nopsai-app-icon.png
 sources:
   - https://github.com/nopsai/nopsai
+annotations:
+  nopsai.com/license: LicenseRef-NopsAI-Proprietary
+  nopsai.com/copyright-owner: Hossein Yousefi

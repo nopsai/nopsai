@@ -47,7 +47,9 @@ ARG SOURCE_URL=https://github.com/nopsai/nopsai
 LABEL org.opencontainers.image.version="${VERSION}" \
   org.opencontainers.image.revision="${COMMIT}" \
   org.opencontainers.image.created="${BUILD_DATE}" \
-  org.opencontainers.image.source="${SOURCE_URL}"
+  org.opencontainers.image.source="${SOURCE_URL}" \
+  org.opencontainers.image.licenses="LicenseRef-NopsAI-Proprietary" \
+  org.opencontainers.image.vendor="NopsAI"
 
 RUN apk add --no-cache ca-certificates && \
   addgroup -S nopsai && adduser -S nopsai -G nopsai
@@ -62,6 +64,7 @@ COPY --from=builder /out/nopsai-dispatcher /nopsai-dispatcher
 COPY --from=builder /out/nopsai-docker-runner /nopsai-docker-runner
 COPY --from=builder /out/nopsai-k8s-runner /nopsai-k8s-runner
 COPY --from=builder /src/config.yml /app/config.yml
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/
 
 USER nopsai
 ENTRYPOINT ["/bin/true"]
