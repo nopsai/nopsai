@@ -17,6 +17,6 @@ LABEL org.opencontainers.image.version="${VERSION}" \
 WORKDIR /app
 COPY --from=base /nopsai-git-bot /usr/local/bin/nopsai-git-bot
 COPY --from=base /app/config.yml .
-COPY --from=base /usr/share/licenses/nopsai /usr/share/licenses/nopsai
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/
 
 ENTRYPOINT ["nopsai-git-bot"]
