@@ -139,10 +139,48 @@ func TestDockerComposeInstallRejectsDefaultBootstrapAdminPassword(t *testing.T) 
 func TestDockerComposeInstallRequiresComposeCapability(t *testing.T) {
 	cli := installCLIInfo(testPlatformVersion)
 	cli.Capabilities = []string{compatibility.CapabilityAPIV1, compatibility.CapabilityPlatformHelm, compatibility.CapabilityRunnerDocker}
-	installer := Installer{CLI: cli, RandomReader: bytes.NewReader(bytes.Repeat([]byte{1}, 256))}
+	installer := Installer{CLI: cli, RandomReader: bytes.NewReader(bytes.Repeat([]byte{1}, 512))}
 	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{Version: testPlatformVersion})
 	if err == nil || !strings.Contains(err.Error(), compatibility.CapabilityPlatformCompose) {
 		t.Fatalf("capability error = %v", err)
+	}
+}
+
+func TestDockerComposeInstallRepairsStaleLinkedPlatformCompatibility(t *testing.T) {
+	version := platformTestVersionWithPatchOffset(testPlatformVersion, 745)
+	cli := installCLIInfo(version)
+	cli.PlatformCompatibility = ">=2.0.0,<3.0.0"
+	installer := Installer{CLI: cli, RandomReader: bytes.NewReader(bytes.Repeat([]byte{1}, 512))}
+	plan, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{Version: version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Version != version || plan.CLI != version {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestDockerComposeInstallStillRejectsVersionsOutsideCLIReleaseSeries(t *testing.T) {
+	cli := installCLIInfo(platformTestVersionWithPatchOffset(testPlatformVersion, 745))
+	cli.PlatformCompatibility = ">=2.0.0,<3.0.0"
+	installer := Installer{CLI: cli, RandomReader: bytes.NewReader(bytes.Repeat([]byte{1}, 256))}
+	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{Version: testUnsupportedPlatformVersion})
+	if err == nil || !strings.Contains(err.Error(), "supported range is") {
+		t.Fatalf("unsupported version error = %v", err)
+	}
+}
+
+func TestKubernetesInstallRepairsStaleLinkedPlatformCompatibility(t *testing.T) {
+	version := platformTestVersionWithPatchOffset(testPlatformVersion, 745)
+	cli := installCLIInfo(version)
+	cli.PlatformCompatibility = ">=2.0.0,<3.0.0"
+	installer := Installer{CLI: cli}
+	plan, err := installer.PlanKubernetesValues(context.Background(), KubernetesValuesOptions{Version: version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Target != "kubernetes" || plan.Version != version || plan.CLI != version {
+		t.Fatalf("plan = %#v", plan)
 	}
 }
 

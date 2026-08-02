@@ -643,10 +643,56 @@ func normalizeInstallCLIInfo(cli buildinfo.Info) buildinfo.Info {
 	if strings.TrimSpace(cli.PlatformCompatibility) == "" {
 		cli.PlatformCompatibility = current.PlatformCompatibility
 	}
+	cli.PlatformCompatibility = normalizeInstallPlatformCompatibility(cli.Version, cli.PlatformCompatibility, current.PlatformCompatibility)
 	if len(cli.Capabilities) == 0 {
 		cli.Capabilities = append([]string(nil), current.Capabilities...)
 	}
 	return cli
+}
+
+func normalizeInstallPlatformCompatibility(version, compatibilityRange, fallback string) string {
+	compatibilityRange = strings.TrimSpace(compatibilityRange)
+	if compatibilityRange == "" {
+		compatibilityRange = strings.TrimSpace(fallback)
+	}
+	for _, candidate := range []string{compatibilityRange, fallback, buildinfo.DefaultPlatformCompatibility} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate != "" && installPlatformCompatibilityCoversVersion(version, candidate) {
+			return candidate
+		}
+	}
+	if derived := installVersionSeriesCompatibility(version); derived != "" {
+		return derived
+	}
+	return compatibilityRange
+}
+
+func installPlatformCompatibilityCoversVersion(rawVersion, rawRange string) bool {
+	version := strings.ToLower(strings.TrimSpace(rawVersion))
+	switch version {
+	case "", buildinfo.DevelopmentVersion, "unknown":
+		return true
+	}
+	parsedVersion, err := compatibility.ParseVersion(version)
+	if err != nil {
+		return true
+	}
+	parsedRange, err := compatibility.ParseRange(rawRange)
+	if err != nil {
+		return true
+	}
+	return parsedRange.Contains(parsedVersion)
+}
+
+func installVersionSeriesCompatibility(rawVersion string) string {
+	version, err := compatibility.ParseVersion(rawVersion)
+	if err != nil {
+		return ""
+	}
+	if version.Major == 0 {
+		return fmt.Sprintf(">=0.%d.0 <1.0.0", version.Minor)
+	}
+	return fmt.Sprintf(">=%d.0.0 <%d.0.0", version.Major, version.Major+1)
 }
 
 func versionedInstallImages(version string) map[string]string {
