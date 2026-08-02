@@ -36,6 +36,8 @@ func (r *kubernetesRunner) createAgentPod(ctx context.Context, podName, image, w
 			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
 		},
 	})
+	agentServiceAccount := firstNonEmpty(r.serviceAccount, r.effectiveWorkloadServiceAccount())
+	agentAutomountServiceAccountToken := true
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -46,8 +48,8 @@ func (r *kubernetesRunner) createAgentPod(ctx context.Context, podName, image, w
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy:                corev1.RestartPolicyNever,
-			ServiceAccountName:           r.effectiveWorkloadServiceAccount(),
-			AutomountServiceAccountToken: r.workloadSAToken,
+			ServiceAccountName:           agentServiceAccount,
+			AutomountServiceAccountToken: &agentAutomountServiceAccountToken,
 			ImagePullSecrets:             append([]corev1.LocalObjectReference(nil), r.imagePullSecrets...),
 			NodeSelector:                 nodeSelector,
 			SecurityContext:              defaultKubernetesPodSecurityContext(),

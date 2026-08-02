@@ -69,7 +69,7 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 	builder.WriteString(valuesFile)
 	builder.WriteString("`:\n\n")
 	builder.WriteString("```yaml\nglobal:\n  imagePullSecrets:\n    - name: nopsai-registry\n```\n")
-	builder.WriteString("\nWhen `api.serviceAccount.create=true` and `k8sRunner.serviceAccount.create=true`, the chart writes this pull Secret onto the `nopsai-api` and `nopsai-runner` ServiceAccounts and onto workload pod specs. The runner ServiceAccount is also used by dynamically created agent and step pods.\n\n")
+	builder.WriteString("\nWhen `api.serviceAccount.create=true` and `k8sRunner.serviceAccount.create=true`, the chart writes this pull Secret onto the `nopsai-api` and `nopsai-runner` ServiceAccounts and onto workload pod specs. The runner ServiceAccount is also used by dynamically created agent pods; step pods use the workload ServiceAccount.\n\n")
 	builder.WriteString("If you bring your own ServiceAccounts by setting either `*.serviceAccount.create` to `false`, create or patch those ServiceAccounts before deploy:\n\n")
 	builder.WriteString("```bash\n")
 	builder.WriteString(shellJoin([]string{"kubectl", "-n", namespace, "patch", "serviceaccount", "nopsai-api", "-p", `{"imagePullSecrets":[{"name":"nopsai-registry"}]}`}))
