@@ -89,11 +89,12 @@ infrastructure process.
 Kubernetes can pull private images through ServiceAccount `imagePullSecrets`.
 When selected registry credentials are present, the one-time Kubernetes
 bootstrap command creates a `kubernetes.io/dockerconfigjson` Secret and attaches
-it to the runner Deployment and to the workload ServiceAccount used by agent
-and step pods. Helm and generated manifests keep the RBAC-bearing runner
-ServiceAccount separate from the workload ServiceAccount, so changing workload
-identity does not remove private registry access as long as the pull secret is
-listed in `kubernetes.image_pull_secrets` or selected during bootstrap.
+it to the runner Deployment and to the workload ServiceAccount used by step
+pods. Agent pods use the RBAC-bearing runner ServiceAccount because they create
+step pods and PVCs. Helm and generated manifests keep that runner identity
+separate from the workload ServiceAccount, so changing workload identity does
+not remove private registry access as long as the pull secret is listed in
+`kubernetes.image_pull_secrets` or selected during bootstrap.
 
 The raw manifest preview endpoint is GitOps-friendly and does not include this
 secret material. If you commit raw manifests to a cluster repository, create the
