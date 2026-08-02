@@ -6,6 +6,7 @@ var generatedRoutes = []Route{
 	newRoute("GET", "/healthz"),
 	newRoute("GET", "/internal/v1/runtime-config/{service}"),
 	newRoute("GET", "/internal/v1/runtime-config/{service}/watch"),
+	newRoute("GET", "/livez"),
 	newRoute("GET", "/metrics"),
 	newRoute("GET", "/v1/access/auth-teams"),
 	newRoute("GET", "/v1/access/effective-permissions"),
