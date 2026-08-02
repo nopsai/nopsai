@@ -217,6 +217,17 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		return err
 	}
 
+	// Teams are the root dependency for team-owned GitOps resources. Dashboards,
+	// notification routes, team AI profiles, access grants, and dashboard source
+	// bindings resolve team paths while this transaction is still applying.
+	// Teams do not have source metadata, so sync only upserts and never prunes
+	// user-created teams.
+	if len(effectivePipelineRunStructure) > 0 {
+		if err := a.syncPipelineRunTeams(ctx, tx, effectivePipelineRunStructure, details); err != nil {
+			return err
+		}
+	}
+
 	const pipelineUpsert = `INSERT INTO pipelines (
 			path, name, version, definition, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
@@ -1072,13 +1083,6 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 				)`, names, repos, scopes, binding.ID); err != nil {
 				return fmt.Errorf("failed to prune secrets: %w", err)
 			}
-		}
-	}
-
-	// Sync UI teams. Teams do not have a source column, so we do not prune them to avoid deleting user-created teams.
-	if len(effectivePipelineRunStructure) > 0 {
-		if err := a.syncPipelineRunTeams(ctx, tx, effectivePipelineRunStructure, details); err != nil {
-			return err
 		}
 	}
 

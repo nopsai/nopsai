@@ -730,6 +730,7 @@ source of truth. GitOps can manage:
 - `triggers/`
 - `external-triggers/`
 - `git-webhook-sources/`
+- `dashboards/`
 - `scopes/`
 - `knowledge/`
 - `access/`
@@ -744,6 +745,11 @@ ownership can pass `team_path` or `run_team_path` to
 `/v1/access/effective-permissions`, allowing inherited team owners to create the
 first schedule, trigger, external trigger, Git webhook source, or scope under
 their team without a seed resource.
+
+GitOps applies dependency roots before dependent resources: team hierarchy from
+`config-repositories/` is upserted first, then team-owned dashboards and
+notification routes can resolve team paths, and pipeline dashboard outputs can
+attach to dashboards created in the same sync.
 
 Canonical system files include:
 
