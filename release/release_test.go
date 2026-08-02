@@ -18,7 +18,7 @@ func TestCompatibilityContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contract.CLIVersion != "2.7.0" || contract.RunnerProtocolVersion != 1 || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformCompose) {
+	if contract.CLIVersion != "0.22.0" || contract.RunnerProtocolVersion != 1 || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformCompose) {
 		t.Fatalf("contract = %#v", contract)
 	}
 }
@@ -28,8 +28,8 @@ func TestCommitCountVersionSeriesMatchesCompatibilityBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(string(contents)); got != "2.11" {
-		t.Fatalf("release version series = %q, want 2.11", got)
+	if got := strings.TrimSpace(string(contents)); got != "0.22" {
+		t.Fatalf("release version series = %q, want 0.22", got)
 	}
 }
 
