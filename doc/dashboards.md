@@ -560,7 +560,10 @@ can also be managed from `dashboards/` and reusable dashboard templates from
 `dashboard-templates/`. GitOps imports validate dashboard YAML, preserve source
 path, source commit, team ownership, managed state, sections, sources, and
 refresh schedules, and prune only records still owned by the same config
-repository. Manual dashboard edits detach GitOps ownership to avoid unsafe
+repository. Config sync upserts run-team hierarchy from `config-repositories/`
+before dashboard files resolve team paths, so a new team and its dashboards can
+be introduced in the same repository revision. Manual dashboard edits detach
+GitOps ownership to avoid unsafe
 overwrites. Generated dashboard content, current publications, and publication
 events remain runtime state in Postgres and are not written back to the config
 repository.

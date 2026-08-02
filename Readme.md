@@ -269,6 +269,9 @@ GitOps sync can import:
 - `steps/`: reusable step definitions
 - `schedules/`: one-time and recurring pipeline schedules
 - `triggers/`: repository trigger overrides
+- `external-triggers/`: API-triggered pipeline launch definitions
+- `git-webhook-sources/`: reusable authenticated Git webhook receivers
+- `dashboards/`: team-owned dashboard definitions, source bindings, and refresh schedules
 - `scopes/`: scoped variables and GitOps secret keys
 - `knowledge/`: managed knowledge documents
 - `access/`: users, roles, policies, bindings, and basic product role grants
@@ -295,6 +298,12 @@ secrets, and embedded scope access for `team-1/dev`;
 canonicalizes legacy managed source paths, so stale files with a duplicated or
 missing team segment are reported as file moves instead of staying pinned by old
 database metadata.
+
+Config sync applies dependency roots first: team hierarchy from
+`config-repositories/` is upserted before dashboards, notification routes, and
+other team-owned resources resolve team paths. Dashboard GitOps runs before
+pipeline upserts so dashboard files can create targets and pipeline dashboard
+outputs can attach source bindings in the same sync.
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network
