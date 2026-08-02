@@ -270,8 +270,9 @@ than one heavyweight end-to-end fixture:
   `services/agent/internal/llm/agent_profiles_test.go`, and
   `services/ui/src/features/system/agent-profiles/model.test.ts`
 - Authorization decisions and inheritance:
-  `services/nopsai/aaa_integration_test.go` and
-  `services/nopsai/access_grants_test.go`
+  `services/nopsai/aaa_integration_test.go`,
+  `services/nopsai/access_grants_test.go`, and
+  `services/nopsai/pkg/routeauthz/routeauthz_test.go`
 - Agent lifecycle with direct execution, approvals, includes, retries, and
   status/final-status callbacks:
   `services/agent/internal/app/pipeline_test.go`,

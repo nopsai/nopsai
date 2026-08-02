@@ -20,6 +20,7 @@ type composeService struct {
 	Hostname      string            `yaml:"hostname"`
 	Environment   map[string]string `yaml:"environment"`
 	EnvFile       []string          `yaml:"env_file"`
+	Ports         []string          `yaml:"ports"`
 	Volumes       []string          `yaml:"volumes"`
 	ReadOnly      bool              `yaml:"read_only"`
 	SecurityOpt   []string          `yaml:"security_opt"`
@@ -168,6 +169,67 @@ func TestDockerComposeProvidesLocalBootstrapTopology(t *testing.T) {
 	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
 	assertEnvValue(t, compose, "docker-runner", "DOCKER_NETWORK_NAME", "nopsai-net")
 	assertEnvValue(t, compose, "nopsai", "SYSTEM_LOGS_DOCKER_HOST", "tcp://docker-socket-proxy:2375")
+}
+
+func TestDockerComposeBindsPublishedPortsToLoopbackByDefault(t *testing.T) {
+	compose := readCompose(t)
+	for serviceName, wantPort := range map[string]string{
+		"db":         "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:5432:5432",
+		"nopsai":     "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:8080:8080",
+		"dispatcher": "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:9090:9090",
+		"git-bot":    "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:8081:8081",
+		"nopsai-ui":  "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:80:80",
+	} {
+		service, exists := compose.Services[serviceName]
+		if !exists {
+			t.Fatalf("compose service %q is missing", serviceName)
+		}
+		if !containsString(service.Ports, wantPort) {
+			t.Fatalf("service %q ports = %#v, want %q", serviceName, service.Ports, wantPort)
+		}
+	}
+}
+
+func TestDockerComposeGuardsNonLocalDefaults(t *testing.T) {
+	compose := readCompose(t)
+	service, exists := compose.Services["local-compose-safety"]
+	if !exists {
+		t.Fatal("local-compose-safety service is missing")
+	}
+	if service.Image != "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc" {
+		t.Fatalf("safety service image = %q, want pinned Alpine digest", service.Image)
+	}
+	for key, want := range map[string]string{
+		"NOPSAI_BIND_ADDRESS":             "${NOPSAI_BIND_ADDRESS:-127.0.0.1}",
+		"POSTGRES_PASSWORD":               "${POSTGRES_PASSWORD:-yoursecurepassword}",
+		"DATABASE_URL":                    "${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}",
+		"SERVICE_JWT_SIGNING_KEY":         "${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}",
+		"NOPSAI_MASTER_KEY":               "${NOPSAI_MASTER_KEY:-local-dev-master-key-change-me-please-rotate}",
+		"JWT_SIGNING_KEY":                 "${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}",
+		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD": "${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-admin}",
+		"AAA_SHARED_INTERNAL_TOKEN":       "${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}",
+	} {
+		if got := service.Environment[key]; got != want {
+			t.Fatalf("safety service environment %s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestDockerComposePinsExternalImages(t *testing.T) {
+	compose := readCompose(t)
+	for serviceName, wantPrefix := range map[string]string{
+		"db":                   "postgres:15@sha256:",
+		"gotenberg":            "gotenberg/gotenberg:8.32.0@sha256:",
+		"local-compose-safety": "alpine:3.20@sha256:",
+	} {
+		service, exists := compose.Services[serviceName]
+		if !exists {
+			t.Fatalf("compose service %q is missing", serviceName)
+		}
+		if !strings.HasPrefix(service.Image, wantPrefix) {
+			t.Fatalf("service %q image = %q, want prefix %q", serviceName, service.Image, wantPrefix)
+		}
+	}
 }
 
 func TestDockerComposeBuildsBaseConsumersFromBaseServiceContext(t *testing.T) {

@@ -1,7 +1,7 @@
 name: nopsai-platform-release
 version: "1.0.0"
 description: Build and publish NopsAI container images, versioned Helm chart, CLI archives, changelog, and checksums from a NopsAI pipeline run.
-container_image: alpine:3.20
+container_image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 working_directory: /workspace
 timeout: 3h
 llm_enabled: false
@@ -27,12 +27,18 @@ variables:
   - NOPSAI_RELEASE_ENABLE_QEMU
   - NOPSAI_RELEASE_BUILDX_NAME
   - NOPSAI_RELEASE_HELM_VERSION
+  - NOPSAI_RELEASE_HELM_SHA256_AMD64
+  - NOPSAI_RELEASE_HELM_SHA256_ARM64
   - NOPSAI_RELEASE_GH_VERSION
+  - NOPSAI_RELEASE_GH_SHA256_AMD64
+  - NOPSAI_RELEASE_GH_SHA256_ARM64
   - NOPSAI_RELEASE_ORAS_VERSION
+  - NOPSAI_RELEASE_ORAS_SHA256_AMD64
+  - NOPSAI_RELEASE_ORAS_SHA256_ARM64
   - DOCKER_HOST
 steps:
   - name: checkout-repository
-    image: alpine:3.20
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     secrets:
       - NOPSAI_RELEASE_GITHUB_TOKEN
     script: |
@@ -98,7 +104,7 @@ steps:
       BASH
 
   - name: release-metadata
-    image: alpine:3.20
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - checkout-repository
     secrets:
@@ -252,6 +258,117 @@ steps:
         done <<< "$compatibility_env"
       } >dist/release/env
 
+      cat >dist/release/install-release-tools.sh <<'TOOLS'
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      release_linux_arch() {
+        case "$(uname -m)" in
+          x86_64|amd64) printf '%s\n' amd64 ;;
+          aarch64|arm64) printf '%s\n' arm64 ;;
+          *) echo "Unsupported release tool architecture: $(uname -m)" >&2; return 1 ;;
+        esac
+      }
+
+      release_tool_sha256() {
+        local tool="$1"
+        local version="$2"
+        local arch="$3"
+        local env_name=""
+        case "$tool:$arch" in
+          helm:amd64) env_name=NOPSAI_RELEASE_HELM_SHA256_AMD64 ;;
+          helm:arm64) env_name=NOPSAI_RELEASE_HELM_SHA256_ARM64 ;;
+          oras:amd64) env_name=NOPSAI_RELEASE_ORAS_SHA256_AMD64 ;;
+          oras:arm64) env_name=NOPSAI_RELEASE_ORAS_SHA256_ARM64 ;;
+          gh:amd64) env_name=NOPSAI_RELEASE_GH_SHA256_AMD64 ;;
+          gh:arm64) env_name=NOPSAI_RELEASE_GH_SHA256_ARM64 ;;
+          *) echo "Unsupported checksum target $tool linux/$arch" >&2; return 1 ;;
+        esac
+
+        local checksum="${!env_name:-}"
+        if [[ -n "$checksum" ]]; then
+          printf '%s\n' "$checksum"
+          return
+        fi
+
+        case "$tool:$version:$arch" in
+          helm:3.17.3:amd64) printf '%s\n' ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd ;;
+          helm:3.17.3:arm64) printf '%s\n' 7944e3defd386c76fd92d9e6fec5c2d65a323f6fadc19bfb5e704e3eee10348e ;;
+          oras:1.2.3:amd64) printf '%s\n' b4efc97a91f471f323f193ea4b4d63d8ff443ca3aab514151a30751330852827 ;;
+          oras:1.2.3:arm64) printf '%s\n' 90e24e234dc6dffe73365533db66fd14449d2c9ae77381081596bf92f40f6b82 ;;
+          gh:2.74.2:amd64) printf '%s\n' c421091ae5800390e6aef1f50bfda59cc1d4f2ef2200bcd4e1a662c05c28c444 ;;
+          gh:2.74.2:arm64) printf '%s\n' f0b07f0aeaf00f137df1bd33a76e717b1945f4b83bd6a3296b365414d3eb413f ;;
+          *)
+            echo "Checksum for $tool $version linux/$arch is not built in; set $env_name" >&2
+            return 1
+            ;;
+        esac
+      }
+
+      verify_release_download() {
+        local tool="$1"
+        local version="$2"
+        local arch="$3"
+        local archive="$4"
+        local checksum
+        checksum="$(release_tool_sha256 "$tool" "$version" "$arch")"
+        if [[ ! "$checksum" =~ ^[a-f0-9]{64}$ ]]; then
+          echo "Invalid SHA-256 for $tool $version linux/$arch: $checksum" >&2
+          return 1
+        fi
+        printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c -
+      }
+
+      install_helm() {
+        if command -v helm >/dev/null 2>&1; then
+          return
+        fi
+        local version="${NOPSAI_RELEASE_HELM_VERSION:-3.17.3}"
+        local arch
+        arch="$(release_linux_arch)"
+        local archive="/tmp/helm-v${version}-linux-${arch}.tar.gz"
+        rm -rf "/tmp/linux-${arch}" "$archive"
+        curl --proto '=https' --tlsv1.2 --retry 3 -fsSL "https://get.helm.sh/helm-v${version}-linux-${arch}.tar.gz" -o "$archive"
+        verify_release_download helm "$version" "$arch" "$archive"
+        tar -C /tmp -xzf "$archive"
+        mv "/tmp/linux-${arch}/helm" /usr/local/bin/helm
+        chmod +x /usr/local/bin/helm
+      }
+
+      install_oras() {
+        if command -v oras >/dev/null 2>&1; then
+          return
+        fi
+        local version="${NOPSAI_RELEASE_ORAS_VERSION:-1.2.3}"
+        local arch
+        arch="$(release_linux_arch)"
+        local archive="/tmp/oras_${version}_linux_${arch}.tar.gz"
+        rm -f /tmp/oras "$archive"
+        curl --proto '=https' --tlsv1.2 --retry 3 -fsSL "https://github.com/oras-project/oras/releases/download/v${version}/oras_${version}_linux_${arch}.tar.gz" -o "$archive"
+        verify_release_download oras "$version" "$arch" "$archive"
+        tar -C /tmp -xzf "$archive" oras
+        mv /tmp/oras /usr/local/bin/oras
+        chmod +x /usr/local/bin/oras
+      }
+
+      install_gh() {
+        if command -v gh >/dev/null 2>&1; then
+          return
+        fi
+        local version="${NOPSAI_RELEASE_GH_VERSION:-2.74.2}"
+        local arch
+        arch="$(release_linux_arch)"
+        local archive="/tmp/gh_${version}_linux_${arch}.tar.gz"
+        rm -rf "/tmp/gh_${version}_linux_${arch}" "$archive"
+        curl --proto '=https' --tlsv1.2 --retry 3 -fsSL "https://github.com/cli/cli/releases/download/v${version}/gh_${version}_linux_${arch}.tar.gz" -o "$archive"
+        verify_release_download gh "$version" "$arch" "$archive"
+        tar -C /tmp -xzf "$archive"
+        mv "/tmp/gh_${version}_linux_${arch}/bin/gh" /usr/local/bin/gh
+        chmod +x /usr/local/bin/gh
+      }
+      TOOLS
+      chmod 755 dist/release/install-release-tools.sh
+
       echo "release_version=$version"
       echo "release_tags=$release_tags_csv"
       echo "source_commit=$source_commit"
@@ -261,7 +378,7 @@ steps:
       BASH
 
   - name: quality-gates
-    image: golang:1.26.5-alpine
+    image: golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
     depends_on:
       - release-metadata
     script: |
@@ -269,23 +386,6 @@ steps:
       apk add --no-cache bash build-base coreutils curl docker-cli docker-cli-compose git jq perl-utils ruby tar gzip
       bash <<'BASH'
       set -euo pipefail
-
-      install_helm() {
-        if command -v helm >/dev/null 2>&1; then
-          return
-        fi
-        local version="${NOPSAI_RELEASE_HELM_VERSION:-3.17.3}"
-        local arch
-        case "$(uname -m)" in
-          x86_64|amd64) arch=amd64 ;;
-          aarch64|arm64) arch=arm64 ;;
-          *) echo "Unsupported Helm install architecture: $(uname -m)" >&2; exit 1 ;;
-        esac
-        curl -fsSL "https://get.helm.sh/helm-v${version}-linux-${arch}.tar.gz" -o /tmp/helm.tgz
-        tar -C /tmp -xzf /tmp/helm.tgz
-        mv "/tmp/linux-${arch}/helm" /usr/local/bin/helm
-        chmod +x /usr/local/bin/helm
-      }
 
       install_go_gate_tools() {
         export GOBIN=/usr/local/bin
@@ -295,6 +395,7 @@ steps:
       }
 
       . dist/release/env
+      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping quality gates"
         exit 0
@@ -306,7 +407,7 @@ steps:
       BASH
 
   - name: ui-gates
-    image: node:22-alpine
+    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
     depends_on:
       - release-metadata
     script: |
@@ -351,7 +452,7 @@ steps:
       BASH
 
   - name: publish-base-image
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - quality-gates
       - ui-gates
@@ -467,7 +568,7 @@ steps:
 
       printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
       if [[ "${NOPSAI_RELEASE_ENABLE_QEMU:-true}" == "true" && "$PLATFORMS" == *","* ]]; then
-        docker run --privileged --rm tonistiigi/binfmt --install all
+        docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install all
       fi
 
       builder_suffix="$(printf '%s-nopsai-base-%s' "$VERSION" "$$" | tr -c 'A-Za-z0-9_.-' '-')"
@@ -526,7 +627,7 @@ steps:
       BASH
 
   - name: publish-image-nopsai-api
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -537,7 +638,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-api . container/Dockerfile.nopsai
 
   - name: publish-image-nopsai-aaa
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -548,7 +649,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-aaa . container/Dockerfile.aaa
 
   - name: publish-image-nopsai-agent
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -559,7 +660,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-agent . container/Dockerfile.agent
 
   - name: publish-image-nopsai-dispatcher
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -570,7 +671,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-dispatcher . container/Dockerfile.dispatcher
 
   - name: publish-image-nopsai-git-bot
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -581,7 +682,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-git-bot . container/Dockerfile.git-bot
 
   - name: publish-image-nopsai-docker-runner
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -592,7 +693,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-docker-runner . container/Dockerfile.docker-runner
 
   - name: publish-image-nopsai-k8s-runner
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -603,7 +704,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-k8s-runner . container/Dockerfile.k8s-runner
 
   - name: publish-image-nopsai-docker-socket-proxy
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -614,7 +715,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-docker-socket-proxy . container/Dockerfile.socket-proxy
 
   - name: publish-image-nopsai-ui
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -625,7 +726,7 @@ steps:
       bash dist/release/publish-release-image.sh nopsai-ui services/ui services/ui/Dockerfile
 
   - name: publish-image-pipeline-image
-    image: docker:27-cli
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
       - publish-base-image
     secrets:
@@ -636,7 +737,7 @@ steps:
       bash dist/release/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline
 
   - name: publish-images
-    image: alpine:3.20
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - publish-image-nopsai-api
       - publish-image-nopsai-aaa
@@ -690,7 +791,7 @@ steps:
       BASH
 
   - name: package-helm-chart
-    image: alpine:3.20
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - publish-images
     script: |
@@ -701,24 +802,8 @@ steps:
       RELEASE_PHASE=package-helm-chart
       trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
 
-      install_helm() {
-        if command -v helm >/dev/null 2>&1; then
-          return
-        fi
-        local version="${NOPSAI_RELEASE_HELM_VERSION:-3.17.3}"
-        local arch
-        case "$(uname -m)" in
-          x86_64|amd64) arch=amd64 ;;
-          aarch64|arm64) arch=arm64 ;;
-          *) echo "Unsupported Helm install architecture: $(uname -m)" >&2; exit 1 ;;
-        esac
-        curl -fsSL "https://get.helm.sh/helm-v${version}-linux-${arch}.tar.gz" -o /tmp/helm.tgz
-        tar -C /tmp -xzf /tmp/helm.tgz
-        mv "/tmp/linux-${arch}/helm" /usr/local/bin/helm
-        chmod +x /usr/local/bin/helm
-      }
-
       . dist/release/env
+      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping Helm chart packaging"
         exit 0
@@ -748,7 +833,7 @@ steps:
       BASH
 
   - name: publish-helm-chart
-    image: alpine:3.20
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - package-helm-chart
     secrets:
@@ -761,41 +846,8 @@ steps:
       RELEASE_PHASE=publish-helm-chart
       trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
 
-      install_helm() {
-        if command -v helm >/dev/null 2>&1; then
-          return
-        fi
-        local version="${NOPSAI_RELEASE_HELM_VERSION:-3.17.3}"
-        local arch
-        case "$(uname -m)" in
-          x86_64|amd64) arch=amd64 ;;
-          aarch64|arm64) arch=arm64 ;;
-          *) echo "Unsupported Helm install architecture: $(uname -m)" >&2; exit 1 ;;
-        esac
-        curl -fsSL "https://get.helm.sh/helm-v${version}-linux-${arch}.tar.gz" -o /tmp/helm.tgz
-        tar -C /tmp -xzf /tmp/helm.tgz
-        mv "/tmp/linux-${arch}/helm" /usr/local/bin/helm
-        chmod +x /usr/local/bin/helm
-      }
-
-      install_oras() {
-        if command -v oras >/dev/null 2>&1; then
-          return
-        fi
-        local version="${NOPSAI_RELEASE_ORAS_VERSION:-1.2.3}"
-        local arch
-        case "$(uname -m)" in
-          x86_64|amd64) arch=amd64 ;;
-          aarch64|arm64) arch=arm64 ;;
-          *) echo "Unsupported ORAS install architecture: $(uname -m)" >&2; exit 1 ;;
-        esac
-        curl -fsSL "https://github.com/oras-project/oras/releases/download/v${version}/oras_${version}_linux_${arch}.tar.gz" -o /tmp/oras.tgz
-        tar -C /tmp -xzf /tmp/oras.tgz oras
-        mv /tmp/oras /usr/local/bin/oras
-        chmod +x /usr/local/bin/oras
-      }
-
       . dist/release/env
+      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping Helm chart publication"
         exit 0
@@ -838,7 +890,7 @@ steps:
       BASH
 
   - name: build-cli-archives
-    image: golang:1.26.5-alpine
+    image: golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
     depends_on:
       - publish-helm-chart
     script: |
@@ -886,7 +938,7 @@ steps:
       BASH
 
   - name: package-release-assets
-    image: alpine:3.20
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - build-cli-archives
       - publish-helm-chart
@@ -924,7 +976,7 @@ steps:
       BASH
 
   - name: publish-release
-    image: alpine:3.20
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - package-release-assets
     secrets:
@@ -936,23 +988,6 @@ steps:
       set -euo pipefail
       RELEASE_PHASE=publish-github-release
       trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
-
-      install_gh() {
-        if command -v gh >/dev/null 2>&1; then
-          return
-        fi
-        local version="${NOPSAI_RELEASE_GH_VERSION:-2.74.2}"
-        local arch
-        case "$(uname -m)" in
-          x86_64|amd64) arch=amd64 ;;
-          aarch64|arm64) arch=arm64 ;;
-          *) echo "Unsupported GitHub CLI install architecture: $(uname -m)" >&2; exit 1 ;;
-        esac
-        curl -fsSL "https://github.com/cli/cli/releases/download/v${version}/gh_${version}_linux_${arch}.tar.gz" -o /tmp/gh.tgz
-        tar -C /tmp -xzf /tmp/gh.tgz
-        mv "/tmp/gh_${version}_linux_${arch}/bin/gh" /usr/local/bin/gh
-        chmod +x /usr/local/bin/gh
-      }
 
       configure_git_auth() {
         printf '%s\n' \
@@ -992,6 +1027,7 @@ steps:
       }
 
       . dist/release/env
+      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping GitHub release publication"
         exit 0

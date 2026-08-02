@@ -1,4 +1,4 @@
-FROM golang:1.26.5-alpine AS builder
+FROM golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS builder
 
 ARG VERSION=dev
 ARG COMMIT=unknown
@@ -37,7 +37,7 @@ RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pk
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-docker-runner ./services/docker-runner/cmd/docker-runner && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-k8s-runner ./services/k8s-runner/cmd/k8s-runner
 
-FROM alpine:3.20
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
 ARG VERSION=dev
 ARG COMMIT=unknown

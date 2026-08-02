@@ -205,7 +205,11 @@ For local development from this checkout:
    Product/runtime settings are managed from the UI and GitOps; `config.yml`
    keeps only local defaults needed before GitOps is loaded, including the
    Nopsai AI Assistant being enabled. Override local placeholder secrets from
-   your shell or deployment secret manager before production use.
+   your shell or deployment secret manager before production use. Published
+   ports bind to `127.0.0.1` by default through `NOPSAI_BIND_ADDRESS`; if you
+   bind them to a non-loopback address, the Compose safety check fails until
+   the local default database password, JWT keys, master key, bootstrap
+   password, and internal AAA token are changed.
 
 2. Start the stack.
 
