@@ -9,7 +9,10 @@ test('hides shell contextual navigation on pages with their own local navigation
   assert.equal(shouldShowSidebarContextNav('/knowledge-context/runbook/platform/restart', 'main'), false);
   assert.equal(shouldShowSidebarContextNav('/scopes', 'main'), false);
   assert.equal(shouldShowSidebarContextNav('/scopes/platform/dev', 'main'), false);
-  assert.equal(shouldShowSidebarContextNav('/pipelines', 'main'), true);
+  assert.equal(shouldShowSidebarContextNav('/pipelines', 'main'), false);
+  assert.equal(shouldShowSidebarContextNav('/pipelines/platform/deploy', 'main'), false);
+  assert.equal(shouldShowSidebarContextNav('/steps', 'main'), false);
+  assert.equal(shouldShowSidebarContextNav('/steps/platform/build', 'main'), false);
   assert.equal(shouldShowSidebarContextNav('/external-triggers', 'main'), true);
 });
 

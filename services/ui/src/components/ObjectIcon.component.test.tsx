@@ -1,13 +1,13 @@
 import { render } from '@testing-library/react';
 import { BrainCircuit } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
-import { ObjectIcon } from './ObjectIcon';
+import { ObjectIcon } from './ObjectIcon.js';
 import {
   getObjectIconComponent,
   objectIconRegistry,
   objectIconTypes,
   type ObjectIconType,
-} from './objectIconRegistry';
+} from './objectIconRegistry.js';
 
 describe('ObjectIcon', () => {
   it('keeps the typed object icon list and registry in sync', () => {

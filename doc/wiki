@@ -132,17 +132,18 @@ path. Pipeline run detail documentation must also show the task-oriented
 execution graph: selected multi-task steps reveal their task DAG below the step
 overview, keep direct upstream/downstream context, expose the full step-detail
 modal through node info controls with optional task preselection, separate Graph
-and Outputs tabs, center the graph bounds when a run opens or Fit is pressed,
-preserve the task reveal during Ctrl/Command-wheel zoom, toolbar zoom, and pan
-navigation, let unmodified wheel input scroll the page, close the reveal on
-empty graph and outside clicks, expose a compact draggable graph navigator while
-zoomed or panned, keep drag panning frame-batched and free of browser text
-selection, and preserve existing log, search, filter, zoom, pan, copy-link, AAA,
-monitoring, MCP, and GitOps contracts. Pipeline detail must embed the shared
-graph canvas in its Pipeline graph card without a nested graph-window frame, and
-that embedded overview must fill the visible graph frame so steps are not
-clipped by an internal SVG viewport. The Flow graph card must end at the graph
-canvas, with source and dependency actions kept in existing non-footer surfaces.
+and Outputs tabs, provide an expanded graph dialog for scroll-zoom traversal of larger run
+graphs, center the graph bounds when a run opens or Fit is pressed, preserve the
+task reveal during Ctrl/Command-wheel zoom, toolbar zoom, and pan navigation,
+let unmodified wheel input scroll the page outside expanded graph mode, close the reveal on empty graph and
+outside clicks, expose a compact draggable graph navigator while zoomed or
+panned, keep graph-opened step, task, log, and definition modals in front of the expanded graph, keep drag panning frame-batched and free of browser text selection, and
+preserve existing log, search, filter, zoom, pan, copy-link, AAA, monitoring,
+MCP, and GitOps contracts. Pipeline detail must embed the shared graph canvas in
+its Pipeline graph card without a nested graph-window frame, and that embedded
+overview must fill the visible graph frame so steps are not clipped by an
+internal SVG viewport. The Flow graph card must end at the graph canvas, with
+source and dependency actions kept in existing non-footer surfaces.
 Pipeline detail must use a compact run-detail-style headline and must not
 reintroduce a KPI-card row above the tabs. Shared graph surfaces must use
 light/dark theme variables for the canvas, SVG nodes, controls, minimap, and
@@ -161,7 +162,20 @@ surface changes. Repository-owned platform release automation lives in
 `.nopsai/nopsai-platform-release.yaml`; keep release pipeline docs and tests on
 that GitOps path. UI release gates should print UTC start/finish timestamps and
 durations for each npm stage so local-time log rendering cannot masquerade as a
-loop. The live terminal layout uses centered Contextual Zen screens
+loop.
+
+Release publication uses `scripts/release-tags.sh` for the stable package tag
+set: exact version, `latest`, major, and major.minor. Container images and the
+Helm OCI chart publish all four aliases while installers keep exact versions in
+generated Docker Compose, Helm values, and locks. The exact GitHub Release is
+marked latest, and moving `v<major>` / `v<major>.<minor>` GitHub release aliases
+carry the same CLI assets. Released CLIs support
+`nopsai update --version <major.minor.patch>`; the updater downloads the exact
+GitHub Release archive and `SHA256SUMS`, verifies the checksum, then replaces
+the local binary. Enterprise mirrors can override the repository or asset base
+URL without changing the archive naming contract.
+
+The live terminal layout uses centered Contextual Zen screens
 with fixed home-style header/footer chrome, breadcrumb text above nested menus,
 a fixed 20-row menu viewport, a pinned guide/details section beneath it, and
 inline `Parameters` progress lists for every live form and wizard. Feature
@@ -636,6 +650,12 @@ fleet table only after an operator selects a runner.
 Routing tables use the effective dispatcher routing view: paused or unreachable
 runner IDs stay visible for diagnosis, while only reachable dispatch-enabled
 runners are treated as dispatchable targets.
+Runner registration is trusted by service JWT/TLS material and the
+ejected-runner blocklist. Replacing a control plane with the old
+`SERVICE_JWT_SIGNING_KEY` and `DISPATCHER_TLS_SECRET` lets old runner
+definitions authenticate again unless their IDs are carried forward in
+`ejected_runner_ids`; rotate those secrets before exposing the fresh dispatcher
+when old runners must not join.
 
 The control plane includes the API, UI, AAA, dispatcher, git-bot, PostgreSQL,
 Gotenberg, and the restricted Docker socket proxy. The execution plane includes

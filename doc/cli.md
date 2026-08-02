@@ -20,6 +20,18 @@ tools. Linux and macOS archives contain `nopsai`; Windows archives contain
 `nopsai.exe`. Asset names include the exact platform version, operating system,
 and architecture, and `SHA256SUMS` covers every published archive.
 
+Operators can update a released CLI by exact version:
+
+```bash
+nopsai update --version 2.10.648
+```
+
+The command downloads the matching archive and `SHA256SUMS`, verifies the
+checksum, extracts the binary, and replaces the current executable. Enterprise
+mirrors can override the source with `--repository`, `--asset-base-url`,
+`NOPSAI_UPDATE_GITHUB_REPOSITORY`, `NOPSAI_UPDATE_ASSET_BASE_URL`, and
+`NOPSAI_UPDATE_TOKEN`.
+
 macOS CLI binaries are built on a macOS runner and published as standalone
 archives. The repository includes `scripts/sign-notarize-macos-cli.sh` for a
 future signed/notarized publication path, but the default release workflow does
@@ -465,6 +477,7 @@ ingestion.
 - `internal/cli/apicatalog/internal/discovery`: generator-only Go AST discovery
 - `internal/cli/interactive`: alternate-screen selectors, editable forms, scrollable result panels, stdin/stdout fallback prompts, confirmations, and defaults
 - `internal/cli/platform`: platform diagnostics, install topology, release resolution, compatibility, Helm execution, and release lock models
+- `internal/cli/selfupdate`: CLI release asset resolution, checksum verification, archive extraction, and binary replacement
 - `internal/cli/command`: Cobra routing, interactive home/menu orchestration, guide rendering, hook orchestration, and command rendering
 - `internal/cli/command/interactive_*.go`: focused interactive workflow composition for API, auth, platform release, completion, shared screen helpers, and home routing; model/API/platform execution stays in the packages above
 

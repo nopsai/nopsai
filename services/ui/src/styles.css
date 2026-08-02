@@ -726,26 +726,6 @@ html.dark .sidebar-user-menu {
     color: inherit;
 }
 
-.app-sidebar-shell .pipeline-tree-item,
-.app-sidebar-shell .pipeline-tree-team,
-.app-sidebar-shell .pipeline-tree-leaf-btn {
-    color: var(--text-secondary);
-}
-
-.app-sidebar-shell .pipeline-tree-team.active,
-.app-sidebar-shell .pipeline-tree-leaf.active .pipeline-tree-leaf-btn {
-    background: var(--bg-active);
-    border-color: transparent;
-    color: var(--text-primary);
-    box-shadow: inset 3px 0 0 0 var(--border-accent);
-}
-
-.app-sidebar-shell .pipeline-tree-item:hover,
-.app-sidebar-shell .pipeline-tree-leaf-btn:hover,
-.app-sidebar-shell .pipeline-tree-item:hover .pipeline-tree-team:not(.active) {
-    background: var(--bg-hover);
-}
-
 .app-sidebar-shell .pipeline-runs-sidebar-context {
     --bg-primary: #f8fbff;
     --bg-secondary: #ffffff;
@@ -3805,117 +3785,6 @@ html.dark .recent-run-card {
 
 .pipeline-sidebar-team-row:hover {
     background-color: var(--bg-tertiary);
-}
-
-.pipeline-tree-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.pipeline-tree-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 6px;
-    border-radius: 8px;
-    color: var(--text-primary);
-    background: transparent;
-    border: none;
-}
-
-html.dark .pipeline-tree-item {
-    background: transparent;
-    border: none;
-}
-
-.pipeline-tree-toggle {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 6px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.pipeline-tree-team {
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    font-size: 0.92rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    flex: 1;
-    padding: 4px 6px;
-    border-radius: 8px;
-}
-
-.pipeline-tree-team.active {
-    color: var(--text-accent);
-    font-weight: 500;
-}
-
-.pipeline-tree-item:hover .pipeline-tree-team:not(.active) {
-    background: var(--bg-tertiary);
-}
-
-.pipeline-tree-children {
-    list-style: none;
-    margin: 6px 0 0 14px;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.pipeline-tree-leaf {
-    border-radius: 8px;
-}
-
-.pipeline-tree-leaf-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    width: 100%;
-    text-align: left;
-    border-radius: 8px;
-    color: var(--text-primary);
-    background: transparent;
-    border: 1px solid transparent;
-}
-
-.pipeline-tree-leaf.active .pipeline-tree-leaf-btn {
-    background: var(--bg-tertiary);
-    color: var(--text-accent);
-    border-color: var(--border-accent);
-}
-
-.pipeline-tree-leaf-btn:hover {
-    background: var(--bg-tertiary);
-}
-
-.pipeline-tree-leaf-dot {
-    color: var(--text-secondary);
-}
-
-.pipeline-tree-leaf-meta {
-    margin-left: auto;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-}
-
-.pipeline-tree-leaf-icon svg {
-    width: 14px;
-    height: 14px;
 }
 
 .pipeline-card-icon {
@@ -21023,6 +20892,14 @@ html:not(.dark) .run-graph-redesign {
     gap: 12px;
 }
 
+.run-detail-workspace-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .run-detail-workspace-tabs {
     display: inline-flex;
     align-items: center;
@@ -21073,6 +20950,27 @@ html:not(.dark) .run-graph-redesign {
     font-size: 11px;
 }
 
+.run-detail-workspace-action {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 750;
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.run-detail-workspace-action:hover {
+    border-color: var(--border-accent);
+    background: var(--bg-primary);
+}
+
 .run-detail-workspace-panel {
     min-width: 0;
 }
@@ -21089,6 +20987,120 @@ html:not(.dark) .run-graph-redesign {
     color: var(--text-secondary);
     font-size: 13px;
     font-weight: 650;
+}
+
+.run-detail-graph-modal {
+    position: fixed;
+    z-index: 90;
+    inset: 0;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(2, 6, 23, 0.62);
+    backdrop-filter: blur(10px);
+}
+
+.run-detail-graph-modal__surface {
+    width: min(1500px, 100%);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    box-shadow: 0 24px 72px rgba(2, 6, 23, 0.36);
+}
+
+.run-detail-graph-modal__head {
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--border-primary);
+    padding: 12px 14px;
+    background: var(--bg-secondary);
+}
+
+.run-detail-graph-modal__title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--text-primary);
+}
+
+.run-detail-graph-modal__title h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.run-detail-graph-modal__title span {
+    border: 1px solid var(--border-primary);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 750;
+}
+
+.run-detail-graph-modal__close {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-primary);
+    border-radius: 999px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.run-detail-graph-modal__close:hover {
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+}
+
+.run-detail-graph-modal__body {
+    min-height: 0;
+    flex: 1;
+}
+
+.run-detail-graph-modal .run-graph-redesign,
+.run-detail-graph-modal .run-graph-panel,
+.run-detail-graph-modal .run-detail-graph-modal__body {
+    height: 100%;
+}
+
+.run-detail-graph-modal .run-graph-redesign--embedded .run-graph-workspace,
+.run-detail-graph-modal .run-graph-redesign--embedded .run-graph-workspace.has-task-reveal {
+    height: 100%;
+    min-height: 34rem;
+}
+
+.run-detail-graph-modal .run-graph-redesign--expanded-frame .run-graph-workspace.has-task-reveal {
+    --rg-expanded-task-reveal-height: clamp(17rem, 40%, 26rem);
+}
+
+.run-detail-graph-modal .run-graph-redesign--expanded-frame .run-graph-workspace.has-task-reveal .run-graph-overview {
+    height: calc(100% - var(--rg-expanded-task-reveal-height) - 26px);
+    transform: none;
+}
+
+.run-detail-graph-modal .run-graph-redesign--expanded-frame .run-graph-task-reveal {
+    left: 22px;
+    right: 22px;
+    bottom: 14px;
+    height: var(--rg-expanded-task-reveal-height);
+    border-radius: 12px;
+}
+
+.run-detail-graph-modal .run-graph-redesign--expanded-frame .run-graph-task-svg {
+    height: 100%;
 }
 
 .run-graph-panel {
@@ -21648,9 +21660,25 @@ html:not(.dark) .run-graph-redesign {
         width: 100%;
     }
 
+    .run-detail-workspace-action {
+        width: 100%;
+    }
+
     .run-detail-workspace-tab {
         flex: 1;
         min-width: 0;
+    }
+
+    .run-detail-graph-modal {
+        padding: 10px;
+    }
+
+    .run-detail-graph-modal__head {
+        align-items: flex-start;
+    }
+
+    .run-detail-graph-modal__title {
+        flex-wrap: wrap;
     }
 }
 

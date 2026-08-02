@@ -197,7 +197,8 @@ export function RunLogsModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6"
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6"
+      data-run-graph-floating-layer
       onPointerDown={event => {
         if (event.target === event.currentTarget) onClose();
       }}

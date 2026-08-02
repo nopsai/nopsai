@@ -103,8 +103,12 @@ release model logic.
   the patch number.
 - `scripts/release-version.sh` owns version calculation, including PR forecast
   offsets.
+- `scripts/release-tags.sh` owns release tag alias calculation for exact,
+  `latest`, major, and major.minor publication.
 - `scripts/generate-changelog.sh` owns deterministic history-to-Markdown
   rendering.
+- `internal/cli/selfupdate` owns CLI release asset resolution, checksum
+  verification, archive extraction, and local binary replacement.
 - `internal/cli/platform/install.go` owns version-to-image generation,
   Docker Compose rendering, Helm values rendering, install locks, and
   first-install Helm deployment locks.
@@ -113,7 +117,8 @@ release model logic.
   owns the GitHub App main-branch release trigger.
 - `.nopsai/nopsai-platform-release.yaml` owns the GitOps release pipeline for
   package validation, GHCR images, OCI source metadata, OCI Helm publication,
-  CLI archives, changelog, checksums, and GitHub Release publication.
+  CLI archives, changelog, checksums, release tag aliases, and GitHub Release
+  publication.
 
 GitOps pipeline and trigger YAML should orchestrate these owners rather than
 duplicate their model or rendering logic inline.

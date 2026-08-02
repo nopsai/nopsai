@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type WheelEvent as ReactWheelEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { Copy, Maximize2, Search, X, ZoomIn, ZoomOut } from 'lucide-react';
 import type {
   GraphLayout,
@@ -44,6 +44,9 @@ const OVERVIEW_MIN_HEIGHT = 310;
 const TASK_VIEW_WIDTH = 1220;
 const TASK_VIEW_HEIGHT = 250;
 const TASK_REGION = { x: 134, y: 72, width: 952, height: 146 };
+const EXPANDED_TASK_VIEW_WIDTH = 1320;
+const EXPANDED_TASK_VIEW_HEIGHT = 340;
+const EXPANDED_TASK_REGION = { x: 126, y: 82, width: 1068, height: 210 };
 const MIN_GRAPH_SCALE = 0.45;
 const MAX_GRAPH_SCALE = 5;
 const ZOOM_BUTTON_FACTOR = 1.32;
@@ -51,6 +54,7 @@ const WHEEL_ZOOM_SENSITIVITY = 0.0018;
 const DEFAULT_GRAPH_VIEW_PADDING = 52;
 const DRAG_CLOSE_THRESHOLD = 5;
 const MINIMAP_MIN_WINDOW_SIZE = 24;
+const RUN_GRAPH_FLOATING_LAYER_SELECTOR = '[data-run-graph-floating-layer]';
 
 type GraphDragStart = {
   clientX: number;
@@ -85,6 +89,8 @@ export function StepsGraph({
   taskStatusColorOverride,
   ariaLabel,
   presentation = 'panel',
+  allowScrollZoom = false,
+  expandedFrame = false,
 }: {
   graphKey?: string;
   steps: StepDetail[];
@@ -102,6 +108,8 @@ export function StepsGraph({
   taskStatusColorOverride?: string;
   ariaLabel?: string;
   presentation?: 'panel' | 'embedded';
+  allowScrollZoom?: boolean;
+  expandedFrame?: boolean;
 }) {
   const [selectedEntityState, setSelectedEntityState] = useState<{
     graphKey: string | null;
@@ -118,6 +126,7 @@ export function StepsGraph({
   const [isMinimapDragging, setIsMinimapDragging] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'unavailable'>('idle');
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const instructionsID = useId();
   const overviewRef = useRef<SVGSVGElement | null>(null);
   const minimapRef = useRef<SVGSVGElement | null>(null);
   const dragStartRef = useRef<GraphDragStart | null>(null);
@@ -243,9 +252,12 @@ export function StepsGraph({
   }, [effectiveSelection, selectedStepData]);
   const selectedTaskLayout = selectedStepData ? taskLayouts.get(selectedStepData.id) || null : null;
   const revealOpen = Boolean(selectedStepData && selectedTaskLayout && selectedStepData.tasks.length);
+  const taskView = expandedFrame
+    ? { width: EXPANDED_TASK_VIEW_WIDTH, height: EXPANDED_TASK_VIEW_HEIGHT, region: EXPANDED_TASK_REGION, maxScale: 1.32 }
+    : { width: TASK_VIEW_WIDTH, height: TASK_VIEW_HEIGHT, region: TASK_REGION, maxScale: 1.08 };
   const fittedTaskLayout = useMemo(
-    () => (selectedTaskLayout ? fitGraphLayoutToRegion(selectedTaskLayout, TASK_REGION, 1.08) : null),
-    [selectedTaskLayout]
+    () => (selectedTaskLayout ? fitGraphLayoutToRegion(selectedTaskLayout, taskView.region, taskView.maxScale) : null),
+    [selectedTaskLayout, taskView.maxScale, taskView.region]
   );
   const stepContext = useMemo(
     () => getStepContext(graphSteps, overviewLayout, selectedStepId),
@@ -268,14 +280,15 @@ export function StepsGraph({
 
   useEffect(() => {
     if (!revealOpen || typeof document === 'undefined') return undefined;
-    const handleDocumentMouseDown = (event: globalThis.MouseEvent) => {
+    const handleDocumentPointerDown = (event: globalThis.PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (workspaceRef.current?.contains(target)) return;
+      if (target.closest(RUN_GRAPH_FLOATING_LAYER_SELECTOR)) return;
       clearSelection();
     };
-    document.addEventListener('mousedown', handleDocumentMouseDown);
-    return () => document.removeEventListener('mousedown', handleDocumentMouseDown);
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    return () => document.removeEventListener('pointerdown', handleDocumentPointerDown);
   }, [clearSelection, revealOpen]);
 
   const graphFocusPoint = useCallback(
@@ -404,14 +417,14 @@ export function StepsGraph({
 
   const handleWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement> | WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
+      if (!allowScrollZoom && !event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       event.stopPropagation();
       const deltaY = 'deltaY' in event ? event.deltaY : 0;
       const zoomFactor = Math.exp(-deltaY * WHEEL_ZOOM_SENSITIVITY);
       setGraphZoom(scale * zoomFactor, graphFocusPoint(event.clientX, event.clientY));
     },
-    [graphFocusPoint, scale, setGraphZoom]
+    [allowScrollZoom, graphFocusPoint, scale, setGraphZoom]
   );
 
   useEffect(() => {
@@ -520,14 +533,14 @@ export function StepsGraph({
 
   return (
     <section
-      className={`run-graph-redesign${embedded ? ' run-graph-redesign--embedded' : ''}`}
+      className={`run-graph-redesign${embedded ? ' run-graph-redesign--embedded' : ''}${expandedFrame ? ' run-graph-redesign--expanded-frame' : ''}`}
       data-presentation={presentation}
       role="region"
       aria-label={graphRegionLabel}
-      aria-describedby="pipeline-run-graph-instructions"
+      aria-describedby={instructionsID}
     >
-      <p id="pipeline-run-graph-instructions" className="sr-only">
-        Use Tab to reach graph controls and nodes. Press Enter or Space to select graph nodes or open logs. Use Control or Command with wheel scrolling to zoom.
+      <p id={instructionsID} className="sr-only">
+        Use Tab to reach graph controls and nodes. Press Enter or Space to select graph nodes or open logs. {allowScrollZoom ? 'Use wheel scrolling to zoom.' : 'Use Control or Command with wheel scrolling to zoom.'}
       </p>
       <div className="run-graph-panel">
         {!embedded ? (
@@ -693,7 +706,7 @@ export function StepsGraph({
               </button>
               <svg
                 className="run-graph-task-svg"
-                viewBox={`0 0 ${TASK_VIEW_WIDTH} ${TASK_VIEW_HEIGHT}`}
+                viewBox={`0 0 ${taskView.width} ${taskView.height}`}
                 role="img"
                 aria-label={`Task graph for ${selectedStepData.name}`}
               >

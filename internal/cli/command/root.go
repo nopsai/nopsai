@@ -83,6 +83,7 @@ func NewRootCommand(dependencies Dependencies) *cobra.Command {
 	root.AddCommand(newAPICommand(options))
 	root.AddCommand(newGuideCommand())
 	root.AddCommand(newLicenseCommand())
+	root.AddCommand(newUpdateCommand(options))
 	root.AddCommand(newInstallCommand(options))
 	root.AddCommand(newPlatformCommand(options))
 	root.AddCommand(newCompletionCommand(root))
