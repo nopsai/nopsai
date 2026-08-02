@@ -15,6 +15,7 @@ import (
 	"nopsai/pkg/runmetadata"
 	"nopsai/pkg/serviceauth"
 
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -188,6 +189,58 @@ func TestEjectRunnerBlocksSameRunnerIDReconnect(t *testing.T) {
 	}
 	if len(status.GetRunners()) != 0 {
 		t.Fatalf("runners len = %d, want ejected runner ID blocked", len(status.GetRunners()))
+	}
+}
+
+func TestAddRunnerRejectsDuplicateLiveRunnerID(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	first := newTestRunnerConn("runner-duplicate", "prod")
+	if !d.addRunner(first) {
+		t.Fatal("addRunner() rejected first runner")
+	}
+
+	duplicate := newTestRunnerConn("runner-duplicate", "prod")
+	duplicate.connectionID = "conn-runner-duplicate-2"
+	if d.addRunner(duplicate) {
+		t.Fatal("addRunner() accepted a duplicate live runner ID")
+	}
+
+	d.mu.Lock()
+	_, firstConnected := d.runners[first.connectionID]
+	_, duplicateConnected := d.runners[duplicate.connectionID]
+	d.mu.Unlock()
+	if !firstConnected {
+		t.Fatal("original runner connection was removed")
+	}
+	if duplicateConnected {
+		t.Fatal("duplicate runner connection was registered")
+	}
+}
+
+func TestRegisterRejectsDuplicateLiveRunnerID(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	first := newTestRunnerConn("runner-register-duplicate", "prod")
+	if !d.addRunner(first) {
+		t.Fatal("addRunner() rejected first runner")
+	}
+
+	stream := &fakeRegisterStream{
+		ctx: context.Background(),
+		recv: []*proto.RunnerMessage{{
+			Message: &proto.RunnerMessage_Register{
+				Register: &proto.RunnerRegistration{
+					RunnerId: "runner-register-duplicate",
+				},
+			},
+		}},
+	}
+
+	err := d.Register(stream)
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("status.Code(err) = %s, want %s", status.Code(err), codes.PermissionDenied)
+	}
+	if !strings.Contains(err.Error(), "already connected") {
+		t.Fatalf("Register() error = %v, want duplicate runner message", err)
 	}
 }
 
@@ -509,6 +562,47 @@ func TestPumpQueueDropsCancelledRunAndDispatchesRunnableJob(t *testing.T) {
 	}
 }
 
+func TestRegisterRecordsAuthenticatedRunnerServiceMetadata(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	ctx := serviceauth.WithClaims(context.Background(), &serviceauth.Claims{
+		Role: serviceauth.RoleRunner,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "runner-secure",
+		},
+	})
+	stream := &fakeRegisterStream{
+		ctx: ctx,
+		recv: []*proto.RunnerMessage{{
+			Message: &proto.RunnerMessage_Register{
+				Register: &proto.RunnerRegistration{
+					RunnerId: "runner-secure",
+					Metadata: map[string]string{
+						"service_id":   "spoofed",
+						"service_role": "spoofed",
+					},
+				},
+			},
+		}},
+	}
+
+	err := d.Register(stream)
+	if err != io.EOF {
+		t.Fatalf("Register() error = %v, want EOF after test stream closes", err)
+	}
+
+	status, err := d.GetStatus(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if len(status.GetRunners()) != 1 {
+		t.Fatalf("runners len = %d, want registered runner snapshot", len(status.GetRunners()))
+	}
+	metadata := status.GetRunners()[0].GetMetadata()
+	if metadata["service_id"] != "runner-secure" || metadata["service_role"] != serviceauth.RoleRunner {
+		t.Fatalf("service metadata = %#v, want authenticated runner identity", metadata)
+	}
+}
+
 func TestPrepareJobForRunnerAppliesRunnerOverridesWithoutMutatingInput(t *testing.T) {
 	d := newDispatcherServer(nil, "http://example")
 	job := &proto.JobRequest{
@@ -706,6 +800,34 @@ func runnerIDForTest(r *runnerConn) string {
 		return "<nil>"
 	}
 	return r.id
+}
+
+type fakeRegisterStream struct {
+	grpc.ServerStream
+	ctx  context.Context
+	recv []*proto.RunnerMessage
+	sent []*proto.DispatcherMessage
+}
+
+func (s *fakeRegisterStream) Context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
+
+func (s *fakeRegisterStream) Recv() (*proto.RunnerMessage, error) {
+	if len(s.recv) == 0 {
+		return nil, io.EOF
+	}
+	msg := s.recv[0]
+	s.recv = s.recv[1:]
+	return msg, nil
+}
+
+func (s *fakeRegisterStream) Send(msg *proto.DispatcherMessage) error {
+	s.sent = append(s.sent, msg)
+	return nil
 }
 
 func TestPumpQueueDoesNotHoldDispatcherLockWhileFetchingRunStatus(t *testing.T) {
@@ -910,6 +1032,32 @@ func TestDispatcherAuthRejectsUnexpectedRole(t *testing.T) {
 	}
 }
 
+func TestDispatcherAuthAllowsRunnerScopedServiceIdentity(t *testing.T) {
+	auth := newTestDispatcherAuth(t)
+	ctx := contextWithServiceToken(t, serviceauth.RoleRunner, "k8s-runner-1")
+
+	claims, err := auth.authenticate(ctx, "/proto.DispatcherService/Register")
+	if err != nil {
+		t.Fatalf("authenticate() runner error = %v", err)
+	}
+	if claims.ServiceRole() != serviceauth.RoleRunner || claims.ServiceID() != "k8s-runner-1" {
+		t.Fatalf("claims = role %q service %q, want runner k8s-runner-1", claims.ServiceRole(), claims.ServiceID())
+	}
+}
+
+func TestDispatcherAuthRejectsRunnerServiceIdentityWhenExpectedIDConfigured(t *testing.T) {
+	authenticator := newTestServiceAuthenticator(t)
+	auth := newDispatcherAuth(authenticator, map[string]string{
+		serviceauth.RoleRunner: "shared-runner-service",
+	})
+	ctx := contextWithServiceToken(t, serviceauth.RoleRunner, "k8s-runner-1")
+
+	_, err := auth.authenticate(ctx, "/proto.DispatcherService/Register")
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("status.Code(err) = %s, want %s", status.Code(err), codes.PermissionDenied)
+	}
+}
+
 func TestDispatcherAuthRejectsUnexpectedServiceID(t *testing.T) {
 	auth := newTestDispatcherAuth(t)
 	ctx := contextWithServiceToken(t, serviceauth.RoleAgent, "different-agent")
@@ -942,6 +1090,16 @@ func newTestDispatcherCredentials(t *testing.T) *serviceauth.Credentials {
 
 func newTestDispatcherAuth(t *testing.T) *dispatcherAuth {
 	t.Helper()
+	authenticator := newTestServiceAuthenticator(t)
+	return newDispatcherAuth(authenticator, map[string]string{
+		serviceauth.RoleNopsai: "control-plane",
+		serviceauth.RoleRunner: "runner",
+		serviceauth.RoleAgent:  "agent",
+	})
+}
+
+func newTestServiceAuthenticator(t *testing.T) *serviceauth.Authenticator {
+	t.Helper()
 	authenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
 		SigningKey: "test-service-key",
 		Issuer:     serviceauth.DefaultIssuer,
@@ -950,11 +1108,7 @@ func newTestDispatcherAuth(t *testing.T) *dispatcherAuth {
 	if err != nil {
 		t.Fatalf("NewAuthenticator() error = %v", err)
 	}
-	return newDispatcherAuth(authenticator, map[string]string{
-		serviceauth.RoleNopsai: "control-plane",
-		serviceauth.RoleRunner: "runner",
-		serviceauth.RoleAgent:  "agent",
-	})
+	return authenticator
 }
 
 func contextWithServiceToken(t *testing.T, role, serviceID string) context.Context {

@@ -267,7 +267,8 @@ export function StepDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-3 py-6"
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-[var(--bg-overlay)] px-3 py-6"
+      data-run-graph-floating-layer
       onPointerDown={event => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -689,7 +690,8 @@ export function PipelineDefinitionModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]"
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-[var(--bg-overlay)]"
+      data-run-graph-floating-layer
       onPointerDown={event => {
         if (event.target === event.currentTarget) onClose();
       }}

@@ -23,8 +23,24 @@ if [[ "$actual" != "$expected" ]]; then
   printf 'version = %s, want %s\n' "$actual" "$expected" >&2
   exit 1
 fi
+release_env="$("$ROOT_DIR/scripts/release-version.sh" --offset 2 --format env)"
+require_text "MAJOR_TAG=${base_version%%.*}" <(printf '%s\n' "$release_env") "the major release tag"
+require_text "MAJOR_MINOR_TAG=$base_version" <(printf '%s\n' "$release_env") "the major.minor release tag"
 if "$ROOT_DIR/scripts/release-version.sh" --offset invalid >/dev/null 2>&1; then
   printf 'invalid version offset succeeded\n' >&2
+  exit 1
+fi
+release_tags=()
+while IFS= read -r release_tag; do
+  release_tags+=("$release_tag")
+done < <("$ROOT_DIR/scripts/release-tags.sh" "$actual")
+expected_release_tags=("$actual" "latest" "${base_version%%.*}" "$base_version")
+if [[ "${release_tags[*]}" != "${expected_release_tags[*]}" ]]; then
+  printf 'release tags = %s, want %s\n' "${release_tags[*]}" "${expected_release_tags[*]}" >&2
+  exit 1
+fi
+if "$ROOT_DIR/scripts/release-tags.sh" "$actual+build" >/dev/null 2>&1; then
+  printf 'release tags accepted build metadata\n' >&2
   exit 1
 fi
 

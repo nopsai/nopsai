@@ -9,22 +9,6 @@ export type NavItem = {
   icon: ReactNode;
 };
 
-export type PipelineTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: PipelineTreeNode[];
-  pipelineIds: string[];
-};
-
-export type StepTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: StepTreeNode[];
-  stepIds: string[];
-};
-
 export type ResourceCapabilities = {
   write?: boolean;
   delete?: boolean;

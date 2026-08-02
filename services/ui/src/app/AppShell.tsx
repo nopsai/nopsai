@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { BranchIcon, IconMenu, IconX, RunIdIcon } from './icons';
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -29,15 +29,12 @@ import {
 import type {
   CurrentUser,
   NavItem,
-  PipelineTreeNode,
   RunTeam,
   RunListItem,
   RunTabKey,
-  StepTreeNode,
   Theme,
 } from './types';
 import { useSidebarState } from './useSidebarState';
-import { useResourceTrees } from './useResourceTrees';
 import { BaseSidebarNavigation } from './BaseSidebarNavigation';
 import { useInitialSetupRedirect } from './useInitialSetupRedirect';
 import { usePipelineRunsSidebar } from './usePipelineRunsSidebar';
@@ -49,7 +46,7 @@ import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedir
 import AssistantDock from '../components/AssistantDock';
 import BrandIdentity from '../components/BrandIdentity';
 import { logoutCurrentSession } from '../lib/api';
-import { buildPipelineRunsRoute, extractTeamPathFromRoute, teamScopedRoute } from '../lib/teamRoutes';
+import { buildPipelineRunsRoute, extractTeamPathFromRoute } from '../lib/teamRoutes';
 import SidebarFooter from './SidebarFooter';
 
 const LoginPage = lazy(() => import('../pages/Login'));
@@ -77,11 +74,8 @@ function AppShell() {
   } = useAuth();
   const access = useMemo(() => getAppAccess(currentUser, authSession), [authSession, currentUser]);
   const {
-    draftScope,
-    canWritePipelines,
     canViewSchedules,
     canViewDashboards,
-    canWriteSteps,
     canViewTriggers,
     canViewExternalTriggers,
     canViewGitWebhookSources,
@@ -216,14 +210,6 @@ function AppShell() {
   const visibleNavItems = setupLocked ? [] : navItems;
   const visibleSystemSubNav = setupLocked ? systemSubNav.filter(item => item.path === '/system/setup') : systemSubNav;
 
-  const resourceTrees = useResourceTrees({
-    canWritePipelines,
-    canWriteSteps,
-    draftScope,
-    isAuthenticated,
-    pathname: location.pathname,
-  });
-
   const pageKey = useMemo(() => {
     const key = location.pathname.split('/').filter(Boolean)[0] || 'pipelineruns';
     return key;
@@ -254,18 +240,9 @@ function AppShell() {
               collapsed={sidebar.collapsed}
               onToggleCollapsed={sidebar.toggleCollapsed}
               width={sidebar.width}
-              pipelineTree={resourceTrees.pipelineTree}
-              pipelineTreeOpen={resourceTrees.pipelineTreeOpen}
-              onTogglePipelineNode={resourceTrees.onTogglePipelineNode}
-              stepTree={resourceTrees.stepTree}
-              stepTreeOpen={resourceTrees.stepTreeOpen}
-              onToggleStepNode={resourceTrees.onToggleStepNode}
-              splitIdentifier={resourceTrees.splitIdentifier}
               locationPathname={location.pathname}
               locationSearch={location.search}
               navigateTo={navigate}
-              onSelectPipelineTeam={path => navigate(teamScopedRoute('/pipelines', path))}
-              onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
               theme={theme}
               onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
               onLogout={handleLogout}
@@ -326,18 +303,9 @@ function Sidebar({
   collapsed,
   onToggleCollapsed,
   width,
-  pipelineTree,
-  pipelineTreeOpen,
-  onTogglePipelineNode,
-  stepTree,
-  stepTreeOpen,
-  onToggleStepNode,
-  splitIdentifier,
   locationPathname,
   locationSearch,
   navigateTo,
-  onSelectPipelineTeam,
-  onSelectStepTeam,
   theme,
   onToggleTheme,
   onLogout,
@@ -352,18 +320,9 @@ function Sidebar({
   collapsed: boolean;
   onToggleCollapsed: () => void;
   width: number;
-  pipelineTree: PipelineTreeNode;
-  pipelineTreeOpen: Set<string>;
-  onTogglePipelineNode: (id: string) => void;
-  stepTree: StepTreeNode;
-  stepTreeOpen: Set<string>;
-  onToggleStepNode: (id: string) => void;
-  splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
   locationSearch: string;
   navigateTo: (path: string) => void;
-  onSelectPipelineTeam: (path: string) => void;
-  onSelectStepTeam: (path: string) => void;
   theme: Theme;
   onToggleTheme: () => void;
   onLogout?: () => void;
@@ -372,159 +331,11 @@ function Sidebar({
   onOpenProfile?: () => void;
 }) {
   const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : width;
-  const isPipelinesRoute = locationPathname.startsWith('/pipelines');
-  const isTriggersRoute = locationPathname.startsWith('/triggers');
-  const isStepsRoute = locationPathname.startsWith('/steps');
   const isPipelineRunsRoute = locationPathname.startsWith('/pipelineruns');
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
     locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
   const showSidebarContextNav = shouldShowSidebarContextNav(locationPathname, pipelineRunsTab);
-  const activeTeam = useMemo(() => {
-    const root = isPipelinesRoute
-      ? 'pipelines'
-      : isTriggersRoute
-        ? 'triggers'
-        : isStepsRoute
-          ? 'steps'
-          : isPipelineRunsRoute
-            ? 'pipelineruns'
-            : '';
-    return (root ? extractTeamPathFromRoute(locationPathname, root) : '') || searchParams.get('team') || '';
-  }, [isPipelineRunsRoute, isPipelinesRoute, isStepsRoute, isTriggersRoute, locationPathname, searchParams]);
-
-  const renderPipelineTreeNode = (node: PipelineTreeNode) => {
-    const isOpen = pipelineTreeOpen.has(node.id);
-    const isRoot = node.id === '__root__';
-    const isActiveTeam = activeTeam === node.fullPath;
-    return (
-      <li key={node.id} className="pipeline-tree-row">
-        {!isRoot && (
-          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
-            <button
-              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
-              onClick={() => onTogglePipelineNode(node.id)}
-              aria-label="Toggle team"
-            >
-              <svg
-                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <button
-              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
-              onClick={() => {
-                if (!isOpen) onTogglePipelineNode(node.id);
-                onSelectPipelineTeam(node.fullPath);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span className="truncate">{node.name}</span>
-            </button>
-          </div>
-        )}
-        {(isRoot || isOpen) && (
-          <ul className="pipeline-tree-children">
-            {node.children.map(child => renderPipelineTreeNode(child))}
-            {node.pipelineIds.map(pid => {
-              const { name } = splitIdentifier(pid);
-              const active = locationPathname.includes(`/pipelines/${pid}`);
-              return (
-                <li key={pid} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
-                  <NavLink className="pipeline-tree-leaf-btn" to={`/pipelines/${pid.split('/').map(encodeURIComponent).join('/')}`}>
-                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="2.5" />
-                        <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
-                      </svg>
-                    </span>
-                    <span className="truncate">{name || pid}</span>
-                  </NavLink>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </li>
-    );
-  };
-
-  const renderStepTreeNode = (node: StepTreeNode) => {
-    const isOpen = stepTreeOpen.has(node.id);
-    const isRoot = node.id === '__root__';
-    const isActiveTeam = activeTeam === node.fullPath;
-    return (
-      <li key={`step-${node.id}`} className="pipeline-tree-row">
-        {!isRoot && (
-          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
-            <button
-              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
-              onClick={() => onToggleStepNode(node.id)}
-              aria-label="Toggle team"
-            >
-              <svg
-                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <button
-              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
-              onClick={() => {
-                if (!isOpen) onToggleStepNode(node.id);
-                onSelectStepTeam(node.fullPath);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span className="truncate">{node.name}</span>
-            </button>
-          </div>
-        )}
-        {(isRoot || isOpen) && (
-          <ul className="pipeline-tree-children">
-            {node.children.map(child => renderStepTreeNode(child))}
-            {node.stepIds.map(stepId => {
-              const { name } = splitIdentifier(stepId);
-              const active = locationPathname.includes(`/steps/${stepId}`);
-              return (
-                <li key={`step-id-${stepId}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
-                  <NavLink className="pipeline-tree-leaf-btn" to={`/steps/${stepId.split('/').map(encodeURIComponent).join('/')}`}>
-                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
-                        <path d="M12 22v-7.5" />
-                        <path d="M20 6.5l-8 4.5-8-4.5" />
-                      </svg>
-                    </span>
-                    <span className="truncate">{name || stepId}</span>
-                  </NavLink>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </li>
-    );
-  };
 
   return (
     <>
@@ -568,35 +379,15 @@ function Sidebar({
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar">
           <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
-          {showSidebarContextNav && !collapsed && (
+          {showSidebarContextNav && !collapsed && isPipelineRunsRoute && (
             <nav id="sidebar-details-nav" className="sidebar-context-nav px-4 py-4 space-y-2" aria-label="Contextual">
-              {isPipelineRunsRoute ? (
-                <PipelineRunsSidebarContent
-                  tab={pipelineRunsTab}
-                  searchParams={searchParams}
-                  locationPathname={locationPathname}
-                  navigateTo={navigateTo}
-                  onClose={onClose}
-                />
-              ) : isPipelinesRoute ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All pipelines</p>
-                  </div>
-                  <ul className="pipeline-tree-list">
-                    {renderPipelineTreeNode(pipelineTree)}
-                  </ul>
-                </div>
-              ) : isStepsRoute ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All steps</p>
-                  </div>
-                  <ul className="pipeline-tree-list">{renderStepTreeNode(stepTree)}</ul>
-                </div>
-              ) : (
-                <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>
-              )}
+              <PipelineRunsSidebarContent
+                tab={pipelineRunsTab}
+                searchParams={searchParams}
+                locationPathname={locationPathname}
+                navigateTo={navigateTo}
+                onClose={onClose}
+              />
             </nav>
           )}
         </div>

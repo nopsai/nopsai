@@ -2,6 +2,8 @@ import { shouldShowPipelineRunsSidebarContext } from './pipelineRunsSidebarVisib
 import type { RunTabKey } from './types.js';
 
 export function shouldShowSidebarContextNav(pathname: string, pipelineRunsTab: RunTabKey) {
+  if (pathname.startsWith('/pipelines')) return false;
+  if (pathname.startsWith('/steps')) return false;
   if (pathname.startsWith('/triggers')) return false;
   if (pathname.startsWith('/knowledge-context')) return false;
   if (pathname.startsWith('/scopes')) return false;

@@ -9,6 +9,7 @@ type CredentialDetailProps = {
   credential: CredentialRecord;
   canManage: boolean;
   saving: boolean;
+  operationError?: string | null;
   teamPaths: string[];
   rotationValue: string;
   onRotationValueChange: (value: string) => void;
@@ -25,6 +26,7 @@ export function CredentialDetail({
   credential,
   canManage,
   saving,
+  operationError,
   teamPaths,
   rotationValue,
   onRotationValueChange,
@@ -115,6 +117,11 @@ export function CredentialDetail({
                 <RotateCcw className="h-4 w-4 text-[var(--credential-muted)]" aria-hidden="true" />
                 <h4>Rotate value</h4>
               </div>
+              {operationError ? (
+                <div className="credential-detail__error" role="alert">
+                  {operationError}
+                </div>
+              ) : null}
               <label className="block">
                 <span className="sr-only">New credential value</span>
                 <textarea

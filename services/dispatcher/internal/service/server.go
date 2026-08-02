@@ -161,10 +161,16 @@ func (a *dispatcherAuth) authenticate(ctx context.Context, fullMethod string) (*
 	if _, ok := roles[claims.ServiceRole()]; !ok {
 		return nil, status.Error(codes.PermissionDenied, "service role is not allowed to call dispatcher method")
 	}
-	if expectedID := a.expectedServiceIDs[claims.ServiceRole()]; expectedID != "" && claims.ServiceID() != expectedID {
+	role := claims.ServiceRole()
+	if expectedID := a.expectedServiceIDs[role]; expectedID != "" && claims.ServiceID() != expectedID && !dispatcherRoleAllowsDynamicIdentity(role, expectedID) {
 		return nil, status.Error(codes.PermissionDenied, "service identity is not allowed to call dispatcher method")
 	}
 	return claims, nil
+}
+
+func dispatcherRoleAllowsDynamicIdentity(role, expectedID string) bool {
+	return strings.EqualFold(strings.TrimSpace(role), serviceauth.RoleRunner) &&
+		strings.EqualFold(strings.TrimSpace(expectedID), serviceauth.RoleRunner)
 }
 
 func grpcMethodName(fullMethod string) string {
@@ -261,7 +267,7 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 	}
 
 	connectionID := d.nextConnectionID(runnerID)
-	metadata := make(map[string]string, len(reg.Metadata)+2)
+	metadata := make(map[string]string, len(reg.Metadata)+4)
 	for k, v := range reg.Metadata {
 		key := strings.TrimSpace(k)
 		if key == "" {
@@ -271,6 +277,14 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 	}
 	metadata["connection_id"] = connectionID
 	metadata["connected_at"] = time.Now().UTC().Format(time.RFC3339)
+	if claims, ok := serviceauth.ClaimsFromContext(stream.Context()); ok {
+		if serviceID := strings.TrimSpace(claims.ServiceID()); serviceID != "" {
+			metadata["service_id"] = serviceID
+		}
+		if serviceRole := strings.TrimSpace(claims.ServiceRole()); serviceRole != "" {
+			metadata["service_role"] = serviceRole
+		}
+	}
 
 	ctx, cancel := context.WithCancel(stream.Context())
 	rc := &runnerConn{
@@ -287,12 +301,13 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 		cancel:        cancel,
 	}
 
-	if !d.addRunner(rc) {
+	if rejection := d.addRunnerWithRejection(rc); rejection != "" {
 		cancel()
 		log.Warn().
 			Str("runner_id", runnerID).
-			Msg("rejected ejected runner registration")
-		return status.Error(codes.PermissionDenied, "runner has been ejected")
+			Str("reason", rejection).
+			Msg("rejected runner registration")
+		return status.Error(codes.PermissionDenied, rejection)
 	}
 	defer d.removeRunner(rc.connectionID)
 
@@ -688,10 +703,18 @@ func logIngestMetadataFromContext(ctx context.Context) LogIngestMetadata {
 }
 
 func (d *dispatcherServer) addRunner(rc *runnerConn) bool {
+	return d.addRunnerWithRejection(rc) == ""
+}
+
+func (d *dispatcherServer) addRunnerWithRejection(rc *runnerConn) string {
 	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if d.runnerEjectedLocked(rc.id) {
-		d.mu.Unlock()
-		return false
+		return "runner has been ejected"
+	}
+	if existing := d.runnerByIDLocked(rc.id); existing != nil {
+		return "runner ID is already connected"
 	}
 	if existing := d.registeredRunners[rc.id]; existing != nil {
 		rc.allowDispatch = existing.allowDispatch
@@ -705,8 +728,7 @@ func (d *dispatcherServer) addRunner(rc *runnerConn) bool {
 		Int32("capacity", rc.capacity).
 		Msg("runner connected")
 
-	d.mu.Unlock()
-	return true
+	return ""
 }
 
 func (d *dispatcherServer) removeRunner(connectionID string) {

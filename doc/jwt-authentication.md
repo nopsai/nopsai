@@ -111,7 +111,7 @@ Service JWT settings for internal REST and dispatcher gRPC:
 | `service_jwt_issuer` | `SERVICE_JWT_ISSUER` | Issuer required by service-token auth; defaults to `nopsai.internal` |
 | `service_jwt_audience` | `SERVICE_JWT_AUDIENCE` | Audience required by service-token auth; defaults to `nopsai-dispatcher` |
 | `nopsai_service_id` | `NOPSAI_SERVICE_ID` | Expected `sub` for Nopsai dispatcher gRPC calls; defaults to `nopsai` |
-| `runner_service_id` | `RUNNER_SERVICE_ID` | Expected `sub` for runner dispatcher gRPC calls; defaults to `runner` |
+| `runner_service_id` | `RUNNER_SERVICE_ID` | Runner dispatcher gRPC `sub`; when left as the default `runner`, dispatcher accepts per-runner IDs used by generated runner installs |
 | `agent_service_id` | `AGENT_SERVICE_ID` | Expected `sub` for agent dispatcher gRPC calls; defaults to `agent` |
 
 If `SERVICE_JWT_SIGNING_KEY` is blank, the code reuses `JWT_SIGNING_KEY`. This keeps local development simple. In production, prefer a separate strong `SERVICE_JWT_SIGNING_KEY`.
@@ -410,7 +410,7 @@ Dispatcher validation requires:
 - `provider = internal-service`
 - non-empty service `role`
 - non-empty service identity in `sub`
-- service identity matching the configured service ID for that role
+- service identity matching the configured service ID for singleton roles (`nopsai`, `agent`, `git-bot`, `dispatcher`); runner callers may use per-runner service identities when the expected runner service ID is the default `runner`
 - role allowed for the requested RPC method
 
 Allowed dispatcher gRPC roles:
@@ -436,6 +436,28 @@ Client wiring:
 - `services/agent` dials dispatcher with role `agent`.
 
 The gRPC transport uses automatic TLS/mTLS from `pkg/servicetls`. By default both sides derive an in-memory private CA from `DISPATCHER_TLS_SECRET`, falling back to the service JWT signing key. The dispatcher presents a certificate for the logical server name `dispatcher`, and in `mtls` mode clients also present automatically generated client certificates. JWT auth is still required after the TLS handshake.
+
+### Runner Trust During Reinstalls
+
+Runner service JWTs are short lived, but runners mint a fresh token on each
+dispatcher call from the local `SERVICE_JWT_SIGNING_KEY`. If a fresh NopsAI
+server reuses the previous `SERVICE_JWT_SIGNING_KEY`, compatible service
+issuer/audience, dispatcher address, and `DISPATCHER_TLS_SECRET`, an old runner
+definition can authenticate to the fresh dispatcher unless its runner ID is in
+the synchronized `ejected_runner_ids` blocklist.
+
+Use these controls when replacing a control plane:
+
+- Rotate `SERVICE_JWT_SIGNING_KEY` and `DISPATCHER_TLS_SECRET` before allowing
+  old runner networks to reach the new dispatcher.
+- Preserve `ejected_runner_ids` through runtime settings or GitOps when a runner
+  ID must stay revoked across reinstall/migration.
+- Keep generated runner installs on per-runner `RUNNER_SERVICE_ID` values. The
+  default install generator sets the service subject to the runner ID unless a
+  global `RUNNER_SERVICE_ID` override is configured.
+- Stop or eject old runners before reusing their IDs. The dispatcher rejects a
+  second live connection with the same runner ID and records authenticated
+  `service_id`/`service_role` metadata on runner status for audit.
 
 ---
 
@@ -512,4 +534,4 @@ If both `SERVICE_JWT_SIGNING_KEY` and `JWT_SIGNING_KEY` are missing:
 
 `service identity is not allowed to call dispatcher method`
 
-- The token role is allowed, but `sub` does not match the configured service ID for that role.
+- The token role is allowed, but `sub` does not match the configured service ID. Runner tokens should use role `runner` plus either a non-empty per-runner `sub` while the dispatcher uses the default expected runner service ID, or the exact configured `RUNNER_SERVICE_ID` when that setting is overridden.

@@ -295,6 +295,9 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 	pipeline := readNopsAIReleasePipeline(t)
 	for _, required := range []string{
 		"package-helm-chart",
+		"scripts/release-tags.sh \"$version\"",
+		`release_tags+=("$release_tag")`,
+		"RELEASE_TAGS",
 		"helm lint dist/release/chart",
 		"helm package dist/release/chart --destination dist/release",
 		"for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64",
@@ -306,6 +309,9 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"cli_assets=(dist/cli/*)",
 		"No CLI release artifacts were built into dist/cli",
 		`helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1`,
+		"install_oras()",
+		`oras_chart_reference="${chart_reference#oci://}"`,
+		`oras copy "$oras_chart_reference:$VERSION" "$oras_chart_reference:$release_tag"`,
 		`grep -Eo 'sha256:[a-f0-9]{64}'`,
 		`tail -1 || true`,
 		"apk add --no-cache bash coreutils perl-utils tar gzip",
@@ -313,8 +319,15 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"changelog_asset=\"nopsai-changelog-$VERSION.md\"",
 		`cp "${cli_assets[@]}" dist/assets/`,
 		`cp "dist/release/nopsai-$VERSION.tgz" "dist/assets/$helm_chart_asset"`,
+		"apk add --no-cache bash curl git tar gzip",
 		"legacy_assets=(",
 		`gh release delete-asset "v$VERSION" "$asset"`,
+		`gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest`,
+		`gh release create "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest`,
+		"publish_alias_release()",
+		`delete_release_assets "$release_tag"`,
+		`publish_alias_release "$release_tag" "v$release_tag"`,
+		`done < <(scripts/release-tags.sh "$VERSION")`,
 	} {
 		if !strings.Contains(pipeline, required) {
 			t.Errorf("NopsAI platform release pipeline is missing %q", required)
@@ -333,6 +346,27 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 	} {
 		if strings.Contains(pipeline, forbidden) {
 			t.Errorf("NopsAI platform release pipeline should not contain %q", forbidden)
+		}
+	}
+}
+
+func TestReleasePipelinePublishesStableContainerTagAliases(t *testing.T) {
+	pipeline := readNopsAIReleasePipeline(t)
+	for _, required := range []string{
+		`while IFS= read -r release_tag; do`,
+		`release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")`,
+		`release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")`,
+		`done < <(scripts/release-tags.sh "$VERSION")`,
+		`"${release_tag_args[@]}"`,
+		`org.opencontainers.image.source="${SOURCE_URL}"`,
+	} {
+		if !strings.Contains(pipeline, required) && !dockerfilesContain(t, required) {
+			t.Errorf("release container tagging/source contract is missing %q", required)
+		}
+	}
+	for _, legacy := range []string{`--tag "$REGISTRY/$image_name:$VERSION"`, `--tag "$REGISTRY/$image_name:latest"`, `--tag "$REGISTRY/nopsai-base:$VERSION"`, `--tag "$REGISTRY/nopsai-base:latest"`} {
+		if strings.Contains(pipeline, legacy) {
+			t.Errorf("release pipeline should use generated release tag aliases instead of hard-coded tag %q", legacy)
 		}
 	}
 }
@@ -362,4 +396,30 @@ func readNopsAIReleasePipeline(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(contents)
+}
+
+func dockerfilesContain(t *testing.T, required string) bool {
+	t.Helper()
+	for _, path := range []string{
+		"../Dockerfile",
+		"../container/Dockerfile.aaa",
+		"../container/Dockerfile.agent",
+		"../container/Dockerfile.dispatcher",
+		"../container/Dockerfile.docker-runner",
+		"../container/Dockerfile.git-bot",
+		"../container/Dockerfile.k8s-runner",
+		"../container/Dockerfile.nopsai",
+		"../container/Dockerfile.pipeline",
+		"../container/Dockerfile.socket-proxy",
+		"../services/ui/Dockerfile",
+	} {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(contents), required) {
+			return true
+		}
+	}
+	return false
 }

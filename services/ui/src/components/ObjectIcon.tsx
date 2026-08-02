@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { getObjectIconComponent, type ObjectIconType } from './objectIconRegistry';
+import { getObjectIconComponent, type ObjectIconType } from './objectIconRegistry.js';
 
 export function ObjectIcon({
   type,

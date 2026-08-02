@@ -68,6 +68,8 @@ test('loads, filters, and closes the run log dialog accessibly', async () => {
   await user.click(opener);
 
   expect(await screen.findByRole('dialog', { name: 'Run Logs for Enterprise pipeline' })).toBeVisible();
+  expect(screen.getByRole('dialog', { name: 'Run Logs for Enterprise pipeline' }).closest('.fixed')).toHaveClass('z-[110]');
+  expect(screen.getByRole('dialog', { name: 'Run Logs for Enterprise pipeline' }).closest('.fixed')).toHaveAttribute('data-run-graph-floating-layer');
   expect(screen.getByRole('searchbox', { name: 'Search run logs' })).toHaveFocus();
   expect(await screen.findByText(/compiled/)).toBeVisible();
   expect(screen.getByRole('log', { name: 'Logs for Enterprise pipeline' })).toBeVisible();

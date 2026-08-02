@@ -33,11 +33,14 @@ The GitOps-managed `.nopsai/nopsai-platform-release.yaml` pipeline publishes
 
 - multi-architecture GHCR images for the base, API, AAA, agent, dispatcher,
   git-bot, Docker runner, Kubernetes runner, socket proxy, UI, and pipeline
-  helper, each with the exact version tag and an additional `latest` tag
-- the NopsAI Helm chart to `oci://<release-registry>/charts/nopsai`
+  helper, each with the exact version tag plus moving `latest`, `<major>`, and
+  `<major>.<minor>` tags
+- the NopsAI Helm chart to `oci://<release-registry>/charts/nopsai` with the
+  same exact, `latest`, major, and major.minor OCI tags
 - GitHub Release asset `nopsai-helm-chart-<version>.tgz`
 - standalone `nopsai-cli_<version>_<os>_<arch>` archives for Linux, macOS, and
-  Windows
+  Windows on the exact GitHub Release, with moving major and major.minor GitHub
+  release aliases carrying the same assets
 - `nopsai-changelog-<version>.md`
 - `SHA256SUMS` for the uploaded GitHub Release assets
 
@@ -46,13 +49,39 @@ The release pipeline intentionally does not upload `release-index.json`,
 `nopsai-deployment-bundle-<version>.tar.gz`. Operators generate deployment files
 from the CLI for the exact version they want to install.
 
-`NOPSAI_RELEASE_REGISTRY` is the shared GHCR package root for both container
-images and the Helm chart. When it is omitted, the release pipeline defaults to
-`ghcr.io/<owner>`, publishes the chart under `charts/nopsai`, and labels every
-container image with `org.opencontainers.image.source=https://github.com/<owner>/<repo>`
-so the GHCR packages link back to the source repository. The `latest` image tags
-are only a package convenience; installers and generated GitOps files continue to
-use exact release versions.
+`scripts/release-tags.sh` is the single release-tag source of truth. For
+`2.10.648` it emits `2.10.648`, `latest`, `2`, and `2.10`; the release pipeline
+uses that list for container images and Helm OCI aliases. `NOPSAI_RELEASE_REGISTRY`
+is the shared GHCR package root for both container images and the Helm chart.
+When it is omitted, the release pipeline defaults to `ghcr.io/<owner>`,
+publishes the chart under `charts/nopsai`, and labels every container image with
+`org.opencontainers.image.source=https://github.com/<owner>/<repo>` so the GHCR
+packages link back to the source repository. Moving tags are only package
+conveniences; installers and generated GitOps files continue to use exact
+release versions.
+
+## CLI Self-Update
+
+Released CLIs can replace themselves from the GitHub Release asset for an exact
+version:
+
+```bash
+nopsai update --version 2.10.648
+```
+
+The updater resolves the asset name for the local OS/architecture, downloads the
+archive and `SHA256SUMS` from `v<version>`, verifies the archive checksum,
+extracts `nopsai` or `nopsai.exe`, and atomically replaces the current binary.
+Use `--repository owner/repo` or `NOPSAI_UPDATE_GITHUB_REPOSITORY` when the
+release lives in another GitHub repository. Use `--asset-base-url` or
+`NOPSAI_UPDATE_ASSET_BASE_URL` for an enterprise HTTPS mirror containing the
+same archive names and `SHA256SUMS`. `NOPSAI_UPDATE_TOKEN` is sent as a bearer
+token for private release mirrors.
+
+The exact GitHub Release is marked as GitHub's latest release. The release
+pipeline also moves `v<major>` and `v<major>.<minor>` GitHub release aliases to
+the same commit and replaces their assets, so CLI download channels do not keep
+stale archives.
 
 ## CLI-Generated Installs
 
@@ -191,7 +220,8 @@ helm upgrade --install nopsai \
 ## Release Boundary
 
 The repository now owns commit-count image, CLI, and Helm publication,
-SBOM/provenance generation, deployment image locks, and changelog generation.
+release-tag aliases, CLI self-update from exact releases, SBOM/provenance
+generation, deployment image locks, and changelog generation.
 Release-manifest signing, release-candidate promotion, package-manager
 distribution, upgrade/status/rollback commands, and Kind smoke deployment
 remain separate work.

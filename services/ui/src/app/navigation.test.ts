@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { baseSystemSubNav } from './navigation.js';
 import {
   eventAutomationNavPath,
   groupNavItemsByTopic,
@@ -87,5 +88,11 @@ describe('groupNavItemsByTopic', () => {
       topics.map(topic => topic.label),
       ['Observe']
     );
+  });
+});
+
+describe('baseSystemSubNav', () => {
+  it('labels first-install setup as Installation under Administration', () => {
+    assert.equal(baseSystemSubNav.find(item => item.path === '/system/setup')?.label, 'Installation');
   });
 });
