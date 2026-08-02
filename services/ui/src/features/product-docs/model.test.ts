@@ -95,6 +95,15 @@ test('documents SSO examples and the GitOps identity-provider boundary', () => {
   assert.ok(filterWikiSections(wikiSections, 'idp-test-pack').some(section => section.id === 'platform-admin'));
 });
 
+test('documents line-level GitOps drift review highlighting', () => {
+  const article = findWikiArticle(wikiSections, 'gitops-authority');
+
+  assert.ok(article);
+  assert.ok(article.details.some(detail => detail.includes('removed Git lines') && detail.includes('added desired lines')));
+  assert.ok(article.details.some(detail => detail.includes('synchronized scrolling')));
+  assert.ok(filterWikiSections(wikiSections, 'synchronized scrolling').some(section => section.id === 'platform-admin'));
+});
+
 test('documents read-only analysis reviewers in the product wiki', () => {
   const article = findWikiArticle(wikiSections, 'analysis-reviewers');
 
