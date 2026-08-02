@@ -65,6 +65,19 @@ GitHub may keep them unlinked until an organization owner connects each package
 to `nopsai/nopsai` once from the package settings page, or deletes and republishes
 the package. Future releases carry the source label and OCI annotations.
 
+## Release Pipeline Supply Chain
+
+The GitOps release pipeline pins its job images by digest and verifies Helm,
+ORAS, and GitHub CLI archives with SHA-256 before extracting or executing them.
+The default tool versions have built-in checksums. If a release overrides
+`NOPSAI_RELEASE_HELM_VERSION`, `NOPSAI_RELEASE_ORAS_VERSION`, or
+`NOPSAI_RELEASE_GH_VERSION`, set the matching architecture checksum variable:
+`NOPSAI_RELEASE_HELM_SHA256_AMD64`, `NOPSAI_RELEASE_HELM_SHA256_ARM64`,
+`NOPSAI_RELEASE_ORAS_SHA256_AMD64`, `NOPSAI_RELEASE_ORAS_SHA256_ARM64`,
+`NOPSAI_RELEASE_GH_SHA256_AMD64`, or `NOPSAI_RELEASE_GH_SHA256_ARM64`.
+The QEMU/binfmt helper image used for multi-architecture builds is also pinned
+by digest.
+
 ## CLI Self-Update
 
 Released CLIs can replace themselves from the GitHub Release asset for an exact

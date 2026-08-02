@@ -30,6 +30,19 @@ System Logs uses the dedicated `system_log.read` action on `system_log:<sourceID
 
 Routes that need response-level filtering, such as list views, are authorized inside handlers with AAA `Filter`.
 
+Route authorization is checked against the generated API catalog in
+`services/nopsai/pkg/routeauthz`. Every mutating catalog route must either map
+to a non-empty AAA action or appear in the explicit handler-authorization
+deferral list in `routeauthz_test.go`. Deferrals are reserved for routes whose
+resource cannot be known safely from the URL alone, authenticated self-service
+flows, internal service-auth endpoints, public credential-validated webhooks, or
+subject-scoped operations such as assistant and monitoring state.
+
+Dashboard updates always require `dashboard.update` on the current dashboard
+resource. If an update changes the resolved team path or slug, the handler also
+requires `dashboard.create` on the target team before writing the new dashboard
+resource ID.
+
 ## AAA Service Contract
 
 The standalone AAA service listens on `AAA_LISTEN_ADDRESS`, defaulting to

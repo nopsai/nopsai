@@ -3,7 +3,11 @@ package routeauthz
 import (
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strings"
 	"testing"
+
+	"nopsai/internal/cli/apicatalog"
 )
 
 func TestMapRequestUsesFilterForTriggerAndScopeLists(t *testing.T) {
@@ -31,6 +35,140 @@ func TestMapRequestUsesFilterForTriggerAndScopeLists(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMutatingCatalogRoutesRequireAuthzOrExplicitHandlerAuthorization(t *testing.T) {
+	deferrals := map[string]string{
+		"POST /v1/access/grants":                                                   "Access grant writes load the target principal/resource and authorize in the access handler.",
+		"DELETE /v1/access/grants/{grantID}":                                       "Access grant deletion resolves the grant before authorizing the target resource.",
+		"POST /v1/analysis/evaluate":                                               "Analysis evaluation is an authenticated subject-scoped utility endpoint.",
+		"POST /v1/assistant/conversations":                                         "Assistant conversations are scoped to the authenticated subject in the handler.",
+		"DELETE /v1/assistant/conversations/{id}":                                  "Assistant conversations are scoped to the authenticated subject in the handler.",
+		"POST /v1/assistant/conversations/{id}/messages":                           "Assistant conversations are scoped to the authenticated subject in the handler.",
+		"POST /v1/assistant/conversations/{id}/summarize-memory":                   "Assistant conversations are scoped to the authenticated subject in the handler.",
+		"POST /v1/auth/discover":                                                   "Authentication discovery is public by design.",
+		"POST /v1/auth/email":                                                      "Authenticated users update their own email address in the handler.",
+		"POST /v1/auth/login":                                                      "Login is public by design.",
+		"POST /v1/auth/logout":                                                     "Logout is public by design.",
+		"POST /v1/auth/password":                                                   "Authenticated users update their own password in the handler.",
+		"POST /v1/auth/personal-tokens":                                            "Authenticated users manage their own personal tokens in the handler.",
+		"DELETE /v1/auth/personal-tokens/{tokenID}":                                "Authenticated users manage their own personal tokens in the handler.",
+		"POST /v1/auth/refresh":                                                    "Token refresh is public by design and validated by refresh token state.",
+		"POST /v1/auth/session/exchange":                                           "Session exchange is public by design and validates the exchanged session.",
+		"POST /v1/authz/resource-use/batch-check":                                  "Resource-use checks answer visibility questions for the current subject.",
+		"POST /v1/authz/resource-use/check":                                        "Resource-use checks answer visibility questions for the current subject.",
+		"POST /v1/dashboards":                                                      "Dashboard creation resolves the requested team and authorizes dashboard.create in the handler.",
+		"POST /v1/external-triggers":                                               "External trigger creation derives the concrete trigger resource from the request body.",
+		"POST /v1/external-triggers/{id}/invoke":                                   "External trigger invocation validates trigger secrets and idempotency in the handler.",
+		"POST /v1/git-webhook-sources":                                             "Git webhook source creation derives the concrete source resource from the request body.",
+		"POST /v1/git/events":                                                      "Git event ingestion is authenticated service flow handled outside AAA route mapping.",
+		"POST /v1/git/webhooks/{sourceID}":                                         "Git webhooks are public by design and validate source-specific secrets.",
+		"POST /v1/internal/registry-auth/docker":                                   "Registry auth is an internal service-auth endpoint.",
+		"POST /v1/internal/runs/{runID}/ai-usage":                                  "Run AI usage ingestion is an internal service-auth endpoint.",
+		"POST /v1/internal/runs/{runID}/approvals/pause":                           "Run approval pause is an internal service-auth endpoint.",
+		"POST /v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs": "Task output ingestion is an internal service-auth endpoint.",
+		"POST /v1/knowledge-connections":                                           "Knowledge connection creation derives the concrete resource from the request body.",
+		"DELETE /v1/knowledge-connections/{connectionID...}":                       "Knowledge connection writes authorize the concrete resource in the handler.",
+		"PATCH /v1/knowledge-connections/{connectionID...}":                        "Knowledge connection writes authorize the concrete resource in the handler.",
+		"POST /v1/knowledge-connections/{connectionID...}":                         "Knowledge connection writes authorize the concrete resource in the handler.",
+		"PUT /v1/knowledge-connections/{connectionID...}":                          "Knowledge connection writes authorize the concrete resource in the handler.",
+		"POST /v1/knowledge-connections/{connectionID}/resolve-page":               "Connection page resolution checks connection use permission in the handler.",
+		"POST /v1/knowledge-connections/{connectionID}/test":                       "Connection tests check connection use permission in the handler.",
+		"POST /v1/knowledge-context-connections":                                   "Knowledge connection creation derives the concrete resource from the request body.",
+		"DELETE /v1/knowledge-context-connections/{connectionID...}":               "Knowledge connection writes authorize the concrete resource in the handler.",
+		"PATCH /v1/knowledge-context-connections/{connectionID...}":                "Knowledge connection writes authorize the concrete resource in the handler.",
+		"POST /v1/knowledge-context-connections/{connectionID...}":                 "Knowledge connection writes authorize the concrete resource in the handler.",
+		"PUT /v1/knowledge-context-connections/{connectionID...}":                  "Knowledge connection writes authorize the concrete resource in the handler.",
+		"POST /v1/knowledge-context-connections/{connectionID}/resolve-page":       "Connection page resolution checks connection use permission in the handler.",
+		"POST /v1/knowledge-context-connections/{connectionID}/test":               "Connection tests check connection use permission in the handler.",
+		"POST /v1/knowledge-contexts/{knowledgeID...}":                             "Knowledge context creation derives the concrete resource from the request body.",
+		"PUT /v1/knowledge-contexts/{knowledgeID...}":                              "Knowledge context writes authorize the concrete resource in the handler.",
+		"POST /v1/mcp":                                                       "Hosted MCP applies tool-level AAA before executing API-backed actions.",
+		"POST /v1/monitoring/alert-rules":                                    "Monitoring operations are scoped to the authenticated subject in the handler.",
+		"DELETE /v1/monitoring/alert-rules/{ruleID}":                         "Monitoring operations are scoped to the authenticated subject in the handler.",
+		"PUT /v1/monitoring/alert-rules/{ruleID}":                            "Monitoring operations are scoped to the authenticated subject in the handler.",
+		"POST /v1/monitoring/alert-rules/{ruleID}/evaluate":                  "Monitoring operations are scoped to the authenticated subject in the handler.",
+		"POST /v1/monitoring/recommendations/{recommendationID}/acknowledge": "Monitoring recommendation workflow is authenticated and persisted by ID in the handler.",
+		"POST /v1/monitoring/recommendations/{recommendationID}/resolve":     "Monitoring recommendation workflow is authenticated and persisted by ID in the handler.",
+		"POST /v1/monitoring/views":                                          "Monitoring operations are scoped to the authenticated subject in the handler.",
+		"DELETE /v1/monitoring/views/{viewID}":                               "Monitoring operations are scoped to the authenticated subject in the handler.",
+		"PUT /v1/monitoring/views/{viewID}":                                  "Monitoring operations are scoped to the authenticated subject in the handler.",
+		"PUT /v1/overrides/{repoOwner}/{repoName}":                           "Trigger override writes derive the concrete trigger and authorize in the handler.",
+		"PUT /v1/pipelines/{pipelineName...}":                                "Pipeline upserts derive create/update authorization from the request body and existing state.",
+		"POST /v1/run":                                                       "Ad-hoc run requests derive the pipeline resource from the submitted definition.",
+		"POST /v1/runs/{runID}/approvals/{approvalID}/approve":               "Approval decisions authorize against the concrete approval and run in the handler.",
+		"POST /v1/runs/{runID}/approvals/{approvalID}/reject":                "Approval decisions authorize against the concrete approval and run in the handler.",
+		"POST /v1/schedules":                                                 "Schedule creation derives the concrete pipeline schedule from the request body.",
+		"DELETE /v1/schedules/{scheduleID}":                                  "Schedule writes load the concrete schedule resource before authorizing.",
+		"PATCH /v1/schedules/{scheduleID}":                                   "Schedule writes load the concrete schedule resource before authorizing.",
+		"PUT /v1/schedules/{scheduleID}":                                     "Schedule writes load the concrete schedule resource before authorizing.",
+		"POST /v1/schedules/{scheduleID}/disable":                            "Schedule writes load the concrete schedule resource before authorizing.",
+		"POST /v1/schedules/{scheduleID}/enable":                             "Schedule writes load the concrete schedule resource before authorizing.",
+		"POST /v1/schedules/{scheduleID}/run":                                "Schedule run-now authorizes the loaded schedule in the handler.",
+		"PUT /v1/steps/{stepName...}":                                        "Step upserts derive create/update authorization from the submitted definition.",
+		"POST /v1/teams":                                                     "Team creation derives parent/team authorization from the request body.",
+		"DELETE /v1/teams/{teamID}":                                          "Team writes load and authorize the concrete team in the handler.",
+		"PUT /v1/teams/{teamID}":                                             "Team writes load and authorize the concrete team in the handler.",
+		"POST /v1/teams/{teamID}/applications":                               "Team application writes load and authorize the concrete team/application in the handler.",
+		"DELETE /v1/teams/{teamID}/applications/{applicationID}":             "Team application writes load and authorize the concrete team/application in the handler.",
+		"PUT /v1/teams/{teamID}/applications/{applicationID}":                "Team application writes load and authorize the concrete team/application in the handler.",
+	}
+
+	var missing []string
+	for _, route := range apicatalog.Routes() {
+		if !mutatingRouteMethod(route.Method) {
+			continue
+		}
+		pathValues := routeAuthzPathValues(route)
+		path, err := route.Expand(pathValues)
+		if err != nil {
+			t.Fatalf("expand %s %s: %v", route.Method, route.Path, err)
+		}
+		req := httptest.NewRequest(route.Method, path, nil)
+		for name, value := range pathValues {
+			req.SetPathValue(name, value)
+		}
+		action, _, _, err := MapRequest(req)
+		if err != nil {
+			t.Fatalf("MapRequest(%s %s) error = %v", route.Method, route.Path, err)
+		}
+		if action != "" {
+			continue
+		}
+		key := route.Method + " " + route.Path
+		if _, ok := deferrals[key]; !ok {
+			missing = append(missing, key)
+		}
+	}
+
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("mutating routes without AAA mapping or explicit handler-authz deferral:\n%s", strings.Join(missing, "\n"))
+	}
+}
+
+func mutatingRouteMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func routeAuthzPathValues(route apicatalog.Route) map[string]string {
+	values := make(map[string]string, len(route.PathParameters))
+	for _, parameter := range route.PathParameters {
+		value := strings.TrimSpace(parameter.Example)
+		if value == "" {
+			value = strings.TrimSpace(parameter.Name) + "-value"
+		}
+		if !parameter.CatchAll && strings.Contains(value, "/") {
+			value = strings.TrimSpace(parameter.Name) + "-value"
+		}
+		values[parameter.Name] = value
+	}
+	return values
 }
 
 func TestMapRequestDefersRunByCheckAuthorizationToConcreteRun(t *testing.T) {
