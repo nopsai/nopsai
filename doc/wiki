@@ -687,9 +687,10 @@ Kubernetes runner. PostgreSQL and bootstrap secrets are intentionally external.
 dispatcher endpoint injected into API and Kubernetes runner pods. The same
 topology block also carries the internal NopsAI, AAA, git-bot, and Gotenberg
 service URLs for custom DNS or split-service deployments.
-Kubernetes runner charts use a RBAC-bearing runner ServiceAccount and a separate
-no-RBAC workload ServiceAccount for agent/step pods; private registries continue
-to work through explicit `imagePullSecrets`.
+Kubernetes runner charts use a RBAC-bearing runner ServiceAccount for the runner
+Deployment and agent pods, plus a separate no-RBAC workload ServiceAccount for
+step pods; private registries continue to work through explicit
+`imagePullSecrets`.
 
 ## Bootstrap Configuration
 

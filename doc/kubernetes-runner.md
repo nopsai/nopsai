@@ -64,9 +64,10 @@ resolvable service DNS name or ingress URL.
 
 The runner uses two Kubernetes identities. `kubernetes.service_account` is the
 runner orchestration identity and owns namespace-scoped RBAC for pods, pod
-logs, pod exec, PVCs, and events. `kubernetes.workload_service_account` is used
-by agent and step pods. New Helm and generated manifests create this workload
-ServiceAccount without NopsAI RBAC and set
+logs, pod exec, PVCs, and events. The runner Deployment and dynamically created
+agent pods use this identity because agents create step pods and PVCs.
+`kubernetes.workload_service_account` is used by step pods. New Helm and
+generated manifests create this workload ServiceAccount without NopsAI RBAC and set
 `kubernetes.workload_automount_service_account_token: false` by default. Private
 registry access is preserved through explicit `kubernetes.image_pull_secrets`,
 which are passed to both agent pods and step pods.

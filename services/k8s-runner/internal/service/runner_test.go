@@ -66,7 +66,7 @@ func TestWorkspaceVolumeSourceUsesExistingPVCWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestCreateAgentPodUsesWorkloadServiceAccountAndPullSecrets(t *testing.T) {
+func TestCreateAgentPodUsesRunnerServiceAccountAndPullSecrets(t *testing.T) {
 	automount := false
 	client := fake.NewSimpleClientset()
 	r := &kubernetesRunner{
@@ -88,11 +88,11 @@ func TestCreateAgentPodUsesWorkloadServiceAccountAndPullSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createAgentPod() error = %v", err)
 	}
-	if pod.Spec.ServiceAccountName != "nopsai-runner-workload" {
-		t.Fatalf("service account = %q, want workload account", pod.Spec.ServiceAccountName)
+	if pod.Spec.ServiceAccountName != "nopsai-runner" {
+		t.Fatalf("service account = %q, want runner account", pod.Spec.ServiceAccountName)
 	}
-	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
-		t.Fatalf("automount token = %#v, want false", pod.Spec.AutomountServiceAccountToken)
+	if pod.Spec.AutomountServiceAccountToken == nil || !*pod.Spec.AutomountServiceAccountToken {
+		t.Fatalf("automount token = %#v, want true", pod.Spec.AutomountServiceAccountToken)
 	}
 	if len(pod.Spec.ImagePullSecrets) != 2 || pod.Spec.ImagePullSecrets[0].Name != "regcred" || pod.Spec.ImagePullSecrets[1].Name != "agent-regcred" {
 		t.Fatalf("image pull secrets = %#v", pod.Spec.ImagePullSecrets)
