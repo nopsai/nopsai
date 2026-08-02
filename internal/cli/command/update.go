@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"nopsai/internal/cli/selfupdate"
 
 	"github.com/spf13/cobra"
 )
+
+const defaultUpdateTimeout = 5 * time.Minute
 
 type updateOptions struct {
 	version      string
@@ -23,17 +26,22 @@ func newUpdateCommand(root *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "update",
 		Short: "Update this CLI to an exact release version",
+		Long:  "Update this CLI to an exact release version. Release downloads use a longer timeout than normal API calls; pass --timeout to override it.",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if strings.TrimSpace(options.version) == "" {
 				return fmt.Errorf("--version is required")
 			}
+			timeout, err := updateTimeout(root, command)
+			if err != nil {
+				return err
+			}
 			httpClient := root.dependencies.HTTPClient
 			if httpClient == nil {
-				httpClient = &http.Client{Timeout: root.timeout}
+				httpClient = &http.Client{Timeout: timeout}
 			} else {
 				clone := *httpClient
-				clone.Timeout = root.timeout
+				clone.Timeout = timeout
 				httpClient = &clone
 			}
 			result, err := (selfupdate.Updater{
@@ -70,6 +78,28 @@ func updateRepository(root *rootOptions, value string) string {
 		}
 	}
 	return selfupdate.DefaultGitHubRepository
+}
+
+func updateTimeout(root *rootOptions, command *cobra.Command) (time.Duration, error) {
+	if root != nil && root.timeout < 0 {
+		return 0, fmt.Errorf("timeout cannot be negative")
+	}
+	if rootTimeoutFlagChanged(command) {
+		return root.timeout, nil
+	}
+	return defaultUpdateTimeout, nil
+}
+
+func rootTimeoutFlagChanged(command *cobra.Command) bool {
+	if command == nil {
+		return false
+	}
+	root := command.Root()
+	if root == nil {
+		return false
+	}
+	flag := root.PersistentFlags().Lookup("timeout")
+	return flag != nil && flag.Changed
 }
 
 func updateAssetBaseURL(root *rootOptions, value string) string {

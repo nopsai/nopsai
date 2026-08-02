@@ -26,9 +26,10 @@ import (
 const (
 	DefaultGitHubRepository = "nopsai/nopsai"
 	checksumAssetName       = "SHA256SUMS"
-	maxArchiveBytes         = 100 << 20
-	maxBinaryBytes          = 100 << 20
+	maxArchiveBytes         = 512 << 20
+	maxBinaryBytes          = 512 << 20
 	maxChecksumBytes        = 2 << 20
+	defaultDownloadTimeout  = 5 * time.Minute
 )
 
 type Updater struct {
@@ -214,22 +215,28 @@ func (u Updater) download(ctx context.Context, source string, limit int64) ([]by
 	}
 	client := u.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		client = &http.Client{Timeout: defaultDownloadTimeout}
 	}
 	response, err := client.Do(request)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("download update asset %s timed out before response headers; retry or pass a larger --timeout: %w", source, err)
+		}
 		return nil, fmt.Errorf("download update asset %s: %w", source, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("download update asset %s: HTTP %d", source, response.StatusCode)
 	}
+	if response.ContentLength > limit {
+		return nil, fmt.Errorf("update asset %s exceeds %s: content length is %s", source, formatByteLimit(limit), formatByteLimit(response.ContentLength))
+	}
 	contents, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("read update asset %s: %w", source, err)
 	}
 	if int64(len(contents)) > limit {
-		return nil, fmt.Errorf("update asset %s exceeds %d bytes", source, limit)
+		return nil, fmt.Errorf("update asset %s exceeds %s", source, formatByteLimit(limit))
 	}
 	return contents, nil
 }
@@ -318,7 +325,7 @@ func extractZipBinary(archiveBytes []byte) ([]byte, error) {
 
 func readBoundedBinary(reader io.Reader, declaredSize int64) ([]byte, error) {
 	if declaredSize < 0 || declaredSize > maxBinaryBytes {
-		return nil, fmt.Errorf("update binary exceeds %d bytes", maxBinaryBytes)
+		return nil, fmt.Errorf("update binary exceeds %s: declared size is %s", formatByteLimit(maxBinaryBytes), formatByteLimit(declaredSize))
 	}
 	contents, err := io.ReadAll(io.LimitReader(reader, maxBinaryBytes+1))
 	if err != nil {
@@ -328,7 +335,7 @@ func readBoundedBinary(reader io.Reader, declaredSize int64) ([]byte, error) {
 		return nil, errors.New("update binary is empty")
 	}
 	if int64(len(contents)) > maxBinaryBytes {
-		return nil, fmt.Errorf("update binary exceeds %d bytes", maxBinaryBytes)
+		return nil, fmt.Errorf("update binary exceeds %s", formatByteLimit(maxBinaryBytes))
 	}
 	return contents, nil
 }
@@ -410,4 +417,15 @@ func valueOrDefault(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func formatByteLimit(bytes int64) string {
+	if bytes < 0 {
+		return fmt.Sprintf("%d bytes", bytes)
+	}
+	const mib = int64(1 << 20)
+	if bytes%mib == 0 && bytes >= mib {
+		return fmt.Sprintf("%d MiB", bytes/mib)
+	}
+	return fmt.Sprintf("%d bytes", bytes)
 }

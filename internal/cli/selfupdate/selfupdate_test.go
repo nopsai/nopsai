@@ -98,6 +98,40 @@ func TestUpdaterRejectsChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestUpdaterRejectsOversizedAssetFromContentLength(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Length", "5")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("12345"))
+	}))
+	defer server.Close()
+
+	_, err := (Updater{HTTPClient: server.Client()}).download(context.Background(), server.URL+"/asset", 4)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 4 bytes") || !strings.Contains(err.Error(), "content length is 5 bytes") {
+		t.Fatalf("oversized asset error = %v", err)
+	}
+}
+
+func TestUpdaterReportsDownloadTimeout(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return nil, context.DeadlineExceeded
+		}),
+	}
+
+	_, err := (Updater{HTTPClient: client}).download(context.Background(), "https://example.com/asset", 4)
+	if err == nil || !strings.Contains(err.Error(), "timed out before response headers") || !strings.Contains(err.Error(), "--timeout") {
+		t.Fatalf("timeout error = %v", err)
+	}
+}
+
+func TestReadBoundedBinaryRejectsOversizedDeclaredSize(t *testing.T) {
+	_, err := readBoundedBinary(strings.NewReader("binary"), maxBinaryBytes+1)
+	if err == nil || !strings.Contains(err.Error(), "update binary exceeds 512 MiB") || !strings.Contains(err.Error(), "declared size is") {
+		t.Fatalf("oversized binary error = %v", err)
+	}
+}
+
 func TestUpdaterDryRunPlansDefaultGitHubAsset(t *testing.T) {
 	plan, err := (Updater{
 		GOOS:       "darwin",
@@ -145,4 +179,10 @@ func tarGzipArchive(t *testing.T, name string, contents []byte) []byte {
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }

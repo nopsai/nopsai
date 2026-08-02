@@ -83,6 +83,16 @@ release lives in another GitHub repository. Use `--asset-base-url` or
 same archive names and `SHA256SUMS`. `NOPSAI_UPDATE_TOKEN` is sent as a bearer
 token for private release mirrors.
 
+Self-update downloads default to a 5 minute timeout, which is longer than the
+normal API timeout. If GitHub or a private mirror is slow to return release
+headers, retry with a larger explicit timeout such as
+`nopsai --timeout 10m update --version <version>`.
+
+Update downloads stay bounded to protect operator machines. An `exceeds` error
+means the resolved URL or enterprise mirror returned an object larger than the
+CLI archive limit; confirm the version, repository, asset base URL, and asset
+name before retrying.
+
 The exact GitHub Release is marked as GitHub's latest release. The release
 pipeline also moves `v<major>` and `v<major>.<minor>` GitHub release aliases to
 the same commit and replaces their assets, so CLI download channels do not keep
