@@ -86,7 +86,7 @@ services:
       NOPSAI_SERVICE_NAME: nopsai
       DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
       GIT_BOT_API_URL: http://nopsai-git-bot:8081
-      NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-4Ns627gVMolptxqC1tePPpOR3FFr04zi3Lk3iHuEV/g=}
+      NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-local-dev-master-key-change-me-please-rotate}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}
       NOPSAI_BOOTSTRAP_ADMIN_EMAIL: ${NOPSAI_BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
       NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-admin}

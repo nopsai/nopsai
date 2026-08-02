@@ -368,8 +368,6 @@ func hostedMCPDeferredAPIRoute(method, rawPath string, resource aaamodel.Resourc
 		return true
 	case pathOnly == "/v1/knowledge-connections" || strings.HasPrefix(pathOnly, "/v1/knowledge-connections/"):
 		return true
-	case pathOnly == "/v1/secrets/encrypt":
-		return method == http.MethodPost
 	default:
 		return strings.TrimSpace(resource.Type) != "" || strings.TrimSpace(resource.ID) != ""
 	}

@@ -50,6 +50,7 @@ func (r *kubernetesRunner) createAgentPod(ctx context.Context, podName, image, w
 			AutomountServiceAccountToken: r.workloadSAToken,
 			ImagePullSecrets:             append([]corev1.LocalObjectReference(nil), r.imagePullSecrets...),
 			NodeSelector:                 nodeSelector,
+			SecurityContext:              defaultKubernetesPodSecurityContext(),
 			Volumes: []corev1.Volume{{
 				Name:         "workspace",
 				VolumeSource: workspaceVolumeSource,
@@ -63,7 +64,8 @@ func (r *kubernetesRunner) createAgentPod(ctx context.Context, podName, image, w
 					Name:      "workspace",
 					MountPath: kubernetesWorkspaceMountPath,
 				}},
-				Resources: resources,
+				Resources:       resources,
+				SecurityContext: defaultKubernetesContainerSecurityContext(),
 			}},
 		},
 	}
@@ -93,6 +95,23 @@ func (r *kubernetesRunner) waitForPodCompletion(ctx context.Context, podName str
 				return pod.Status.Phase, nil
 			}
 		}
+	}
+}
+
+func defaultKubernetesPodSecurityContext() *corev1.PodSecurityContext {
+	return &corev1.PodSecurityContext{
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+}
+
+func defaultKubernetesContainerSecurityContext() *corev1.SecurityContext {
+	allowPrivilegeEscalation := false
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
 }
 

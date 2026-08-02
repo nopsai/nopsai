@@ -5,8 +5,8 @@ import { test } from 'node:test';
 import { appVersionFooterText, normalizePlatformVersionInfo } from './platformVersion.js';
 
 test('normalizes public platform version payloads', () => {
-  assert.deepEqual(normalizePlatformVersionInfo({ productVersion: ' 2.10.648 ' }), {
-    productVersion: '2.10.648',
+  assert.deepEqual(normalizePlatformVersionInfo({ productVersion: ' dev ' }), {
+    productVersion: 'dev',
   });
   assert.deepEqual(normalizePlatformVersionInfo({ version: 'dev' }), {
     productVersion: 'dev',
@@ -16,7 +16,7 @@ test('normalizes public platform version payloads', () => {
 });
 
 test('formats footer as version only', () => {
-  assert.equal(appVersionFooterText({ productVersion: '2.10.648' }), 'Version 2.10.648');
+  assert.equal(appVersionFooterText({ productVersion: 'dev' }), 'Version dev');
   assert.equal(appVersionFooterText(null), '');
 });
 

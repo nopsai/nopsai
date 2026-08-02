@@ -88,7 +88,6 @@ func TestMapRequestTreatsPersonalTokenRoutesAsAuthenticatedOnly(t *testing.T) {
 		{method: http.MethodGet, path: "/v1/auth/personal-tokens"},
 		{method: http.MethodPost, path: "/v1/auth/personal-tokens"},
 		{method: http.MethodDelete, path: "/v1/auth/personal-tokens/00000000-0000-0000-0000-000000000001"},
-		{method: http.MethodPost, path: "/v1/secrets/encrypt"},
 	} {
 		req := httptest.NewRequest(tt.method, tt.path, nil)
 		action, resource, requiresFilter, err := MapRequest(req)
@@ -120,6 +119,14 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantType:   "team",
 			wantID:     "*",
 			wantFilter: true,
+		},
+		{
+			name:       "secret gitops encryption requires write permission",
+			method:     http.MethodPost,
+			path:       "/v1/secrets/encrypt",
+			wantAction: "secret.write_value",
+			wantType:   "secret",
+			wantID:     "*",
 		},
 		{
 			name:       "run logs use read logs action",

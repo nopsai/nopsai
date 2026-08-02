@@ -11,6 +11,7 @@ import (
 
 	"nopsai/internal/cli/interactive"
 	"nopsai/internal/cli/platform"
+	"nopsai/pkg/buildinfo"
 	"nopsai/pkg/compatibility"
 
 	"github.com/spf13/cobra"
@@ -299,6 +300,7 @@ func defaultKubernetesInstallOptions(root *rootOptions) *installKubernetesOption
 }
 
 func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
+	exampleVersion := cliExampleVersion(defaultPlatformVersion(root))
 	return interactive.ScreenOptions{
 		Breadcrumb: []string{"Home", "Install"},
 		Title:      "Install",
@@ -329,7 +331,7 @@ func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 					"  - bootstrap admin email and password",
 					"",
 					"Noninteractive example",
-					"  nopsai install docker-compose --version 2.10.648 --output-dir ./nopsai-prod",
+					fmt.Sprintf("  nopsai install docker-compose --version %s --output-dir ./nopsai-prod", exampleVersion),
 				}
 			case 1:
 				return []string{
@@ -350,13 +352,44 @@ func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 					"  - GitOps release lock path",
 					"",
 					"Noninteractive example",
-					"  nopsai install kubernetes --version 2.10.648 --output-dir ./nopsai-prod --values-file values.yaml",
+					fmt.Sprintf("  nopsai install kubernetes --version %s --output-dir ./nopsai-prod --values-file values.yaml", exampleVersion),
 				}
 			default:
 				return []string{choice.Description}
 			}
 		},
 	}
+}
+
+func cliExampleVersion(defaultVersion string) string {
+	if version := normalizedSemanticVersion(defaultVersion); version != "" {
+		return version
+	}
+	if version := compatibilityRangeLowerBound(buildinfo.DefaultPlatformCompatibility); version != "" {
+		return version
+	}
+	return "0.0.0"
+}
+
+func normalizedSemanticVersion(raw string) string {
+	version, err := compatibility.ParseVersion(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return version.String()
+}
+
+func compatibilityRangeLowerBound(raw string) string {
+	rangeValue, err := compatibility.ParseRange(raw)
+	if err != nil {
+		return ""
+	}
+	for _, comparator := range rangeValue.Comparators {
+		if comparator.Operator == ">=" || comparator.Operator == "=" {
+			return comparator.Version.String()
+		}
+	}
+	return ""
 }
 
 func installFormScreenOptions(target, version string) interactive.ScreenOptions {
@@ -787,7 +820,7 @@ func resolveInteractiveKubernetesInstall(prompter *interactive.Prompter, options
 
 func resolveLiveDockerComposeInstall(prompter *interactive.Prompter, options *installDockerComposeOptions, defaultVersion string) error {
 	fields := []interactive.Field{
-		{Name: "version", Label: "NopsAI version", Value: options.version, Default: strings.TrimSpace(defaultVersion), Required: true, Description: "Exact semantic NopsAI version used to generate image tags and install metadata.", Example: "2.10.648"},
+		{Name: "version", Label: "NopsAI version", Value: options.version, Default: strings.TrimSpace(defaultVersion), Required: true, Description: "Exact semantic NopsAI version used to generate image tags and install metadata.", Example: cliExampleVersion(defaultVersion)},
 		{Name: "outputDir", Label: "Output directory", Value: options.outputDir, Default: platform.DefaultInstallOutputDir, Required: true, Description: "Directory where docker-compose.yaml, .env, database init files, and install lock metadata are written.", Example: "./nopsai-prod"},
 		{Name: "projectName", Label: "Compose project", Value: options.projectName, Default: platform.DefaultInstallProjectName, Required: true, Description: "Docker Compose project name. Use different names when multiple NopsAI stacks share one host.", Example: "nopsai-prod"},
 		{Name: "apiPort", Label: "API host port", Value: options.apiPort, Default: platform.DefaultInstallAPIPort, Required: true, Description: "Host TCP port published for the NopsAI API.", Example: "8080"},
@@ -828,7 +861,7 @@ func resolveLiveDockerComposeInstall(prompter *interactive.Prompter, options *in
 
 func resolveLiveKubernetesInstall(prompter *interactive.Prompter, options *installKubernetesOptions, defaultVersion string) error {
 	fields := []interactive.Field{
-		{Name: "version", Label: "NopsAI version", Value: options.version, Default: strings.TrimSpace(defaultVersion), Required: true, Description: "Exact semantic NopsAI version used to generate image tags, Helm chart version, values, and lock metadata.", Example: "2.10.648"},
+		{Name: "version", Label: "NopsAI version", Value: options.version, Default: strings.TrimSpace(defaultVersion), Required: true, Description: "Exact semantic NopsAI version used to generate image tags, Helm chart version, values, and lock metadata.", Example: cliExampleVersion(defaultVersion)},
 		{Name: "outputDir", Label: "Output directory", Value: options.outputDir, Default: platform.DefaultInstallOutputDir, Required: true, Description: "Directory where generated Helm values and install metadata are written.", Example: "./nopsai-prod"},
 		{Name: "valuesFile", Label: "Values file", Value: options.valuesFile, Default: platform.DefaultKubernetesValuesFile, Required: true, Description: "Generated values file path relative to the output directory. Keep this GitOps-tracked.", Example: "values.yaml"},
 		{Name: "releaseName", Label: "Helm release", Value: options.releaseName, Default: platform.DefaultReleaseName, Required: true, Description: "Helm release name to install or upgrade.", Example: "nopsai"},

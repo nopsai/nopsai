@@ -335,6 +335,56 @@ func TestValidatePipelineRejectsRuntimeOutputWithoutDependency(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineRejectsDependencyCycles(t *testing.T) {
+	tests := []struct {
+		name     string
+		pipeline models.Pipeline
+	}{
+		{
+			name: "step cycle",
+			pipeline: models.Pipeline{
+				Name:           "step-cycle",
+				ContainerImage: "alpine:latest",
+				Steps: []models.PipelineStep{
+					{Step: &models.ScriptStep{
+						BaseStep: models.BaseStep{Name: "build", DependsOn: []string{"deploy"}},
+						Script:   "echo build",
+					}},
+					{Step: &models.ScriptStep{
+						BaseStep: models.BaseStep{Name: "deploy", DependsOn: []string{"build"}},
+						Script:   "echo deploy",
+					}},
+				},
+			},
+		},
+		{
+			name: "task cycle",
+			pipeline: models.Pipeline{
+				Name:           "task-cycle",
+				ContainerImage: "alpine:latest",
+				Steps: []models.PipelineStep{{
+					Step: &models.TaskStep{
+						BaseStep: models.BaseStep{Name: "test"},
+						Tasks: []models.Task{
+							{Name: "unit", DependsOn: []string{"integration"}, Script: "echo unit"},
+							{Name: "integration", DependsOn: []string{"unit"}, Script: "echo integration"},
+						},
+					},
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePipeline(&tt.pipeline)
+			if err == nil || !strings.Contains(err.Error(), "dependency cycle") {
+				t.Fatalf("ValidatePipeline() error = %v, want dependency cycle error", err)
+			}
+		})
+	}
+}
+
 func TestValidatePipelineLLMEnabledHelperUsesPipelineFlag(t *testing.T) {
 	disabled := false
 	p := &models.Pipeline{

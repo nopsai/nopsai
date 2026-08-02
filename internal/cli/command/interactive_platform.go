@@ -64,6 +64,7 @@ func runInteractivePlatformMenu(command *cobra.Command, options *rootOptions, pr
 }
 
 func platformMenuScreenOptions(state homeState) interactive.ScreenOptions {
+	exampleVersion := cliExampleVersion(state.Version)
 	return interactive.ScreenOptions{
 		Breadcrumb: []string{"Home", "Platform"},
 		Title:      "Platform",
@@ -85,7 +86,7 @@ func platformMenuScreenOptions(state homeState) interactive.ScreenOptions {
 				lines = append(lines,
 					"Guide: Release is the advanced GitOps primitive for digest-pinned Helm bundle planning and deployment. Install remains the first-install path.",
 					"",
-					"Example: nopsai platform release kubernetes --version 2.7.0 --manifest release-manifest.json --deploy --wait",
+					fmt.Sprintf("Example: nopsai platform release kubernetes --version %s --manifest release-manifest.json --deploy --wait", exampleVersion),
 				)
 			}
 			return lines
@@ -163,6 +164,7 @@ func chooseInteractiveReleaseTarget(prompter *interactive.Prompter, root *rootOp
 }
 
 func platformReleaseTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
+	exampleVersion := cliExampleVersion(defaultPlatformVersion(root))
 	return interactive.ScreenOptions{
 		Breadcrumb: []string{"Home", "Platform", "Release"},
 		Title:      "Platform Release",
@@ -178,7 +180,7 @@ func platformReleaseTargetScreenOptions(root *rootOptions) interactive.ScreenOpt
 				"Release plans verify the manifest, CLI compatibility, chart digest, rendered image pins, and GitOps release lock behavior before deploy.",
 				"",
 				"Noninteractive example",
-				"  nopsai platform release kubernetes --version 2.7.0 --manifest release-manifest.json --values deploy/prod.yaml",
+				fmt.Sprintf("  nopsai platform release kubernetes --version %s --manifest release-manifest.json --values deploy/prod.yaml", exampleVersion),
 			}
 		},
 	}
@@ -190,7 +192,7 @@ func resolveLiveKubernetesReleaseOptions(prompter *interactive.Prompter, options
 		versionDefault = strings.TrimSpace(defaultVersion)
 	}
 	fields := []interactive.Field{
-		{Name: "version", Label: "Platform version", Value: options.version, Default: versionDefault, Required: true, Description: "Exact semantic platform bundle version to resolve and verify.", Example: "2.7.0"},
+		{Name: "version", Label: "Platform version", Value: options.version, Default: versionDefault, Required: true, Description: "Exact semantic platform bundle version to resolve and verify.", Example: cliExampleVersion(versionDefault)},
 		{Name: "manifest", Label: "Release manifest", Value: options.manifest, Description: "Release manifest source as a local file path or trusted HTTPS URL. Blank uses embedded/default resolver behavior when available.", Example: "release-manifest.json"},
 		{Name: "manifestDigest", Label: "Manifest digest", Value: options.manifestDigest, Description: "Expected SHA-256 digest for the manifest bytes before decoding. Blank trusts the selected source.", Example: "sha256:..."},
 		{Name: "values", Label: "Values files", Value: strings.Join(options.values, "\n"), Multiline: true, Description: "Additional Helm values files to merge in GitOps order. Use one path per line.", Example: "deploy/base.yaml\ndeploy/prod.yaml"},

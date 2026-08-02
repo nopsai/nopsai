@@ -178,7 +178,7 @@ connection or delete/republish. The exact GitHub Release is marked latest, and
 moving `v<major>` / `v<major>.<minor>` GitHub release aliases carry the same CLI
 assets. The release pipeline reads `release/compatibility.yaml` into buildinfo
 linker flags and Docker build args so CLI archives and image-built binaries
-advertise the current `0.22.x` platform, runner, API, and capability contract
+advertise the current platform, runner, API, and capability contract
 instead of a stale major line. Released CLIs support
 `nopsai update --version <major.minor.patch>`; the updater downloads the exact
 GitHub Release archive and `SHA256SUMS`, verifies the checksum, then replaces

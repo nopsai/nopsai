@@ -44,6 +44,9 @@ const (
 	kubernetesStepContainerName       = "step"
 	kubernetesDefaultRuntimePool      = "default"
 	kubernetesServiceAccountNamespace = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	kubernetesManagedLabel            = "nopsai.io/managed"
+	kubernetesStepVolumeOwnerLabel    = "nopsai.io/run-id"
+	kubernetesStepVolumeComponent     = "pipeline-step-volume"
 )
 
 var kubernetesNameInvalidChars = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -199,7 +202,7 @@ func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string
 		})
 	}
 
-	extraMounts, extraVolumes, err := r.kubernetesStepVolumes(ctx, req.Volumes)
+	extraMounts, extraVolumes, err := r.kubernetesStepVolumes(ctx, req.Volumes, req.RunID)
 	if err != nil {
 		return "", err
 	}
@@ -234,6 +237,7 @@ func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string
 			ServiceAccountName:           r.effectiveWorkloadServiceAccount(),
 			AutomountServiceAccountToken: r.workloadSAToken,
 			ImagePullSecrets:             append([]corev1.LocalObjectReference(nil), r.imagePullSecrets...),
+			SecurityContext:              defaultKubernetesPodSecurityContext(),
 			Volumes:                      volumes,
 			Containers: []corev1.Container{{
 				Name:            kubernetesStepContainerName,
@@ -244,6 +248,7 @@ func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string
 				Env:             kubernetesEnv(req.Env),
 				VolumeMounts:    volumeMounts,
 				Resources:       resources,
+				SecurityContext: defaultKubernetesContainerSecurityContext(),
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{
 						Exec: &corev1.ExecAction{Command: []string{"sh", "-c", "true"}},
@@ -352,9 +357,13 @@ func (r *Runtime) CleanupPod(ctx context.Context, podName string) {
 	}
 }
 
-func (r *Runtime) kubernetesStepVolumes(ctx context.Context, volumeSpecs []string) ([]corev1.VolumeMount, []corev1.Volume, error) {
+func (r *Runtime) kubernetesStepVolumes(ctx context.Context, volumeSpecs []string, runID string) ([]corev1.VolumeMount, []corev1.Volume, error) {
 	if len(volumeSpecs) == 0 {
 		return nil, nil, nil
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, nil, fmt.Errorf("run id is required for kubernetes step volumes")
 	}
 	mounts := make([]corev1.VolumeMount, 0, len(volumeSpecs))
 	volumes := make([]corev1.Volume, 0, len(volumeSpecs))
@@ -368,7 +377,7 @@ func (r *Runtime) kubernetesStepVolumes(ctx context.Context, volumeSpecs []strin
 		if claimName == "" || mountPath == "" || !strings.HasPrefix(mountPath, "/") {
 			return nil, nil, fmt.Errorf("invalid kubernetes volume %q", spec)
 		}
-		if err := r.ensurePVC(ctx, claimName, r.workspaceSize, r.accessMode); err != nil {
+		if err := r.ensureStepPVC(ctx, claimName, r.workspaceSize, r.accessMode, runID); err != nil {
 			return nil, nil, fmt.Errorf("ensure pvc %s: %w", claimName, err)
 		}
 		volumeName := kubernetesObjectName("vol", claimName)
@@ -381,6 +390,23 @@ func (r *Runtime) kubernetesStepVolumes(ctx context.Context, volumeSpecs []strin
 		})
 	}
 	return mounts, volumes, nil
+}
+
+func defaultKubernetesPodSecurityContext() *corev1.PodSecurityContext {
+	return &corev1.PodSecurityContext{
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+}
+
+func defaultKubernetesContainerSecurityContext() *corev1.SecurityContext {
+	allowPrivilegeEscalation := false
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
 }
 
 func (r *Runtime) prepareWorkspacePVC(ctx context.Context) error {
@@ -440,6 +466,59 @@ func (r *Runtime) ensurePVC(ctx context.Context, name, size string, accessMode c
 		return err
 	}
 	return nil
+}
+
+func (r *Runtime) ensureStepPVC(ctx context.Context, name, size string, accessMode corev1.PersistentVolumeAccessMode, runID string) error {
+	name = kubernetesPVCName(name)
+	runID = strings.TrimSpace(runID)
+	if name == "" || runID == "" {
+		return fmt.Errorf("pvc name and run id are required")
+	}
+	if existing, err := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		if kubernetesStepPVCOwnedBy(existing.Labels, runID) {
+			return nil
+		}
+		return fmt.Errorf("pvc %s is not owned by this NopsAI run", name)
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	quantity, err := resource.ParseQuantity(firstNonEmpty(size, kubernetesDefaultWorkspaceSize))
+	if err != nil {
+		return fmt.Errorf("parse pvc size: %w", err)
+	}
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: r.namespace,
+			Labels: mergeKubernetesStringMaps(r.podLabels, map[string]string{
+				"app.kubernetes.io/name":       "nopsai",
+				"app.kubernetes.io/component":  kubernetesStepVolumeComponent,
+				kubernetesManagedLabel:         "true",
+				kubernetesStepVolumeOwnerLabel: kubernetesLabelValue(runID),
+			}),
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{accessMode},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: quantity},
+			},
+		},
+	}
+	if r.storageClass != "" {
+		pvc.Spec.StorageClassName = &r.storageClass
+	}
+	if _, err := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
+func kubernetesStepPVCOwnedBy(labels map[string]string, runID string) bool {
+	return strings.EqualFold(strings.TrimSpace(labels[kubernetesManagedLabel]), "true") &&
+		strings.TrimSpace(labels["app.kubernetes.io/name"]) == "nopsai" &&
+		strings.TrimSpace(labels["app.kubernetes.io/component"]) == kubernetesStepVolumeComponent &&
+		strings.TrimSpace(labels[kubernetesStepVolumeOwnerLabel]) == kubernetesLabelValue(runID)
 }
 
 func (r *Runtime) waitForPodRunning(ctx context.Context, podName string) error {

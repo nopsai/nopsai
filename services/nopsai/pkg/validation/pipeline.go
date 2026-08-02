@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	appconfig "nopsai/config"
@@ -283,6 +284,10 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		}
 	}
 
+	if err := validatePipelineDependencyGraph(pipeline, stepToTaskNames, allStepNames); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -520,6 +525,109 @@ func resolvePipelineTaskDependency(depName, currentStep string, allStepNames map
 		return depName, "", true
 	}
 	return "", "", false
+}
+
+func validatePipelineDependencyGraph(pipeline *models.Pipeline, stepToTaskNames map[string]map[string]bool, allStepNames map[string]bool) error {
+	dependencies := map[string][]string{}
+	for stepName, taskNames := range stepToTaskNames {
+		for _, taskName := range sortedTaskNames(taskNames) {
+			dependencies[pipelineTaskKey(stepName, taskName)] = nil
+		}
+	}
+
+	for _, step := range pipeline.Steps {
+		stepName := step.GetName()
+		consumerTasks := sortedTaskNames(stepToTaskNames[stepName])
+		for _, depName := range step.GetDependsOn() {
+			depStep, depTask, ok := resolvePipelineTaskDependency(depName, stepName, allStepNames, stepToTaskNames)
+			if !ok {
+				continue
+			}
+			producerTasks := []string{depTask}
+			if depTask == "" {
+				producerTasks = sortedTaskNames(stepToTaskNames[depStep])
+			}
+			for _, consumerTask := range consumerTasks {
+				consumerKey := pipelineTaskKey(stepName, consumerTask)
+				for _, producerTask := range producerTasks {
+					dependencies[consumerKey] = append(dependencies[consumerKey], pipelineTaskKey(depStep, producerTask))
+				}
+			}
+		}
+
+		for _, task := range step.GetTasks() {
+			consumerKey := pipelineTaskKey(stepName, task.Name)
+			for _, depName := range task.DependsOn {
+				depStep, depTask, ok := resolvePipelineTaskDependency(depName, stepName, allStepNames, stepToTaskNames)
+				if !ok || depTask == "" {
+					continue
+				}
+				dependencies[consumerKey] = append(dependencies[consumerKey], pipelineTaskKey(depStep, depTask))
+			}
+		}
+	}
+
+	state := map[string]int{}
+	stack := []string{}
+	for _, node := range sortedDependencyNodes(dependencies) {
+		if cycle := dependencyCycle(node, dependencies, state, stack); len(cycle) > 0 {
+			return fmt.Errorf("pipeline dependency cycle detected: %s", strings.Join(cycle, " -> "))
+		}
+	}
+	return nil
+}
+
+func dependencyCycle(node string, dependencies map[string][]string, state map[string]int, stack []string) []string {
+	switch state[node] {
+	case 1:
+		for idx, existing := range stack {
+			if existing == node {
+				return append(append([]string(nil), stack[idx:]...), node)
+			}
+		}
+		return []string{node, node}
+	case 2:
+		return nil
+	}
+	state[node] = 1
+	stack = append(stack, node)
+	for _, dep := range sortedStringSlice(dependencies[node]) {
+		if cycle := dependencyCycle(dep, dependencies, state, stack); len(cycle) > 0 {
+			return cycle
+		}
+	}
+	state[node] = 2
+	return nil
+}
+
+func pipelineTaskKey(stepName, taskName string) string {
+	return strings.TrimSpace(stepName) + "/" + strings.TrimSpace(taskName)
+}
+
+func sortedTaskNames(taskNames map[string]bool) []string {
+	names := make([]string, 0, len(taskNames))
+	for name := range taskNames {
+		if strings.TrimSpace(name) != "" {
+			names = append(names, strings.TrimSpace(name))
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sortedDependencyNodes(dependencies map[string][]string) []string {
+	nodes := make([]string, 0, len(dependencies))
+	for node := range dependencies {
+		nodes = append(nodes, node)
+	}
+	sort.Strings(nodes)
+	return nodes
+}
+
+func sortedStringSlice(values []string) []string {
+	out := append([]string(nil), values...)
+	sort.Strings(out)
+	return out
 }
 
 func validatePolicyMergeMode(value string, location string) error {

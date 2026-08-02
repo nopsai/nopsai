@@ -16,15 +16,21 @@ import (
 	"nopsai/pkg/compatibility"
 )
 
+var (
+	testPlatformVersion            = platformTestCompatibilityLowerBound()
+	testOtherPlatformVersion       = platformTestVersionWithPatchOffset(testPlatformVersion, 1)
+	testUnsupportedPlatformVersion = platformTestCompatibilityUpperBound()
+)
+
 func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "install")
 	installer := Installer{
-		CLI:          installCLIInfo("2.7.0"),
+		CLI:          installCLIInfo(testPlatformVersion),
 		RandomReader: bytes.NewReader(bytes.Repeat([]byte{7}, 256)),
 		Now:          func() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) },
 	}
 	plan, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{
-		Version:                "2.7.0",
+		Version:                testPlatformVersion,
 		OutputDir:              outputDir,
 		APIPort:                "18080",
 		UIPort:                 "18000",
@@ -74,7 +80,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	}
 	envText := string(env)
 	for _, required := range []string{
-		"NOPSAI_VERSION=2.7.0",
+		"NOPSAI_VERSION=" + testPlatformVersion,
 		"NOPSAI_API_PORT=18080",
 		"NOPSAI_INTERNAL_API_URL=http://nopsai-api.internal:8080",
 		"DISPATCHER_GRPC_ADDRESS=dispatcher.internal:9090",
@@ -85,7 +91,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 		"DISPATCHER_TLS_SECRET=",
 		"NOPSAI_BOOTSTRAP_ADMIN_EMAIL=platform-admin@example.com",
 		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD=custom-admin-password",
-		"NOPSAI_DOCKER_SOCKET_PROXY_IMAGE=ghcr.io/nopsai/nopsai-docker-socket-proxy:2.7.0",
+		"NOPSAI_DOCKER_SOCKET_PROXY_IMAGE=ghcr.io/nopsai/nopsai-docker-socket-proxy:" + testPlatformVersion,
 	} {
 		if !strings.Contains(envText, required) {
 			t.Fatalf(".env missing %q in:\n%s", required, envText)
@@ -111,7 +117,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	if err := json.Unmarshal(rawLock, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if lock.Target != "docker-compose" || lock.Version != "2.7.0" || lock.Images["api"] != "ghcr.io/nopsai/nopsai-api:2.7.0" || lock.FileHashes[".env"] != "" || strings.Contains(string(rawLock), "manifestDigest") {
+	if lock.Target != "docker-compose" || lock.Version != testPlatformVersion || lock.Images["api"] != "ghcr.io/nopsai/nopsai-api:"+testPlatformVersion || lock.FileHashes[".env"] != "" || strings.Contains(string(rawLock), "manifestDigest") {
 		t.Fatalf("lock = %#v", lock)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "db", "init.sql")); err != nil {
@@ -120,9 +126,9 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 }
 
 func TestDockerComposeInstallRejectsDefaultBootstrapAdminPassword(t *testing.T) {
-	installer := Installer{CLI: installCLIInfo("2.7.0")}
+	installer := Installer{CLI: installCLIInfo(testPlatformVersion)}
 	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{
-		Version:                "2.7.0",
+		Version:                testPlatformVersion,
 		BootstrapAdminPassword: "admin",
 	})
 	if err == nil || !strings.Contains(err.Error(), "built-in development password") {
@@ -131,10 +137,10 @@ func TestDockerComposeInstallRejectsDefaultBootstrapAdminPassword(t *testing.T) 
 }
 
 func TestDockerComposeInstallRequiresComposeCapability(t *testing.T) {
-	cli := installCLIInfo("2.7.0")
+	cli := installCLIInfo(testPlatformVersion)
 	cli.Capabilities = []string{compatibility.CapabilityAPIV1, compatibility.CapabilityPlatformHelm, compatibility.CapabilityRunnerDocker}
 	installer := Installer{CLI: cli, RandomReader: bytes.NewReader(bytes.Repeat([]byte{1}, 256))}
-	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{Version: "2.7.0"})
+	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{Version: testPlatformVersion})
 	if err == nil || !strings.Contains(err.Error(), compatibility.CapabilityPlatformCompose) {
 		t.Fatalf("capability error = %v", err)
 	}
@@ -142,9 +148,9 @@ func TestDockerComposeInstallRequiresComposeCapability(t *testing.T) {
 
 func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "k8s")
-	installer := Installer{CLI: installCLIInfo("2.7.0")}
+	installer := Installer{CLI: installCLIInfo(testPlatformVersion)}
 	plan, err := installer.PlanKubernetesValues(context.Background(), KubernetesValuesOptions{
-		Version:                         "2.7.0",
+		Version:                         testPlatformVersion,
 		OutputDir:                       outputDir,
 		ValuesFile:                      "prod/values.yaml",
 		ReleaseName:                     "nopsai-prod",
@@ -195,7 +201,7 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 		`storageClass: ""`,
 		`provider: kubernetes`,
 		`repository: "ghcr.io/nopsai/nopsai-k8s-runner"`,
-		`tag: "2.7.0"`,
+		`tag: "` + testPlatformVersion + `"`,
 		`digest: ""`,
 	} {
 		if !strings.Contains(valuesText, required) {
@@ -212,7 +218,7 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 	readmeText := string(readme)
 	for _, required := range []string{
 		"# NopsAI Kubernetes Install Notes",
-		"Generated by `nopsai install kubernetes` for NopsAI 2.7.0.",
+		"Generated by `nopsai install kubernetes` for NopsAI " + testPlatformVersion + ".",
 		"- Persistent storage for the chart-managed PostgreSQL StatefulSet",
 		"| PostgreSQL password for bundled PostgreSQL | `postgres-password` |",
 		"| Bootstrap admin password | `initial-admin-password` |",
@@ -230,8 +236,8 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 		"--from-literal=initial-admin-password=\"$BOOTSTRAP_ADMIN_PASSWORD\"",
 		"nopsai install kubernetes --output-dir . --values-file prod/values.yaml --release nopsai-prod --namespace nopsai-system --deploy",
 		"--values overrides/prod.yaml",
-		"helm upgrade --install nopsai-prod oci://ghcr.io/nopsai/charts/nopsai --version 2.7.0 --namespace nopsai-system --create-namespace --values prod/values.yaml",
-		"helm template nopsai-prod oci://ghcr.io/nopsai/charts/nopsai --version 2.7.0 --namespace nopsai-system --values prod/values.yaml",
+		"helm upgrade --install nopsai-prod oci://ghcr.io/nopsai/charts/nopsai --version " + testPlatformVersion + " --namespace nopsai-system --create-namespace --values prod/values.yaml",
+		"helm template nopsai-prod oci://ghcr.io/nopsai/charts/nopsai --version " + testPlatformVersion + " --namespace nopsai-system --values prod/values.yaml",
 	} {
 		if !strings.Contains(readmeText, required) {
 			t.Fatalf("README missing %q in:\n%s", required, readmeText)
@@ -255,19 +261,19 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 
 func TestKubernetesInstallDeploysVersionedOCIChartAndWritesLock(t *testing.T) {
 	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
-	if err := os.WriteFile(valuesPath, []byte("global:\n  releaseVersion: \"2.7.0\"\n"), 0o600); err != nil {
+	if err := os.WriteFile(valuesPath, []byte("global:\n  releaseVersion: \""+testPlatformVersion+"\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	lockPath := filepath.Join(t.TempDir(), ".nopsai", "release.lock")
 	var sawUpgrade bool
 	installer := Installer{
-		CLI: installCLIInfo("2.7.0"),
+		CLI: installCLIInfo(testPlatformVersion),
 		Runner: func(_ context.Context, name string, args []string, _, _ io.Writer) error {
 			if name != "helm" {
 				t.Fatalf("process = %s", name)
 			}
 			sawUpgrade = true
-			for _, required := range []string{"upgrade", "--install", "nopsai-prod", DefaultInstallChartReference, "--version", "2.7.0", "--namespace", "nopsai-system", "--values", valuesPath, "--create-namespace", "--wait"} {
+			for _, required := range []string{"upgrade", "--install", "nopsai-prod", DefaultInstallChartReference, "--version", testPlatformVersion, "--namespace", "nopsai-system", "--values", valuesPath, "--create-namespace", "--wait"} {
 				if !containsInstallArgument(args, required) {
 					t.Fatalf("helm args missing %q in %#v", required, args)
 				}
@@ -277,7 +283,7 @@ func TestKubernetesInstallDeploysVersionedOCIChartAndWritesLock(t *testing.T) {
 		Now: func() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) },
 	}
 	plan, err := installer.DeployKubernetesValues(context.Background(), KubernetesInstallDeployOptions{
-		Version:     "2.7.0",
+		Version:     testPlatformVersion,
 		ValuesFiles: []string{valuesPath},
 		ReleaseName: "nopsai-prod",
 		Namespace:   "nopsai-system",
@@ -287,7 +293,7 @@ func TestKubernetesInstallDeploysVersionedOCIChartAndWritesLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sawUpgrade || plan.ChartReference != DefaultInstallChartReference || plan.ChartVersion != "2.7.0" || !strings.HasPrefix(plan.ValuesHash, "sha256:") {
+	if !sawUpgrade || plan.ChartReference != DefaultInstallChartReference || plan.ChartVersion != testPlatformVersion || !strings.HasPrefix(plan.ValuesHash, "sha256:") {
 		t.Fatalf("plan = %#v, sawUpgrade=%v", plan, sawUpgrade)
 	}
 	rawLock, err := os.ReadFile(lockPath)
@@ -298,7 +304,7 @@ func TestKubernetesInstallDeploysVersionedOCIChartAndWritesLock(t *testing.T) {
 	if err := json.Unmarshal(rawLock, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if lock.Target != "kubernetes" || lock.ChartReference != DefaultInstallChartReference || lock.Images["api"] != "ghcr.io/nopsai/nopsai-api:2.7.0" {
+	if lock.Target != "kubernetes" || lock.ChartReference != DefaultInstallChartReference || lock.Images["api"] != "ghcr.io/nopsai/nopsai-api:"+testPlatformVersion {
 		t.Fatalf("lock = %#v", lock)
 	}
 	if _, ok := lock.Images["dockerSocketProxy"]; ok {
@@ -340,9 +346,44 @@ func installCLIInfo(version string) buildinfo.Info {
 		Version:               version,
 		APIVersion:            "v1",
 		RunnerProtocolVersion: 1,
-		PlatformCompatibility: ">=2.0.0 <3.0.0",
+		PlatformCompatibility: buildinfo.DefaultPlatformCompatibility,
 		Capabilities:          buildinfo.Current().Capabilities,
 	}
+}
+
+func platformTestCompatibilityLowerBound() string {
+	rangeValue, err := compatibility.ParseRange(buildinfo.DefaultPlatformCompatibility)
+	if err != nil {
+		panic(err)
+	}
+	for _, comparator := range rangeValue.Comparators {
+		if comparator.Operator == ">=" || comparator.Operator == "=" {
+			return comparator.Version.String()
+		}
+	}
+	panic("default platform compatibility does not declare a lower bound")
+}
+
+func platformTestCompatibilityUpperBound() string {
+	rangeValue, err := compatibility.ParseRange(buildinfo.DefaultPlatformCompatibility)
+	if err != nil {
+		panic(err)
+	}
+	for _, comparator := range rangeValue.Comparators {
+		if comparator.Operator == "<" || comparator.Operator == "<=" {
+			return comparator.Version.String()
+		}
+	}
+	panic("default platform compatibility does not declare an upper bound")
+}
+
+func platformTestVersionWithPatchOffset(raw string, offset int) string {
+	version, err := compatibility.ParseVersion(raw)
+	if err != nil {
+		panic(err)
+	}
+	version.Patch += offset
+	return version.String()
 }
 
 func containsInstallArgument(args []string, want string) bool {

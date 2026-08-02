@@ -49,8 +49,9 @@ deterministic MCP-grounded summary.
 `nopsai.call_api` is the broad compatibility bridge for remaining product
 features. It calls guarded `/v1` REST routes as the current authenticated
 subject, rejects public/provider ingress and internal service routes, blocks
-default plaintext secret reads, and requires `confirm:true` before mutating
-routes execute.
+default plaintext secret reads, applies route-level AAA mappings such as
+`secret.write_value` for GitOps secret encryption, and requires `confirm:true`
+before mutating routes execute.
 
 Coverage states:
 

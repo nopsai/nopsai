@@ -99,6 +99,9 @@ spec:
         nopsai.io/runner-id: {{ .Values.k8sRunner.runnerID | quote }}
     spec:
       serviceAccountName: {{ include "nopsai.runnerServiceAccountName" . }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets: {{ toYaml . | nindent 8 }}
       {{- end }}
@@ -106,6 +109,12 @@ spec:
         - name: runner
           image: {{ include "nopsai.image" .Values.k8sRunner.image | quote }}
           imagePullPolicy: {{ .Values.k8sRunner.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - {name: NOPSAI_SERVICE_NAME, value: k8s-runner}
             - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}

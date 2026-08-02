@@ -12,7 +12,8 @@ import (
 
 func TestVersionEndpointIsPublicAndNonSensitive(t *testing.T) {
 	original := buildinfo.Current()
-	buildinfo.Version = "2.7.0"
+	testVersion := testVersionHandlerBuildVersion()
+	buildinfo.Version = testVersion
 	buildinfo.Commit = "abc123"
 	buildinfo.BuildDate = "2026-06-21T12:00:00Z"
 	buildinfo.ReleaseManifestDigest = "sha256:release"
@@ -32,12 +33,24 @@ func TestVersionEndpointIsPublicAndNonSensitive(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.ProductVersion != "2.7.0" || response.APIVersion != "v1" || response.ReleaseManifestDigest != "sha256:release" || len(response.Capabilities) == 0 {
+	if response.ProductVersion != testVersion || response.APIVersion != "v1" || response.ReleaseManifestDigest != "sha256:release" || len(response.Capabilities) == 0 {
 		t.Fatalf("response = %#v", response)
 	}
 	if !isPublicPath("/version") {
 		t.Fatal("/version must bypass authentication and AAA")
 	}
+}
+
+func testVersionHandlerBuildVersion() string {
+	for _, field := range strings.Fields(strings.ReplaceAll(buildinfo.DefaultPlatformCompatibility, ",", " ")) {
+		if strings.HasPrefix(field, ">=") {
+			return strings.TrimPrefix(field, ">=")
+		}
+		if strings.HasPrefix(field, "=") {
+			return strings.TrimPrefix(field, "=")
+		}
+	}
+	panic("default platform compatibility does not declare a lower bound")
 }
 
 func TestVersionInfoMap(t *testing.T) {
