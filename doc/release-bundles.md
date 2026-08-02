@@ -9,8 +9,8 @@ pipeline.
 ## Version Identity
 
 `release/version.txt` owns the `major.minor` series. The patch number is the
-repository commit count for the released main-branch commit, so a `2.10` series
-with commit count `648` becomes `2.10.648`. That same semantic version is used
+repository commit count for the released main-branch commit, so a `0.22` series
+with commit count `648` becomes `0.22.648`. That same semantic version is used
 for:
 
 - Git tag `v<version>`
@@ -50,7 +50,7 @@ The release pipeline intentionally does not upload `release-index.json`,
 from the CLI for the exact version they want to install.
 
 `scripts/release-tags.sh` is the single release-tag source of truth. For
-`2.10.648` it emits `2.10.648`, `latest`, `2`, and `2.10`; the release pipeline
+`0.22.648` it emits `0.22.648`, `latest`, `0`, and `0.22`; the release pipeline
 uses that list for container images and Helm OCI aliases. `NOPSAI_RELEASE_REGISTRY`
 is the shared GHCR package root for both container images and the Helm chart.
 When it is omitted, the release pipeline defaults to `ghcr.io/<owner>`,
@@ -72,7 +72,7 @@ Released CLIs can replace themselves from the GitHub Release asset for an exact
 version:
 
 ```bash
-nopsai update --version 2.10.648
+nopsai update --version 0.22.648
 ```
 
 The updater resolves the asset name for the local OS/architecture, downloads the
@@ -103,14 +103,14 @@ can call the exact target directly:
 
 ```bash
 nopsai install docker-compose \
-  --version 2.10.648 \
+  --version 0.22.648 \
   --output-dir ./nopsai-install \
   --nopsai-api-url http://nopsai:8080 \
   --dispatcher-address dispatcher:9090 \
   --run
 
 nopsai install kubernetes \
-  --version 2.10.648 \
+  --version 0.22.648 \
   --output-dir ./nopsai-prod \
   --values-file values.yaml \
   --existing-secret nopsai-secrets
@@ -154,7 +154,7 @@ an explicit manifest:
 
 ```bash
 nopsai platform release kubernetes \
-  --version 2.10.648 \
+  --version 0.22.648 \
   --manifest ./release-manifest.json \
   --values deploy/production.yaml \
   --deploy --wait

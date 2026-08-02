@@ -12,10 +12,10 @@ const (
 	DevelopmentVersion           = "dev"
 	DefaultAPIVersion            = "v1"
 	DefaultRunnerProtocolVersion = 1
-	DefaultCLICompatibility      = ">=2.0.0 <3.0.0"
-	DefaultRunnerCompatibility   = ">=2.0.0 <3.0.0"
-	DefaultPlatformCompatibility = ">=2.0.0 <3.0.0"
-	DefaultCapabilities          = "api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes,runner.local-registry-auth.v1,runner.registry-auth.v1"
+	DefaultCLICompatibility      = ">=0.22.0 <1.0.0"
+	DefaultRunnerCompatibility   = ">=0.22.0 <1.0.0"
+	DefaultPlatformCompatibility = ">=0.22.0 <1.0.0"
+	DefaultCapabilities          = "api.v1,cli.api-catalog.v1,config-sync.v1,dashboard-refresh.v1,dashboards.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes,runner.local-registry-auth.v1,runner.registry-auth.v1"
 )
 
 // These variables are release-linker inputs. Keep names stable for GoReleaser

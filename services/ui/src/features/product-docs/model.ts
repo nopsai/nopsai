@@ -2260,7 +2260,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Generate a Compose install',
             language: 'bash',
             code:
-              'nopsai install docker-compose \\\n  --version 2.10.648 \\\n  --output-dir ./nopsai-install \\\n  --bootstrap-admin-email platform-admin@example.com \\\n  --nopsai-api-url http://nopsai:8080 \\\n  --dispatcher-address dispatcher:9090 \\\n  --run',
+              'nopsai install docker-compose \\\n  --version 0.22.648 \\\n  --output-dir ./nopsai-install \\\n  --bootstrap-admin-email platform-admin@example.com \\\n  --nopsai-api-url http://nopsai:8080 \\\n  --dispatcher-address dispatcher:9090 \\\n  --run',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
             rollback: 'cd ./nopsai-install && docker compose --env-file .env -f docker-compose.yaml down',
@@ -3610,7 +3610,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Version compatibility payload',
             language: 'json',
             code:
-              '{\n  "productVersion": "2.7.0",\n  "apiVersion": "v1",\n  "cliCompatibility": ">=2.0.0 <3.0.0",\n  "runnerCompatibility": ">=2.0.0 <3.0.0",\n  "capabilities": [\n    "api.v1",\n    "cli.api-catalog.v1",\n    "config-sync.v1",\n    "mcp.v1",\n    "monitoring.v1",\n    "platform.helm",\n    "runner.docker",\n    "runner.kubernetes"\n  ]\n}',
+              '{\n  "productVersion": "0.22.741",\n  "apiVersion": "v1",\n  "cliCompatibility": ">=0.22.0 <1.0.0",\n  "runnerCompatibility": ">=0.22.0 <1.0.0",\n  "capabilities": [\n    "api.v1",\n    "cli.api-catalog.v1",\n    "config-sync.v1",\n    "dashboard-refresh.v1",\n    "dashboards.v1",\n    "mcp.v1",\n    "monitoring.v1",\n    "platform.helm",\n    "runner.docker",\n    "runner.kubernetes"\n  ]\n}',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
@@ -3728,7 +3728,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Completion and release operations',
             language: 'bash',
             code:
-              'nopsai completion zsh --output-dir ./completion\nnopsai platform release --interactive\n\nnopsai install kubernetes --version 2.10.648 \\\n  --output-dir ./nopsai-prod \\\n  --values-file values.yaml',
+              'nopsai completion zsh --output-dir ./completion\nnopsai platform release --interactive\n\nnopsai install kubernetes --version 0.22.648 \\\n  --output-dir ./nopsai-prod \\\n  --values-file values.yaml',
             complete: false,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
