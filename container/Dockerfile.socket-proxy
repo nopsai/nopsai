@@ -5,10 +5,10 @@ ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG API_VERSION=v1
 ARG RUNNER_PROTOCOL_VERSION=1
-ARG CLI_COMPATIBILITY=>=2.0.0,<3.0.0
-ARG RUNNER_COMPATIBILITY=>=2.0.0,<3.0.0
-ARG PLATFORM_COMPATIBILITY=>=2.0.0,<3.0.0
-ARG CAPABILITIES=api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes,runner.local-registry-auth.v1,runner.registry-auth.v1
+ARG CLI_COMPATIBILITY=>=0.22.0,<1.0.0
+ARG RUNNER_COMPATIBILITY=>=0.22.0,<1.0.0
+ARG PLATFORM_COMPATIBILITY=>=0.22.0,<1.0.0
+ARG CAPABILITIES=api.v1,cli.api-catalog.v1,config-sync.v1,dashboard-refresh.v1,dashboards.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes,runner.local-registry-auth.v1,runner.registry-auth.v1
 
 WORKDIR /workspace
 COPY go.mod go.sum ./

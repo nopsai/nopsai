@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"nopsai/pkg/buildinfo"
 	"nopsai/pkg/compatibility"
 )
 
@@ -18,7 +19,12 @@ func TestCompatibilityContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contract.CLIVersion != "0.22.0" || contract.RunnerProtocolVersion != 1 || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformCompose) {
+	if contract.CLIVersion != "0.22.0" ||
+		contract.PlatformCompatibility != ">=0.22.0 <1.0.0" ||
+		contract.RunnerCompatibility != ">=0.22.0 <1.0.0" ||
+		contract.RunnerProtocolVersion != 1 ||
+		!compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) ||
+		!compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformCompose) {
 		t.Fatalf("contract = %#v", contract)
 	}
 }
@@ -30,6 +36,32 @@ func TestCommitCountVersionSeriesMatchesCompatibilityBaseline(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(contents)); got != "0.22" {
 		t.Fatalf("release version series = %q, want 0.22", got)
+	}
+}
+
+func TestBuildInfoDefaultsMatchReleaseCompatibilityContract(t *testing.T) {
+	file, err := os.Open("compatibility.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	contract, err := compatibility.DecodeCompatibility(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildinfo.DefaultPlatformCompatibility != contract.PlatformCompatibility {
+		t.Fatalf("default platform compatibility = %q, want %q", buildinfo.DefaultPlatformCompatibility, contract.PlatformCompatibility)
+	}
+	if buildinfo.DefaultCLICompatibility != contract.PlatformCompatibility {
+		t.Fatalf("default CLI compatibility = %q, want %q", buildinfo.DefaultCLICompatibility, contract.PlatformCompatibility)
+	}
+	if buildinfo.DefaultRunnerCompatibility != contract.RunnerCompatibility {
+		t.Fatalf("default runner compatibility = %q, want %q", buildinfo.DefaultRunnerCompatibility, contract.RunnerCompatibility)
+	}
+	for _, capability := range contract.Capabilities {
+		if !strings.Contains(buildinfo.DefaultCapabilities, capability) {
+			t.Errorf("buildinfo defaults missing capability %q", capability)
+		}
 	}
 }
 
@@ -303,7 +335,7 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64",
 		"./cmd/nopsai-cli",
 		"rm -rf dist/cli",
-		"nopsai/pkg/buildinfo.APIVersion=v1",
+		"nopsai/pkg/buildinfo.APIVersion=${API_VERSION}",
 		`asset="nopsai-cli_${VERSION}_${goos}_${goarch}"`,
 		"shopt -s nullglob",
 		"cli_assets=(dist/cli/*)",
@@ -346,6 +378,42 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 	} {
 		if strings.Contains(pipeline, forbidden) {
 			t.Errorf("NopsAI platform release pipeline should not contain %q", forbidden)
+		}
+	}
+}
+
+func TestReleasePipelineInjectsCompatibilityContract(t *testing.T) {
+	pipeline := readNopsAIReleasePipeline(t)
+	for _, required := range []string{
+		"release/compatibility.yaml",
+		`emit "CLI_COMPATIBILITY", normalized_range(contract, "platformCompatibility")`,
+		`emit "PLATFORM_COMPATIBILITY", normalized_range(contract, "platformCompatibility")`,
+		`emit "RUNNER_COMPATIBILITY", normalized_range(contract, "runnerCompatibility")`,
+		`printf '%s=%q\n' "$key" "$value"`,
+		"--build-arg \"API_VERSION=$API_VERSION\"",
+		"--build-arg \"RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION\"",
+		"--build-arg \"CLI_COMPATIBILITY=$CLI_COMPATIBILITY\"",
+		"--build-arg \"RUNNER_COMPATIBILITY=$RUNNER_COMPATIBILITY\"",
+		"--build-arg \"PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY\"",
+		"--build-arg \"CAPABILITIES=$CAPABILITIES\"",
+		"nopsai/pkg/buildinfo.RunnerProtocolVersion=${RUNNER_PROTOCOL_VERSION}",
+		"nopsai/pkg/buildinfo.CLICompatibility=${CLI_COMPATIBILITY}",
+		"nopsai/pkg/buildinfo.RunnerCompatibility=${RUNNER_COMPATIBILITY}",
+		"nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY}",
+		"nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}",
+	} {
+		if !strings.Contains(pipeline, required) {
+			t.Errorf("NopsAI platform release pipeline is missing compatibility contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"nopsai/pkg/buildinfo.CLICompatibility=>=2.0.0,<3.0.0",
+		"nopsai/pkg/buildinfo.RunnerCompatibility=>=2.0.0,<3.0.0",
+		"nopsai/pkg/buildinfo.PlatformCompatibility=>=2.0.0,<3.0.0",
+		`capabilities="api.v1,cli.api-catalog.v1`,
+	} {
+		if strings.Contains(pipeline, forbidden) {
+			t.Errorf("NopsAI platform release pipeline embeds stale compatibility contract %q", forbidden)
 		}
 	}
 }

@@ -105,7 +105,7 @@ steps:
       - NOPSAI_RELEASE_GITHUB_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash coreutils git
+      apk add --no-cache bash coreutils git ruby
       bash <<'BASH'
       set -euo pipefail
 
@@ -193,6 +193,37 @@ steps:
       ghcr_username="${NOPSAI_RELEASE_GHCR_USERNAME:-$repo_owner}"
       platforms="${NOPSAI_RELEASE_PLATFORMS:-linux/amd64,linux/arm64}"
       source_url="https://github.com/$repo_owner_lower/$repo_name_lower"
+      compatibility_env="$(
+        ruby -ryaml -e '
+          def value(contract, key)
+            raw = contract.fetch(key) { abort "release/compatibility.yaml is missing #{key}" }
+            text = raw.to_s.strip
+            abort "release/compatibility.yaml #{key} is empty" if text.empty?
+            text
+          end
+
+          def normalized_range(contract, key)
+            value(contract, key).split.join(",")
+          end
+
+          def emit(key, value)
+            puts "#{key}=#{value}"
+          end
+
+          contract = YAML.load_file("release/compatibility.yaml")
+          api_versions = Array(contract.fetch("apiCompatibility") { abort "release/compatibility.yaml is missing apiCompatibility" }).map { |item| item.to_s.strip }.reject(&:empty?)
+          abort "release/compatibility.yaml apiCompatibility is empty" if api_versions.empty?
+          capabilities = Array(contract.fetch("capabilities") { abort "release/compatibility.yaml is missing capabilities" }).map { |item| item.to_s.strip }.reject(&:empty?)
+          abort "release/compatibility.yaml capabilities is empty" if capabilities.empty?
+
+          emit "API_VERSION", api_versions.first
+          emit "RUNNER_PROTOCOL_VERSION", value(contract, "runnerProtocolVersion")
+          emit "CLI_COMPATIBILITY", normalized_range(contract, "platformCompatibility")
+          emit "PLATFORM_COMPATIBILITY", normalized_range(contract, "platformCompatibility")
+          emit "RUNNER_COMPATIBILITY", normalized_range(contract, "runnerCompatibility")
+          emit "CAPABILITIES", capabilities.join(",")
+        '
+      )"
 
       mkdir -p dist/release
       {
@@ -208,6 +239,17 @@ steps:
         printf 'ALLOW_EXISTING_RELEASE=%q\n' "$allow_existing"
         printf 'SHOULD_RELEASE=%q\n' "$should_release"
         printf 'RELEASE_TAGS=%q\n' "$release_tags_csv"
+        while IFS='=' read -r key value; do
+          [[ -n "$key" ]] || continue
+          case "$key" in
+            API_VERSION|RUNNER_PROTOCOL_VERSION|CLI_COMPATIBILITY|PLATFORM_COMPATIBILITY|RUNNER_COMPATIBILITY|CAPABILITIES) ;;
+            *)
+              echo "Unexpected compatibility env key $key" >&2
+              exit 1
+              ;;
+          esac
+          printf '%s=%q\n' "$key" "$value"
+        done <<< "$compatibility_env"
       } >dist/release/env
 
       echo "release_version=$version"
@@ -394,6 +436,12 @@ steps:
         --build-arg "COMMIT=$SOURCE_COMMIT" \
         --build-arg "BUILD_DATE=$BUILD_DATE" \
         --build-arg "SOURCE_URL=$SOURCE_URL" \
+        --build-arg "API_VERSION=$API_VERSION" \
+        --build-arg "RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION" \
+        --build-arg "CLI_COMPATIBILITY=$CLI_COMPATIBILITY" \
+        --build-arg "RUNNER_COMPATIBILITY=$RUNNER_COMPATIBILITY" \
+        --build-arg "PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY" \
+        --build-arg "CAPABILITIES=$CAPABILITIES" \
         --provenance=mode=max \
         --sbom=true \
         --metadata-file "$metadata_file" \
@@ -458,6 +506,12 @@ steps:
         --build-arg "COMMIT=$SOURCE_COMMIT" \
         --build-arg "BUILD_DATE=$BUILD_DATE" \
         --build-arg "SOURCE_URL=$SOURCE_URL" \
+        --build-arg "API_VERSION=$API_VERSION" \
+        --build-arg "RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION" \
+        --build-arg "CLI_COMPATIBILITY=$CLI_COMPATIBILITY" \
+        --build-arg "RUNNER_COMPATIBILITY=$RUNNER_COMPATIBILITY" \
+        --build-arg "PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY" \
+        --build-arg "CAPABILITIES=$CAPABILITIES" \
         --provenance=mode=max \
         --sbom=true \
         --metadata-file dist/docker-metadata/nopsai-base.json \
@@ -801,8 +855,7 @@ steps:
 
       rm -rf dist/cli
       mkdir -p dist/cli
-      capabilities="api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes"
-      ldflags="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${SOURCE_COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.APIVersion=v1 -X nopsai/pkg/buildinfo.RunnerProtocolVersion=1 -X nopsai/pkg/buildinfo.CLICompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.RunnerCompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.PlatformCompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.Capabilities=${capabilities}"
+      ldflags="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${SOURCE_COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.APIVersion=${API_VERSION} -X nopsai/pkg/buildinfo.RunnerProtocolVersion=${RUNNER_PROTOCOL_VERSION} -X nopsai/pkg/buildinfo.CLICompatibility=${CLI_COMPATIBILITY} -X nopsai/pkg/buildinfo.RunnerCompatibility=${RUNNER_COMPATIBILITY} -X nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY} -X nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}"
 
       for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
         goos="${target%/*}"
