@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Ref, type UIEvent } from 'react';
 import { X } from 'lucide-react';
 import { useDialogFocus } from './useDialogFocus';
 import {
+  buildConfigRepositoryContentDiff,
   changedConfigRepositoryDriftItems,
   type ConfigRepositoryCommitResponse,
+  type ConfigRepositoryDriftLine,
   type ConfigRepositoryDriftResponse,
 } from '../lib/configRepositoryDrift';
 
@@ -24,8 +26,56 @@ function contentValue(value?: string | null) {
   return typeof value === 'string' ? value : '';
 }
 
+function lineTone(kind: ConfigRepositoryDriftLine['kind']) {
+  switch (kind) {
+    case 'added':
+      return 'bg-emerald-500/15 text-emerald-950 dark:text-emerald-50';
+    case 'removed':
+      return 'bg-red-500/15 text-red-950 dark:text-red-50';
+    default:
+      return 'text-[var(--text-secondary)]';
+  }
+}
+
 function shortCommit(sha?: string) {
   return sha ? sha.slice(0, 12) : '';
+}
+
+function DriftCodePane({
+  label,
+  lines,
+  emptyLabel,
+  paneRef,
+  onScroll,
+}: {
+  label: string;
+  lines: ConfigRepositoryDriftLine[];
+  emptyLabel: string;
+  paneRef?: Ref<HTMLDivElement>;
+  onScroll?: (event: UIEvent<HTMLDivElement>) => void;
+}) {
+  const scrollClassName = 'h-[52vh] min-h-[360px] max-h-[620px] overflow-auto';
+  if (lines.length === 0) {
+    return (
+      <div ref={paneRef} onScroll={onScroll} className={`${scrollClassName} p-3 font-mono text-xs text-[var(--text-secondary)]`}>
+        {emptyLabel}
+      </div>
+    );
+  }
+  return (
+    <div ref={paneRef} onScroll={onScroll} className={`${scrollClassName} py-2 font-mono text-xs`} aria-label={`${label} highlighted drift`}>
+      {lines.map((line, index) => (
+        <div
+          key={`${line.number}-${index}-${line.kind}`}
+          className={`grid min-w-max grid-cols-[3.25rem_minmax(28rem,1fr)] gap-3 px-3 py-0.5 ${lineTone(line.kind)}`}
+          data-drift-line-kind={line.kind}
+        >
+          <span className="select-none text-right tabular-nums text-[var(--text-muted)]">{line.number}</span>
+          <code className="whitespace-pre">{line.text || ' '}</code>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ConfigRepositoryDriftModal({
@@ -54,10 +104,38 @@ export function ConfigRepositoryDriftModal({
   const changedItems = useMemo(() => changedConfigRepositoryDriftItems(drift), [drift]);
   const [selectedPath, setSelectedPath] = useState('');
   const selected = changedItems.find(item => item.path === selectedPath) ?? changedItems[0] ?? null;
+  const selectedDiff = useMemo(() => (selected ? buildConfigRepositoryContentDiff(selected) : null), [selected]);
   const summary = drift?.summary ?? {};
   const gitOnlyCount = summary.deleted ?? changedItems.filter(item => item.status === 'deleted').length;
   const pushDisabled = loading || pushing || !canPush || changedItems.length === 0 || Boolean(pushResult);
   const dialogRef = useDialogFocus(onClose);
+  const gitPaneRef = useRef<HTMLDivElement | null>(null);
+  const nopsaiPaneRef = useRef<HTMLDivElement | null>(null);
+  const syncingScrollRef = useRef(false);
+  const syncDriftPaneScroll = useCallback((sourcePane: HTMLDivElement | null, targetPane: HTMLDivElement | null) => {
+    if (syncingScrollRef.current || !sourcePane || !targetPane) return;
+    const nextScrollTop = sourcePane.scrollTop;
+    const nextScrollLeft = sourcePane.scrollLeft;
+    if (targetPane.scrollTop === nextScrollTop && targetPane.scrollLeft === nextScrollLeft) return;
+    syncingScrollRef.current = true;
+    targetPane.scrollTop = nextScrollTop;
+    targetPane.scrollLeft = nextScrollLeft;
+    syncingScrollRef.current = false;
+  }, []);
+  const syncNopsaiToGit = useCallback((event: UIEvent<HTMLDivElement>) => {
+    syncDriftPaneScroll(event.currentTarget, gitPaneRef.current);
+  }, [syncDriftPaneScroll]);
+  const syncGitToNopsai = useCallback((event: UIEvent<HTMLDivElement>) => {
+    syncDriftPaneScroll(event.currentTarget, nopsaiPaneRef.current);
+  }, [syncDriftPaneScroll]);
+
+  useEffect(() => {
+    [gitPaneRef.current, nopsaiPaneRef.current].forEach(pane => {
+      if (!pane) return;
+      pane.scrollTop = 0;
+      pane.scrollLeft = 0;
+    });
+  }, [selected?.path]);
 
   return (
     <div
@@ -68,7 +146,7 @@ export function ConfigRepositoryDriftModal({
     >
       <div
         ref={dialogRef}
-        className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--border-primary)] bg-white shadow-xl dark:bg-slate-900"
+        className="flex max-h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-[var(--border-primary)] bg-white shadow-xl dark:bg-slate-900"
         role="dialog"
         aria-modal="true"
         aria-labelledby="config-repository-drift-title"
@@ -134,12 +212,12 @@ export function ConfigRepositoryDriftModal({
           )}
 
           {changedItems.length > 0 && (
-            <div className="grid min-h-[360px] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
+            <div className="grid min-h-[520px] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.7fr)]">
               <div className="overflow-hidden rounded-lg border border-[var(--border-primary)]">
                 <div className="border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                   Files
                 </div>
-                <div className="max-h-[420px] overflow-y-auto">
+                <div className="max-h-[700px] overflow-y-auto">
                   {changedItems.map(item => (
                     <button
                       key={item.path}
@@ -159,7 +237,10 @@ export function ConfigRepositoryDriftModal({
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-primary)] px-3 py-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[var(--text-primary)]" title={selected.path}>{selected.path}</p>
-                      <p className="text-xs text-[var(--text-secondary)]">{selected.delete ? 'Will be deleted' : 'Will be written to Git'}</p>
+                      <p className="text-xs text-[var(--text-secondary)]">
+                        {selected.delete ? 'Will be deleted' : 'Will be written to Git'}
+                        {selectedDiff && selectedDiff.changedLines > 0 ? ` - ${selectedDiff.changedLines} highlighted line${selectedDiff.changedLines === 1 ? '' : 's'}` : ''}
+                      </p>
                     </div>
                     <span className={`rounded-full border px-2 py-1 text-xs font-medium ${statusTone(selected.status)}`}>{selected.status}</span>
                   </div>
@@ -168,13 +249,25 @@ export function ConfigRepositoryDriftModal({
                       <div className="border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                         Git
                       </div>
-                      <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words p-3 text-xs text-[var(--text-secondary)]">{contentValue(selected.git_content) || '(no file)'}</pre>
+                      <DriftCodePane
+                        label="Git"
+                        lines={selectedDiff?.git ?? []}
+                        emptyLabel={contentValue(selected.git_content) || '(no file)'}
+                        paneRef={gitPaneRef}
+                        onScroll={syncGitToNopsai}
+                      />
                     </div>
                     <div className="min-w-0">
                       <div className="border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                         Nopsai
                       </div>
-                      <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words p-3 text-xs text-[var(--text-secondary)]">{selected.delete ? '(deleted)' : contentValue(selected.desired_content)}</pre>
+                      <DriftCodePane
+                        label="Nopsai"
+                        lines={selectedDiff?.desired ?? []}
+                        emptyLabel={selected.delete ? '(deleted)' : contentValue(selected.desired_content) || '(no file)'}
+                        paneRef={nopsaiPaneRef}
+                        onScroll={syncNopsaiToGit}
+                      />
                     </div>
                   </div>
                 </div>

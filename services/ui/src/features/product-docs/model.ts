@@ -2644,6 +2644,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Canonical system files include credentials.yaml, github.yaml, runner.yaml, auth.yaml, mail.yaml, llm_profile.yaml, mcp.yaml, and agent-profiles.yaml.',
           'Config sync can import, update, prune Git-managed resources, detect drift, generate commit-ready changes, push to a review branch, and adopt database-created, parent-managed, or orphaned GitOps-labeled resources when they fall inside the syncing repository scope.',
           'Drift/export canonicalizes stale managed source paths, so legacy files with duplicated team prefixes or missing team segments are proposed as file moves.',
+          'The drift review modal shows Git and Nopsai panes with line numbers, synchronized scrolling, and highlighted removed Git lines and added desired lines before push.',
           'Team config repository access manifests normalize team-relative resources, including team:dev, knowledge_context:guideline/go-style, and knowledge_connection:notion-main.',
           'A system/global repository can own shared platform settings and delegate team-owned repositories. Runtime records stay in PostgreSQL; declarative intent lives in Git.',
           'Write-enabled repositories push generated files to a review branch before merge. Sync should not mutate the protected sync branch directly.',
