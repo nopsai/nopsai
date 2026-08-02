@@ -54,6 +54,7 @@ direct HTTP calls.
 Public endpoint:
 
 - `GET /healthz`
+- `GET /livez`
 - `GET /version` exposes only immutable build, API compatibility, capability,
   and optional legacy release-manifest identity. It is available during setup preflight and
   does not expose environment state or credentials.

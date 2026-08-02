@@ -335,7 +335,8 @@ Outbound interfaces:
 
 Notable behavior:
 
-- `GET /healthz` is public for health checks.
+- `GET /healthz` is public for readiness checks.
+- `GET /livez` is public for lightweight liveness checks.
 - All `/v1/authn/*`, `/v1/authz/*`, and `/v1/audit/*` endpoints require the shared internal token.
 - `nopsai` keeps an in-process evaluator fallback behind its `AAAClient`
   boundary using the same store, so short AAA service outages do not have to

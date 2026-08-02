@@ -68,6 +68,7 @@ func TestCatalogClassifiesSpecialRoutesAndReturnsCopies(t *testing.T) {
 		verify   func(Route) bool
 		property string
 	}{
+		{"GET", "/livez", func(route Route) bool { return route.Public && route.Domain == "platform" }, "public platform"},
 		{"POST", "/v1/auth/login", func(route Route) bool { return route.Public }, "public"},
 		{"POST", "/v1/internal/config/sync", func(route Route) bool { return route.Internal }, "internal"},
 		{"GET", "/v1/system/logs/sources/{sourceID}/stream", func(route Route) bool { return route.Streaming }, "streaming"},
