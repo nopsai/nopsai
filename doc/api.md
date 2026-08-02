@@ -525,9 +525,10 @@ curl -X POST \
 The UI sends `profile: "team"` as a compatibility value, but the operator
 experience no longer asks for a starter profile. Repository teams are used for
 starter run teams and user role assignment. If `seed_llm_profile` is false,
-the bootstrap response includes a warning that AI-enabled pipelines may not work
-until an LLM profile is configured. For the full operator flow, see
-[first-install-wizard.md](./first-install-wizard.md).
+the starter `setup/first-run` pipeline is generated without the AI smoke step
+and with `llm_enabled: false`. The bootstrap response still includes a warning
+that other AI-enabled pipelines may not work until an LLM profile is configured.
+For the full operator flow, see [first-install-wizard.md](./first-install-wizard.md).
 
 ---
 

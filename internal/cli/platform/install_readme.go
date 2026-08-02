@@ -45,6 +45,7 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 		builder.WriteString(key.Key)
 		builder.WriteString("` |\n")
 	}
+	builder.WriteString("\nWhen bundled PostgreSQL is enabled, `database-url` and `postgres-password` must contain the same database password. The API and AAA deployments read `database-url`, while the PostgreSQL StatefulSet reads `postgres-password`. If a PostgreSQL PVC already exists, the database keeps the password from its first initialization; changing the Secret alone does not rotate the existing database role password. Update the role password in PostgreSQL, or recreate the PVC only when its data can be discarded.\n")
 
 	builder.WriteString("\n## Registry Pull Secret\n\n")
 	builder.WriteString("If your NopsAI release images are private, create a registry pull Secret in namespace `")

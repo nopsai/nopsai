@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -829,6 +830,26 @@ func PipelineLLMEnabled(pipeline *Pipeline) bool {
 		return *pipeline.LLMEnabled
 	}
 	return true
+}
+
+func PipelineRequiresLLMProfiles(pipeline *Pipeline) bool {
+	if pipeline == nil || !PipelineLLMEnabled(pipeline) {
+		return false
+	}
+	if len(pipeline.Output.Items) > 0 {
+		return true
+	}
+	for _, step := range pipeline.Steps {
+		if strings.TrimSpace(step.GetCondition()) != "" || strings.TrimSpace(step.GetGoal()) != "" {
+			return true
+		}
+		for _, task := range step.GetTasks() {
+			if strings.TrimSpace(task.Goal) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func PipelineLLMContentSharing(pipeline *Pipeline) bool {

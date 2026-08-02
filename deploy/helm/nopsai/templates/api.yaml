@@ -110,6 +110,7 @@ spec:
             - {name: FINAL_OUTPUT_PDF_RENDERER_URL, value: {{ include "nopsai.topology.gotenbergURL" . | quote }}}
             {{- end }}
             - {name: RUNTIME_OUTPUT_MAX_BYTES, value: {{ .Values.api.runtimeOutputMaxBytes | quote }}}
+            - {name: METRICS_REQUIRE_AUTH, value: {{ .Values.api.metricsRequireAuth | quote }}}
             - name: DATABASE_URL
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.databaseURL }}}}
             - name: NOPSAI_MASTER_KEY
@@ -127,7 +128,7 @@ spec:
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" $ }}, key: {{ . | quote }}}}
             {{- end }}
           readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 5, periodSeconds: 10}
-          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 15, periodSeconds: 20}
+          livenessProbe: {httpGet: {path: /livez, port: http}, initialDelaySeconds: 15, periodSeconds: 20}
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
 ---

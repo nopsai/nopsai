@@ -190,17 +190,20 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		return nil, agentLaunchFailed(reason, true)
 	}
 
-	runtimeProfiles, err := a.buildRuntimeLLMProfilesForTeam(ctx, cfg, teamID)
-	if err != nil {
-		reason := fmt.Sprintf("Failed to prepare LLM profiles: %v", err)
-		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare LLM profiles")
-		return nil, agentLaunchFailed(reason, false)
-	}
-	runtimeProfilesJSON, err := json.Marshal(runtimeProfiles)
-	if err != nil {
-		reason := "Failed to marshal LLM profiles"
-		log.Error().Err(err).Str("run_id", req.RunID).Msg(reason)
-		return nil, agentLaunchFailed(reason, false)
+	runtimeProfilesJSON := []byte("{}")
+	if models.PipelineRequiresLLMProfiles(&req.Pipeline) {
+		runtimeProfiles, err := a.buildRuntimeLLMProfilesForTeam(ctx, cfg, teamID)
+		if err != nil {
+			reason := fmt.Sprintf("Failed to prepare LLM profiles: %v", err)
+			log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare LLM profiles")
+			return nil, agentLaunchFailed(reason, false)
+		}
+		runtimeProfilesJSON, err = json.Marshal(runtimeProfiles)
+		if err != nil {
+			reason := "Failed to marshal LLM profiles"
+			log.Error().Err(err).Str("run_id", req.RunID).Msg(reason)
+			return nil, agentLaunchFailed(reason, false)
+		}
 	}
 	runtimeAgentProfiles, err := a.buildRuntimeAgentProfilesForTeam(ctx, teamID)
 	if err != nil {
