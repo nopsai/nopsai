@@ -23,7 +23,7 @@ and architecture, and `SHA256SUMS` covers every published archive.
 Operators can update a released CLI by exact version:
 
 ```bash
-nopsai update --version 2.10.648
+nopsai update --version 0.22.648
 ```
 
 The command downloads the matching archive and `SHA256SUMS`, verifies the
@@ -393,11 +393,11 @@ for exact noninteractive install commands.
 
 ```bash
 # Plan only; renders digest-pinned Kubernetes YAML
-nopsai platform release kubernetes --version 2.7.0 \
+nopsai platform release kubernetes --version 0.22.648 \
   --manifest release-manifest.json --values deploy/production.yaml
 
 # Plan and deploy in one command; works fully noninteractively
-nopsai platform release kubernetes --version 2.7.0 \
+nopsai platform release kubernetes --version 0.22.648 \
   --manifest release-manifest.json --values deploy/production.yaml \
   --deploy --wait
 
