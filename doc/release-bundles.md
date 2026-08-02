@@ -55,10 +55,16 @@ uses that list for container images and Helm OCI aliases. `NOPSAI_RELEASE_REGIST
 is the shared GHCR package root for both container images and the Helm chart.
 When it is omitted, the release pipeline defaults to `ghcr.io/<owner>`,
 publishes the chart under `charts/nopsai`, and labels every container image with
-`org.opencontainers.image.source=https://github.com/<owner>/<repo>` so the GHCR
-packages link back to the source repository. Moving tags are only package
-conveniences; installers and generated GitOps files continue to use exact
-release versions.
+`org.opencontainers.image.source=https://github.com/<owner>/<repo>`. Multi-arch
+container builds also put the same source metadata on the OCI image index and
+manifest annotations so GHCR can read it from the published package object, not
+only from per-platform image config. Moving tags are only package conveniences;
+installers and generated GitOps files continue to use exact release versions.
+
+For packages that were already created in GHCR without a linked repository,
+GitHub may keep them unlinked until an organization owner connects each package
+to `nopsai/nopsai` once from the package settings page, or deletes and republishes
+the package. Future releases carry the source label and OCI annotations.
 
 ## CLI Self-Update
 

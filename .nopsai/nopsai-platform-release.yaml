@@ -373,12 +373,22 @@ steps:
       while IFS= read -r release_tag; do
         release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")
       done < <(scripts/release-tags.sh "$VERSION")
+      oci_annotation_args=(
+        --annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"
+        --annotation "index,manifest:org.opencontainers.image.version=$VERSION"
+        --annotation "index,manifest:org.opencontainers.image.revision=$SOURCE_COMMIT"
+        --annotation "index,manifest:org.opencontainers.image.created=$BUILD_DATE"
+        --annotation "index,manifest:org.opencontainers.image.licenses=LicenseRef-NopsAI-Proprietary"
+        --annotation "index,manifest:org.opencontainers.image.vendor=NopsAI"
+        --annotation "index,manifest:org.opencontainers.image.title=$image_name"
+      )
       echo "Building and publishing $image_name"
       docker buildx build \
         --file "$dockerfile_path" \
         --platform "$PLATFORMS" \
         --push \
         "${release_tag_args[@]}" \
+        "${oci_annotation_args[@]}" \
         --build-arg "BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest" \
         --build-arg "VERSION=$VERSION" \
         --build-arg "COMMIT=$SOURCE_COMMIT" \
@@ -429,11 +439,21 @@ steps:
       while IFS= read -r release_tag; do
         release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")
       done < <(scripts/release-tags.sh "$VERSION")
+      oci_annotation_args=(
+        --annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"
+        --annotation "index,manifest:org.opencontainers.image.version=$VERSION"
+        --annotation "index,manifest:org.opencontainers.image.revision=$SOURCE_COMMIT"
+        --annotation "index,manifest:org.opencontainers.image.created=$BUILD_DATE"
+        --annotation "index,manifest:org.opencontainers.image.licenses=LicenseRef-NopsAI-Proprietary"
+        --annotation "index,manifest:org.opencontainers.image.vendor=NopsAI"
+        --annotation "index,manifest:org.opencontainers.image.title=nopsai-base"
+      )
       docker buildx build \
         --file Dockerfile \
         --platform "$PLATFORMS" \
         --push \
         "${release_tag_args[@]}" \
+        "${oci_annotation_args[@]}" \
         --build-arg "VERSION=$VERSION" \
         --build-arg "COMMIT=$SOURCE_COMMIT" \
         --build-arg "BUILD_DATE=$BUILD_DATE" \
