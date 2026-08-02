@@ -411,7 +411,7 @@ func TestReadChoiceKeyParsesNavigation(t *testing.T) {
 
 func TestRunLiveFieldEditorEditsAndSubmits(t *testing.T) {
 	fields := []Field{
-		{Name: "version", Label: "Version", Value: "2.7.0", Required: true, Description: "Install version"},
+		{Name: "version", Label: "Version", Value: "dev", Required: true, Description: "Install version"},
 		{Name: "output", Label: "Output", Value: "nopsai-install", Required: true, Description: "Install output directory"},
 		{Name: "run", Label: "Run", Value: "no", Kind: FieldBoolean, Description: "Start after generating files"},
 	}
@@ -424,7 +424,7 @@ func TestRunLiveFieldEditorEditsAndSubmits(t *testing.T) {
 	for _, field := range edited {
 		values[field.Name] = field.Value
 	}
-	if values["version"] != "2.7.0" || values["output"] != "prod" || values["run"] != "yes" {
+	if values["version"] != "dev" || values["output"] != "prod" || values["run"] != "yes" {
 		t.Fatalf("edited fields = %#v", values)
 	}
 	if text := output.String(); !strings.Contains(text, "Home > Install >") ||

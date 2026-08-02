@@ -27,6 +27,9 @@ func TestEnterpriseStartupGatesWarnByDefault(t *testing.T) {
 	if checks["dispatcher_transport_security"].Status != "warning" || checks["dispatcher_transport_security"].Required {
 		t.Fatalf("dispatcher TLS check = %#v, want non-blocking warning", checks["dispatcher_transport_security"])
 	}
+	if checks["metrics_authentication"].Status != "warning" || checks["metrics_authentication"].Required {
+		t.Fatalf("metrics auth check = %#v, want non-blocking warning", checks["metrics_authentication"])
+	}
 }
 
 func TestEnterpriseStartupGatesBlockProductionDefaults(t *testing.T) {
@@ -49,6 +52,7 @@ func TestEnterpriseStartupGatesBlockProductionDefaults(t *testing.T) {
 		"service_jwt_isolated",
 		"aaa_shared_token_strength",
 		"dispatcher_transport_security",
+		"metrics_authentication",
 		"github_private_key_credential_ref",
 		"github_webhook_credential_ref",
 	} {
@@ -66,6 +70,7 @@ func TestEnterpriseStartupGatesAcceptProductionSecrets(t *testing.T) {
 		ServiceJWTSigningKey:          "service-token-key-012345678901234",
 		AAASharedToken:                "aaa-shared-token-01234567890123456",
 		DispatcherTLSMode:             "mtls",
+		MetricsRequireAuth:            true,
 		GitHubAppID:                   "123",
 		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
 		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
@@ -82,6 +87,7 @@ func TestEnterpriseStartupGatesAcceptProductionSecrets(t *testing.T) {
 		"service_jwt_isolated",
 		"aaa_shared_token_strength",
 		"dispatcher_transport_security",
+		"metrics_authentication",
 		"github_private_key_credential_ref",
 		"github_webhook_credential_ref",
 	} {

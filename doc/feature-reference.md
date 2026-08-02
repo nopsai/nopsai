@@ -129,6 +129,10 @@ Sensitive output values are encrypted when persisted, masked after collection,
 excluded from normal run-detail/API responses, and passed only as authorized
 runtime variables to dependent consumers.
 
+Pipeline-declared Docker volumes and Kubernetes PVCs are run-owned by NopsAI.
+The agent creates missing storage with ownership labels and refuses to attach
+pre-existing unowned storage from the Docker host or runner namespace.
+
 Approval step example:
 
 ```yaml

@@ -13,6 +13,12 @@ func TestDispatcherGatesDoNotBlockDevelopmentDefaults(t *testing.T) {
 	}
 }
 
+func TestProductionSecretReadyRejectsPublishedComposeMasterKey(t *testing.T) {
+	if ProductionSecretReady("4Ns627gVMolptxqC1tePPpOR3FFr04zi3Lk3iHuEV/g=") {
+		t.Fatal("ProductionSecretReady() accepted the published compose master key")
+	}
+}
+
 func TestDispatcherGatesBlockProductionDefaults(t *testing.T) {
 	err := ValidateDispatcher(&config.Config{
 		Environment:          "production",

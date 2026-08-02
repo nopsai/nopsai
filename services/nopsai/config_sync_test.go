@@ -397,6 +397,10 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 		"LIMITS_MAX_CONCURRENT_TASKS: \"200\"",
 		"SERVICE_JWT_SIGNING_KEY: service-secret",
 		"DISPATCHER_TLS_SECRET: tls-secret",
+		"allowPrivilegeEscalation: false",
+		"seccompProfile:",
+		"type: RuntimeDefault",
+		"- ALL",
 	} {
 		if !strings.Contains(resp.Manifest, want) {
 			t.Fatalf("manifest missing %q:\n%s", want, resp.Manifest)

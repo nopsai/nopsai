@@ -7,10 +7,10 @@ import (
 )
 
 func TestReleasedCLIUsesBuildVersionAsPlatformDefault(t *testing.T) {
-	root := &rootOptions{dependencies: Dependencies{BuildInfo: buildinfo.Info{Version: "2.7.184"}}}
+	root := &rootOptions{dependencies: Dependencies{BuildInfo: buildinfo.Info{Version: commandTestVersion}}}
 	command := newPlatformReleaseCommand(root)
 	flag := command.Flags().Lookup("version")
-	if flag == nil || flag.DefValue != "2.7.184" {
+	if flag == nil || flag.DefValue != commandTestVersion {
 		t.Fatalf("platform version default = %#v", flag)
 	}
 
@@ -21,10 +21,10 @@ func TestReleasedCLIUsesBuildVersionAsPlatformDefault(t *testing.T) {
 		t.Fatalf("development platform version default = %#v", developmentFlag)
 	}
 
-	root.dependencies.Version = "2.7.185"
+	root.dependencies.Version = commandOtherCompatibleVersion
 	fallbackCommand := newInstallDockerComposeCommand(root)
 	fallbackFlag := fallbackCommand.Flags().Lookup("version")
-	if fallbackFlag == nil || fallbackFlag.DefValue != "2.7.185" {
+	if fallbackFlag == nil || fallbackFlag.DefValue != commandOtherCompatibleVersion {
 		t.Fatalf("install version fallback default = %#v", fallbackFlag)
 	}
 }

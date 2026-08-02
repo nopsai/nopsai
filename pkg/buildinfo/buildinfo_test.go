@@ -8,7 +8,8 @@ import (
 
 func TestCurrentNormalizesBuildInputs(t *testing.T) {
 	setBuildVariablesForTest(t)
-	Version = " 2.7.0 "
+	testVersion := testBuildVersion()
+	Version = " " + testVersion + " "
 	Commit = "abc123"
 	BuildDate = "2026-06-21T12:00:00Z"
 	ReleaseManifestDigest = "sha256:abc"
@@ -16,12 +17,12 @@ func TestCurrentNormalizesBuildInputs(t *testing.T) {
 	RunnerProtocolVersion = "2"
 	Capabilities = "monitoring.v1, api.v1,monitoring.v1"
 	info := Current()
-	if info.Version != "2.7.0" || info.RunnerProtocolVersion != 2 || len(info.Capabilities) != 2 || info.Capabilities[0] != "api.v1" {
+	if info.Version != testVersion || info.RunnerProtocolVersion != 2 || len(info.Capabilities) != 2 || info.Capabilities[0] != "api.v1" {
 		t.Fatalf("Current = %#v", info)
 	}
 	public := info.Public()
 	info.Capabilities[0] = "changed"
-	if public.Capabilities[0] != "api.v1" || public.ProductVersion != "2.7.0" {
+	if public.Capabilities[0] != "api.v1" || public.ProductVersion != testVersion {
 		t.Fatalf("Public = %#v", public)
 	}
 }
@@ -48,7 +49,8 @@ func TestDefaultCapabilitiesIncludeInstallTargets(t *testing.T) {
 
 func TestVersionRequestAndOutput(t *testing.T) {
 	setBuildVariablesForTest(t)
-	Version, Commit, BuildDate = "2.7.0", "abc123", "today"
+	testVersion := testBuildVersion()
+	Version, Commit, BuildDate = testVersion, "abc123", "today"
 	if !Requested([]string{"--version"}) || !Requested([]string{"version"}) || Requested(nil) || Requested([]string{"--version", "extra"}) {
 		t.Fatal("Requested returned unexpected result")
 	}
@@ -56,9 +58,21 @@ func TestVersionRequestAndOutput(t *testing.T) {
 	if err := WriteVersion(&output, "nopsai-api"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "nopsai-api 2.7.0") || !strings.Contains(output.String(), "abc123") {
+	if !strings.Contains(output.String(), "nopsai-api "+testVersion) || !strings.Contains(output.String(), "abc123") {
 		t.Fatalf("output = %q", output.String())
 	}
+}
+
+func testBuildVersion() string {
+	for _, field := range strings.Fields(strings.ReplaceAll(DefaultPlatformCompatibility, ",", " ")) {
+		if strings.HasPrefix(field, ">=") {
+			return strings.TrimPrefix(field, ">=")
+		}
+		if strings.HasPrefix(field, "=") {
+			return strings.TrimPrefix(field, "=")
+		}
+	}
+	panic("default platform compatibility does not declare a lower bound")
 }
 
 func setBuildVariablesForTest(t *testing.T) {

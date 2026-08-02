@@ -13,13 +13,15 @@ when production hardening is incomplete. Shared gate logic lives in
 
 The NopsAI API production gates currently check:
 
-- `NOPSAI_MASTER_KEY` is present, long enough, and not a known placeholder.
+- `NOPSAI_MASTER_KEY` is present, long enough, and not a known placeholder or
+  published local-development default.
 - `JWT_SIGNING_KEY` is present, long enough, and not a known placeholder.
 - `SERVICE_JWT_SIGNING_KEY` is present, production-grade, and different from
   `JWT_SIGNING_KEY`.
 - `AAA_SHARED_INTERNAL_TOKEN` is production-grade and not the local development
   default.
 - Dispatcher transport security is not disabled.
+- `/metrics` requires authentication.
 - If a GitHub App is configured, private-key and webhook credential references
   are configured.
 - The bootstrap administrator is not using the development `admin` password.
@@ -50,6 +52,15 @@ socket/proxy policy where host constraints allow it. Mounting a shared host
 Docker socket into a runner remains a compatibility path and should be treated
 as host-admin equivalent access.
 
+Pipeline-declared Docker step volumes are run-owned. The agent creates missing
+step volumes with NopsAI ownership labels tied to the run shared volume and
+refuses to attach existing unowned volumes.
+
+Kubernetes runner-generated pods and agent-created step pods set
+`RuntimeDefault` seccomp, disable privilege escalation, and drop Linux
+capabilities by default. Pipeline-declared PVCs are run-owned; existing unowned
+PVCs in the runner namespace are refused.
+
 ## HTTP Server Hardening
 
 NopsAI, setup preflight mode, AAA, and git-bot HTTP servers use shared
@@ -64,8 +75,9 @@ production timeout defaults from `pkg/httpapi`:
 
 `cors_allowed_origins` or `CORS_ALLOWED_ORIGINS` can restrict browser origins.
 When unset, wildcard CORS is preserved for compatibility. `metrics_require_auth`
-or `METRICS_REQUIRE_AUTH=true` makes `/metrics` require a bearer token; metrics
-remain public by default for existing Prometheus scrapes.
+or `METRICS_REQUIRE_AUTH=true` makes `/metrics` require a bearer token. Metrics
+remain public by default for local and legacy compatibility, but production gate
+mode requires authenticated metrics.
 
 ## Local Gate Runner
 

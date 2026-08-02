@@ -12,6 +12,10 @@ import (
 
 const minProductionSecretLength = 32
 
+var knownUnsafeProductionSecrets = map[string]struct{}{
+	"4Ns627gVMolptxqC1tePPpOR3FFr04zi3Lk3iHuEV/g=": {},
+}
+
 type Check struct {
 	ID       string
 	Passed   bool
@@ -35,6 +39,9 @@ func (e Error) Error() string {
 func ProductionSecretReady(value string) bool {
 	secret := strings.TrimSpace(value)
 	if len(secret) < minProductionSecretLength {
+		return false
+	}
+	if _, known := knownUnsafeProductionSecrets[secret]; known {
 		return false
 	}
 	lower := strings.ToLower(secret)

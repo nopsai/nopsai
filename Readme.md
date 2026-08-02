@@ -411,6 +411,7 @@ secrets:
 
 Use the scope page GitOps encryption dialog or
 `POST /v1/secrets/encrypt` to encrypt a value before committing it to GitOps.
+The caller needs `secret.write_value` on `secret:*`.
 
 See [examples/sample-config-repo/README.md](examples/sample-config-repo/README.md) for a
 working GitOps layout.

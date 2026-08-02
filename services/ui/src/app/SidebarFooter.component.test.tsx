@@ -14,7 +14,7 @@ const fetchPlatformVersionInfoMock = vi.mocked(fetchPlatformVersionInfo);
 describe('SidebarFooter', () => {
   beforeEach(() => {
     fetchPlatformVersionInfoMock.mockReset();
-    fetchPlatformVersionInfoMock.mockResolvedValue({ productVersion: '2.10.648' });
+    fetchPlatformVersionInfoMock.mockResolvedValue({ productVersion: 'dev' });
   });
 
   it('keeps wiki, user profile, and version in the sidebar footer', async () => {
@@ -38,7 +38,7 @@ describe('SidebarFooter', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('2.10.648')).toBeInTheDocument();
+    expect(await screen.findByText('dev')).toBeInTheDocument();
     const footerSections = Array.from(document.querySelectorAll('.sidebar-footer > .sidebar-footer-section'));
     expect(footerSections).toHaveLength(3);
     expect(footerSections[0]).toHaveClass('sidebar-footer-section--help');
