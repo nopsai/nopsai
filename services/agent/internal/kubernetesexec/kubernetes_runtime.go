@@ -268,9 +268,10 @@ func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string
 	}
 
 	if _, err := r.client.CoreV1().Pods(r.namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return "", fmt.Errorf("create step pod: %w", err)
+		if apierrors.IsAlreadyExists(err) {
+			return "", fmt.Errorf("create step pod: pod %s already exists; refusing to reuse an unverified kubernetes pod", podName)
 		}
+		return "", fmt.Errorf("create step pod: %w", err)
 	}
 	if err := r.waitForPodRunning(ctx, podName); err != nil {
 		return "", err
@@ -508,8 +509,17 @@ func (r *Runtime) ensureStepPVC(ctx context.Context, name, size string, accessMo
 	if r.storageClass != "" {
 		pvc.Spec.StorageClassName = &r.storageClass
 	}
-	if _, err := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return err
+	if _, err := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		existing, getErr := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("inspect existing pvc %s after create collision: %w", name, getErr)
+		}
+		if !kubernetesStepPVCOwnedBy(existing.Labels, runID) {
+			return fmt.Errorf("pvc %s is not owned by this NopsAI run", name)
+		}
 	}
 	return nil
 }

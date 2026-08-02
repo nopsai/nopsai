@@ -565,7 +565,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'steps[].volumes',
     area: 'Step YAML',
-    description: 'Named Docker volume mounts using volume:mount-path syntax for Docker execution.',
+    description: 'Run-owned Docker volume or Kubernetes PVC mounts using volume:mount-path syntax. Direct reuse of unowned runner-local volumes is rejected.',
     example: '[cache:/cache]',
   },
   {
@@ -1530,7 +1530,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         details: [
           'The API submits jobs to the dispatcher. Runners maintain long-lived outbound connections to the dispatcher, which keeps runner registration and capacity visible to the control plane.',
-          'Docker runners create containers and Docker volumes. Kubernetes runners create an agent pod, PVC-backed workspace, and step pods in their namespace.',
+          'Docker runners create containers and run-owned Docker volumes. Kubernetes runners create an agent pod, PVC-backed workspace, and step pods in their namespace.',
           'Gotenberg is used for PDF rendering. The Docker socket proxy is restricted to allow-listed Compose System Logs reads; Kubernetes System Logs use pod/log RBAC instead.',
           'UI and CLI are entry points only. They call authenticated REST routes and do not talk directly to AAA, dispatcher, PostgreSQL, or runners.',
           'services/nopsai owns auth, config sync, Git event ingress, run creation, setup preflight, logs, outputs, metrics, and hosted MCP; it calls Postgres, AAA, git-bot, dispatcher, Gotenberg, and log providers.',
@@ -1583,7 +1583,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'nopsai validates bearer tokens, maps routes to actions and resources, calls AAA, and then performs runtime use checks for pipeline, scope, step, secret, variable, runner, and knowledge access.',
           'Config sync resolves files from pipelines, steps, triggers, scopes, knowledge, access, and setting/system. Each run snapshots the relevant YAML, secrets, variables, Git metadata, and approval state.',
           'The dispatcher selects a runner by availability, allowed scope, routing policy, runtime pool, affinity, capacity, and load.',
-          'Docker runner creates a vol-<run_id> workspace and starts an agent container. Kubernetes runner creates an agent pod with namespace, service account, storage, affinity, and runtime pool settings.',
+          'Docker runner creates a labelled vol-<run_id> workspace and starts an agent container. Kubernetes runner creates an agent pod with namespace, service account, storage, affinity, and runtime pool settings.',
           'The agent executes dependency-ready tasks, so independent work can run concurrently where the schema allows it. It runs scripts, asks approved LLM profiles for goals, uses approved MCP profiles, pauses for approvals, and starts child pipelines.',
           'Logs, task status, final-output counts, and completion state stream through dispatcher back to nopsai; GitHub checks and notifications are updated after the run state changes.',
         ],
@@ -1620,7 +1620,7 @@ const baseWikiSections: WikiSectionInput[] = [
         keyFacts: [
           'Use the checked-in Compose file for local evaluation and development.',
           'The UI is published on http://localhost/ and the API on http://localhost:8080.',
-          'The Docker runner needs Docker socket access because it creates agent and step containers.',
+          'The Docker runner needs Docker socket access because it creates agent and step containers. Treat the runner host as a trusted execution boundary and isolate it by scope.',
           'Local fallback secrets are present for development only and must be replaced outside a local workstation.',
         ],
         prerequisites: [
@@ -2333,7 +2333,10 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         relatedDocs: ['docker-compose.yaml', 'doc/cli.md', 'doc/enterprise-gates.md'],
         runbooks: ['Start local stack', 'Check runner registration', 'Persist /data/backups for non-local Compose'],
-        caveats: ['The Docker runner socket mount is a privileged operational boundary and should be isolated to trusted runner hosts.'],
+        caveats: [
+          'Docker step containers drop Linux capabilities, use no-new-privileges, a read-only root filesystem, writable tmpfs for temporary paths, and a PID limit.',
+          'The Docker runner socket mount is a privileged operational boundary and should be isolated to trusted runner hosts.',
+        ],
       },
       {
         id: 'helm-kubernetes',
@@ -2480,6 +2483,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Platform release pull secrets remain an infrastructure concern: Helm imagePullSecrets, ServiceAccount imagePullSecrets, secret managers, cluster RBAC, host Docker access, and registry egress are still administered outside NopsAI.',
           'NopsAI records the runner-to-credential assignment when the administrator generates a bootstrap command or syncs runner_registry_credentials from GitOps.',
           'When a Docker bootstrap script is redeemed, NopsAI resolves the selected credentials once, uses a temporary Docker CLI config for the runner image pull, and passes the merged config to the Docker runner and agent containers as env. Runtime image pulls match registry hosts locally and do not call NopsAI for every pull.',
+          'Docker demand pulls fail closed when configured registry auth cannot be resolved. Fix the credential assignment instead of relying on an anonymous fallback.',
           'Agents filter NOPSAI_REGISTRY_DOCKER_CONFIG_* out of pipeline environment inheritance so the value is not available as a normal step variable.',
         ],
         configRows: [
@@ -2596,8 +2600,9 @@ const baseWikiSections: WikiSectionInput[] = [
           'PostgreSQL is the primary durable store for product, identity, configuration, execution, monitoring, audit, credential metadata, and setup state.',
         keyFacts: [
           'Compose mounts PostgreSQL at /var/lib/postgresql/data in the `db` named volume.',
-          'Docker workspaces are shared named volumes, normally `vol-<run-id>`.',
-          'Kubernetes workspaces are PVC-backed so agent and step pods can share files.',
+          'Docker workspaces are run-owned named volumes, normally `vol-<run-id>`, labelled with the run ID before containers mount them.',
+          'Kubernetes workspaces are PVC-backed so agent and step pods can share files; default runner workspaces use pod-owned ephemeral PVCs.',
+          'Reusable data should be copied into a per-run or per-step volume before mutation. Treat the source volume or PVC as read-only baseline data.',
           'Approval checkpoints store compressed workspace archives in PostgreSQL so a run can resume on a new agent.',
         ],
         details: [

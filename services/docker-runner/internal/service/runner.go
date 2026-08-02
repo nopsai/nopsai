@@ -16,6 +16,7 @@ import (
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicelog"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
@@ -26,10 +27,14 @@ import (
 )
 
 const (
-	defaultAgentImage     = "nopsai-agent:latest"
-	defaultDispatcherAddr = "localhost:9090"
-	defaultRunnerID       = "runner"
-	dockerRuntimeName     = "docker"
+	defaultAgentImage           = "nopsai-agent:latest"
+	defaultDispatcherAddr       = "localhost:9090"
+	defaultRunnerID             = "runner"
+	dockerRuntimeName           = "docker"
+	dockerRunVolumeManagedLabel = "nopsai.io/managed"
+	dockerRunVolumePurposeLabel = "nopsai.io/volume-purpose"
+	dockerRunVolumeOwnerLabel   = "nopsai.io/run-id"
+	dockerRunVolumePurpose      = "pipeline-workspace"
 )
 
 type Runner interface {
@@ -281,8 +286,7 @@ func (r *dockerRunner) handleJob(ctx context.Context, dispatcher proto.Dispatche
 			sharedVolume = fmt.Sprintf("vol-%s", job.RunId)
 		}
 
-		_, err := r.docker.VolumeCreate(runCtx, client.VolumeCreateOptions{Name: sharedVolume})
-		if err != nil {
+		if err := ensureManagedRunVolume(runCtx, r.docker, sharedVolume, job.RunId); err != nil {
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("create volume: %v", err))
 			return
 		}
@@ -508,15 +512,12 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 
 	if len(images.Items) == 0 {
 		log.Info().Msgf("image %s not found locally, pulling", imageName)
-		options := client.ImagePullOptions{}
-		if authResolver != nil {
-			registryAuth, err := authResolver.Resolve(ctx, imageName)
-			if err != nil {
-				log.Warn().Err(err).Str("image", imageName).Msg("failed to resolve local registry auth; pulling without registry auth")
-			} else if strings.TrimSpace(registryAuth) != "" {
-				options.RegistryAuth = registryAuth
-				log.Info().Str("image", imageName).Msg("using local Docker registry auth for image pull")
-			}
+		options, usingRegistryAuth, err := dockerImagePullOptions(ctx, imageName, authResolver)
+		if err != nil {
+			return err
+		}
+		if usingRegistryAuth {
+			log.Info().Str("image", imageName).Msg("using local Docker registry auth for image pull")
 		}
 		out, err := cli.ImagePull(ctx, imageName, options)
 		if err != nil {
@@ -526,6 +527,70 @@ func ensureImageExists(ctx context.Context, cli *client.Client, imageName string
 		io.Copy(io.Discard, out)
 	}
 	return nil
+}
+
+func ensureManagedRunVolume(ctx context.Context, cli *client.Client, volumeName, runID string) error {
+	volumeName = strings.TrimSpace(volumeName)
+	runID = strings.TrimSpace(runID)
+	if volumeName == "" || runID == "" {
+		return fmt.Errorf("volume name and run id are required")
+	}
+	inspected, err := cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
+	if err == nil {
+		if dockerRunVolumeOwnedBy(inspected.Volume.Labels, runID) {
+			return nil
+		}
+		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
+	}
+	if !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("inspect docker volume %q: %w", volumeName, err)
+	}
+	_, err = cli.VolumeCreate(ctx, client.VolumeCreateOptions{
+		Name:   volumeName,
+		Labels: dockerRunVolumeLabels(runID),
+	})
+	if err != nil {
+		return fmt.Errorf("create docker volume %q: %w", volumeName, err)
+	}
+	inspected, err = cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspect docker volume %q after create: %w", volumeName, err)
+	}
+	if !dockerRunVolumeOwnedBy(inspected.Volume.Labels, runID) {
+		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
+	}
+	return nil
+}
+
+func dockerRunVolumeLabels(runID string) map[string]string {
+	return map[string]string{
+		dockerRunVolumeManagedLabel: "true",
+		dockerRunVolumePurposeLabel: dockerRunVolumePurpose,
+		dockerRunVolumeOwnerLabel:   strings.TrimSpace(runID),
+	}
+}
+
+func dockerRunVolumeOwnedBy(labels map[string]string, runID string) bool {
+	return strings.EqualFold(strings.TrimSpace(labels[dockerRunVolumeManagedLabel]), "true") &&
+		strings.TrimSpace(labels[dockerRunVolumePurposeLabel]) == dockerRunVolumePurpose &&
+		strings.TrimSpace(labels[dockerRunVolumeOwnerLabel]) == strings.TrimSpace(runID)
+}
+
+func dockerImagePullOptions(ctx context.Context, imageName string, authResolver RegistryAuthResolver) (client.ImagePullOptions, bool, error) {
+	options := client.ImagePullOptions{}
+	if authResolver == nil {
+		return options, false, nil
+	}
+	registryAuth, err := authResolver.Resolve(ctx, imageName)
+	if err != nil {
+		return options, false, fmt.Errorf("resolve registry auth for image %s: %w", imageName, err)
+	}
+	registryAuth = strings.TrimSpace(registryAuth)
+	if registryAuth == "" {
+		return options, false, nil
+	}
+	options.RegistryAuth = registryAuth
+	return options, true, nil
 }
 
 func upsertRuntimeVar(runtimeVars []string, key, val string) []string {
