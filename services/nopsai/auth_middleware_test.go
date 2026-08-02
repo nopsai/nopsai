@@ -169,6 +169,7 @@ func TestAuditMiddlewareRecordsAuthenticatedActorFromAuthMiddleware(t *testing.T
 func TestOIDCAuthEndpointsArePublic(t *testing.T) {
 	publicPaths := []string{
 		"/healthz",
+		"/livez",
 		"/v1/auth/providers",
 		"/v1/auth/discover",
 		"/v1/auth/session/exchange",
@@ -189,15 +190,17 @@ func TestHealthzEndpointIsPublic(t *testing.T) {
 	app := &App{}
 	handler := app.buildHTTPHandler()
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	for _, path := range []string{"/healthz", "/livez"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	if rec.Header().Get("Cache-Control") == "" {
-		t.Fatal("Cache-Control header is empty, want no-store health response")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d; body: %s", path, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if rec.Header().Get("Cache-Control") == "" {
+			t.Fatalf("%s Cache-Control header is empty, want no-store health response", path)
+		}
 	}
 }
 

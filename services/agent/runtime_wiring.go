@@ -50,7 +50,7 @@ func (e agentRuntimeWiringError) Unwrap() error {
 
 func newAgentRuntimeAdapters(runScope, runID string, pipeline *models.Pipeline) (agentRuntimeAdapters, error) {
 	adapters := agentRuntimeAdapters{
-		PipelineLLMEnabled: models.PipelineLLMEnabled(pipeline),
+		PipelineLLMEnabled: models.PipelineRequiresLLMProfiles(pipeline),
 	}
 	usageReporter := newNopsaiAIUsageReporter(runID)
 

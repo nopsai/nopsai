@@ -46,7 +46,7 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 	}
 	details["steps_seeded"]++
 
-	pipelineDefinition := setupFirstRunPipelineYAML(req.Profile)
+	pipelineDefinition := setupFirstRunPipelineYAML(req.Profile, req.shouldSeedStarterLLMProfile())
 	var pipeline models.Pipeline
 	if err := yaml.Unmarshal([]byte(pipelineDefinition), &pipeline); err != nil {
 		return nil, fmt.Errorf("starter pipeline is invalid: %w", err)

@@ -97,6 +97,12 @@ func TestSetupStarterTemplatesUseSelectedRepositoryTeams(t *testing.T) {
 	if _, ok := files["knowledge/guideline/platform/setup-run.md"]; !ok {
 		t.Fatal("expected setup knowledge under the first selected team")
 	}
+	pipeline := files["pipelines/setup/first-run.yaml"]
+	for _, want := range []string{"llm_profile: standard", "name: ai-smoke", "goal:"} {
+		if !strings.Contains(pipeline, want) {
+			t.Fatalf("LLM-enabled first-run pipeline missing %q:\n%s", want, pipeline)
+		}
+	}
 }
 
 func TestSetupPipelineRunStructureUsesSelectedRepositoryTeamsAsRoots(t *testing.T) {
@@ -143,6 +149,17 @@ func TestSetupDoesNotCreateTeamStructureWithoutSelectedTeams(t *testing.T) {
 	}
 	if _, ok := files["knowledge/guideline/workspace/setup-run.md"]; ok {
 		t.Fatal("starter templates should not create knowledge under an implicit workspace team")
+	}
+	pipeline := files["pipelines/setup/first-run.yaml"]
+	for _, want := range []string{"llm_enabled: false", "name: runner-smoke"} {
+		if !strings.Contains(pipeline, want) {
+			t.Fatalf("no-LLM first-run pipeline missing %q:\n%s", want, pipeline)
+		}
+	}
+	for _, forbidden := range []string{"llm_profile:", "name: ai-smoke", "goal:"} {
+		if strings.Contains(pipeline, forbidden) {
+			t.Fatalf("no-LLM first-run pipeline should not contain %q:\n%s", forbidden, pipeline)
+		}
 	}
 }
 

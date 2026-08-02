@@ -1008,6 +1008,42 @@ func TestValidatePipelineLLMProfilesUnknown(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineLLMProfilesSkippedForScriptOnlyPipelineWithoutProfiles(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "script-only",
+		ContainerImage: "ubuntu",
+		LLMProfile:     "standard",
+		Steps: []models.PipelineStep{{
+			Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{Name: "build"},
+				Script:   "go test ./...",
+			},
+		}},
+	}
+
+	if err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{}); err != nil {
+		t.Fatalf("ValidatePipelineLLMProfiles() error = %v, want nil", err)
+	}
+}
+
+func TestValidatePipelineLLMProfilesRequiresProfilesForGoalPipeline(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "goal",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{{
+			Step: &models.GoalStep{
+				BaseStep: models.BaseStep{Name: "review"},
+				Goal:     "Review the change.",
+			},
+		}},
+	}
+
+	err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{})
+	if err == nil || !strings.Contains(err.Error(), "no LLM profiles are configured") {
+		t.Fatalf("ValidatePipelineLLMProfiles() error = %v, want missing profiles error", err)
+	}
+}
+
 func TestValidatePipelineLLMProfilesSkippedWhenLLMDisabled(t *testing.T) {
 	disabled := false
 	p := &models.Pipeline{

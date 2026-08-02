@@ -370,7 +370,10 @@ managed PostgreSQL. That Secret must include database URL, bundled PostgreSQL
 password, master key, browser JWT key, service JWT key, AAA shared token,
 dispatcher TLS secret, and the bootstrap admin password key named by
 `--bootstrap-admin-password-secret-key` because the generated values do not
-store plaintext secrets. If the release images are private, create the registry
+store plaintext secrets. With bundled PostgreSQL, the password embedded in
+`database-url` must match `postgres-password`; if a previous PostgreSQL PVC is
+reused, the database keeps the password from its first initialization and a
+Secret-only change will make API/AAA authentication fail. If the release images are private, create the registry
 pull Secret in the namespace and reference it from `global.imagePullSecrets`;
 the CLI documents the command but does not own the registry credential. Add
 `--deploy --wait` on the first command to deploy

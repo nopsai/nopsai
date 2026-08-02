@@ -156,6 +156,10 @@ func (req setupBootstrapRequest) shouldSeedLLMProfile() bool {
 	return req.SeedLLMProfile == nil || *req.SeedLLMProfile
 }
 
+func (req setupBootstrapRequest) shouldSeedStarterLLMProfile() bool {
+	return req.Profile != setupProfileProduction && req.shouldSeedLLMProfile()
+}
+
 func ensureSetupSchema(ctx context.Context, db *pgxpool.Pool) error {
 	if db == nil {
 		return nil

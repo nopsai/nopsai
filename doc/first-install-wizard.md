@@ -82,7 +82,8 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 11. Review generated runtime variables, GitOps team/file layout, and
     post-setup instructions.
 12. Apply setup, then run the starter `setup/first-run` pipeline to verify the
-    runner, agent, LLM path, logs, and UI.
+    runner, agent, logs, and UI. When setup seeded an LLM profile, the same
+    pipeline also verifies the LLM path with an AI smoke step.
 
 The setup modal is step-by-step. Optional steps such as GitOps, repository
 teams, AI, MCP examples, and users can be skipped and completed later. The

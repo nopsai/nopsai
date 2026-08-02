@@ -282,6 +282,7 @@ func runSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath str
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /version", handleVersion)
+	mux.HandleFunc("GET /livez", handleLivez)
 	mux.HandleFunc("GET /v1/setup/preflight", func(w http.ResponseWriter, r *http.Request) {
 		resp := buildSetupPreflightResponse(r.Context(), cfg, configPath, envFilePath, "preflight_only", db, dbErr)
 		status := http.StatusOK
