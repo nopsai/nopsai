@@ -376,7 +376,11 @@ Rerun:
    canonical path for the current repo scope. When legacy metadata points at a
    duplicated team prefix or an older missing-team path, drift emits the
    canonical file and marks the stale file for deletion.
-10. It upserts rows with config-source metadata into Postgres.
+10. It upserts rows with config-source metadata into Postgres. During the
+    transaction, run-team hierarchy from `config-repositories/` is upserted
+    before team-owned resources resolve team paths. Dashboard GitOps then runs
+    before pipeline upserts so dashboard files can create the target rows and
+    pipeline dashboard outputs can attach source bindings in the same sync.
 
 For Git push, `nopsai` loads the same system or team config repository binding,
 validates that `write_enabled` and `write_branch` are set, prefixes requested
