@@ -73,7 +73,7 @@ func Current() Info {
 		CLICompatibility:      valueOrDefault(CLICompatibility, DefaultCLICompatibility),
 		RunnerCompatibility:   valueOrDefault(RunnerCompatibility, DefaultRunnerCompatibility),
 		PlatformCompatibility: valueOrDefault(PlatformCompatibility, DefaultPlatformCompatibility),
-		Capabilities:          parseCapabilities(Capabilities),
+		Capabilities:          parseCapabilities(valueOrDefault(Capabilities, DefaultCapabilities)),
 	}
 }
 

@@ -622,7 +622,7 @@ func hashDeploymentValues(files []string, resolved ResolvedManifest) (string, er
 		if err != nil {
 			return "", fmt.Errorf("read values file %s: %w", path, err)
 		}
-		_, _ = hash.Write([]byte(fmt.Sprintf("values[%d]", index)))
+		_, _ = hash.Write(fmt.Appendf(nil, "values[%d]", index))
 		_, _ = hash.Write([]byte{0})
 		_, _ = hash.Write(contents)
 		_, _ = hash.Write([]byte{0})
