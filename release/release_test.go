@@ -358,6 +358,10 @@ func TestReleasePipelinePublishesStableContainerTagAliases(t *testing.T) {
 		`release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")`,
 		`done < <(scripts/release-tags.sh "$VERSION")`,
 		`"${release_tag_args[@]}"`,
+		`--annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"`,
+		`--annotation "index,manifest:org.opencontainers.image.title=$image_name"`,
+		`--annotation "index,manifest:org.opencontainers.image.title=nopsai-base"`,
+		`"${oci_annotation_args[@]}"`,
 		`org.opencontainers.image.source="${SOURCE_URL}"`,
 	} {
 		if !strings.Contains(pipeline, required) && !dockerfilesContain(t, required) {
