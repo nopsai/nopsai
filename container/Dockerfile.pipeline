@@ -1,4 +1,4 @@
-FROM alpine/git
+FROM alpine/git@sha256:729da2347ce652f30476b064198577fe12e1147e58499be9f343039343ef2cee
 
 ARG VERSION=dev
 ARG COMMIT=unknown

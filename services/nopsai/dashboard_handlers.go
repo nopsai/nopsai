@@ -115,6 +115,9 @@ func (a *App) handleUpdateDashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !a.requireDashboardTargetWriteDecision(w, r, existing, input) {
+		return
+	}
 	record, err := a.updateDashboard(r.Context(), existing.ID, input, actorIDFromRequest(r))
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -707,6 +710,13 @@ func (a *App) requireDashboardDecision(w http.ResponseWriter, r *http.Request, a
 		return dashboardRecord{}, false
 	}
 	return record, true
+}
+
+func (a *App) requireDashboardTargetWriteDecision(w http.ResponseWriter, r *http.Request, existing dashboardRecord, input dashboardInput) bool {
+	if resourceKey(existing.resourceRef()) == resourceKey(aaamodel.ResourceRef{Type: grantResourceDashboard, ID: dashboardResourceID(input.TeamPath, input.Slug)}) {
+		return true
+	}
+	return a.requireAAADecision(w, r, "dashboard.create", aaamodel.ResourceRef{Type: grantResourceTeam, ID: input.TeamPath})
 }
 
 func writeDashboardRefreshError(w http.ResponseWriter, err error) {

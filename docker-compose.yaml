@@ -18,6 +18,16 @@ x-local-topology-env: &local-topology-env
 x-observability-env: &observability-env
   NOPSAI_ENV: ${NOPSAI_ENV:-local}
 
+x-compose-safety-env: &compose-safety-env
+  NOPSAI_BIND_ADDRESS: ${NOPSAI_BIND_ADDRESS:-127.0.0.1}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yoursecurepassword}
+  DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
+  SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}
+  NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-local-dev-master-key-change-me-please-rotate}
+  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}
+  NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+  AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
+
 x-release-build-args: &release-build-args
   VERSION: ${NOPSAI_VERSION:-dev}
   COMMIT: ${NOPSAI_COMMIT:-unknown}
@@ -25,6 +35,37 @@ x-release-build-args: &release-build-args
   RELEASE_MANIFEST_DIGEST: ${NOPSAI_RELEASE_MANIFEST_DIGEST:-}
 
 services:
+  local-compose-safety:
+    container_name: nopsai-local-compose-safety
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    environment:
+      <<: *compose-safety-env
+    network_mode: none
+    entrypoint: ["/bin/sh", "-ec"]
+    command: |
+      bind="$${NOPSAI_BIND_ADDRESS:-127.0.0.1}"
+      case "$$bind" in
+        127.*|localhost|::1|"[::1]") exit 0 ;;
+      esac
+      failed=0
+      check_changed() {
+        name="$$1"
+        value="$$2"
+        default="$$3"
+        if [ "$$value" = "$$default" ]; then
+          echo "$$name must be changed before binding docker-compose.yaml to $$bind" >&2
+          failed=1
+        fi
+      }
+      check_changed POSTGRES_PASSWORD "$${POSTGRES_PASSWORD:-}" yoursecurepassword
+      check_changed DATABASE_URL "$${DATABASE_URL:-}" postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db
+      check_changed SERVICE_JWT_SIGNING_KEY "$${SERVICE_JWT_SIGNING_KEY:-}" local-dev-service-jwt-key-change-me-please-rotate
+      check_changed NOPSAI_MASTER_KEY "$${NOPSAI_MASTER_KEY:-}" local-dev-master-key-change-me-please-rotate
+      check_changed JWT_SIGNING_KEY "$${JWT_SIGNING_KEY:-}" local-dev-jwt-signing-key-change-me-please-rotate
+      check_changed NOPSAI_BOOTSTRAP_ADMIN_PASSWORD "$${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-}" admin
+      check_changed AAA_SHARED_INTERNAL_TOKEN "$${AAA_SHARED_INTERNAL_TOKEN:-}" local-dev-aaa-token-change-me-please-rotate
+      exit "$$failed"
+
   base:
     container_name: nopsai-base
     image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-base:${NOPSAI_VERSION:-dev}
@@ -37,14 +78,17 @@ services:
 
   db:
     container_name: nopsai-db
-    image: postgres:15
+    image: postgres:15@sha256:74e110c41804365e3915fcc09d5e7a1eff50161aaa94d5da0e58e0cd75ae509c
     restart: always
+    depends_on:
+      local-compose-safety:
+        condition: service_completed_successfully
     environment:
       POSTGRES_DB: nopsai_db
       POSTGRES_USER: nopsai_user
-      POSTGRES_PASSWORD: yoursecurepassword
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yoursecurepassword}
     ports:
-      - "5432:5432"
+      - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:5432:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
       - db:/var/lib/postgresql/data
@@ -69,8 +113,10 @@ services:
         BASE_IMAGE: base
     restart: always
     ports:
-      - "8080:8080"
+      - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     depends_on:
+      local-compose-safety:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       aaa:
@@ -126,7 +172,7 @@ services:
 
   gotenberg:
     container_name: nopsai-gotenberg
-    image: gotenberg/gotenberg:8.32.0
+    image: gotenberg/gotenberg:8.32.0@sha256:a40c5a46b79d812ce2f5e139278163142a054050bfd1e5f162da36d3d11c7138
     restart: always
     read_only: true
     tmpfs:
@@ -183,9 +229,12 @@ services:
         BASE_IMAGE: base
     restart: always
     ports:
-      - "9090:9090"
+      - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:9090:9090"
     depends_on:
-      - base
+      local-compose-safety:
+        condition: service_completed_successfully
+      base:
+        condition: service_completed_successfully
     environment:
       <<: [*service-auth-env, *observability-env]
       NOPSAI_SERVICE_NAME: dispatcher
@@ -206,10 +255,14 @@ services:
         BASE_IMAGE: base
     restart: always
     ports:
-      - "8081:8081"
+      - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:8081:8081"
     depends_on:
-      - db
-      - nopsai
+      local-compose-safety:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      nopsai:
+        condition: service_started
     environment:
       <<: [*service-auth-env, *observability-env]
       NOPSAI_SERVICE_NAME: git-bot
@@ -231,7 +284,7 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: always
     ports:
-      - "80:80"
+      - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:80:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 30s
@@ -240,6 +293,8 @@ services:
     networks:
       - nopsai-net
     depends_on:
+      local-compose-safety:
+        condition: service_completed_successfully
       nopsai:
         condition: service_started
   
