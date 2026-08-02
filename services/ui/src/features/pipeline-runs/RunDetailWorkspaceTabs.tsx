@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { FileText, Workflow } from 'lucide-react';
+import { FileText, Maximize2, Workflow, X } from 'lucide-react';
 import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
 import { RunFinalOutputs } from './RunFinalOutputs';
 import { StepsGraph } from './RunGraph';
@@ -37,29 +37,51 @@ export function RunDetailWorkspaceTabs({
     activeTab: 'graph',
   });
   const activeTab = tabState.runID === runID ? tabState.activeTab : 'graph';
+  const [expandedGraphOpen, setExpandedGraphOpen] = useState(false);
   const outputCount = outputs?.length || 0;
   const setActiveTab = (tab: WorkspaceTab) => setTabState({ runID, activeTab: tab });
+  useEffect(() => {
+    if (!expandedGraphOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpandedGraphOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [expandedGraphOpen]);
 
   return (
     <section className="run-detail-workspace" aria-label="Run graph and outputs">
-      <div className="run-detail-workspace-tabs" role="tablist" aria-label="Run detail workspace">
-        <WorkspaceTabButton
-          id="graph"
-          label="Graph"
-          active={activeTab === 'graph'}
-          onSelect={setActiveTab}
-          panelId="run-detail-graph-panel"
-          icon={<Workflow className="h-4 w-4" aria-hidden="true" />}
-        />
-        <WorkspaceTabButton
-          id="outputs"
-          label="Outputs"
-          count={outputCount}
-          active={activeTab === 'outputs'}
-          onSelect={setActiveTab}
-          panelId="run-detail-outputs-panel"
-          icon={<FileText className="h-4 w-4" aria-hidden="true" />}
-        />
+      <div className="run-detail-workspace-head">
+        <div className="run-detail-workspace-tabs" role="tablist" aria-label="Run detail workspace">
+          <WorkspaceTabButton
+            id="graph"
+            label="Graph"
+            active={activeTab === 'graph'}
+            onSelect={setActiveTab}
+            panelId="run-detail-graph-panel"
+            icon={<Workflow className="h-4 w-4" aria-hidden="true" />}
+          />
+          <WorkspaceTabButton
+            id="outputs"
+            label="Outputs"
+            count={outputCount}
+            active={activeTab === 'outputs'}
+            onSelect={setActiveTab}
+            panelId="run-detail-outputs-panel"
+            icon={<FileText className="h-4 w-4" aria-hidden="true" />}
+          />
+        </div>
+        <button
+          type="button"
+          className="run-detail-workspace-action"
+          onClick={() => {
+            setActiveTab('graph');
+            setExpandedGraphOpen(true);
+          }}
+        >
+          <Maximize2 className="h-4 w-4" aria-hidden="true" />
+          <span>Expand graph</span>
+        </button>
       </div>
 
       {activeTab === 'graph' ? (
@@ -103,6 +125,52 @@ export function RunDetailWorkspaceTabs({
           )}
         </div>
       )}
+      {expandedGraphOpen ? (
+        <div
+          className="run-detail-graph-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="run-detail-graph-modal-title"
+          onMouseDown={event => {
+            if (event.target === event.currentTarget) setExpandedGraphOpen(false);
+          }}
+        >
+          <section className="run-detail-graph-modal__surface">
+            <header className="run-detail-graph-modal__head">
+              <div className="run-detail-graph-modal__title">
+                <Workflow className="h-4 w-4" aria-hidden="true" />
+                <h2 id="run-detail-graph-modal-title">Pipeline graph</h2>
+                <span>{steps.length} step{steps.length === 1 ? '' : 's'}</span>
+              </div>
+              <button
+                type="button"
+                className="run-detail-graph-modal__close"
+                aria-label="Close expanded graph"
+                onClick={() => setExpandedGraphOpen(false)}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="run-detail-graph-modal__body">
+              <StepsGraph
+                graphKey={`${runID}:expanded`}
+                steps={steps}
+                selectedStep={selectedStep}
+                onSelectStep={onSelectStep}
+                onOpenStepLogs={onOpenStepLogs}
+                onOpenTaskLogs={onOpenTaskLogs}
+                onOpenStepDetail={onOpenStepDetail}
+                childRuns={childRuns}
+                pipelineDefinition={pipelineDefinition}
+                presentation="embedded"
+                ariaLabel="Expanded pipeline graph"
+                allowScrollZoom
+                expandedFrame
+              />
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

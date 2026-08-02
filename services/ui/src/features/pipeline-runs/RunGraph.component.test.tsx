@@ -282,7 +282,15 @@ test('modified wheel zoom keeps an open task reveal selected and click-away clos
   expect(screen.getByText('compile')).toBeVisible();
   expect(onSelectionChange).not.toHaveBeenCalledWith(null);
 
-  fireEvent.mouseDown(document.body);
+  const modalLayer = document.createElement('div');
+  modalLayer.dataset.runGraphFloatingLayer = 'true';
+  document.body.appendChild(modalLayer);
+  fireEvent.pointerDown(modalLayer);
+  expect(screen.getByText('compile')).toBeVisible();
+  expect(onSelectionChange).not.toHaveBeenCalledWith(null);
+  modalLayer.remove();
+
+  fireEvent.pointerDown(document.body);
   await waitFor(() => {
     expect(screen.queryByText('compile')).not.toBeInTheDocument();
   });
@@ -297,6 +305,63 @@ test('modified wheel zoom keeps an open task reveal selected and click-away clos
     expect(screen.queryByText('compile')).not.toBeInTheDocument();
   });
   expect(onSelectionChange).toHaveBeenLastCalledWith(null);
+});
+
+test('plain wheel zoom is available when the graph opts into scroll zoom', async () => {
+  const { container } = render(
+    <StepsGraph
+      steps={graphSteps}
+      selectedStep={null}
+      onSelectStep={() => undefined}
+      childRuns={[]}
+      hideStatusLegend
+      allowScrollZoom
+      presentation="embedded"
+      ariaLabel="Expanded pipeline graph"
+      pipelineDefinition={{
+        steps: [
+          { name: 'build', tasks: [{ name: 'compile' }] },
+          { name: 'deploy', tasks: [{ name: 'publish' }] },
+        ],
+      }}
+    />
+  );
+  const graphSurface = container.querySelector('.run-graph-workspace') as HTMLElement | null;
+  expect(graphSurface).not.toBeNull();
+
+  fireEvent.wheel(graphSurface!, { deltaY: -200 });
+
+  await waitFor(() => {
+    expect(graphTransform(container).scale).toBeGreaterThan(1);
+  });
+});
+
+test('expanded frame renders a larger task graph reveal canvas', async () => {
+  const { container } = render(
+    <StepsGraph
+      steps={graphSteps}
+      selectedStep={null}
+      onSelectStep={() => undefined}
+      childRuns={[]}
+      hideStatusLegend
+      allowScrollZoom
+      expandedFrame
+      presentation="embedded"
+      ariaLabel="Expanded pipeline graph"
+      pipelineDefinition={{
+        steps: [
+          { name: 'build', tasks: [{ name: 'compile' }] },
+          { name: 'deploy', tasks: [{ name: 'publish' }] },
+        ],
+      }}
+    />
+  );
+
+  expect(screen.getByRole('region', { name: 'Expanded pipeline graph' })).toHaveClass('run-graph-redesign--expanded-frame');
+
+  await userEvent.click(screen.getByRole('button', { name: /Reveal build step/ }));
+  const taskSvg = container.querySelector('.run-graph-task-svg');
+  expect(taskSvg).toHaveAttribute('viewBox', '0 0 1320 340');
 });
 
 test('clicking a step without tasks opens step logs instead of revealing an empty graph', async () => {

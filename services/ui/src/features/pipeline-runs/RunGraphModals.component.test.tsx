@@ -32,6 +32,8 @@ test('renders step and task LLM usage in the step detail modal', () => {
   );
 
   expect(screen.getByText('LLM: 75 tokens')).toBeVisible();
+  expect(screen.getByText('Step: plan').closest('.fixed')).toHaveClass('z-[110]');
+  expect(screen.getByText('Step: plan').closest('.fixed')).toHaveAttribute('data-run-graph-floating-layer');
   expect(screen.getAllByText('LLM tokens').length).toBeGreaterThan(0);
   expect(screen.getByText('60 tokens')).toBeVisible();
   expect(screen.getByText('42 tokens prompt / 18 tokens completion')).toBeVisible();

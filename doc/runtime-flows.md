@@ -103,6 +103,12 @@ directory.
 7. Among eligible runners, it chooses the least-loaded runner.
 8. If no eligible runner is available, the job stays queued.
 9. If a runner disconnects with inflight jobs, those jobs are requeued.
+10. A duplicate live connection for an already connected runner ID is rejected;
+    operators should eject or stop the old runner before reusing its ID.
+11. A newly installed control plane trusts any old runner definition that still
+    has valid service JWT/TLS trust material. Rotate `SERVICE_JWT_SIGNING_KEY`
+    and `DISPATCHER_TLS_SECRET`, or preserve `ejected_runner_ids`, when old
+    runners must not join the replacement dispatcher.
 
 ## 4. Runner Launch Flow
 

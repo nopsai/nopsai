@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -204,6 +204,29 @@ test('renders repeated team path credentials under the team once', async () => {
   expect((await screen.findAllByText('Team 1'))[0]).toBeVisible();
   expect(screen.getByRole('button', { name: /test/i })).toBeVisible();
   expect(screen.queryByText('Team 1 / Team 1')).not.toBeInTheDocument();
+});
+
+test('shows credential rotation failures inside the open drawer', async () => {
+  const user = userEvent.setup();
+  apiMocks.fetchCredentials.mockResolvedValue([teamCredential]);
+  apiMocks.fetchCredential.mockResolvedValue(teamCredential);
+  apiMocks.rotateCredential.mockRejectedValue(new Error("parse docker config json: invalid character 'g' looking for beginning of value"));
+
+  render(
+    <MemoryRouter>
+      <CredentialsPanel canManage isNopsAIAdmin />
+    </MemoryRouter>
+  );
+
+  await user.click(await screen.findByRole('button', { name: /smtp primary/i }));
+  const dialog = await screen.findByRole('dialog', { name: /smtp primary/i });
+
+  await user.type(within(dialog).getByLabelText('New credential value'), 'garbage');
+  await user.click(within(dialog).getByRole('button', { name: 'Rotate credential' }));
+
+  await waitFor(() => expect(apiMocks.rotateCredential).toHaveBeenCalledWith('credential-2', 'garbage'));
+  expect(screen.getAllByRole('alert')).toHaveLength(1);
+  expect(within(dialog).getByRole('alert')).toHaveTextContent("parse docker config json: invalid character 'g' looking for beginning of value");
 });
 
 test('opens a credential detail from the credential query parameter', async () => {

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -1014,6 +1015,28 @@ func TestRootVersionAndInputHelpers(t *testing.T) {
 	}
 	if _, err := executeCommand(testDependencies(nil, nil), "--timeout", "-1s", "--api", "https://example.com", "api", "request", "GET", "/"); err == nil {
 		t.Fatal("negative timeout accepted")
+	}
+}
+
+func TestUpdateCommandPlansExactReleaseAsset(t *testing.T) {
+	dependencies := testDependencies(nil, map[string]string{"NOPSAI_UPDATE_GITHUB_REPOSITORY": "acme/nopsai"})
+	output, err := executeCommand(dependencies, "update", "--version", "2.7.184", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedAsset := fmt.Sprintf("nopsai-cli_2.7.184_%s_%s", runtime.GOOS, runtime.GOARCH)
+	if !strings.Contains(output, "Would update nopsai to 2.7.184") ||
+		!strings.Contains(output, "https://github.com/acme/nopsai/releases/download/v2.7.184/") ||
+		!strings.Contains(output, expectedAsset) ||
+		!strings.Contains(output, "SHA256SUMS") {
+		t.Fatalf("update dry run output = %q", output)
+	}
+}
+
+func TestUpdateCommandRequiresVersion(t *testing.T) {
+	_, err := executeCommand(testDependencies(nil, nil), "update", "--dry-run")
+	if err == nil || !strings.Contains(err.Error(), "--version is required") {
+		t.Fatalf("missing update version error = %v", err)
 	}
 }
 

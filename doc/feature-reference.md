@@ -582,6 +582,10 @@ Sync behavior:
   while still saving through runtime settings, and persisted
   `credential://...` references link to **Credentials** without exposing
   credential values
+- runner trust is tied to service JWT/TLS trust material plus the persisted
+  ejected-runner blocklist; replacement control planes must rotate
+  `SERVICE_JWT_SIGNING_KEY`/`DISPATCHER_TLS_SECRET` or carry
+  `ejected_runner_ids` forward when old runner definitions should not reconnect
 
 ## Notifications And Metrics
 
@@ -878,7 +882,9 @@ Configuration management capabilities:
 - dispatcher and runner status inspection
 - monitoring page service status, runner summaries, and active runs filtered by
   the caller's pipeline-run access
-- runner dispatch pause/resume and permanent dispatcher registration ejection
+- runner dispatch pause/resume, duplicate live runner ID rejection, authenticated
+  runner service metadata in status, and permanent dispatcher registration
+  ejection
 
 ## Authentication, Access, And Audit
 
@@ -936,9 +942,10 @@ Pages present in the current UI:
   36px blue icon-only plus buttons with accessible labels.
 - The left sidebar groups primary work into Observe, Build & Automate, Lab,
   AI & Knowledge, Workspace, and a default-collapsed Administration section.
+  The setup wizard appears there as Installation.
   Product Wiki, user profile/theme/logout, and the final version row live as
   separated sidebar footer sections so route headers stay compact.
-- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
+- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, expandable scroll-zoom graph exploration with frontmost child dialogs, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail
   with a compact run-detail-style header, single-frame embedded dependency

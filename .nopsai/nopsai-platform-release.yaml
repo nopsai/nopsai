@@ -28,6 +28,7 @@ variables:
   - NOPSAI_RELEASE_BUILDX_NAME
   - NOPSAI_RELEASE_HELM_VERSION
   - NOPSAI_RELEASE_GH_VERSION
+  - NOPSAI_RELEASE_ORAS_VERSION
   - DOCKER_HOST
 steps:
   - name: checkout-repository
@@ -146,6 +147,11 @@ steps:
       fi
 
       version="$(scripts/release-version.sh --ref "$source_commit")"
+      release_tags=()
+      while IFS= read -r release_tag; do
+        release_tags+=("$release_tag")
+      done < <(scripts/release-tags.sh "$version")
+      release_tags_csv="$(IFS=,; printf '%s' "${release_tags[*]}")"
       should_release=true
       if git rev-parse --verify --quiet "refs/tags/v$version" >/dev/null; then
         tag_commit="$(git rev-list -n 1 "refs/tags/v$version")"
@@ -201,9 +207,11 @@ steps:
         printf 'SOURCE_URL=%q\n' "$source_url"
         printf 'ALLOW_EXISTING_RELEASE=%q\n' "$allow_existing"
         printf 'SHOULD_RELEASE=%q\n' "$should_release"
+        printf 'RELEASE_TAGS=%q\n' "$release_tags_csv"
       } >dist/release/env
 
       echo "release_version=$version"
+      echo "release_tags=$release_tags_csv"
       echo "source_commit=$source_commit"
       echo "registry=${registry%/}"
       echo "source_url=$source_url"
@@ -361,13 +369,16 @@ steps:
 
       mkdir -p dist/digests dist/docker-metadata
       metadata_file="dist/docker-metadata/${image_name}.json"
+      release_tag_args=()
+      while IFS= read -r release_tag; do
+        release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")
+      done < <(scripts/release-tags.sh "$VERSION")
       echo "Building and publishing $image_name"
       docker buildx build \
         --file "$dockerfile_path" \
         --platform "$PLATFORMS" \
         --push \
-        --tag "$REGISTRY/$image_name:$VERSION" \
-        --tag "$REGISTRY/$image_name:latest" \
+        "${release_tag_args[@]}" \
         --build-arg "BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest" \
         --build-arg "VERSION=$VERSION" \
         --build-arg "COMMIT=$SOURCE_COMMIT" \
@@ -414,12 +425,15 @@ steps:
       rm -rf dist/digests dist/docker-metadata
       mkdir -p dist/digests dist/docker-metadata
 
+      release_tag_args=()
+      while IFS= read -r release_tag; do
+        release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")
+      done < <(scripts/release-tags.sh "$VERSION")
       docker buildx build \
         --file Dockerfile \
         --platform "$PLATFORMS" \
         --push \
-        --tag "$REGISTRY/nopsai-base:$VERSION" \
-        --tag "$REGISTRY/nopsai-base:latest" \
+        "${release_tag_args[@]}" \
         --build-arg "VERSION=$VERSION" \
         --build-arg "COMMIT=$SOURCE_COMMIT" \
         --build-arg "BUILD_DATE=$BUILD_DATE" \
@@ -690,6 +704,23 @@ steps:
         chmod +x /usr/local/bin/helm
       }
 
+      install_oras() {
+        if command -v oras >/dev/null 2>&1; then
+          return
+        fi
+        local version="${NOPSAI_RELEASE_ORAS_VERSION:-1.2.3}"
+        local arch
+        case "$(uname -m)" in
+          x86_64|amd64) arch=amd64 ;;
+          aarch64|arm64) arch=arm64 ;;
+          *) echo "Unsupported ORAS install architecture: $(uname -m)" >&2; exit 1 ;;
+        esac
+        curl -fsSL "https://github.com/oras-project/oras/releases/download/v${version}/oras_${version}_linux_${arch}.tar.gz" -o /tmp/oras.tgz
+        tar -C /tmp -xzf /tmp/oras.tgz oras
+        mv /tmp/oras /usr/local/bin/oras
+        chmod +x /usr/local/bin/oras
+      }
+
       . dist/release/env
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping Helm chart publication"
@@ -701,13 +732,18 @@ steps:
       fi
 
       install_helm
+      install_oras
       echo "release_phase=publish-helm-chart"
       printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | helm registry login ghcr.io \
+        --username "$GHCR_USERNAME" \
+        --password-stdin
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io \
         --username "$GHCR_USERNAME" \
         --password-stdin
       # Default release registry resolves to oci://ghcr.io/<owner>/charts.
       chart_repository="oci://$REGISTRY/charts"
       chart_reference="$chart_repository/nopsai"
+      oras_chart_reference="${chart_reference#oci://}"
       chart_push_output="$(helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1)"
       printf '%s\n' "$chart_push_output"
       chart_digest="$(printf '%s\n' "$chart_push_output" | tr -d '\r' | grep -Eo 'sha256:[a-f0-9]{64}' | tail -1 || true)"
@@ -717,6 +753,13 @@ steps:
         exit 1
       fi
       printf '%s\n' "$chart_reference@$chart_digest" >dist/release/helm-chart.digest
+      while IFS= read -r release_tag; do
+        if [[ "$release_tag" == "$VERSION" ]]; then
+          continue
+        fi
+        oras copy "$oras_chart_reference:$VERSION" "$oras_chart_reference:$release_tag"
+        echo "published_chart_alias=$chart_reference:$release_tag"
+      done < <(scripts/release-tags.sh "$VERSION")
       echo "release_phase=publish-helm-chart complete"
       BASH
 
@@ -815,7 +858,7 @@ steps:
       - NOPSAI_RELEASE_GITHUB_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash curl tar gzip
+      apk add --no-cache bash curl git tar gzip
       bash <<'BASH'
       set -euo pipefail
       RELEASE_PHASE=publish-github-release
@@ -838,6 +881,43 @@ steps:
         chmod +x /usr/local/bin/gh
       }
 
+      configure_git_auth() {
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'case "$1" in' \
+          '  *Username*) printf "%s\n" "x-access-token" ;;' \
+          '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
+          '  *) printf "\n" ;;' \
+          'esac' >/tmp/nopsai-git-askpass
+        chmod 700 /tmp/nopsai-git-askpass
+        export GIT_ASKPASS=/tmp/nopsai-git-askpass
+        export GIT_TERMINAL_PROMPT=0
+      }
+
+      delete_release_assets() {
+        local release_tag="$1"
+        while IFS= read -r asset; do
+          [[ -n "$asset" ]] || continue
+          gh release delete-asset "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
+        done < <(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+      }
+
+      publish_alias_release() {
+        local release_alias="$1"
+        local release_tag="$2"
+        git tag -f "$release_tag" "$SOURCE_COMMIT"
+        git push --force origin "refs/tags/$release_tag"
+        if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "github_release_alias_action=update alias=$release_alias tag=$release_tag"
+          delete_release_assets "$release_tag"
+          gh release upload "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" --title "NopsAI $release_alias ($VERSION)" --notes-file dist/release/CHANGELOG.md --latest=false
+        else
+          echo "github_release_alias_action=create alias=$release_alias tag=$release_tag"
+          gh release create "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $release_alias ($VERSION)" --notes-file dist/release/CHANGELOG.md --latest=false
+        fi
+      }
+
       . dist/release/env
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping GitHub release publication"
@@ -849,6 +929,7 @@ steps:
       fi
 
       install_gh
+      configure_git_auth
       export GH_TOKEN="$NOPSAI_RELEASE_GITHUB_TOKEN"
       echo "release_phase=publish-github-release"
       legacy_assets=(
@@ -870,10 +951,16 @@ steps:
           gh release delete-asset "v$VERSION" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
         done
         gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
-        gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md
+        gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
       else
         echo "github_release_action=create"
-        gh release create "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md
+        gh release create "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
       fi
+      while IFS= read -r release_tag; do
+        case "$release_tag" in
+          "$VERSION"|latest) continue ;;
+          *) publish_alias_release "$release_tag" "v$release_tag" ;;
+        esac
+      done < <(scripts/release-tags.sh "$VERSION")
       echo "release_phase=publish-github-release complete"
       BASH

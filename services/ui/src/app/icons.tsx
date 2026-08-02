@@ -1,5 +1,5 @@
 import { Menu, X } from 'lucide-react';
-import { ObjectIcon } from '../components/ObjectIcon';
+import { ObjectIcon } from '../components/ObjectIcon.js';
 
 export function IconX() {
   return <X className="h-6 w-6" strokeWidth={2} aria-hidden="true" />;

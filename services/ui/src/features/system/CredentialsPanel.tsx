@@ -168,6 +168,7 @@ function CredentialsPanelBody({
     () => filterCredentials(visibleCredentials, query, 'all', scope),
     [query, scope, visibleCredentials]
   );
+  const registryError = controller.error && !visibleSelected && !controller.creating ? controller.error : '';
   const groups = useMemo(
     () => credentialCatalogGroups(filteredCredentials, teamPaths),
     [filteredCredentials, teamPaths]
@@ -188,8 +189,8 @@ function CredentialsPanelBody({
           onStartCreate={onStartCreate}
         />
 
-        {controller.error && (
-          <div className="credential-registry__error">{controller.error}</div>
+        {registryError && (
+          <div className="credential-registry__error">{registryError}</div>
         )}
 
         <CredentialCatalog
@@ -213,6 +214,7 @@ function CredentialsPanelBody({
           credential={visibleSelected}
           canManage={canManage}
           saving={controller.saving}
+          operationError={controller.error}
           teamPaths={teamPaths}
           rotationValue={controller.rotationValue}
           onRotationValueChange={controller.setRotationValue}

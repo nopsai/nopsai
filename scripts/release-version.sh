@@ -43,6 +43,8 @@ source_commit="$(git -C "$ROOT_DIR" rev-parse "$ref^{commit}")"
 version_patch=$((commit_count + offset))
 version="${base_version}.${version_patch}"
 short_commit="${source_commit:0:12}"
+major="${base_version%%.*}"
+minor="${base_version#*.}"
 
 case "$format" in
   version)
@@ -55,6 +57,8 @@ case "$format" in
     printf 'VERSION_COMMIT_OFFSET=%s\n' "$offset"
     printf 'SOURCE_COMMIT=%s\n' "$source_commit"
     printf 'SHORT_COMMIT=%s\n' "$short_commit"
+    printf 'MAJOR_TAG=%s\n' "$major"
+    printf 'MAJOR_MINOR_TAG=%s.%s\n' "$major" "$minor"
     ;;
   github)
     printf 'version=%s\n' "$version"
@@ -63,6 +67,8 @@ case "$format" in
     printf 'version_commit_offset=%s\n' "$offset"
     printf 'source_commit=%s\n' "$source_commit"
     printf 'short_commit=%s\n' "$short_commit"
+    printf 'major_tag=%s\n' "$major"
+    printf 'major_minor_tag=%s.%s\n' "$major" "$minor"
     ;;
   *)
     printf 'unsupported output format: %s\n' "$format" >&2
