@@ -1,6 +1,12 @@
 package dockerexec
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"nopsai/pkg/models"
+)
 
 func TestBuildStepContainerNameIncludesRepository(t *testing.T) {
 	got := BuildStepContainerName("payments api", "deploy/prod", "ship now", "1234567890abcdef")
@@ -54,4 +60,64 @@ func TestDockerStepVolumeOwnershipLabelsAreRunScoped(t *testing.T) {
 	if dockerStepVolumeOwnedBy(map[string]string{dockerStepVolumeManagedLabel: "true"}, "vol-run-123") {
 		t.Fatal("dockerStepVolumeOwnedBy() accepted incomplete labels")
 	}
+}
+
+func TestDockerStepHostConfigUsesSandboxDefaults(t *testing.T) {
+	hostConfig := dockerStepHostConfig([]string{"workspace:/workspace"}, dockerStepTmpfs(true), "nopsai-net")
+
+	if len(hostConfig.CapDrop) != 1 || hostConfig.CapDrop[0] != "ALL" {
+		t.Fatalf("CapDrop = %#v, want drop ALL", hostConfig.CapDrop)
+	}
+	if len(hostConfig.SecurityOpt) != 1 || hostConfig.SecurityOpt[0] != "no-new-privileges:true" {
+		t.Fatalf("SecurityOpt = %#v, want no-new-privileges", hostConfig.SecurityOpt)
+	}
+	if !hostConfig.ReadonlyRootfs {
+		t.Fatal("ReadonlyRootfs = false, want true")
+	}
+	if hostConfig.PidsLimit == nil || *hostConfig.PidsLimit != defaultDockerStepPidsLimit {
+		t.Fatalf("PidsLimit = %#v, want %d", hostConfig.PidsLimit, defaultDockerStepPidsLimit)
+	}
+	if hostConfig.Init == nil || !*hostConfig.Init {
+		t.Fatalf("Init = %#v, want true", hostConfig.Init)
+	}
+	if hostConfig.Tmpfs["/tmp"] == "" || hostConfig.Tmpfs["/var/tmp"] == "" {
+		t.Fatalf("tmpfs = %#v, want writable temp mounts", hostConfig.Tmpfs)
+	}
+	if hostConfig.Tmpfs[models.RuntimeOutputsMountPath] != dockerStepOutputsTmpfs {
+		t.Fatalf("outputs tmpfs = %q, want %q", hostConfig.Tmpfs[models.RuntimeOutputsMountPath], dockerStepOutputsTmpfs)
+	}
+}
+
+func TestDockerImagePullOptionsFailsClosedOnResolverError(t *testing.T) {
+	wantErr := errors.New("resolver down")
+	_, _, err := dockerImagePullOptions(context.Background(), "registry.local/app:latest", failingRegistryAuthResolver{err: wantErr})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("dockerImagePullOptions() error = %v, want wrapped resolver error", err)
+	}
+}
+
+func TestDockerImagePullOptionsUsesResolvedAuth(t *testing.T) {
+	options, authenticated, err := dockerImagePullOptions(context.Background(), "registry.local/app:latest", staticRegistryAuthResolver{auth: " encoded-auth "})
+	if err != nil {
+		t.Fatalf("dockerImagePullOptions() error = %v", err)
+	}
+	if !authenticated || options.RegistryAuth != "encoded-auth" {
+		t.Fatalf("dockerImagePullOptions() = auth %q authenticated %v, want trimmed auth", options.RegistryAuth, authenticated)
+	}
+}
+
+type failingRegistryAuthResolver struct {
+	err error
+}
+
+func (r failingRegistryAuthResolver) Resolve(context.Context, string) (string, error) {
+	return "", r.err
+}
+
+type staticRegistryAuthResolver struct {
+	auth string
+}
+
+func (r staticRegistryAuthResolver) Resolve(context.Context, string) (string, error) {
+	return r.auth, nil
 }

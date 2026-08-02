@@ -7,8 +7,11 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
 )
 
 func TestSameNodeAffinityTargetsAgentNodeThroughScheduler(t *testing.T) {
@@ -110,6 +113,29 @@ func TestCreateStepPodUsesWorkloadServiceAccountAndPullSecrets(t *testing.T) {
 	assertKubernetesContainerSecurityDefaults(t, pod.Spec.Containers[0].SecurityContext)
 }
 
+func TestCreateStepPodRejectsExistingPodName(t *testing.T) {
+	existingName := kubernetesObjectName("nopsai-step", "run-123", "build")
+	runtime := &Runtime{
+		client: fake.NewSimpleClientset(&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: existingName, Namespace: "runs"},
+		}),
+		namespace:    "runs",
+		workspacePVC: "workspace-pvc",
+		taskTimeout:  time.Millisecond,
+	}
+
+	_, err := runtime.CreateStepPod(context.Background(), StepPodRequest{
+		RunID:            "run-123",
+		PipelineName:     "deploy",
+		StepName:         "build",
+		Image:            "alpine:latest",
+		WorkingDirectory: "/workspace",
+	})
+	if err == nil || !strings.Contains(err.Error(), "refusing to reuse") {
+		t.Fatalf("CreateStepPod() error = %v, want refusal to reuse existing pod", err)
+	}
+}
+
 func TestKubernetesStepVolumesCreateRunOwnedPVCs(t *testing.T) {
 	runtime := &Runtime{
 		client:        fake.NewSimpleClientset(),
@@ -132,6 +158,29 @@ func TestKubernetesStepVolumesCreateRunOwnedPVCs(t *testing.T) {
 	}
 	if !kubernetesStepPVCOwnedBy(pvc.Labels, "run-123") {
 		t.Fatalf("created pvc labels = %#v, want run ownership", pvc.Labels)
+	}
+}
+
+func TestEnsureStepPVCRejectsCreateCollisionWithUnownedPVC(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	client.Fake.PrependReactor("create", "persistentvolumeclaims", func(action ktesting.Action) (bool, runtime.Object, error) {
+		if err := client.Tracker().Create(corev1.SchemeGroupVersion.WithResource("persistentvolumeclaims"), &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "runs"},
+		}, "runs"); err != nil {
+			t.Fatalf("seed collision pvc: %v", err)
+		}
+		return true, nil, apierrors.NewAlreadyExists(corev1.Resource("persistentvolumeclaims"), "cache")
+	})
+	runtime := &Runtime{
+		client:        client,
+		namespace:     "runs",
+		workspaceSize: "1Gi",
+		accessMode:    corev1.ReadWriteOnce,
+	}
+
+	err := runtime.ensureStepPVC(context.Background(), "cache", "1Gi", corev1.ReadWriteOnce, "run-123")
+	if err == nil || !strings.Contains(err.Error(), "not owned by this NopsAI run") {
+		t.Fatalf("ensureStepPVC() error = %v, want ownership error after create collision", err)
 	}
 }
 

@@ -39,7 +39,11 @@ const (
 	dockerStepVolumePurposeLabel = "nopsai.io/volume-purpose"
 	dockerStepVolumeOwnerLabel   = "nopsai.io/shared-volume"
 	dockerStepVolumePurpose      = "pipeline-step"
+	dockerStepTmpfsOptions       = "rw,noexec,nosuid,nodev,size=64m"
+	dockerStepOutputsTmpfs       = "rw,nosuid,nodev,size=64m"
 )
+
+var defaultDockerStepPidsLimit int64 = 512
 
 func BuildStepContainerName(repoName, pipelineName, stepName, runID string) string {
 	sanitizedPipelineName := sanitizeInput(pipelineName)
@@ -65,10 +69,7 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 	}
 
 	binds := []string{fmt.Sprintf("%s:%s", req.SharedVolumeName, req.WorkingDirectory)}
-	tmpfs := map[string]string(nil)
-	if req.OutputsEnabled {
-		tmpfs = map[string]string{models.RuntimeOutputsMountPath: "rw"}
-	}
+	tmpfs := dockerStepTmpfs(req.OutputsEnabled)
 	for _, vol := range req.Volumes {
 		volumeName, mountPath, err := parseDockerStepVolumeSpec(vol)
 		if err != nil {
@@ -88,12 +89,8 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 			Env:        req.Env,
 			Tty:        false,
 		},
-		HostConfig: &container.HostConfig{
-			Binds:       binds,
-			Tmpfs:       tmpfs,
-			NetworkMode: container.NetworkMode(req.DockerNetworkName),
-		},
-		Name: req.ContainerName,
+		HostConfig: dockerStepHostConfig(binds, tmpfs, req.DockerNetworkName),
+		Name:       req.ContainerName,
 	})
 	if err != nil {
 		return "", err
@@ -140,7 +137,42 @@ func ensureManagedDockerStepVolume(ctx context.Context, logger *zerolog.Logger, 
 	if err != nil {
 		return fmt.Errorf("create docker volume %q: %w", volumeName, err)
 	}
+	inspected, err = cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspect docker volume %q after create: %w", volumeName, err)
+	}
+	if !dockerStepVolumeOwnedBy(inspected.Volume.Labels, owner) {
+		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
+	}
 	return nil
+}
+
+func dockerStepTmpfs(outputsEnabled bool) map[string]string {
+	tmpfs := map[string]string{
+		"/tmp":     dockerStepTmpfsOptions,
+		"/var/tmp": dockerStepTmpfsOptions,
+	}
+	if !outputsEnabled {
+		return tmpfs
+	}
+	tmpfs[models.RuntimeOutputsMountPath] = dockerStepOutputsTmpfs
+	return tmpfs
+}
+
+func dockerStepHostConfig(binds []string, tmpfs map[string]string, networkName string) *container.HostConfig {
+	initProcess := true
+	return &container.HostConfig{
+		Binds:          binds,
+		Tmpfs:          tmpfs,
+		NetworkMode:    container.NetworkMode(networkName),
+		CapDrop:        []string{"ALL"},
+		SecurityOpt:    []string{"no-new-privileges:true"},
+		ReadonlyRootfs: true,
+		Resources: container.Resources{
+			PidsLimit: &defaultDockerStepPidsLimit,
+		},
+		Init: &initProcess,
+	}
 }
 
 func dockerStepVolumeLabels(owner string) map[string]string {
@@ -199,16 +231,15 @@ func EnsureImageExistsWithAuth(ctx context.Context, logger *zerolog.Logger, cli 
 	}
 
 	if len(images.Items) == 0 {
-		logger.Info().Str("image", imageName).Msg("Image not found locally, pulling")
-		options := client.ImagePullOptions{}
-		if authResolver != nil {
-			registryAuth, err := authResolver.Resolve(ctx, imageName)
-			if err != nil {
-				logger.Warn().Err(err).Str("image", imageName).Msg("Failed to resolve local registry auth; pulling without registry auth")
-			} else if strings.TrimSpace(registryAuth) != "" {
-				options.RegistryAuth = registryAuth
-				logger.Info().Str("image", imageName).Msg("Using local Docker registry auth for image pull")
-			}
+		if logger != nil {
+			logger.Info().Str("image", imageName).Msg("Image not found locally, pulling")
+		}
+		options, usingRegistryAuth, err := dockerImagePullOptions(ctx, imageName, authResolver)
+		if err != nil {
+			return err
+		}
+		if usingRegistryAuth && logger != nil {
+			logger.Info().Str("image", imageName).Msg("Using local Docker registry auth for image pull")
 		}
 		out, err := cli.ImagePull(ctx, imageName, options)
 		if err != nil {
@@ -216,10 +247,27 @@ func EnsureImageExistsWithAuth(ctx context.Context, logger *zerolog.Logger, cli 
 		}
 		defer out.Close()
 		io.Copy(io.Discard, out)
-	} else {
+	} else if logger != nil {
 		logger.Info().Str("image", imageName).Msg("Image found locally")
 	}
 	return nil
+}
+
+func dockerImagePullOptions(ctx context.Context, imageName string, authResolver RegistryAuthResolver) (client.ImagePullOptions, bool, error) {
+	options := client.ImagePullOptions{}
+	if authResolver == nil {
+		return options, false, nil
+	}
+	registryAuth, err := authResolver.Resolve(ctx, imageName)
+	if err != nil {
+		return options, false, fmt.Errorf("resolve registry auth for image %s: %w", imageName, err)
+	}
+	registryAuth = strings.TrimSpace(registryAuth)
+	if registryAuth == "" {
+		return options, false, nil
+	}
+	options.RegistryAuth = registryAuth
+	return options, true, nil
 }
 
 func StartImagePrePull(ctx context.Context, logger zerolog.Logger, cli *client.Client, queue []string) {

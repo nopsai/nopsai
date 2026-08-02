@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -71,6 +72,85 @@ func TestValidatePipelineRejectsInvalidPolicyMergeMode(t *testing.T) {
 	err := ValidatePipeline(p)
 	if err == nil || !strings.Contains(err.Error(), "policy_merge_mode") {
 		t.Fatalf("ValidatePipeline() error = %v, want policy_merge_mode error", err)
+	}
+}
+
+func TestValidatePipelineRejectsTooManySteps(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "too-many-steps",
+		ContainerImage: "alpine:latest",
+		Steps:          make([]models.PipelineStep, maxPipelineSteps+1),
+	}
+	for i := range p.Steps {
+		p.Steps[i] = models.PipelineStep{Step: &models.ScriptStep{
+			BaseStep: models.BaseStep{Name: fmt.Sprintf("step-%03d", i)},
+			Script:   "echo ok",
+		}}
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "maximum is") {
+		t.Fatalf("ValidatePipeline() error = %v, want step limit error", err)
+	}
+}
+
+func TestValidatePipelineRejectsTooManyTasksInStep(t *testing.T) {
+	tasks := make([]models.Task, maxPipelineTasksPerStep+1)
+	for i := range tasks {
+		tasks[i] = models.Task{Name: fmt.Sprintf("task-%03d", i), Script: "echo ok"}
+	}
+	p := &models.Pipeline{
+		Name:           "too-many-tasks",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{{Step: &models.TaskStep{
+			BaseStep: models.BaseStep{Name: "build"},
+			Tasks:    tasks,
+		}}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "has 257 tasks") {
+		t.Fatalf("ValidatePipeline() error = %v, want task limit error", err)
+	}
+}
+
+func TestValidatePipelineRejectsTooManyDependenciesOnNode(t *testing.T) {
+	deps := make([]string, maxPipelineDependenciesPerNode+1)
+	for i := range deps {
+		deps[i] = fmt.Sprintf("producer-%03d", i)
+	}
+	p := &models.Pipeline{
+		Name:           "too-many-dependencies",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{{Step: &models.ScriptStep{
+			BaseStep: models.BaseStep{Name: "build", DependsOn: deps},
+			Script:   "echo ok",
+		}}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "dependencies; maximum") {
+		t.Fatalf("ValidatePipeline() error = %v, want dependency limit error", err)
+	}
+}
+
+func TestValidatePipelineRejectsTooManyVolumesOnStep(t *testing.T) {
+	volumes := make([]string, maxPipelineVolumesPerStep+1)
+	for i := range volumes {
+		volumes[i] = fmt.Sprintf("cache-%03d:/cache-%03d", i, i)
+	}
+	p := &models.Pipeline{
+		Name:           "too-many-volumes",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{{Step: &models.ScriptStep{
+			BaseStep: models.BaseStep{Name: "build", Volumes: volumes},
+			Script:   "echo ok",
+		}}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "volumes; maximum") {
+		t.Fatalf("ValidatePipeline() error = %v, want volume limit error", err)
 	}
 }
 
