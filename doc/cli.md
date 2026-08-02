@@ -32,6 +32,16 @@ mirrors can override the source with `--repository`, `--asset-base-url`,
 `NOPSAI_UPDATE_GITHUB_REPOSITORY`, `NOPSAI_UPDATE_ASSET_BASE_URL`, and
 `NOPSAI_UPDATE_TOKEN`.
 
+Self-update downloads default to a 5 minute timeout, which is longer than the
+normal API timeout. If GitHub or a private mirror is slow to return release
+headers, retry with a larger explicit timeout such as
+`nopsai --timeout 10m update --version <version>`.
+
+Update downloads stay bounded to protect operator machines. An `exceeds` error
+means the resolved URL or enterprise mirror returned an object larger than the
+CLI archive limit; confirm the version, repository, asset base URL, and asset
+name before retrying.
+
 macOS CLI binaries are built on a macOS runner and published as standalone
 archives. The repository includes `scripts/sign-notarize-macos-cli.sh` for a
 future signed/notarized publication path, but the default release workflow does

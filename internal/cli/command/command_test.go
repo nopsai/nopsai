@@ -14,6 +14,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
 
 	"nopsai/internal/cli/apicatalog"
 	clconfig "nopsai/internal/cli/config"
@@ -1036,6 +1039,37 @@ func TestUpdateCommandPlansExactReleaseAsset(t *testing.T) {
 		!strings.Contains(output, expectedAsset) ||
 		!strings.Contains(output, "SHA256SUMS") {
 		t.Fatalf("update dry run output = %q", output)
+	}
+}
+
+func TestUpdateCommandUsesDedicatedDownloadTimeoutByDefault(t *testing.T) {
+	root := &rootOptions{timeout: 30 * time.Second}
+	command := newUpdateCommand(root)
+
+	got, err := updateTimeout(root, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != defaultUpdateTimeout {
+		t.Fatalf("update timeout = %s, want %s", got, defaultUpdateTimeout)
+	}
+}
+
+func TestUpdateCommandHonorsExplicitRootTimeout(t *testing.T) {
+	root := &rootOptions{timeout: 2 * time.Minute}
+	rootCommand := &cobra.Command{Use: "nopsai"}
+	rootCommand.PersistentFlags().DurationVar(&root.timeout, "timeout", root.timeout, "")
+	command := newUpdateCommand(root)
+	rootCommand.AddCommand(command)
+	flag := rootCommand.PersistentFlags().Lookup("timeout")
+	flag.Changed = true
+
+	got, err := updateTimeout(root, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 2*time.Minute {
+		t.Fatalf("update timeout = %s, want 2m", got)
 	}
 }
 
