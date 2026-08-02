@@ -154,7 +154,7 @@ func cloneRoute(route Route) Route {
 }
 
 func domainForPath(path string) string {
-	if path == "/healthz" || path == "/metrics" || path == "/version" {
+	if path == "/healthz" || path == "/livez" || path == "/metrics" || path == "/version" {
 		return "platform"
 	}
 	segments := strings.Split(strings.Trim(path, "/"), "/")
@@ -175,7 +175,7 @@ func domainForPath(path string) string {
 
 func publicPath(path string) bool {
 	switch path {
-	case "/healthz", "/metrics", "/version", "/v1/auth/providers", "/v1/auth/discover", "/v1/auth/session/exchange", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
+	case "/healthz", "/livez", "/metrics", "/version", "/v1/auth/providers", "/v1/auth/discover", "/v1/auth/session/exchange", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
 		return true
 	default:
 		return strings.HasPrefix(path, "/v1/auth/oidc/") ||

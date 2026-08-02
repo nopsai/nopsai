@@ -68,8 +68,8 @@ viewport, a guide/details section pinned beneath that viewport, and the same
 home-style keybind footer pinned to the bottom. The home screen shows
 the CLI version, current context, API URL, token source, authenticated session
 user when available, and
-lightweight NopsAI health checks for `/healthz`, `/version`, setup preflight,
-and `/v1/auth/me`.
+lightweight NopsAI health checks for `/healthz`, `/livez`, `/version`, setup
+preflight, and `/v1/auth/me`.
 
 From the home menu operators can switch into the full CLI surface: API catalog
 calls, raw API requests, route listing, route descriptions, context management,
