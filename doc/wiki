@@ -167,9 +167,13 @@ loop.
 Release publication uses `scripts/release-tags.sh` for the stable package tag
 set: exact version, `latest`, major, and major.minor. Container images and the
 Helm OCI chart publish all four aliases while installers keep exact versions in
-generated Docker Compose, Helm values, and locks. The exact GitHub Release is
-marked latest, and moving `v<major>` / `v<major>.<minor>` GitHub release aliases
-carry the same CLI assets. Released CLIs support
+generated Docker Compose, Helm values, and locks. Multi-arch container builds
+carry `org.opencontainers.image.source` as both Dockerfile labels and OCI
+index/manifest annotations so GHCR can associate packages with the source repo.
+Already-created unlinked GHCR packages may still need a one-time package settings
+connection or delete/republish. The exact GitHub Release is marked latest, and
+moving `v<major>` / `v<major>.<minor>` GitHub release aliases carry the same CLI
+assets. Released CLIs support
 `nopsai update --version <major.minor.patch>`; the updater downloads the exact
 GitHub Release archive and `SHA256SUMS`, verifies the checksum, then replaces
 the local binary. Enterprise mirrors can override the repository or asset base
