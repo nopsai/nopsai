@@ -993,7 +993,7 @@ func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValid
 	if pipeline == nil {
 		return fmt.Errorf("pipeline is required")
 	}
-	if !models.PipelineLLMEnabled(pipeline) {
+	if !models.PipelineRequiresLLMProfiles(pipeline) {
 		return nil
 	}
 	profiles := opts.Profiles

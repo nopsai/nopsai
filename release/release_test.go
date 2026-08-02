@@ -158,6 +158,53 @@ func TestHelmChartOwnsControlPlaneAndRunnerResources(t *testing.T) {
 	}
 }
 
+func TestHelmChartSeparatesAPIReadinessAndLiveness(t *testing.T) {
+	apiTemplateBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/api.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiTemplate := string(apiTemplateBytes)
+	for _, required := range []string{
+		"readinessProbe: {httpGet: {path: /healthz, port: http}",
+		"livenessProbe: {httpGet: {path: /livez, port: http}",
+	} {
+		if !strings.Contains(apiTemplate, required) {
+			t.Errorf("api.yaml is missing probe contract %q", required)
+		}
+	}
+	if strings.Contains(apiTemplate, "livenessProbe: {httpGet: {path: /healthz, port: http}") {
+		t.Error("api.yaml must not use readiness healthz for liveness")
+	}
+}
+
+func TestHelmChartEnablesAuthenticatedMetricsForProduction(t *testing.T) {
+	valuesBytes, err := os.ReadFile("../deploy/helm/nopsai/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiTemplateBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/api.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readmeBytes, err := os.ReadFile("../deploy/helm/nopsai/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := string(valuesBytes)
+	apiTemplate := string(apiTemplateBytes)
+	readme := string(readmeBytes)
+	for _, required := range []string{
+		"metricsRequireAuth: true",
+		"METRICS_REQUIRE_AUTH",
+		".Values.api.metricsRequireAuth",
+		"`api.metricsRequireAuth` defaults to `true`",
+	} {
+		if !strings.Contains(values+"\n"+apiTemplate+"\n"+readme, required) {
+			t.Errorf("Helm chart is missing authenticated metrics contract %q", required)
+		}
+	}
+}
+
 func TestHelmChartConfiguresBundledPostgreSQL(t *testing.T) {
 	valuesBytes, err := os.ReadFile("../deploy/helm/nopsai/values.yaml")
 	if err != nil {

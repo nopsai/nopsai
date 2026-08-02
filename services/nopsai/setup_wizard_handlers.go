@@ -147,7 +147,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 		messages = append(messages, "Starter workspace resources seeded.")
 	}
 
-	if req.Profile != setupProfileEmpty && req.Profile != setupProfileProduction && req.shouldSeedLLMProfile() {
+	if req.Profile != setupProfileEmpty && req.shouldSeedStarterLLMProfile() {
 		if count, err := a.seedSetupLLMProfile(r.Context(), req.LLMProfile); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

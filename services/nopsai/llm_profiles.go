@@ -207,7 +207,7 @@ func (a *App) validatePipelineLLMProfiles(pipeline *models.Pipeline, scope strin
 }
 
 func (a *App) validatePipelineLLMProfilesForTeam(ctx context.Context, pipeline *models.Pipeline, scope string, teamID *int) error {
-	if !models.PipelineLLMEnabled(pipeline) {
+	if !models.PipelineRequiresLLMProfiles(pipeline) {
 		return nil
 	}
 	cfg := a.getConfigSnapshot()

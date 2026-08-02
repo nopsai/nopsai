@@ -129,7 +129,10 @@ commands, and basic verification commands. Create the Secret with External
 Secrets, SOPS, Sealed Secrets, or another cluster secret manager before
 deploying. The generated values include a bundled PostgreSQL StatefulSet and
 PVC by default; set `postgres.enabled=false` and point `database-url` at a
-managed database when the cluster owns PostgreSQL separately. When release
+managed database when the cluster owns PostgreSQL separately. With bundled
+PostgreSQL, `database-url` and `postgres-password` must contain the same
+password, and an existing PVC keeps the password from first initialization until
+the database role is updated or the PVC is intentionally recreated. When release
 images are private, the operator creates a registry pull Secret in the namespace
 and references it through `global.imagePullSecrets`.
 

@@ -243,7 +243,9 @@ For local development from this checkout:
    webhook URL on the GitHub App.
 
 7. Create one or two starter repository teams, apply setup, and run the starter
-   `setup/first-run` pipeline to verify runner, agent, LLM, logs, and UI.
+   `setup/first-run` pipeline to verify runner, agent, logs, and UI. If setup
+   seeded an LLM profile, the starter pipeline also includes the optional AI
+   smoke step.
 
 To stop and remove local state:
 
@@ -419,7 +421,9 @@ working GitOps layout.
 ## Pipeline Example
 
 Pipelines are declarative YAML definitions. A pipeline can combine reusable
-steps, scripts, and LLM-backed goals:
+steps, scripts, and LLM-backed goals. Omit the AI step or set
+`llm_enabled: false` for script-only pipelines that should run before any LLM
+profile exists:
 
 ```yaml
 name: first-run

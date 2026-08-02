@@ -837,7 +837,7 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString(strconv.Quote(bootstrapAdminPasswordSecretKey))
 	builder.WriteString("\n\n")
 	builder.WriteString("postgres:\n  enabled: true\n  database: nopsai_db\n  username: nopsai_user\n  image:\n    repository: postgres\n    tag: \"15\"\n    digest: \"\"\n  auth:\n    passwordKey: postgres-password\n  service:\n    name: postgres\n    port: 5432\n  persistence:\n    enabled: true\n    storageClass: \"\"\n    size: 20Gi\n\n")
-	builder.WriteString("api:\n  replicaCount: 1\n  runtimeOutputMaxBytes: 65536\n")
+	builder.WriteString("api:\n  replicaCount: 1\n  metricsRequireAuth: true\n  runtimeOutputMaxBytes: 65536\n")
 	if err := writeKubernetesImage(&builder, images, "api"); err != nil {
 		return nil, err
 	}

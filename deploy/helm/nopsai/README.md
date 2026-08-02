@@ -69,6 +69,10 @@ global:
     - name: nopsai-registry
 ```
 
+`api.metricsRequireAuth` defaults to `true` because production startup gates
+require authenticated `/metrics`. Keep it enabled unless the chart is used only
+for isolated local evaluation.
+
 When `api.serviceAccount.create=true` and
 `k8sRunner.serviceAccount.create=true`, the chart writes the same
 `global.imagePullSecrets` list onto the `nopsai-api` and `nopsai-runner`

@@ -274,7 +274,7 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 	}
 	files := map[string]string{
 		"README.md":                      setupReadme(repositoryTeams, repositories),
-		"pipelines/setup/first-run.yaml": setupFirstRunPipelineYAML(profile),
+		"pipelines/setup/first-run.yaml": setupFirstRunPipelineYAML(profile, options.IncludeLLM),
 		"steps/setup/announce.yaml":      setupReusableStepYAML(),
 		"scopes/dev/scope.yaml":          setupScopeYAML("dev", repositoryTeams, repositories),
 		"access/bootstrap.yaml":          setupAccessYAML(repositoryTeams, options.Users),
@@ -425,19 +425,33 @@ script: |
 `) + "\n"
 }
 
-func setupFirstRunPipelineYAML(profile string) string {
+func setupFirstRunPipelineYAML(profile string, includeLLM bool) string {
 	scope := "dev"
 	if normalizeSetupProfile(profile) == setupProfileProduction {
 		scope = "prod"
 	}
+	description := "Verifies that NopsAI can run a starter job and stream logs without requiring an LLM profile."
+	llmSettings := "llm_enabled: false"
+	aiSmokeStep := ""
+	if includeLLM {
+		description = "Verifies that NopsAI can run a starter job, stream logs, and call the configured LLM profile."
+		llmSettings = "llm_profile: standard"
+		aiSmokeStep = `
+
+  - name: ai-smoke
+    goal: Return one short sentence confirming that the NopsAI setup smoke test reached the agent.
+    ignore_failure: true
+    depends_on:
+      - runner-smoke`
+	}
 	return strings.TrimSpace(fmt.Sprintf(`
 name: first-run
 version: "1.0.0"
-description: Verifies that NopsAI can run a starter job, stream logs, and optionally call the configured LLM profile.
+description: %s
 container_image: alpine:3.20
 working_directory: /workspace
 timeout: 10m
-llm_profile: standard
+%s
 display_options:
   github_view: flat
 variables:
@@ -455,14 +469,8 @@ steps:
       echo "NopsAI runner is executing the setup smoke test"
       echo "workspace=$NOPSAI_SETUP_WORKSPACE scope=$NOPSAI_SETUP_SCOPE"
     depends_on:
-      - announce
-
-  - name: ai-smoke
-    goal: Return one short sentence confirming that the NopsAI setup smoke test reached the agent.
-    ignore_failure: true
-    depends_on:
-      - runner-smoke
-`, scope, scope)) + "\n"
+      - announce%s
+`, description, llmSettings, scope, scope, aiSmokeStep)) + "\n"
 }
 
 func setupTriggerYAML(profile string) string {
