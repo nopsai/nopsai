@@ -34,7 +34,8 @@ func TestCurrentUsesSafeDevelopmentDefaults(t *testing.T) {
 	CLICompatibility, RunnerCompatibility, PlatformCompatibility = "", "", ""
 	Capabilities = ""
 	info := Current()
-	if !info.IsDevelopment() || info.RunnerProtocolVersion != 1 || info.APIVersion != "v1" || info.CLICompatibility == "" {
+	if !info.IsDevelopment() || info.RunnerProtocolVersion != 1 || info.APIVersion != "v1" || info.CLICompatibility == "" ||
+		!hasCapability(info.Capabilities, "platform.docker-compose") {
 		t.Fatalf("defaults = %#v", info)
 	}
 }
@@ -81,4 +82,13 @@ func setBuildVariablesForTest(t *testing.T) {
 	t.Cleanup(func() {
 		Version, Commit, BuildDate, ReleaseManifestDigest, APIVersion, RunnerProtocolVersion, CLICompatibility, RunnerCompatibility, PlatformCompatibility, Capabilities = values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9]
 	})
+}
+
+func hasCapability(capabilities []string, expected string) bool {
+	for _, capability := range capabilities {
+		if capability == expected {
+			return true
+		}
+	}
+	return false
 }
