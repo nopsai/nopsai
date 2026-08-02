@@ -42,6 +42,15 @@ type MCPProfileValidationOptions struct {
 	Scope    string
 }
 
+const (
+	maxPipelineSteps               = 256
+	maxPipelineTasksPerStep        = 256
+	maxPipelineTotalTasks          = 1024
+	maxPipelineDependenciesPerNode = 256
+	maxPipelineTotalDependencies   = 4096
+	maxPipelineVolumesPerStep      = 32
+)
+
 var supportedKnowledgeContextKinds = map[string]struct{}{
 	"architecture": {},
 	"guardrail":    {},
@@ -89,6 +98,9 @@ var supportedDashboardOutputPresets = map[string]struct{}{
 }
 
 func ValidatePipeline(pipeline *models.Pipeline) error {
+	if pipeline == nil {
+		return fmt.Errorf("pipeline is required")
+	}
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
 	}
@@ -124,6 +136,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	}
 	if len(pipeline.Steps) == 0 {
 		return fmt.Errorf("at least one step is required")
+	}
+	if err := validatePipelineStructuralLimits(pipeline); err != nil {
+		return err
 	}
 	if err := validateKnowledgeContextRefs(pipeline.KnowledgeContext, "pipeline"); err != nil {
 		return err
@@ -288,6 +303,53 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		return err
 	}
 
+	return nil
+}
+
+func validatePipelineStructuralLimits(pipeline *models.Pipeline) error {
+	if len(pipeline.Steps) > maxPipelineSteps {
+		return fmt.Errorf("pipeline has %d steps; maximum is %d", len(pipeline.Steps), maxPipelineSteps)
+	}
+
+	totalTasks := 0
+	totalDependencies := 0
+	for stepIdx, step := range pipeline.Steps {
+		stepName := strings.TrimSpace(step.GetName())
+		if stepName == "" {
+			stepName = fmt.Sprintf("#%d", stepIdx+1)
+		}
+		if len(step.GetVolumes()) > maxPipelineVolumesPerStep {
+			return fmt.Errorf("step '%s' has %d volumes; maximum is %d", stepName, len(step.GetVolumes()), maxPipelineVolumesPerStep)
+		}
+		stepDeps := len(step.GetDependsOn())
+		if stepDeps > maxPipelineDependenciesPerNode {
+			return fmt.Errorf("step '%s' has %d dependencies; maximum is %d", stepName, stepDeps, maxPipelineDependenciesPerNode)
+		}
+		totalDependencies += stepDeps
+
+		tasks := step.GetTasks()
+		if len(tasks) > maxPipelineTasksPerStep {
+			return fmt.Errorf("step '%s' has %d tasks; maximum is %d", stepName, len(tasks), maxPipelineTasksPerStep)
+		}
+		totalTasks += len(tasks)
+		for _, task := range tasks {
+			taskName := strings.TrimSpace(task.Name)
+			if taskName == "" {
+				taskName = "<unnamed>"
+			}
+			taskDeps := len(task.DependsOn)
+			if taskDeps > maxPipelineDependenciesPerNode {
+				return fmt.Errorf("task '%s' in step '%s' has %d dependencies; maximum is %d", taskName, stepName, taskDeps, maxPipelineDependenciesPerNode)
+			}
+			totalDependencies += taskDeps
+		}
+	}
+	if totalTasks > maxPipelineTotalTasks {
+		return fmt.Errorf("pipeline has %d tasks; maximum is %d", totalTasks, maxPipelineTotalTasks)
+	}
+	if totalDependencies > maxPipelineTotalDependencies {
+		return fmt.Errorf("pipeline has %d dependencies; maximum is %d", totalDependencies, maxPipelineTotalDependencies)
+	}
 	return nil
 }
 
