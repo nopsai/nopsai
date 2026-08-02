@@ -397,10 +397,20 @@ func buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, 
 	}
 	deploymentPodSpec := map[string]interface{}{
 		"serviceAccountName": serviceAccount,
+		"securityContext": map[string]interface{}{
+			"seccompProfile": map[string]string{"type": "RuntimeDefault"},
+		},
 		"containers": []map[string]interface{}{{
 			"name":            "runner",
 			"image":           runnerImage,
 			"imagePullPolicy": firstNonEmptyString(env["KUBERNETES_DEFAULT_IMAGE_PULL_POLICY"], "IfNotPresent"),
+			"securityContext": map[string]interface{}{
+				"allowPrivilegeEscalation": false,
+				"capabilities": map[string]interface{}{
+					"drop": []string{"ALL"},
+				},
+				"seccompProfile": map[string]string{"type": "RuntimeDefault"},
+			},
 			"envFrom": []map[string]interface{}{
 				{"configMapRef": map[string]string{"name": configMapName}},
 				{"secretRef": map[string]string{"name": secretName}},

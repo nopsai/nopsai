@@ -34,6 +34,13 @@ type RegistryAuthResolver interface {
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
+const (
+	dockerStepVolumeManagedLabel = "nopsai.io/managed"
+	dockerStepVolumePurposeLabel = "nopsai.io/volume-purpose"
+	dockerStepVolumeOwnerLabel   = "nopsai.io/shared-volume"
+	dockerStepVolumePurpose      = "pipeline-step"
+)
+
 func BuildStepContainerName(repoName, pipelineName, stepName, runID string) string {
 	sanitizedPipelineName := sanitizeInput(pipelineName)
 	sanitizedStepName := sanitizeInput(stepName)
@@ -50,6 +57,9 @@ func BuildStepContainerName(repoName, pipelineName, stepName, runID string) stri
 }
 
 func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *client.Client, req StepContainerRequest) (string, error) {
+	if strings.TrimSpace(req.SharedVolumeName) == "" {
+		return "", fmt.Errorf("shared volume name is required")
+	}
 	if err := EnsureImageExistsWithAuth(ctx, logger, cli, req.Image, req.RegistryAuth); err != nil {
 		return "", err
 	}
@@ -60,27 +70,14 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 		tmpfs = map[string]string{models.RuntimeOutputsMountPath: "rw"}
 	}
 	for _, vol := range req.Volumes {
-		parts := strings.Split(vol, ":")
-		if len(parts) != 2 {
-			logger.Error().Str("volume", vol).Msg("Invalid volume format. Must be 'volume-name:mount-path'. Skipping")
-			continue
-		}
-		volumeName := parts[0]
-		_, err := cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
+		volumeName, mountPath, err := parseDockerStepVolumeSpec(vol)
 		if err != nil {
-			if cerrdefs.IsNotFound(err) {
-				logger.Info().Str("volume", volumeName).Msg("Volume not found, creating it now")
-				_, createErr := cli.VolumeCreate(ctx, client.VolumeCreateOptions{Name: volumeName})
-				if createErr != nil {
-					logger.Error().Err(createErr).Str("volume", volumeName).Msg("Failed to create volume")
-					continue
-				}
-			} else {
-				logger.Error().Err(err).Str("volume", volumeName).Msg("Failed to inspect volume")
-				continue
-			}
+			return "", err
 		}
-		binds = append(binds, vol)
+		if err := ensureManagedDockerStepVolume(ctx, logger, cli, volumeName, req.SharedVolumeName); err != nil {
+			return "", err
+		}
+		binds = append(binds, fmt.Sprintf("%s:%s", volumeName, mountPath))
 	}
 
 	cont, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -105,6 +102,59 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 		return "", err
 	}
 	return cont.ID, nil
+}
+
+func parseDockerStepVolumeSpec(spec string) (string, string, error) {
+	volumeName, mountPath, ok := strings.Cut(spec, ":")
+	volumeName = strings.TrimSpace(volumeName)
+	mountPath = strings.TrimSpace(mountPath)
+	if !ok || volumeName == "" || mountPath == "" || !strings.HasPrefix(mountPath, "/") ||
+		strings.ContainsAny(volumeName, `/\`) {
+		return "", "", fmt.Errorf("invalid volume format %q; must be 'volume-name:/mount-path'", spec)
+	}
+	return volumeName, mountPath, nil
+}
+
+func ensureManagedDockerStepVolume(ctx context.Context, logger *zerolog.Logger, cli *client.Client, volumeName, owner string) error {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return fmt.Errorf("step volume owner is required")
+	}
+	inspected, err := cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
+	if err == nil {
+		if dockerStepVolumeOwnedBy(inspected.Volume.Labels, owner) {
+			return nil
+		}
+		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
+	}
+	if !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("inspect docker volume %q: %w", volumeName, err)
+	}
+	if logger != nil {
+		logger.Info().Str("volume", volumeName).Msg("Creating NopsAI-managed step volume")
+	}
+	_, err = cli.VolumeCreate(ctx, client.VolumeCreateOptions{
+		Name:   volumeName,
+		Labels: dockerStepVolumeLabels(owner),
+	})
+	if err != nil {
+		return fmt.Errorf("create docker volume %q: %w", volumeName, err)
+	}
+	return nil
+}
+
+func dockerStepVolumeLabels(owner string) map[string]string {
+	return map[string]string{
+		dockerStepVolumeManagedLabel: "true",
+		dockerStepVolumePurposeLabel: dockerStepVolumePurpose,
+		dockerStepVolumeOwnerLabel:   strings.TrimSpace(owner),
+	}
+}
+
+func dockerStepVolumeOwnedBy(labels map[string]string, owner string) bool {
+	return strings.EqualFold(strings.TrimSpace(labels[dockerStepVolumeManagedLabel]), "true") &&
+		strings.TrimSpace(labels[dockerStepVolumePurposeLabel]) == dockerStepVolumePurpose &&
+		strings.TrimSpace(labels[dockerStepVolumeOwnerLabel]) == strings.TrimSpace(owner)
 }
 
 func Cleanup(ctx context.Context, logger *zerolog.Logger, cli *client.Client, containerID string) {

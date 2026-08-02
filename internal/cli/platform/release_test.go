@@ -24,20 +24,20 @@ import (
 func TestManifestResolverLoadsAndVerifiesLocalManifest(t *testing.T) {
 	manifestPath, raw, _ := writeReleaseFixture(t, []byte("chart"))
 	resolver := ManifestResolver{}
-	resolved, err := resolver.Resolve(context.Background(), "v2.7.0", manifestPath, compatibility.DigestBytes(raw))
+	resolved, err := resolver.Resolve(context.Background(), "v"+testPlatformVersion, manifestPath, compatibility.DigestBytes(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Manifest.Version != "2.7.0" || resolved.Source != manifestPath || resolved.Digest != compatibility.DigestBytes(raw) {
+	if resolved.Manifest.Version != testPlatformVersion || resolved.Source != manifestPath || resolved.Digest != compatibility.DigestBytes(raw) {
 		t.Fatalf("resolved = %#v", resolved)
 	}
-	if _, err := resolver.Resolve(context.Background(), "2.7.0", manifestPath, testSHA("f")); !errors.Is(err, compatibility.ErrManifestDigestMismatch) {
+	if _, err := resolver.Resolve(context.Background(), testPlatformVersion, manifestPath, testSHA("f")); !errors.Is(err, compatibility.ErrManifestDigestMismatch) {
 		t.Fatalf("digest mismatch error = %v", err)
 	}
-	if _, err := resolver.Resolve(context.Background(), "2.6.0", manifestPath, ""); err == nil {
+	if _, err := resolver.Resolve(context.Background(), testOtherPlatformVersion, manifestPath, ""); err == nil {
 		t.Fatal("manifest version mismatch succeeded")
 	}
-	if _, err := resolver.Resolve(context.Background(), "2.7.0", "http://example.com/manifest.json", ""); err == nil {
+	if _, err := resolver.Resolve(context.Background(), testPlatformVersion, "http://example.com/manifest.json", ""); err == nil {
 		t.Fatal("insecure remote manifest succeeded")
 	}
 }
@@ -45,7 +45,7 @@ func TestManifestResolverLoadsAndVerifiesLocalManifest(t *testing.T) {
 func TestManifestResolverLoadsEmbeddedManifestByDefault(t *testing.T) {
 	_, raw, _ := writeReleaseFixture(t, []byte("chart"))
 	resolver := ManifestResolver{EmbeddedManifest: raw}
-	resolved, err := resolver.Resolve(context.Background(), "2.7.0", "", compatibility.DigestBytes(raw))
+	resolved, err := resolver.Resolve(context.Background(), testPlatformVersion, "", compatibility.DigestBytes(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestManifestResolverLoadsReleaseLinkedEmbeddedManifest(t *testing.T) {
 	EmbeddedReleaseManifestBase64 = base64.StdEncoding.EncodeToString(raw)
 	defer func() { EmbeddedReleaseManifestBase64 = previous }()
 
-	resolved, err := (ManifestResolver{}).Resolve(context.Background(), "2.7.0", "", compatibility.DigestBytes(raw))
+	resolved, err := (ManifestResolver{}).Resolve(context.Background(), testPlatformVersion, "", compatibility.DigestBytes(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestManifestResolverLoadsReleaseLinkedEmbeddedManifest(t *testing.T) {
 }
 
 func TestManifestResolverRequiresExplicitManifestWhenNoDefaultExists(t *testing.T) {
-	_, err := (ManifestResolver{}).Resolve(context.Background(), "2.7.0", "", "")
+	_, err := (ManifestResolver{}).Resolve(context.Background(), testPlatformVersion, "", "")
 	if err == nil || !strings.Contains(err.Error(), "release manifest is required") {
 		t.Fatalf("missing manifest error = %v", err)
 	}
@@ -79,7 +79,7 @@ func TestManifestResolverRequiresExplicitManifestWhenNoDefaultExists(t *testing.
 func TestManifestResolverUsesConfiguredURLTemplate(t *testing.T) {
 	_, raw, _ := writeReleaseFixture(t, []byte("chart"))
 	secure := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v2.7.0/release-manifest.json" {
+		if request.URL.Path != "/v"+testPlatformVersion+"/release-manifest.json" {
 			t.Fatalf("request path = %s", request.URL.Path)
 		}
 		_, _ = writer.Write(raw)
@@ -87,11 +87,11 @@ func TestManifestResolverUsesConfiguredURLTemplate(t *testing.T) {
 	defer secure.Close()
 
 	resolver := ManifestResolver{HTTPClient: secure.Client(), URLTemplate: secure.URL + "/v%s/release-manifest.json"}
-	resolved, err := resolver.Resolve(context.Background(), "2.7.0", "", compatibility.DigestBytes(raw))
+	resolved, err := resolver.Resolve(context.Background(), testPlatformVersion, "", compatibility.DigestBytes(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.Source != secure.URL+"/v2.7.0/release-manifest.json" {
+	if resolved.Source != secure.URL+"/v"+testPlatformVersion+"/release-manifest.json" {
 		t.Fatalf("source = %q", resolved.Source)
 	}
 }
@@ -116,7 +116,7 @@ func TestManifestResolverSendsScopedManifestToken(t *testing.T) {
 		AuthToken:             "manifest-token",
 		AuthTokenHostSuffixes: []string{parsedURL.Hostname()},
 	}
-	if _, err := resolver.Resolve(context.Background(), "2.7.0", secure.URL, compatibility.DigestBytes(raw)); err != nil {
+	if _, err := resolver.Resolve(context.Background(), testPlatformVersion, secure.URL, compatibility.DigestBytes(raw)); err != nil {
 		t.Fatal(err)
 	}
 	if !sawToken {
@@ -128,7 +128,7 @@ func TestManifestResolverReportsRemoteHTTPStatus(t *testing.T) {
 	secure := httptest.NewTLSServer(http.NotFoundHandler())
 	defer secure.Close()
 
-	_, err := (ManifestResolver{HTTPClient: secure.Client()}).Resolve(context.Background(), "2.7.0", secure.URL, "")
+	_, err := (ManifestResolver{HTTPClient: secure.Client()}).Resolve(context.Background(), testPlatformVersion, secure.URL, "")
 	var httpErr *ManifestHTTPError
 	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound || httpErr.Source != secure.URL {
 		t.Fatalf("HTTP status error = %#v, %v", httpErr, err)
@@ -144,7 +144,7 @@ func TestManifestResolverRejectsHTTPSRedirectToHTTP(t *testing.T) {
 	defer secure.Close()
 
 	resolver := ManifestResolver{HTTPClient: secure.Client()}
-	_, err := resolver.Resolve(context.Background(), "2.7.0", secure.URL, "")
+	_, err := resolver.Resolve(context.Background(), testPlatformVersion, secure.URL, "")
 	if err == nil || !strings.Contains(err.Error(), "redirect must use https") {
 		t.Fatalf("redirect downgrade error = %v", err)
 	}
@@ -161,11 +161,11 @@ func TestKubernetesPlanAndDeployUseVerifiedBundleAndWriteLock(t *testing.T) {
 	deployer := KubernetesDeployer{
 		Resolver: ManifestResolver{},
 		Runner:   runner.Run,
-		CLI:      releaseCLIInfo("2.7.0"),
+		CLI:      releaseCLIInfo(testPlatformVersion),
 		Now:      func() time.Time { return time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC) },
 	}
 	options := KubernetesOptions{
-		Version:        "2.7.0",
+		Version:        testPlatformVersion,
 		ManifestSource: manifestPath,
 		ValuesFiles:    []string{valuesPath},
 		ReleaseName:    "nopsai-prod",
@@ -177,7 +177,7 @@ func TestKubernetesPlanAndDeployUseVerifiedBundleAndWriteLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Version != "2.7.0" || plan.Chart.Digest != manifest.Chart.Digest || !strings.Contains(plan.RenderedManifestYAML, "kind: Deployment") || !strings.HasPrefix(plan.ValuesHash, "sha256:") {
+	if plan.Version != testPlatformVersion || plan.Chart.Digest != manifest.Chart.Digest || !strings.Contains(plan.RenderedManifestYAML, "kind: Deployment") || !strings.HasPrefix(plan.ValuesHash, "sha256:") {
 		t.Fatalf("plan = %#v", plan)
 	}
 	plan, lock, err := deployer.Deploy(context.Background(), options)
@@ -213,10 +213,10 @@ func TestKubernetesPlanAndDeployCanBeDeclinedAfterRendering(t *testing.T) {
 	deployer := KubernetesDeployer{
 		Resolver: ManifestResolver{},
 		Runner:   runner.Run,
-		CLI:      releaseCLIInfo("2.7.0"),
+		CLI:      releaseCLIInfo(testPlatformVersion),
 	}
 	plan, lock, deployed, err := deployer.PlanAndDeploy(context.Background(), KubernetesOptions{
-		Version:        "2.7.0",
+		Version:        testPlatformVersion,
 		ManifestSource: manifestPath,
 	}, func(plan DeploymentPlan) (bool, error) {
 		if !strings.Contains(plan.RenderedManifestYAML, "kind: Deployment") {
@@ -224,7 +224,7 @@ func TestKubernetesPlanAndDeployCanBeDeclinedAfterRendering(t *testing.T) {
 		}
 		return false, nil
 	})
-	if err != nil || deployed || lock.Version != "" || plan.Version != "2.7.0" {
+	if err != nil || deployed || lock.Version != "" || plan.Version != testPlatformVersion {
 		t.Fatalf("declined deployment = plan %#v lock %#v deployed %v err %v", plan, lock, deployed, err)
 	}
 	if runner.sawUpgrade {
@@ -247,8 +247,8 @@ func TestKubernetesDeployBlocksForwardOnlyDowngradeBeforeUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeHelmRunner{t: t, chart: chart}
-	deployer := KubernetesDeployer{Resolver: ManifestResolver{}, Runner: runner.Run, CLI: releaseCLIInfo("2.7.0")}
-	_, _, err := deployer.Deploy(context.Background(), KubernetesOptions{Version: "2.7.0", ManifestSource: manifestPath, LockFile: lockPath})
+	deployer := KubernetesDeployer{Resolver: ManifestResolver{}, Runner: runner.Run, CLI: releaseCLIInfo(testPlatformVersion)}
+	_, _, err := deployer.Deploy(context.Background(), KubernetesOptions{Version: testPlatformVersion, ManifestSource: manifestPath, LockFile: lockPath})
 	if err == nil || !strings.Contains(err.Error(), "forward-only") {
 		t.Fatalf("downgrade error = %v", err)
 	}
@@ -260,7 +260,7 @@ func TestKubernetesDeployBlocksForwardOnlyDowngradeBeforeUpgrade(t *testing.T) {
 func TestDeploymentTransitionValidatesLockIdentityPolicyAndMigration(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "release.lock")
 	plan := DeploymentPlan{
-		Version:     "2.7.0",
+		Version:     testPlatformVersion,
 		ReleaseName: DefaultReleaseName,
 		Namespace:   DefaultNamespace,
 		Database:    compatibility.DatabaseContract{MigrationVersion: 2, RollbackSafe: true, RollbackPolicy: "rollback-safe"},
@@ -314,12 +314,12 @@ func TestReadReleaseLockRejectsMalformedContracts(t *testing.T) {
 		want    string
 	}{
 		{"invalid JSON", `{`, "decode release lock"},
-		{"unknown field", `{"schemaVersion":"v1","version":"2.7.0","unknown":true}`, "unknown field"},
-		{"trailing content", `{"schemaVersion":"v1","version":"2.7.0"} {}`, "trailing JSON"},
-		{"unsupported schema", `{"schemaVersion":"v2","version":"2.7.0"}`, "unsupported release lock schema"},
+		{"unknown field", `{"schemaVersion":"v1","version":"` + testPlatformVersion + `","unknown":true}`, "unknown field"},
+		{"trailing content", `{"schemaVersion":"v1","version":"` + testPlatformVersion + `"} {}`, "trailing JSON"},
+		{"unsupported schema", `{"schemaVersion":"v2","version":"` + testPlatformVersion + `"}`, "unsupported release lock schema"},
 		{"invalid version", `{"schemaVersion":"v1","version":"bad"}`, "invalid release lock version"},
-		{"negative migration", `{"schemaVersion":"v1","version":"2.7.0","migrationVersion":-1}`, "cannot be negative"},
-		{"invalid policy", `{"schemaVersion":"v1","version":"2.7.0","rollbackPolicy":"sometimes"}`, "invalid release lock rollback policy"},
+		{"negative migration", `{"schemaVersion":"v1","version":"` + testPlatformVersion + `","migrationVersion":-1}`, "cannot be negative"},
+		{"invalid policy", `{"schemaVersion":"v1","version":"` + testPlatformVersion + `","rollbackPolicy":"sometimes"}`, "invalid release lock rollback policy"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -344,14 +344,14 @@ func TestKubernetesPlanRejectsIncompatibleCLIAndChartDigest(t *testing.T) {
 	chart := []byte("chart")
 	manifestPath, _, _ := writeReleaseFixture(t, chart)
 	runner := &fakeHelmRunner{t: t, chart: chart}
-	deployer := KubernetesDeployer{Resolver: ManifestResolver{}, Runner: runner.Run, CLI: releaseCLIInfo("3.0.0")}
-	if _, err := deployer.Plan(context.Background(), KubernetesOptions{Version: "2.7.0", ManifestSource: manifestPath}); err == nil || !strings.Contains(err.Error(), "does not support") {
+	deployer := KubernetesDeployer{Resolver: ManifestResolver{}, Runner: runner.Run, CLI: releaseCLIInfo(testUnsupportedPlatformVersion)}
+	if _, err := deployer.Plan(context.Background(), KubernetesOptions{Version: testPlatformVersion, ManifestSource: manifestPath}); err == nil || !strings.Contains(err.Error(), "does not support") {
 		t.Fatalf("compatibility error = %v", err)
 	}
 
-	deployer.CLI = releaseCLIInfo("2.7.0")
+	deployer.CLI = releaseCLIInfo(testPlatformVersion)
 	runner.chart = []byte("tampered")
-	if _, err := deployer.Plan(context.Background(), KubernetesOptions{Version: "2.7.0", ManifestSource: manifestPath}); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+	if _, err := deployer.Plan(context.Background(), KubernetesOptions{Version: testPlatformVersion, ManifestSource: manifestPath}); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
 		t.Fatalf("chart digest error = %v", err)
 	}
 }
@@ -359,11 +359,11 @@ func TestKubernetesPlanRejectsIncompatibleCLIAndChartDigest(t *testing.T) {
 func TestDeploymentInputValidation(t *testing.T) {
 	chart := []byte("chart")
 	manifestPath, _, _ := writeReleaseFixture(t, chart)
-	deployer := KubernetesDeployer{Resolver: ManifestResolver{}, Runner: (&fakeHelmRunner{t: t, chart: chart}).Run, CLI: releaseCLIInfo("2.7.0")}
+	deployer := KubernetesDeployer{Resolver: ManifestResolver{}, Runner: (&fakeHelmRunner{t: t, chart: chart}).Run, CLI: releaseCLIInfo(testPlatformVersion)}
 	for _, options := range []KubernetesOptions{
-		{Version: "2.7.0", ManifestSource: manifestPath, ReleaseName: "Bad_Name"},
-		{Version: "2.7.0", ManifestSource: manifestPath, Namespace: "-bad"},
-		{Version: "2.7.0", ManifestSource: manifestPath, ValuesFiles: []string{filepath.Join(t.TempDir(), "missing.yaml")}},
+		{Version: testPlatformVersion, ManifestSource: manifestPath, ReleaseName: "Bad_Name"},
+		{Version: testPlatformVersion, ManifestSource: manifestPath, Namespace: "-bad"},
+		{Version: testPlatformVersion, ManifestSource: manifestPath, ValuesFiles: []string{filepath.Join(t.TempDir(), "missing.yaml")}},
 	} {
 		if _, err := deployer.Plan(context.Background(), options); err == nil {
 			t.Fatalf("invalid options succeeded: %#v", options)
@@ -392,7 +392,7 @@ func (r *fakeHelmRunner) Run(_ context.Context, name string, args []string, stdo
 		if destination == "" {
 			return errors.New("missing destination")
 		}
-		return os.WriteFile(filepath.Join(destination, "nopsai-2.7.0.tgz"), r.chart, 0o600)
+		return os.WriteFile(filepath.Join(destination, "nopsai-"+testPlatformVersion+".tgz"), r.chart, 0o600)
 	case "template":
 		_, err := io.WriteString(stdout, "apiVersion: apps/v1\nkind: Deployment\n")
 		return err
@@ -418,14 +418,14 @@ func writeReleaseFixture(t *testing.T, chart []byte) (string, []byte, compatibil
 	}
 	manifest := compatibility.Manifest{
 		SchemaVersion: "v1",
-		Version:       "2.7.0",
+		Version:       testPlatformVersion,
 		Chart: compatibility.ChartArtifact{
 			Reference: "oci://ghcr.io/example/charts/nopsai",
-			Version:   "2.7.0",
+			Version:   testPlatformVersion,
 			Digest:    compatibility.DigestBytes(chart),
 		},
 		Images:        images,
-		Compatibility: compatibility.ManifestCompatibility{CLI: ">=2.0.0 <3.0.0", API: "v1", RunnerProtocol: 1},
+		Compatibility: compatibility.ManifestCompatibility{CLI: buildinfo.DefaultCLICompatibility, API: "v1", RunnerProtocol: 1},
 		Database:      compatibility.DatabaseContract{MigrationVersion: 1, RollbackSafe: false, RollbackPolicy: "forward-only"},
 		Capabilities:  []string{compatibility.CapabilityAPIV1, compatibility.CapabilityPlatformHelm},
 	}
@@ -445,7 +445,7 @@ func releaseCLIInfo(version string) buildinfo.Info {
 		Version:               version,
 		APIVersion:            "v1",
 		RunnerProtocolVersion: 1,
-		PlatformCompatibility: ">=2.0.0 <3.0.0",
+		PlatformCompatibility: buildinfo.DefaultPlatformCompatibility,
 	}
 }
 

@@ -56,6 +56,7 @@ func enterpriseStartupGateChecks(cfg *config.Config) []setupPreflightCheck {
 			strict,
 		),
 		dispatcherTLSCheck(cfg, strict),
+		metricsAuthenticationCheck(cfg, strict),
 	)
 
 	if githubAppConfigured(cfg) {
@@ -191,6 +192,26 @@ func dispatcherTLSCheck(cfg *config.Config, strict bool) setupPreflightCheck {
 		"DISPATCHER_TLS_MODE",
 		"mtls",
 		"Enable dispatcher TLS or mTLS before production use.",
+		strict,
+	)
+}
+
+func metricsAuthenticationCheck(cfg *config.Config, strict bool) setupPreflightCheck {
+	if cfg != nil && cfg.MetricsRequireAuth {
+		return setupPreflightCheck{
+			ID:       "metrics_authentication",
+			Label:    "Metrics endpoint authentication",
+			Status:   "success",
+			Required: false,
+			Message:  "Metrics endpoint authentication is enabled.",
+		}
+	}
+	return enterpriseFailureCheckWithSuggestedValue(
+		"metrics_authentication",
+		"Metrics endpoint authentication",
+		"METRICS_REQUIRE_AUTH",
+		"true",
+		"Require authentication for /metrics before production use.",
 		strict,
 	)
 }

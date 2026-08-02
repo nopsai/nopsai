@@ -97,6 +97,8 @@ func TestCreateAgentPodUsesWorkloadServiceAccountAndPullSecrets(t *testing.T) {
 	if len(pod.Spec.ImagePullSecrets) != 2 || pod.Spec.ImagePullSecrets[0].Name != "regcred" || pod.Spec.ImagePullSecrets[1].Name != "agent-regcred" {
 		t.Fatalf("image pull secrets = %#v", pod.Spec.ImagePullSecrets)
 	}
+	assertRunnerPodSecurityDefaults(t, pod)
+	assertRunnerContainerSecurityDefaults(t, pod.Spec.Containers[0].SecurityContext)
 }
 
 func TestAgentRuntimeVarsCarryWorkloadKubernetesSettings(t *testing.T) {
@@ -155,6 +157,32 @@ func runtimeVarMap(entries []string) map[string]string {
 		}
 	}
 	return out
+}
+
+func assertRunnerPodSecurityDefaults(t *testing.T, pod *corev1.Pod) {
+	t.Helper()
+	if pod.Spec.SecurityContext == nil || pod.Spec.SecurityContext.SeccompProfile == nil {
+		t.Fatalf("pod security context missing: %#v", pod.Spec.SecurityContext)
+	}
+	if pod.Spec.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Fatalf("pod seccomp = %q, want RuntimeDefault", pod.Spec.SecurityContext.SeccompProfile.Type)
+	}
+}
+
+func assertRunnerContainerSecurityDefaults(t *testing.T, security *corev1.SecurityContext) {
+	t.Helper()
+	if security == nil {
+		t.Fatal("container security context missing")
+	}
+	if security.AllowPrivilegeEscalation == nil || *security.AllowPrivilegeEscalation {
+		t.Fatalf("allow privilege escalation = %#v, want false", security.AllowPrivilegeEscalation)
+	}
+	if security.SeccompProfile == nil || security.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Fatalf("container seccomp = %#v, want RuntimeDefault", security.SeccompProfile)
+	}
+	if security.Capabilities == nil || len(security.Capabilities.Drop) != 1 || security.Capabilities.Drop[0] != "ALL" {
+		t.Fatalf("capabilities = %#v, want drop ALL", security.Capabilities)
+	}
 }
 
 func TestStreamPodLogsReattachesWhenFollowStreamEndsBeforePodCompletes(t *testing.T) {

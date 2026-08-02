@@ -1,10 +1,17 @@
 package compatibility
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"nopsai/pkg/buildinfo"
+)
+
+var (
+	testManifestVersion      = testCompatibilityLowerBound()
+	testOtherManifestVersion = testCompatibilityVersionWithPatchOffset(testManifestVersion, 1)
+	testUnsupportedVersion   = testCompatibilityUpperBound()
 )
 
 func TestSemverParsingComparisonAndRanges(t *testing.T) {
@@ -58,7 +65,7 @@ func TestManifestValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoded, err := DecodeManifest(strings.NewReader(string(encoded)))
-	if err != nil || decoded.Version != "2.7.0" {
+	if err != nil || decoded.Version != testManifestVersion {
 		t.Fatalf("DecodeManifest = %#v, %v", decoded, err)
 	}
 	if !strings.HasPrefix(DigestBytes(encoded), "sha256:") {
@@ -74,7 +81,7 @@ func TestManifestValidation(t *testing.T) {
 		mutate func(*Manifest)
 	}{
 		{"schema", func(value *Manifest) { value.SchemaVersion = "v2" }},
-		{"chart version", func(value *Manifest) { value.Chart.Version = "2.6.0" }},
+		{"chart version", func(value *Manifest) { value.Chart.Version = testOtherManifestVersion }},
 		{"chart reference", func(value *Manifest) { value.Chart.Reference = "https://example/chart.tgz" }},
 		{"chart digest", func(value *Manifest) { value.Chart.Digest = "latest" }},
 		{"missing image", func(value *Manifest) { delete(value.Images, "aaa") }},
@@ -99,12 +106,12 @@ func TestManifestValidation(t *testing.T) {
 }
 
 func TestCLICompatibilityValidation(t *testing.T) {
-	cli := buildinfo.Info{Version: "2.7.0", APIVersion: "v1", RunnerProtocolVersion: 1, PlatformCompatibility: ">=2.0.0 <3.0.0"}
-	platform := PlatformInfo{ProductVersion: "2.6.0", APIVersion: "v1", CLICompatibility: ">=2.5.0 <3.0.0"}
+	cli := buildinfo.Info{Version: testManifestVersion, APIVersion: "v1", RunnerProtocolVersion: 1, PlatformCompatibility: buildinfo.DefaultPlatformCompatibility}
+	platform := PlatformInfo{ProductVersion: testOtherManifestVersion, APIVersion: "v1", CLICompatibility: buildinfo.DefaultCLICompatibility}
 	if err := ValidatePlatformForCLI(platform, cli); err != nil {
 		t.Fatal(err)
 	}
-	platform.ProductVersion = "3.0.0"
+	platform.ProductVersion = testUnsupportedVersion
 	if err := ValidatePlatformForCLI(platform, cli); err == nil {
 		t.Fatal("incompatible platform succeeded")
 	}
@@ -125,15 +132,15 @@ func TestCLICompatibilityValidation(t *testing.T) {
 }
 
 func TestDecodeCompatibility(t *testing.T) {
-	contract, err := DecodeCompatibility(strings.NewReader(`
-cliVersion: 2.7.0
-platformCompatibility: ">=2.0.0 <3.0.0"
+	contract, err := DecodeCompatibility(strings.NewReader(fmt.Sprintf(`
+cliVersion: %s
+platformCompatibility: %q
 apiCompatibility: [v1]
-runnerCompatibility: ">=2.0.0 <3.0.0"
+runnerCompatibility: %q
 runnerProtocolVersion: 1
 capabilities: [platform.helm, api.v1]
-`))
-	if err != nil || contract.CLIVersion != "2.7.0" || contract.Capabilities[0] != "api.v1" {
+`, testManifestVersion, buildinfo.DefaultPlatformCompatibility, buildinfo.DefaultRunnerCompatibility)))
+	if err != nil || contract.CLIVersion != testManifestVersion || contract.Capabilities[0] != "api.v1" {
 		t.Fatalf("DecodeCompatibility = %#v, %v", contract, err)
 	}
 	if _, err := DecodeCompatibility(strings.NewReader("cliVersion: nope\nunknown: true\n")); err == nil {
@@ -148,13 +155,48 @@ func validManifest() Manifest {
 	}
 	return Manifest{
 		SchemaVersion: "v1",
-		Version:       "2.7.0",
-		Chart:         ChartArtifact{Reference: "oci://ghcr.io/example/charts/nopsai", Version: "2.7.0", Digest: testDigest("b")},
+		Version:       testManifestVersion,
+		Chart:         ChartArtifact{Reference: "oci://ghcr.io/example/charts/nopsai", Version: testManifestVersion, Digest: testDigest("b")},
 		Images:        images,
-		Compatibility: ManifestCompatibility{CLI: ">=2.0.0 <3.0.0", API: "v1", RunnerProtocol: 1},
+		Compatibility: ManifestCompatibility{CLI: buildinfo.DefaultCLICompatibility, API: "v1", RunnerProtocol: 1},
 		Database:      DatabaseContract{MigrationVersion: 1, RollbackSafe: false, RollbackPolicy: "forward-only"},
 		Capabilities:  []string{CapabilityAPIV1, CapabilityPlatformHelm},
 	}
+}
+
+func testCompatibilityLowerBound() string {
+	rangeValue, err := ParseRange(buildinfo.DefaultPlatformCompatibility)
+	if err != nil {
+		panic(err)
+	}
+	for _, comparator := range rangeValue.Comparators {
+		if comparator.Operator == ">=" || comparator.Operator == "=" {
+			return comparator.Version.String()
+		}
+	}
+	panic("default platform compatibility does not declare a lower bound")
+}
+
+func testCompatibilityUpperBound() string {
+	rangeValue, err := ParseRange(buildinfo.DefaultPlatformCompatibility)
+	if err != nil {
+		panic(err)
+	}
+	for _, comparator := range rangeValue.Comparators {
+		if comparator.Operator == "<" || comparator.Operator == "<=" {
+			return comparator.Version.String()
+		}
+	}
+	panic("default platform compatibility does not declare an upper bound")
+}
+
+func testCompatibilityVersionWithPatchOffset(raw string, offset int) string {
+	version, err := ParseVersion(raw)
+	if err != nil {
+		panic(err)
+	}
+	version.Patch += offset
+	return version.String()
 }
 
 func testDigest(character string) string {

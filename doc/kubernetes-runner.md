@@ -16,8 +16,8 @@ The Kubernetes runner is a separate in-cluster service:
 5. The agent runs in `NOPSAI_RUNTIME=kubernetes` mode and creates one step pod
    per pipeline step image.
 6. The agent mounts the same workspace PVC into each step pod at the pipeline
-   `working_directory`, creates any pipeline-declared PVCs, and execs task
-   actions through the Kubernetes API.
+   `working_directory`, creates run-owned pipeline-declared PVCs, and execs
+   task actions through the Kubernetes API.
 
 This preserves the current pipeline behavior while moving the execution
 substrate from Docker containers to Kubernetes pods.
@@ -102,8 +102,14 @@ the step pods for the run. The agent pod always mounts the workspace at
 `/workspace`; step pods mount the same PVC at the normalized pipeline
 `working_directory`, matching Docker runner behavior. Absolute working
 directories such as `/tmp/test` are supported. Pipeline-declared volumes are
-still handled by the agent: when a step declares `volumes`, the agent looks for
-the named PVC in the runner namespace and creates it if it does not exist.
+still handled by the agent: when a step declares `volumes`, the agent creates
+missing PVCs with NopsAI ownership labels for that run and refuses to attach an
+existing PVC that was not created for the same run.
+
+Runner pods, agent pods, and step pods use `RuntimeDefault` seccomp, disable
+privilege escalation, and drop Linux capabilities by default. They do not force
+`runAsNonRoot`, because many enterprise base images still declare root as their
+default user and would fail before the task starts.
 
 You can also configure `kubernetes.existing_workspace_pvc` with
 `workspace_volume_mode: existing` when you want the agent and step pods to mount

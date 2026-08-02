@@ -6,7 +6,7 @@ import DispatcherPanel from './DispatcherPanel';
 import type { ConfigFormState } from './config/model';
 
 const apiMocks = vi.hoisted(() => ({
-  fetchPlatformVersionTag: vi.fn(async () => '2.10.648'),
+  fetchPlatformVersionTag: vi.fn(async () => 'dev'),
   fetchDispatcherScopeOptions: vi.fn(async () => ['default', 'prod', 'staging']),
   fetchDockerRunnerTemplate: vi.fn(async () => ({
     runnerId: 'runner-test',
@@ -14,7 +14,7 @@ const apiMocks = vi.hoisted(() => ({
     runnerCapacity: 2,
     dispatcherAddress: 'dispatcher:9090',
     networkMode: 'host',
-    runnerImage: 'ghcr.io/nopsai/nopsai-docker-runner:2.10.648',
+    runnerImage: 'ghcr.io/nopsai/nopsai-docker-runner:dev',
     registryCredentialRefs: ['credential://system/registry/production-ghcr'],
     registryHosts: ['ghcr.io'],
     compose: '',

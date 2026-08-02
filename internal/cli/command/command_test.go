@@ -23,6 +23,12 @@ import (
 	"nopsai/pkg/compatibility"
 )
 
+var (
+	commandTestVersion            = cliExampleVersion("")
+	commandOtherCompatibleVersion = commandVersionWithPatchOffset(commandTestVersion, 1)
+	commandUnsupportedVersion     = commandCompatibilityUpperBound()
+)
+
 func TestContextCommands(t *testing.T) {
 	dir := t.TempDir()
 	dependencies := testDependencies(nil, nil)
@@ -440,7 +446,7 @@ func TestAPIRouteCatalogCommandsExposeAllRegisteredAPIs(t *testing.T) {
 func TestReleasedCLIValidatesVersionBeforeMutation(t *testing.T) {
 	versionChecks := 0
 	mutations := 0
-	platformVersion := "2.6.0"
+	platformVersion := commandOtherCompatibleVersion
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/version" {
 			versionChecks++
@@ -450,7 +456,7 @@ func TestReleasedCLIValidatesVersionBeforeMutation(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(compatibility.PlatformInfo{
 				ProductVersion:   platformVersion,
 				APIVersion:       "v1",
-				CLICompatibility: ">=2.0.0 <3.0.0",
+				CLICompatibility: buildinfo.DefaultCLICompatibility,
 			})
 			return
 		}
@@ -459,14 +465,14 @@ func TestReleasedCLIValidatesVersionBeforeMutation(t *testing.T) {
 	}))
 	defer server.Close()
 	dependencies := testDependencies(server.Client(), nil)
-	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
 	if _, err := executeCommand(dependencies, "--api", server.URL, "api", "request", "POST", "/v1/system/config/sync"); err != nil {
 		t.Fatal(err)
 	}
 	if versionChecks != 1 || mutations != 1 {
 		t.Fatalf("checks/mutations = %d/%d", versionChecks, mutations)
 	}
-	platformVersion = "3.0.0"
+	platformVersion = commandUnsupportedVersion
 	if _, err := executeCommand(dependencies, "--api", server.URL, "api", "request", "DELETE", "/v1/runs/id"); err == nil || !strings.Contains(err.Error(), "does not support") {
 		t.Fatalf("compatibility error = %v", err)
 	}
@@ -483,7 +489,7 @@ func TestPlatformReleasePlansWithJSONOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	dependencies := testDependencies(nil, nil)
-	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
 	dependencies.RunProcess = func(_ context.Context, name string, args []string, stdout, _ io.Writer) error {
 		if name != "helm" {
 			return errors.New("unexpected process")
@@ -491,7 +497,7 @@ func TestPlatformReleasePlansWithJSONOutput(t *testing.T) {
 		switch args[0] {
 		case "pull":
 			destination := commandArgumentValue(args, "--destination")
-			return os.WriteFile(filepath.Join(destination, "nopsai-2.7.0.tgz"), chart, 0o600)
+			return os.WriteFile(filepath.Join(destination, "nopsai-"+commandTestVersion+".tgz"), chart, 0o600)
 		case "template":
 			_, err := io.WriteString(stdout, "kind: Deployment\n")
 			return err
@@ -502,13 +508,13 @@ func TestPlatformReleasePlansWithJSONOutput(t *testing.T) {
 		}
 	}
 	output, err := executeCommand(dependencies,
-		"platform", "release", "kubernetes", "--version", "2.7.0", "--manifest", manifestPath, "--values", valuesPath, "--output", "json",
+		"platform", "release", "kubernetes", "--version", commandTestVersion, "--manifest", manifestPath, "--values", valuesPath, "--output", "json",
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var plan cliplatform.DeploymentPlan
-	if err := json.Unmarshal([]byte(output), &plan); err != nil || plan.Version != "2.7.0" || !strings.Contains(plan.RenderedManifestYAML, "Deployment") {
+	if err := json.Unmarshal([]byte(output), &plan); err != nil || plan.Version != commandTestVersion || !strings.Contains(plan.RenderedManifestYAML, "Deployment") {
 		t.Fatalf("plan = %#v, %v", plan, err)
 	}
 	if _, err := executeCommand(dependencies, "platform", "plan"); err == nil || !strings.Contains(err.Error(), "unknown command") {
@@ -522,7 +528,7 @@ func TestPlatformReleaseCommandDeploysWithSingleFlag(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), ".nopsai", "release.lock")
 	var sawUpgrade bool
 	dependencies := testDependencies(nil, nil)
-	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
 	dependencies.RunProcess = func(_ context.Context, name string, args []string, stdout, _ io.Writer) error {
 		if name != "helm" {
 			return errors.New("unexpected process")
@@ -530,7 +536,7 @@ func TestPlatformReleaseCommandDeploysWithSingleFlag(t *testing.T) {
 		switch args[0] {
 		case "pull":
 			destination := commandArgumentValue(args, "--destination")
-			return os.WriteFile(filepath.Join(destination, "nopsai-2.7.0.tgz"), chart, 0o600)
+			return os.WriteFile(filepath.Join(destination, "nopsai-"+commandTestVersion+".tgz"), chart, 0o600)
 		case "template":
 			_, err := io.WriteString(stdout, "kind: Deployment\n")
 			return err
@@ -545,9 +551,9 @@ func TestPlatformReleaseCommandDeploysWithSingleFlag(t *testing.T) {
 		}
 	}
 	output, err := executeCommand(dependencies,
-		"platform", "release", "kubernetes", "--version", "2.7.0", "--manifest", manifestPath, "--deploy", "--wait", "--lock-file", lockPath,
+		"platform", "release", "kubernetes", "--version", commandTestVersion, "--manifest", manifestPath, "--deploy", "--wait", "--lock-file", lockPath,
 	)
-	if err != nil || !strings.Contains(output, "Deployed NopsAI 2.7.0") || !sawUpgrade {
+	if err != nil || !strings.Contains(output, "Deployed NopsAI "+commandTestVersion) || !sawUpgrade {
 		t.Fatalf("platform release deploy = %q, %v, sawUpgrade=%v", output, err, sawUpgrade)
 	}
 	if _, err := os.Stat(lockPath); err != nil {
@@ -561,7 +567,7 @@ func TestPlatformReleaseInteractiveCanPlanWithoutDeploying(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), ".nopsai", "release.lock")
 	var sawUpgrade bool
 	dependencies := testDependencies(nil, nil)
-	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
 	dependencies.In = strings.NewReader("kub\n\n\n" + manifestPath + "\n\n\n\n\n\n" + lockPath + "\ny\nn\n")
 	dependencies.RunProcess = func(_ context.Context, name string, args []string, stdout, _ io.Writer) error {
 		if name != "helm" {
@@ -570,7 +576,7 @@ func TestPlatformReleaseInteractiveCanPlanWithoutDeploying(t *testing.T) {
 		switch args[0] {
 		case "pull":
 			destination := commandArgumentValue(args, "--destination")
-			return os.WriteFile(filepath.Join(destination, "nopsai-2.7.0.tgz"), chart, 0o600)
+			return os.WriteFile(filepath.Join(destination, "nopsai-"+commandTestVersion+".tgz"), chart, 0o600)
 		case "template":
 			_, err := io.WriteString(stdout, "kind: Deployment\n")
 			return err
@@ -582,7 +588,7 @@ func TestPlatformReleaseInteractiveCanPlanWithoutDeploying(t *testing.T) {
 		}
 	}
 	output, err := executeCommand(dependencies, "platform", "release", "--interactive")
-	if err != nil || !strings.Contains(output, "Plan NopsAI 2.7.0") {
+	if err != nil || !strings.Contains(output, "Plan NopsAI "+commandTestVersion) {
 		t.Fatalf("interactive platform release = %q, %v", output, err)
 	}
 	if sawUpgrade {
@@ -599,14 +605,14 @@ func TestInstallDockerComposeGeneratesFromVersionWithoutReleaseManifest(t *testi
 		return nil, fmt.Errorf("unexpected manifest HTTP request to %s", request.URL.String())
 	})}
 	dependencies := testDependencies(client, nil)
-	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
 	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 512))
 
 	output, err := executeCommand(dependencies, "install", "docker-compose", "--output-dir", outputDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "Generated NopsAI 2.7.0 docker-compose install") {
+	if !strings.Contains(output, "Generated NopsAI "+commandTestVersion+" docker-compose install") {
 		t.Fatalf("install output = %q", output)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "release-manifest.json")); !errors.Is(err, os.ErrNotExist) {
@@ -616,7 +622,7 @@ func TestInstallDockerComposeGeneratesFromVersionWithoutReleaseManifest(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(lockContents), "manifestSource") || !strings.Contains(string(lockContents), "ghcr.io/nopsai/nopsai-api:2.7.0") {
+	if strings.Contains(string(lockContents), "manifestSource") || !strings.Contains(string(lockContents), "ghcr.io/nopsai/nopsai-api:"+commandTestVersion) {
 		t.Fatalf("install lock did not record versioned generated images: %s", lockContents)
 	}
 }
@@ -624,7 +630,7 @@ func TestInstallDockerComposeGeneratesFromVersionWithoutReleaseManifest(t *testi
 func TestInstallInteractivePreviewCanCancelBeforeWriting(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "install")
 	dependencies := testDependencies(nil, nil)
-	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
 	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 512))
 	dependencies.In = strings.NewReader(strings.Repeat("\n", 15) + "n\n")
 
@@ -652,7 +658,7 @@ func TestInstallInteractivePreviewCanCancelBeforeWriting(t *testing.T) {
 
 func TestInstallPreviewCommandQuotesAndRedactsSensitiveValues(t *testing.T) {
 	dockerOptions := defaultDockerComposeInstallOptions(&rootOptions{})
-	dockerOptions.version = "2.7.0"
+	dockerOptions.version = commandTestVersion
 	dockerOptions.outputDir = "./prod install"
 	dockerOptions.bootstrapAdminPassword = "never-print-this"
 	dockerOptions.run = true
@@ -672,7 +678,7 @@ func TestInstallPreviewCommandQuotesAndRedactsSensitiveValues(t *testing.T) {
 	}
 
 	kubernetesOptions := defaultKubernetesInstallOptions(&rootOptions{})
-	kubernetesOptions.version = "2.7.0"
+	kubernetesOptions.version = commandTestVersion
 	kubernetesOptions.ingressHost = "nopsai.example.com"
 	kubernetesOptions.values = []string{"overrides/prod values.yaml"}
 	kubernetesOptions.deploy = true
@@ -708,7 +714,7 @@ func TestRootInteractiveHomeShowsContextSessionAndHealth(t *testing.T) {
 		case "/healthz":
 			_, _ = w.Write([]byte("ok"))
 		case "/version":
-			_ = json.NewEncoder(w).Encode(map[string]string{"product_version": "2.7.0", "api_version": "v1"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"product_version": commandTestVersion, "api_version": "v1"})
 		case "/v1/setup/preflight":
 			_, _ = w.Write([]byte(`{"ready":true,"mode":"ready"}`))
 		case "/v1/auth/me":
@@ -738,7 +744,7 @@ func TestRootInteractiveHomeShowsContextSessionAndHealth(t *testing.T) {
 		"Token: configured for context",
 		"Session: operator@example.com",
 		"nopsai/healthz",
-		"2.7.0 (API v1)",
+		commandTestVersion + " (API v1)",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("interactive home missing %q in:\n%s", want, output)
@@ -765,7 +771,7 @@ func TestRootInteractiveRawAPIRequestUsesTransportOptions(t *testing.T) {
 			case "/healthz":
 				_, _ = w.Write([]byte("ok"))
 			case "/version":
-				_ = json.NewEncoder(w).Encode(map[string]string{"product_version": "2.7.0", "api_version": "v1"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"product_version": commandTestVersion, "api_version": "v1"})
 			case "/v1/setup/preflight":
 				_, _ = w.Write([]byte(`{"ready":true,"mode":"ready"}`))
 			case "/v1/auth/me":
@@ -829,7 +835,7 @@ func TestRootInteractiveRawAPIRequestPreviewCanCancelBeforeSend(t *testing.T) {
 		case "/healthz":
 			_, _ = w.Write([]byte("ok"))
 		case "/version":
-			_ = json.NewEncoder(w).Encode(map[string]string{"product_version": "2.7.0", "api_version": "v1"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"product_version": commandTestVersion, "api_version": "v1"})
 		case "/v1/setup/preflight":
 			_, _ = w.Write([]byte(`{"ready":true,"mode":"ready"}`))
 		case "/v1/auth/me":
@@ -1058,8 +1064,30 @@ func commandBuildInfo(version string) buildinfo.Info {
 		Version:               version,
 		APIVersion:            "v1",
 		RunnerProtocolVersion: 1,
-		PlatformCompatibility: ">=2.0.0 <3.0.0",
+		PlatformCompatibility: buildinfo.DefaultPlatformCompatibility,
 	}
+}
+
+func commandVersionWithPatchOffset(raw string, offset int) string {
+	version, err := compatibility.ParseVersion(raw)
+	if err != nil {
+		panic(err)
+	}
+	version.Patch += offset
+	return version.String()
+}
+
+func commandCompatibilityUpperBound() string {
+	rangeValue, err := compatibility.ParseRange(buildinfo.DefaultPlatformCompatibility)
+	if err != nil {
+		panic(err)
+	}
+	for _, comparator := range rangeValue.Comparators {
+		if comparator.Operator == "<" || comparator.Operator == "<=" {
+			return comparator.Version.String()
+		}
+	}
+	panic("default platform compatibility does not declare an upper bound")
 }
 
 func writeCommandInstallManifest(t *testing.T) string {
@@ -1070,14 +1098,14 @@ func writeCommandInstallManifest(t *testing.T) string {
 	}
 	manifest := compatibility.Manifest{
 		SchemaVersion: "v1",
-		Version:       "2.7.0",
+		Version:       commandTestVersion,
 		Chart: compatibility.ChartArtifact{
 			Reference: "oci://ghcr.io/example/charts/nopsai",
-			Version:   "2.7.0",
+			Version:   commandTestVersion,
 			Digest:    "sha256:" + strings.Repeat("b", 64),
 		},
 		Images:        images,
-		Compatibility: compatibility.ManifestCompatibility{CLI: ">=2.0.0 <3.0.0", API: "v1", RunnerProtocol: 1},
+		Compatibility: compatibility.ManifestCompatibility{CLI: buildinfo.DefaultCLICompatibility, API: "v1", RunnerProtocol: 1},
 		Database:      compatibility.DatabaseContract{MigrationVersion: 1, RollbackSafe: false, RollbackPolicy: "forward-only"},
 		Capabilities: []string{
 			compatibility.CapabilityAPIV1,
@@ -1106,14 +1134,14 @@ func writeCommandReleaseManifest(t *testing.T, chart []byte) string {
 	}
 	manifest := compatibility.Manifest{
 		SchemaVersion: "v1",
-		Version:       "2.7.0",
+		Version:       commandTestVersion,
 		Chart: compatibility.ChartArtifact{
 			Reference: "oci://ghcr.io/example/charts/nopsai",
-			Version:   "2.7.0",
+			Version:   commandTestVersion,
 			Digest:    compatibility.DigestBytes(chart),
 		},
 		Images:        images,
-		Compatibility: compatibility.ManifestCompatibility{CLI: ">=2.0.0 <3.0.0", API: "v1", RunnerProtocol: 1},
+		Compatibility: compatibility.ManifestCompatibility{CLI: buildinfo.DefaultCLICompatibility, API: "v1", RunnerProtocol: 1},
 		Database:      compatibility.DatabaseContract{MigrationVersion: 1, RollbackSafe: false, RollbackPolicy: "forward-only"},
 		Capabilities:  []string{compatibility.CapabilityAPIV1, compatibility.CapabilityPlatformHelm},
 	}

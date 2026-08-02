@@ -2,6 +2,7 @@ package release
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -10,18 +11,13 @@ import (
 )
 
 func TestCompatibilityContract(t *testing.T) {
-	file, err := os.Open("compatibility.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	contract, err := compatibility.DecodeCompatibility(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if contract.CLIVersion != "0.22.0" ||
-		contract.PlatformCompatibility != ">=0.22.0 <1.0.0" ||
-		contract.RunnerCompatibility != ">=0.22.0 <1.0.0" ||
+	contract := readCompatibilityContract(t)
+	releaseSeries := readReleaseVersionSeries(t)
+	baselineVersion := releaseSeries + ".0"
+	expectedCompatibility := ">=" + baselineVersion + " <" + nextMajorVersion(releaseSeries)
+	if contract.CLIVersion != baselineVersion ||
+		contract.PlatformCompatibility != expectedCompatibility ||
+		contract.RunnerCompatibility != expectedCompatibility ||
 		contract.RunnerProtocolVersion != 1 ||
 		!compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) ||
 		!compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformCompose) {
@@ -30,25 +26,15 @@ func TestCompatibilityContract(t *testing.T) {
 }
 
 func TestCommitCountVersionSeriesMatchesCompatibilityBaseline(t *testing.T) {
-	contents, err := os.ReadFile("version.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.TrimSpace(string(contents)); got != "0.22" {
-		t.Fatalf("release version series = %q, want 0.22", got)
+	contract := readCompatibilityContract(t)
+	releaseSeries := readReleaseVersionSeries(t)
+	if !strings.HasPrefix(contract.CLIVersion, releaseSeries+".") {
+		t.Fatalf("release version series = %q, compatibility baseline = %q", releaseSeries, contract.CLIVersion)
 	}
 }
 
 func TestBuildInfoDefaultsMatchReleaseCompatibilityContract(t *testing.T) {
-	file, err := os.Open("compatibility.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	contract, err := compatibility.DecodeCompatibility(file)
-	if err != nil {
-		t.Fatal(err)
-	}
+	contract := readCompatibilityContract(t)
 	if buildinfo.DefaultPlatformCompatibility != contract.PlatformCompatibility {
 		t.Fatalf("default platform compatibility = %q, want %q", buildinfo.DefaultPlatformCompatibility, contract.PlatformCompatibility)
 	}
@@ -63,6 +49,42 @@ func TestBuildInfoDefaultsMatchReleaseCompatibilityContract(t *testing.T) {
 			t.Errorf("buildinfo defaults missing capability %q", capability)
 		}
 	}
+}
+
+func readCompatibilityContract(t *testing.T) compatibility.CompatibilityFile {
+	t.Helper()
+	file, err := os.Open("compatibility.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	contract, err := compatibility.DecodeCompatibility(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contract
+}
+
+func readReleaseVersionSeries(t *testing.T) string {
+	t.Helper()
+	contents, err := os.ReadFile("version.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(contents))
+}
+
+func nextMajorVersion(series string) string {
+	major := strings.SplitN(series, ".", 2)[0]
+	return strconv.Itoa(mustAtoi(major)+1) + ".0.0"
+}
+
+func mustAtoi(value string) int {
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		panic(err)
+	}
+	return number
 }
 
 func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
@@ -407,9 +429,9 @@ func TestReleasePipelineInjectsCompatibilityContract(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"nopsai/pkg/buildinfo.CLICompatibility=>=2.0.0,<3.0.0",
-		"nopsai/pkg/buildinfo.RunnerCompatibility=>=2.0.0,<3.0.0",
-		"nopsai/pkg/buildinfo.PlatformCompatibility=>=2.0.0,<3.0.0",
+		"nopsai/pkg/buildinfo.CLICompatibility=>=",
+		"nopsai/pkg/buildinfo.RunnerCompatibility=>=",
+		"nopsai/pkg/buildinfo.PlatformCompatibility=>=",
 		`capabilities="api.v1,cli.api-catalog.v1`,
 	} {
 		if strings.Contains(pipeline, forbidden) {

@@ -184,7 +184,7 @@ The agent runs tasks in dependency order, not strictly line order.
 13. It picks the execution image from `step.image` or the pipeline default `container_image`.
 14. Kubernetes runtime resolves `step.runtime_pool` or the pipeline default `runtime_pool` and applies the matching runtime pool to the step pod. Docker runtime ignores this directive.
 15. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
-16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus any declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to PVCs in the runner namespace.
+16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus run-owned declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to run-owned PVCs in the runner namespace. Existing unowned Docker volumes or Kubernetes PVCs are refused.
 17. If the task declares `outputs`, Docker mounts an isolated writable `tmpfs`
     at `/nopsai/outputs`; Kubernetes mounts an isolated writable `emptyDir`.
     The agent clears the directory and verifies it is writable before running
