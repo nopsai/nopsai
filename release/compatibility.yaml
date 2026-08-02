@@ -1,8 +1,8 @@
-cliVersion: 2.7.0
-platformCompatibility: ">=2.0.0 <3.0.0"
+cliVersion: 0.22.0
+platformCompatibility: ">=0.22.0 <1.0.0"
 apiCompatibility:
   - v1
-runnerCompatibility: ">=2.0.0 <3.0.0"
+runnerCompatibility: ">=0.22.0 <1.0.0"
 runnerProtocolVersion: 1
 capabilities:
   - api.v1
