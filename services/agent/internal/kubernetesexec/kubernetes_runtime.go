@@ -403,9 +403,6 @@ func defaultKubernetesContainerSecurityContext() *corev1.SecurityContext {
 	allowPrivilegeEscalation := false
 	return &corev1.SecurityContext{
 		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
-		},
 		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
 }

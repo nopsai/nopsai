@@ -221,7 +221,7 @@ func assertKubernetesContainerSecurityDefaults(t *testing.T, security *corev1.Se
 	if security.SeccompProfile == nil || security.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 		t.Fatalf("container seccomp = %#v, want RuntimeDefault", security.SeccompProfile)
 	}
-	if security.Capabilities == nil || len(security.Capabilities.Drop) != 1 || security.Capabilities.Drop[0] != "ALL" {
-		t.Fatalf("capabilities = %#v, want drop ALL", security.Capabilities)
+	if security.Capabilities != nil && len(security.Capabilities.Drop) != 0 {
+		t.Fatalf("capabilities = %#v, want runtime/image default capabilities", security.Capabilities)
 	}
 }
