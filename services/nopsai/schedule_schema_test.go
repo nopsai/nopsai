@@ -8,7 +8,8 @@ import (
 func TestScheduleSchemaSetsVisibilityDefaultBeforeCheck(t *testing.T) {
 	joined := strings.Join(scheduleSchemaStatements, "\n")
 	for _, statement := range []string{
-		"ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT 'global'",
+		"UPDATE pipeline_schedules",
 		"ALTER TABLE pipeline_schedules ALTER COLUMN visibility SET DEFAULT 'team'",
 	} {
 		if !strings.Contains(joined, statement) {

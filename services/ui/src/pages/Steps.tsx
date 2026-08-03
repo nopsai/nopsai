@@ -41,7 +41,12 @@ import {
 import { useStepPermissions } from '../features/steps/useStepPermissions';
 import { StepCollectionList } from '../features/steps/StepCollectionList';
 import { StepDetailView } from '../features/steps/StepDetailView';
-import { fetchResourceTeamPaths, insertTeamPath } from '../lib/resourceTeams';
+import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTreeNodes,
+  fetchResourceTeamPaths,
+  insertTeamPath,
+} from '../lib/resourceTeams';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
@@ -631,14 +636,20 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], stepIds: [] };
+    const createNode = (id: string, name: string, fullPath: string): TreeNode => ({ id, name, fullPath, children: [], stepIds: [] });
+    const ensureGlobalNode = () => {
+      insertTeamPath(root, GLOBAL_RESOURCE_TEAM_PATH, createNode);
+      return root.children.find(child => child.fullPath === GLOBAL_RESOURCE_TEAM_PATH) || root;
+    };
+    ensureGlobalNode();
     resourceTeamPaths.forEach(path => {
-      insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
+      insertTeamPath(root, path, createNode);
     });
     steps.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const leafName = parts.pop();
       if (!leafName) return;
-      let current = root;
+      let current = parts.length ? root : ensureGlobalNode();
       let pathSoFar = '';
       parts.forEach(segment => {
         pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
@@ -646,7 +657,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         if (!child) {
           child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], stepIds: [] };
           current.children.push(child);
-          current.children.sort((a, b) => a.name.localeCompare(b.name));
+          current.children.sort(compareResourceTreeNodes);
         }
         current = child;
       });

@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	aaamodel "nopsai/services/aaa/pkg/model"
-
 	"gopkg.in/yaml.v3"
 )
 
@@ -270,14 +268,14 @@ func NormalizeStructureName(name string) (string, error) {
 		return "", fmt.Errorf("pipeline run structure contains an empty team or repository name")
 	}
 	if IsReservedRootTeamName(trimmed) {
-		return "", fmt.Errorf("root is reserved and cannot be used as a team name")
+		return "", fmt.Errorf("root, global, and general are reserved and cannot be used as team names")
 	}
 	return trimmed, nil
 }
 
 func IsReservedRootTeamName(name string) bool {
 	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(name), "/"))
-	return normalized == "root" || normalized == strings.ToLower(aaamodel.TeamGeneralID)
+	return normalized == "root" || normalized == "global" || normalized == "general" || normalized == "__general__"
 }
 
 func configRepositoryTeamStructureFileScope(rel string) (string, bool, error) {

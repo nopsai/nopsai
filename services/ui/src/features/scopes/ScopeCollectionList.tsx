@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { ResourceCollectionWorkspace, type ResourceCollectionTreeNode } from '../editor/ResourceCollectionWorkspace';
+import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams';
 import {
   formatScopeDisplay,
   type ScopeData,
@@ -200,7 +201,7 @@ function ScopeRow({
         </button>
       </td>
       <td>
-        <span className="pipeline-runs-mono">{scope.teamPath || 'root'}</span>
+        <span className="pipeline-runs-mono">{scope.teamPath || GLOBAL_RESOURCE_TEAM_PATH}</span>
       </td>
       <td className="pipeline-runs-mono">{variableLabel}</td>
       <td className="pipeline-runs-mono">{secretLabel}</td>

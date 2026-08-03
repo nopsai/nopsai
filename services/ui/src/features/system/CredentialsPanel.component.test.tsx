@@ -69,6 +69,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('./credentials/api', () => apiMocks);
 vi.mock('../../lib/resourceTeams', () => ({
   fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
+  isGlobalResourceTeamPath: (path?: string | null) => String(path || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase() === 'global',
 }));
 
 beforeEach(() => {

@@ -1,5 +1,6 @@
 import { Plus, X } from 'lucide-react';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
+import { GLOBAL_RESOURCE_TEAM_LABEL, isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 import type {
   AllowedCaller,
   ExternalTriggerForm,
@@ -150,7 +151,7 @@ export function ExternalTriggerFormModal({
                 onChange={event => onFormChange({ runTeamPath: event.target.value })}
               >
                 {runTeamOptions.map(team => (
-                  <option key={team} value={team}>{team === 'root' ? 'Root' : team}</option>
+                  <option key={team} value={team}>{isGlobalResourceTeamPath(team) ? GLOBAL_RESOURCE_TEAM_LABEL : team}</option>
                 ))}
               </select>
             </label>

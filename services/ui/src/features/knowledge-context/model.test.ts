@@ -8,6 +8,8 @@ import {
   decodeKnowledgeRouteID,
   documentTeamPath,
   deriveKnowledgeConnectionName,
+  deriveIdentityFromTeam,
+  knowledgeDocumentTreePathFromID,
   knowledgeContentSource,
   knowledgeConnectionProviderLabel,
   knowledgeConnectionStatusLabel,
@@ -39,15 +41,28 @@ const documents: KnowledgeContextListItem[] = [
 ];
 
 test('builds knowledge trees with empty enterprise team teams', () => {
-  const tree = buildKnowledgeTree(documents, ['platform/security']);
+  const tree = buildKnowledgeTree([
+    ...documents,
+    {
+      id: 'runbook/overview',
+      kind: 'runbook',
+      team: '',
+      name: 'overview',
+      visibility: 'team',
+      source: 'database',
+    },
+  ], ['global', 'platform/security']);
   const runbooks = tree.children.find(child => child.name === 'runbook');
   assert.ok(runbooks);
   assert.equal(runbooks?.children.find(child => child.name === 'platform')?.docs[0]?.name, 'restart');
-  assert.deepEqual(collectKnowledgeTeamDocs(runbooks).map(document => document.id), ['runbook/platform/restart']);
+  assert.equal(runbooks?.children.find(child => child.name === 'global')?.docs[0]?.name, 'overview');
+  assert.ok(collectKnowledgeTeamDocs(runbooks).some(document => document.id === 'runbook/overview'));
+  assert.equal(knowledgeDocumentTreePathFromID('runbook/overview'), 'runbook/global');
   assert.equal(
     runbooks?.children.find(child => child.name === 'platform')?.children.find(child => child.name === 'security')?.docs.length,
     0
   );
+  assert.deepEqual(deriveIdentityFromTeam('runbook/global'), { kind: 'runbook', team: '' });
 });
 
 test('builds knowledge team options from resource teams and existing resources', () => {
@@ -61,6 +76,7 @@ test('builds knowledge team options from resource teams and existing resources',
     }),
     ['platform', 'platform/security']
   );
+  assert.deepEqual(buildKnowledgeTeamOptions({ resourceTeamPaths: ['global'] }), []);
   assert.deepEqual(buildKnowledgeTeamOptions({ fallbackTeam: 'starter' }), ['starter']);
   assert.deepEqual(buildKnowledgeTeamOptions({}), []);
 });

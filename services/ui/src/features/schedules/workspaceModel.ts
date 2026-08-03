@@ -3,6 +3,11 @@ import {
   aiResourceMatchesTeamFilter,
 } from '../system/aiResourceTeams.js';
 import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTeamPathsWithGlobalFirst,
+  isGlobalResourceTeamPath,
+} from '../../lib/resourceTeams.js';
+import {
   effectiveScheduleRunTeamPath,
   normalizeIdentifier,
   normalizeScheduleKind,
@@ -49,11 +54,16 @@ export function scheduleLocalName(schedule: PipelineSchedule) {
 
 export function scheduleResourcePath(schedule: PipelineSchedule) {
   const runTeamPath = normalizeIdentifier(schedule.run_team_path);
-  if (runTeamPath) return effectiveScheduleRunTeamPath(schedule);
+  if (runTeamPath) return normalizeScheduleResourcePath(effectiveScheduleRunTeamPath(schedule));
   const explicitPath = normalizeIdentifier(schedule.path);
-  if (explicitPath) return explicitPath.toLowerCase() === 'root' ? 'root' : explicitPath;
+  if (explicitPath) return normalizeScheduleResourcePath(explicitPath);
   const identifierPath = splitIdentifier(schedule.identifier || '').path;
-  return identifierPath || 'root';
+  return normalizeScheduleResourcePath(identifierPath);
+}
+
+function normalizeScheduleResourcePath(path: string) {
+  const normalized = normalizeIdentifier(path);
+  return !normalized || isGlobalResourceTeamPath(normalized) ? GLOBAL_RESOURCE_TEAM_PATH : normalized;
 }
 
 export function scheduleResourceID(schedule: PipelineSchedule) {
@@ -104,17 +114,13 @@ export function scheduleStatusText(schedule: PipelineSchedule) {
 }
 
 export function schedulePathOptions(schedules: PipelineSchedule[], knownTeamPaths: string[] = []) {
-  const paths = new Set<string>();
+  const paths = new Set<string>([GLOBAL_RESOURCE_TEAM_PATH]);
   schedules.forEach(schedule => paths.add(scheduleResourcePath(schedule)));
   knownTeamPaths
     .map(normalizeIdentifier)
-    .filter(path => path && path !== 'root')
+    .filter(path => path && !isGlobalResourceTeamPath(path))
     .forEach(path => paths.add(path));
-  return Array.from(paths).sort((a, b) => {
-    if (a === 'root') return -1;
-    if (b === 'root') return 1;
-    return a.localeCompare(b, undefined, { sensitivity: 'base' });
-  });
+  return Array.from(paths).sort(compareResourceTeamPathsWithGlobalFirst);
 }
 
 export function scheduleMatchesSearch(schedule: PipelineSchedule, rawTerm: string) {

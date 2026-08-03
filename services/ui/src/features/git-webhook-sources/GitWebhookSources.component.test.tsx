@@ -226,7 +226,7 @@ test('renders solid edit, validation, and saving states for source forms', () =>
   expect(dialog).not.toHaveClass('glass-card');
   expect(dialog).toHaveAccessibleDescription('Repository allowlist is required.');
   expect(screen.getByLabelText('Source ID')).toBeDisabled();
-  expect(screen.getByRole('combobox', { name: /^Team/ })).toHaveValue('root');
+  expect(screen.getByRole('combobox', { name: /^Team/ })).toHaveValue('global');
   expect(screen.getByText(/network-isolated ingress/)).toBeVisible();
 
   fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'GitLab' } });

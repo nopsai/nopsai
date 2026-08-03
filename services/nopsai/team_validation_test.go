@@ -9,7 +9,7 @@ import (
 )
 
 func TestNormalizeTeamForWriteRejectsReservedRootTeamName(t *testing.T) {
-	tests := []string{"root", " Root ", "/root/", "__general__"}
+	tests := []string{"root", " Root ", "/root/", "global", " Global ", "/global/", "general", " General ", "/general/", "__general__"}
 	for _, name := range tests {
 		team := &Team{Kind: "team", Name: name}
 		if err := normalizeTeamForWrite(team); err == nil {
@@ -19,7 +19,7 @@ func TestNormalizeTeamForWriteRejectsReservedRootTeamName(t *testing.T) {
 }
 
 func TestNormalizeStructureNameRejectsReservedRootTeamName(t *testing.T) {
-	tests := []string{"root", " Root ", "/root/", "__general__"}
+	tests := []string{"root", " Root ", "/root/", "global", " Global ", "/global/", "general", " General ", "/general/", "__general__"}
 	for _, name := range tests {
 		if _, err := configsync.NormalizeStructureName(name); err == nil {
 			t.Fatalf("normalizeStructureName(%q) error = nil, want reserved root error", name)

@@ -820,8 +820,8 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 	if binding.ScopeType != models.ConfigRepositoryScopeTeam {
 		return resourceID, nil
 	}
-	if isRootGrantResourceID(resourceID) {
-		return generalGrantID, nil
+	if isGlobalGrantResourceID(resourceID) {
+		return globalGrantID, nil
 	}
 	return configsync.NormalizePathForTeam(boundTeam, resourceID)
 }

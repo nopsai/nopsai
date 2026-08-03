@@ -318,6 +318,9 @@ func (state configRepositoryResourceAccessState) exportFile() *configRepositoryE
 		if subjectID == "" {
 			continue
 		}
+		if strings.TrimSpace(grant.SubjectType) == grantSubjectTeam && subjectID == globalGrantID {
+			subjectID = globalGrantID
+		}
 		exportGrant := configRepositoryEmbeddedUseGrantFile{}
 		switch strings.TrimSpace(grant.SubjectType) {
 		case grantSubjectTeam:

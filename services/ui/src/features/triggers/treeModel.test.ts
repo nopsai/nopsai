@@ -37,3 +37,14 @@ test('keeps repository owners distinct from NopsAI team ownership', () => {
   assert.equal(findTriggerTreeNode(root, 'platform'), root);
   assert.deepEqual(findTriggerTreeNode(root, 'external', 'platform').triggerSlugs, ['external/repo']);
 });
+
+test('keeps global team first under trigger owners', () => {
+  const root = buildTriggerTree([
+    { slug: 'owner/data-trigger', source: 'database', teamPath: 'data' },
+    { slug: 'owner/global-trigger', source: 'database', teamPath: 'global' },
+  ]);
+  const owner = findTriggerTreeNode(root, 'owner');
+
+  assert.deepEqual(owner.children.map(child => child.teamPath), ['global', 'data']);
+  assert.deepEqual(owner.children.map(child => child.name), ['Global', 'data']);
+});

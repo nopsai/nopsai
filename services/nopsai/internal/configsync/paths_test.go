@@ -16,7 +16,8 @@ func TestNormalizePathForTeam(t *testing.T) {
 	}{
 		{name: "joins team", boundTeam: "team-1", relPath: "pipelines/build.yaml", want: "team-1/build"},
 		{name: "strips duplicated team", boundTeam: "team-1", relPath: "pipelines/team-1/build.yaml", want: "team-1/build"},
-		{name: "root prefix is absolute", boundTeam: "team-1", relPath: "pipelines/root/platform/build.yaml", want: "platform/build"},
+		{name: "root prefix stays under bound team", boundTeam: "team-1", relPath: "pipelines/root/platform/build.yaml", want: "team-1/root/platform/build"},
+		{name: "global prefix is absolute", boundTeam: "team-1", relPath: "pipelines/global/platform/build.yaml", want: "platform/build"},
 		{name: "escaping path is rejected", boundTeam: "team-1", relPath: "../build.yaml", wantErr: true},
 	}
 
@@ -63,7 +64,7 @@ func TestRepositoryOwnershipRules(t *testing.T) {
 }
 
 func TestPipelineIdentifierHelpers(t *testing.T) {
-	path, name, ext, err := SplitPipelineIdentifier("root/team-1/build.yml")
+	path, name, ext, err := SplitPipelineIdentifier("global/team-1/build.yml")
 	if err != nil {
 		t.Fatalf("SplitPipelineIdentifier() error = %v", err)
 	}

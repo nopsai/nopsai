@@ -39,13 +39,15 @@ export type TreeNodeLike<T> = {
   children: T[];
 };
 
+export const GLOBAL_RESOURCE_TEAM_PATH = 'global';
+export const GLOBAL_RESOURCE_TEAM_LABEL = 'Global';
+
 export async function fetchResourceTeamPaths(): Promise<string[]> {
   const response = await apiClient.fetch('/v1/access/teams');
   if (!response.ok) return [];
   const payload = await response.json();
   if (!Array.isArray(payload)) return [];
-  return Array.from(new Set(payload.map(normalizeAccessTeamPathRecord).filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b));
+  return resourceTeamPathsWithGlobal(payload.map(normalizeAccessTeamPathRecord));
 }
 
 export async function fetchPipelineRunTeamPaths(): Promise<string[]> {
@@ -85,7 +87,7 @@ export function buildResourceTeamPaths(teams: ResourceTeam[]): string[] {
 }
 
 export function buildPipelineRunTeamPaths(teams: ResourceTeam[]): string[] {
-  return ['root', ...buildResourceTeamPaths(teams).filter(path => path !== 'root')];
+  return [GLOBAL_RESOURCE_TEAM_PATH, ...buildResourceTeamPaths(teams).filter(path => !isGlobalResourceTeamPath(path))];
 }
 
 function buildTeamPaths(teams: ResourceTeam[], includeTeam: (team: ResourceTeam) => boolean = () => true): string[] {
@@ -152,7 +154,68 @@ function normalizeAccessTeamPathRecord(record: unknown): string {
     : typeof entry.name === 'string'
       ? entry.name
       : '';
-  return raw.trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+  return normalizeResourceTeamPath(raw);
+}
+
+export function normalizeResourceTeamPath(value: unknown): string {
+  return String(value ?? '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+}
+
+export function isGlobalResourceTeamPath(value?: string | null): boolean {
+  const normalized = normalizeResourceTeamPath(value).toLowerCase();
+  return normalized === GLOBAL_RESOURCE_TEAM_PATH;
+}
+
+export function resourceTeamPathsWithGlobal(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  const append = (path: unknown) => {
+    const normalized = normalizeResourceTeamPath(path);
+    if (!normalized) return;
+    const canonical = isGlobalResourceTeamPath(normalized) ? GLOBAL_RESOURCE_TEAM_PATH : normalized;
+    const key = canonical.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(canonical);
+  };
+
+  append(GLOBAL_RESOURCE_TEAM_PATH);
+  paths.forEach(append);
+
+  return result.sort(compareResourceTeamPathsWithGlobalFirst);
+}
+
+export function compareResourceTeamPathsWithGlobalFirst(left: string, right: string): number {
+  const leftGlobal = isGlobalResourceTeamPath(left);
+  const rightGlobal = isGlobalResourceTeamPath(right);
+  if (leftGlobal || rightGlobal) {
+    if (leftGlobal === rightGlobal) return 0;
+    return leftGlobal ? -1 : 1;
+  }
+  return normalizeResourceTeamPath(left).localeCompare(normalizeResourceTeamPath(right), undefined, { sensitivity: 'base' });
+}
+
+export function compareResourceTreeNodes<T extends { name: string; fullPath?: string | null }>(
+  left: T,
+  right: T
+): number {
+  const leftGlobal = isGlobalResourceTreeNode(left);
+  const rightGlobal = isGlobalResourceTreeNode(right);
+  if (leftGlobal || rightGlobal) {
+    if (leftGlobal === rightGlobal) return 0;
+    return leftGlobal ? -1 : 1;
+  }
+  const nameCompare = left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+  if (nameCompare !== 0) return nameCompare;
+  return normalizeResourceTeamPath(left.fullPath).localeCompare(
+    normalizeResourceTeamPath(right.fullPath),
+    undefined,
+    { sensitivity: 'base' }
+  );
+}
+
+function isGlobalResourceTreeNode(node: { name: string; fullPath?: string | null }): boolean {
+  return isGlobalResourceTeamPath(node.fullPath) || isGlobalResourceTeamPath(node.name);
 }
 
 export function insertTeamPath<T extends TreeNodeLike<T>>(
@@ -169,7 +232,7 @@ export function insertTeamPath<T extends TreeNodeLike<T>>(
     if (!child) {
       child = createNode(pathSoFar, segment, pathSoFar);
       current.children.push(child);
-      current.children.sort((a, b) => a.name.localeCompare(b.name));
+      current.children.sort(compareResourceTreeNodes);
     }
     current = child;
   });

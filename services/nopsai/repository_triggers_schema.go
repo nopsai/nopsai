@@ -13,7 +13,7 @@ var repositoryTriggerSchemaStatements = []string{
 	`ALTER TABLE triggers DROP CONSTRAINT IF EXISTS triggers_provider_check`,
 	`ALTER TABLE triggers ADD CONSTRAINT triggers_provider_check CHECK (provider IN ('github', 'generic', 'gitlab', 'bitbucket', 'gitea'))`,
 	`ALTER TABLE triggers ADD COLUMN IF NOT EXISTS team_path TEXT NOT NULL DEFAULT ''`,
-	`UPDATE triggers SET team_path = 'root' WHERE BTRIM(team_path) = ''`,
+	`UPDATE triggers SET team_path = 'global' WHERE BTRIM(team_path) = '' OR LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__')`,
 	`ALTER TABLE triggers ADD COLUMN IF NOT EXISTS management TEXT NOT NULL DEFAULT 'nopsai'`,
 	`UPDATE triggers SET management = 'nopsai' WHERE BTRIM(management) = ''`,
 	`ALTER TABLE triggers DROP CONSTRAINT IF EXISTS triggers_management_check`,

@@ -1,5 +1,6 @@
 import * as yaml from 'js-yaml';
 import { validatePipelineYamlStrict } from '../../lib/lab.js';
+import { isGlobalResourceTeamPath } from '../../lib/resourceTeams.js';
 import {
   findLineNumberForKey,
   normalizeLineNumber,
@@ -187,7 +188,7 @@ export type PipelineDependencyReference = {
 
 export function normalizeRootPath(path: string) {
   const parts = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
-  if (parts[0]?.toLowerCase() === 'root') parts.shift();
+  if (isGlobalResourceTeamPath(parts[0])) parts.shift();
   return parts.join('/');
 }
 
@@ -214,10 +215,15 @@ export function normalizePipelineSource(source?: string) {
 export function filterVisiblePipelineList(items: PipelineListItem[], searchTerm: string, activeTeam: string): PipelineListItem[] {
   const query = searchTerm.trim().toLowerCase();
   const normalizedTeam = normalizeRootPath(activeTeam);
+  const rootTeamSelected = isGlobalResourceTeamPath(activeTeam);
   const filtered = query ? items.filter(item => item.id.toLowerCase().includes(query)) : items;
-  const scoped = query || !normalizedTeam
+  const scoped = query
     ? filtered
-    : filtered.filter(item => pipelineListItemBelongsToTeam(item, normalizedTeam));
+    : rootTeamSelected
+      ? filtered.filter(item => normalizeRootPath(splitIdentifier(item.id).path) === '')
+      : !normalizedTeam
+        ? filtered
+        : filtered.filter(item => pipelineListItemBelongsToTeam(item, normalizedTeam));
   return [...scoped].sort((a, b) => a.id.localeCompare(b.id));
 }
 

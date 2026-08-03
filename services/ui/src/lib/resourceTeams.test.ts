@@ -5,6 +5,9 @@ import {
   buildPipelineRunTeamPaths,
   buildResourceTeamPaths,
   fetchResourceTeamPaths,
+  insertTeamPath,
+  isGlobalResourceTeamPath,
+  resourceTeamPathsWithGlobal,
   type ResourceTeam,
 } from './resourceTeams.js';
 
@@ -35,13 +38,40 @@ test('buildResourceTeamPaths returns team paths without applications', () => {
   ]);
 });
 
-test('buildPipelineRunTeamPaths keeps root and excludes application entries', () => {
+test('buildPipelineRunTeamPaths keeps global and excludes application entries', () => {
   assert.deepEqual(buildPipelineRunTeamPaths(mixedTeams), [
-    'root',
+    'global',
     'platform',
     'platform/ml',
     'platform/payments',
   ]);
+});
+
+test('resourceTeamPathsWithGlobal keeps global first without accepting root aliases', () => {
+  assert.deepEqual(resourceTeamPathsWithGlobal(['platform', 'global', 'platform']), ['global', 'platform']);
+  assert.equal(isGlobalResourceTeamPath('/root/'), false);
+  assert.equal(isGlobalResourceTeamPath('/global/'), true);
+});
+
+test('insertTeamPath keeps global first at each resource tree level', () => {
+  type Node = {
+    id: string;
+    name: string;
+    fullPath: string;
+    children: Node[];
+  };
+  const root: Node = { id: '__root__', name: '', fullPath: '', children: [] };
+  const createNode = (id: string, name: string, fullPath: string): Node => ({ id, name, fullPath, children: [] });
+
+  ['platform/prod', 'data', 'global', 'platform/global', 'platform/dev'].forEach(path => {
+    insertTeamPath(root, path, createNode);
+  });
+
+  assert.deepEqual(root.children.map(child => child.fullPath), ['global', 'data', 'platform']);
+  assert.deepEqual(
+    root.children.find(child => child.fullPath === 'platform')?.children.map(child => child.fullPath),
+    ['platform/global', 'platform/dev', 'platform/prod']
+  );
 });
 
 test('fetchResourceTeamPaths filters application records from access teams', async () => {
@@ -57,7 +87,7 @@ test('fetchResourceTeamPaths filters application records from access teams', asy
     ]);
   };
   try {
-    assert.deepEqual(await fetchResourceTeamPaths(), ['platform', 'platform/prod']);
+    assert.deepEqual(await fetchResourceTeamPaths(), ['global', 'platform', 'platform/prod']);
   } finally {
     (apiClient as { fetch: typeof apiClient.fetch }).fetch = originalFetch;
   }

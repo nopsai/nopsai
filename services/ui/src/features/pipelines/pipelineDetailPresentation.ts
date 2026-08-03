@@ -1,4 +1,5 @@
 import type { AnalysisFinding, AnalysisResult, AnalysisSeverity } from '../analysis/model.js';
+import { GLOBAL_RESOURCE_TEAM_LABEL, isGlobalResourceTeamPath } from '../../lib/resourceTeams.js';
 import type { PipelineRun } from './api.js';
 import { formatPipelineGitRef, normalizePipelineSource, pipelineRunStatusLabel, type PipelineDetail, type PipelineGraphData } from './model.js';
 
@@ -130,5 +131,6 @@ export function highestPriorityFinding(findings: AnalysisFinding[]): AnalysisFin
 }
 
 export function formatPipelineDetailPath(detail: PipelineDetail): string {
-  return detail.path?.trim() || 'Root';
+  const path = detail.path?.trim() || '';
+  return !path || isGlobalResourceTeamPath(path) ? GLOBAL_RESOURCE_TEAM_LABEL : path;
 }

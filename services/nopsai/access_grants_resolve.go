@@ -579,12 +579,15 @@ func normalizeScopeGrantResourceID(rawID string) (id, lookup, display string) {
 
 func resolveAccessGrantTeam(ctx context.Context, runner queryRunner, rawID string, requireExists bool) (accessGrantResource, error) {
 	rawID = strings.TrimSpace(rawID)
-	if isRootGrantResourceID(rawID) {
+	if isGlobalGrantResourceID(rawID) {
 		return accessGrantResource{
 			Type:    grantResourceTeam,
-			ID:      generalGrantID,
-			Display: rootGrantID,
+			ID:      globalGrantID,
+			Display: globalGrantID,
 		}, nil
+	}
+	if isRetiredGlobalTeamAlias(rawID) {
+		return accessGrantResource{}, fmt.Errorf("use global for the global team")
 	}
 	if rawID == "" {
 		return accessGrantResource{}, fmt.Errorf("resource_id is required")
@@ -609,6 +612,9 @@ func resolveAccessGrantTeam(ctx context.Context, runner queryRunner, rawID strin
 	normalized := strings.Trim(strings.TrimSpace(rawID), "/")
 	if normalized == "" {
 		return accessGrantResource{}, fmt.Errorf("resource_id is required")
+	}
+	if isRetiredGlobalTeamAlias(normalized) {
+		return accessGrantResource{}, fmt.Errorf("use global for the global team")
 	}
 	if requireExists {
 		pathRecords, err := loadTeamPathRecords(ctx, runner)

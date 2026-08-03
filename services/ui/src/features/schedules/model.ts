@@ -1,3 +1,8 @@
+import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTeamPathsWithGlobalFirst,
+} from '../../lib/resourceTeams.js';
+
 export type PipelineListItem = {
   id: string;
   identifier?: string;
@@ -152,11 +157,9 @@ export function normalizeScopeOption(value: unknown): string {
 }
 
 export function uniqueRunTeamOptions(values: string[]): string[] {
-  return Array.from(new Set(['root', ...values.map(normalizeIdentifier).filter(Boolean)])).sort((a, b) => {
-    if (a === 'root') return -1;
-    if (b === 'root') return 1;
-    return a.localeCompare(b);
-  });
+  return Array.from(new Set([GLOBAL_RESOURCE_TEAM_PATH, ...values.map(normalizeIdentifier).filter(Boolean)])).sort(
+    compareResourceTeamPathsWithGlobalFirst
+  );
 }
 
 export function splitIdentifier(identifier: string) {
@@ -166,7 +169,7 @@ export function splitIdentifier(identifier: string) {
 }
 
 export function effectiveScheduleRunTeamPath(schedule: PipelineSchedule) {
-  return normalizeIdentifier(schedule.run_team_path) || 'root';
+  return normalizeIdentifier(schedule.run_team_path) || GLOBAL_RESOURCE_TEAM_PATH;
 }
 
 export function normalizeScheduleKind(kind?: string) {
@@ -449,7 +452,7 @@ export function parseVariablesText(raw: string) {
 
 export function defaultRunTeamForPipeline(pipeline: string, runTeams: string[]) {
   const parentPath = splitIdentifier(pipeline).path;
-  return parentPath && runTeams.includes(parentPath) ? parentPath : 'root';
+  return parentPath && runTeams.includes(parentPath) ? parentPath : GLOBAL_RESOURCE_TEAM_PATH;
 }
 
 export function createEmptyForm(pipelineFilter: string, runTeams: string[] = []): ScheduleFormState {
@@ -509,7 +512,7 @@ export function scheduleRequestFromForm(form: ScheduleFormState): ScheduleReques
     timezone: form.timezone.trim() || 'UTC',
     enabled: form.enabled,
     scope: normalizeScopeOption(form.scope),
-    run_team_path: normalizeIdentifier(form.runTeamPath) || 'root',
+    run_team_path: normalizeIdentifier(form.runTeamPath) || GLOBAL_RESOURCE_TEAM_PATH,
     variables: parseVariablesText(form.variablesText),
   };
 }

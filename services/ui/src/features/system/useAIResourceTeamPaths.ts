@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchResourceTeamPaths } from '../../lib/resourceTeams';
+import { fetchResourceTeamPaths, isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 
 export function useAIResourceTeamPaths() {
   const [teamPaths, setTeamPaths] = useState<string[]>([]);
@@ -8,7 +8,8 @@ export function useAIResourceTeamPaths() {
   const loadTeamPaths = useCallback(async () => {
     setTeamPathsLoading(true);
     try {
-      setTeamPaths(await fetchResourceTeamPaths());
+      const paths = await fetchResourceTeamPaths();
+      setTeamPaths(paths.filter(path => !isGlobalResourceTeamPath(path)));
     } finally {
       setTeamPathsLoading(false);
     }

@@ -142,6 +142,42 @@ triggers:
 	}
 }
 
+func TestParseConfigSyncPlanTriggerWithoutTeamDefaultsToGlobal(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+		RepoURL:   "https://github.com/acme/platform-config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
+		triggers: map[string]string{
+			"triggers/hosein-yousefii/test-app.yaml": `
+triggers:
+  - on: push
+    pipelines:
+      - global/build
+`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	trigger, ok := plan.triggers["hosein-yousefii/test-app"]
+	if !ok {
+		t.Fatalf("triggers = %#v, want hosein-yousefii/test-app", plan.triggers)
+	}
+	if trigger.record.TeamPath != globalGrantID {
+		t.Fatalf("trigger team = %q, want global", trigger.record.TeamPath)
+	}
+	if trigger.record.RepositoryForWebhook != "hosein-yousefii/test-app" {
+		t.Fatalf("RepositoryForWebhook = %q, want hosein-yousefii/test-app", trigger.record.RepositoryForWebhook)
+	}
+}
+
 func assertUseGrant(t *testing.T, plan accessSyncPlan, subjectType, subjectID, resourceType, resourceID, action string) {
 	t.Helper()
 

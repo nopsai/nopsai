@@ -415,7 +415,7 @@ function GitWebhookSourceDetail({
                   <ul className="space-y-2">
                     {source.connected_triggers.map(trigger => (
                       <li key={trigger.repository_name} className="rounded-md border border-[var(--border-primary)] px-3 py-2">
-                        <div className="font-mono text-sm text-[var(--text-primary)]">{trigger.team_path || 'root'} / {trigger.repository_for_webhook || trigger.repository_name}</div>
+                        <div className="font-mono text-sm text-[var(--text-primary)]">{trigger.team_path || 'global'} / {trigger.repository_for_webhook || trigger.repository_name}</div>
                         <div className="mt-1 text-xs text-[var(--text-secondary)]">{trigger.management || 'nopsai'} / {trigger.provider}</div>
                       </li>
                     ))}

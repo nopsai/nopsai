@@ -6,6 +6,7 @@ import {
   type CronFormFields,
   type ScheduleFormState,
 } from '../schedules/model.js';
+import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams.js';
 
 export type DashboardSummary = {
   id: string;
@@ -783,7 +784,7 @@ export function refreshScheduleCronExpressionFromForm(form: DashboardRefreshSche
     ...form,
     pipeline: '',
     scope: '',
-    runTeamPath: 'root',
+    runTeamPath: GLOBAL_RESOURCE_TEAM_PATH,
     variablesText: '',
   } satisfies ScheduleFormState);
 }

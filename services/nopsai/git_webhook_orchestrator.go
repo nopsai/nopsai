@@ -159,7 +159,7 @@ func (a *App) startGitWebhookRun(
 	req.Header.Set("X-Git-Pusher-Email", event.ActorEmail)
 	req.Header.Set("X-Nopsai-Scope", strings.Trim(strings.TrimSpace(scope), "/"))
 	req.Header.Set("X-Nopsai-Pipeline-Path", pathPart)
-	if triggerTeamPath := strings.Trim(strings.TrimSpace(trigger.TeamPath), "/"); triggerTeamPath != "" && triggerTeamPath != rootGrantID {
+	if triggerTeamPath := strings.Trim(strings.TrimSpace(trigger.TeamPath), "/"); triggerTeamPath != "" && !isGlobalGrantResourceID(triggerTeamPath) {
 		req.Header.Set("X-Nopsai-Team-Path", triggerTeamPath)
 	}
 	req.Header.Set("X-Nopsai-Pipeline-Source", "git_webhook")

@@ -27,7 +27,7 @@ function TriggerModalHarness({
     repository: '',
     details: {
       provider: 'github',
-      teamPath: 'root',
+      teamPath: 'global',
       management: 'nopsai',
       webhookSourceID: '',
     },
@@ -75,7 +75,7 @@ function TriggerModalHarness({
         deleteModal={open === 'delete' ? deleteModal : null}
         canDeleteTriggers
         selectedSlug="owner/repo"
-        teamPaths={['root', 'team-1']}
+        teamPaths={['global', 'team-1']}
         webhookSources={[
           { id: 'corporate-gitlab', name: 'Corporate GitLab', provider: 'gitlab', teamPath: 'team-1', visibility: 'workspace' },
         ]}

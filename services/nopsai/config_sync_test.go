@@ -85,15 +85,15 @@ func TestNormalizeConfigPathForTeam(t *testing.T) {
 			want:      "team-1/platform/deploy",
 		},
 		{
-			name:      "root prefix is absolute",
+			name:      "global prefix is absolute",
 			boundTeam: "team-1",
-			relPath:   "pipelines/root/platform/build.yaml",
+			relPath:   "pipelines/global/platform/build.yaml",
 			want:      "platform/build",
 		},
 		{
-			name:      "root only is absolute root",
+			name:      "global only is absolute global",
 			boundTeam: "team-1",
-			relPath:   "root",
+			relPath:   "global",
 			want:      "",
 		},
 		{
@@ -970,11 +970,11 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	externalTriggers := map[string]storedExternalTrigger{
 		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev", RunTeamPath: "data-team/dev"}},
-		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod", RunTeamPath: "root"}},
+		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod", RunTeamPath: "global"}},
 	}
 	gitWebhookSources := map[string]storedGitWebhookSource{
 		"data-team-gitlab": {input: gitWebhookSourceRecord{ID: "data-team-gitlab", TeamPath: "data-team"}},
-		"global-gitlab":    {input: gitWebhookSourceRecord{ID: "global-gitlab", TeamPath: rootGrantID}},
+		"global-gitlab":    {input: gitWebhookSourceRecord{ID: "global-gitlab", TeamPath: globalGrantID}},
 	}
 	triggers := map[string]storedTrigger{
 		"team-1/service-api": {record: repositoryTriggerRecord{RepositoryName: "team-1/service-api", TeamPath: "data-team"}},

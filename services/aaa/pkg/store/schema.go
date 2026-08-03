@@ -109,6 +109,157 @@ var aaaSchemaStatements = []string{
 	)`,
 	`ALTER TABLE resource_acl ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			subject_type,
+			CASE
+				WHEN subject_type = 'team' AND LOWER(BTRIM(subject_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE subject_id
+			END AS normalized_subject_id,
+			resource_type,
+			CASE
+				WHEN resource_type = 'team' AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE resource_id
+			END AS normalized_resource_id
+		FROM access_grants
+	),
+	ranked AS (
+		SELECT
+			id,
+			MIN(id) OVER (
+				PARTITION BY subject_type, normalized_subject_id, resource_type, normalized_resource_id
+			) AS keep_id
+		FROM normalized
+	)
+	UPDATE resource_acl ra
+	SET access_grant_id = ranked.keep_id
+	FROM ranked
+	WHERE ra.access_grant_id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			subject_type,
+			CASE
+				WHEN subject_type = 'team' AND LOWER(BTRIM(subject_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE subject_id
+			END AS normalized_subject_id,
+			resource_type,
+			CASE
+				WHEN resource_type = 'team' AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE resource_id
+			END AS normalized_resource_id
+		FROM access_grants
+	),
+	ranked AS (
+		SELECT
+			id,
+			MIN(id) OVER (
+				PARTITION BY subject_type, normalized_subject_id, resource_type, normalized_resource_id
+			) AS keep_id
+		FROM normalized
+	)
+	UPDATE resource_ownership ro
+	SET access_grant_id = ranked.keep_id
+	FROM ranked
+	WHERE ro.access_grant_id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			subject_type,
+			CASE
+				WHEN subject_type = 'team' AND LOWER(BTRIM(subject_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE subject_id
+			END AS normalized_subject_id,
+			resource_type,
+			CASE
+				WHEN resource_type = 'team' AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE resource_id
+			END AS normalized_resource_id
+		FROM access_grants
+	),
+	ranked AS (
+		SELECT
+			id,
+			MIN(id) OVER (
+				PARTITION BY subject_type, normalized_subject_id, resource_type, normalized_resource_id
+			) AS keep_id
+		FROM normalized
+	)
+	DELETE FROM access_grants ag
+	USING ranked
+	WHERE ag.id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`UPDATE access_grants
+	 SET subject_id = 'global',
+	     subject_display = 'global'
+	 WHERE subject_type = 'team'
+	   AND LOWER(BTRIM(subject_id)) IN ('__general__', 'root', 'general')`,
+	`UPDATE access_grants
+	 SET resource_id = 'global',
+	     resource_display = 'global'
+	 WHERE resource_type = 'team'
+	   AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general')`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			resource_type,
+			CASE
+				WHEN resource_type = 'team' AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE resource_id
+			END AS normalized_resource_id,
+			subject_type,
+			subject_id,
+			action,
+			effect
+		FROM resource_acl
+	),
+	ranked AS (
+		SELECT
+			id,
+			MIN(id) OVER (
+				PARTITION BY resource_type, normalized_resource_id, subject_type, subject_id, action, effect
+			) AS keep_id
+		FROM normalized
+	)
+	DELETE FROM resource_acl ra
+	USING ranked
+	WHERE ra.id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`UPDATE resource_acl
+	 SET resource_id = 'global'
+	 WHERE resource_type = 'team'
+	   AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general')`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			resource_type,
+			CASE
+				WHEN resource_type = 'team' AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general') THEN 'global'
+				ELSE resource_id
+			END AS normalized_resource_id,
+			owner_subject_type,
+			owner_subject_id
+		FROM resource_ownership
+	),
+	ranked AS (
+		SELECT
+			id,
+			MIN(id) OVER (
+				PARTITION BY resource_type, normalized_resource_id, owner_subject_type, owner_subject_id
+			) AS keep_id
+		FROM normalized
+	)
+	DELETE FROM resource_ownership ro
+	USING ranked
+	WHERE ro.id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`UPDATE resource_ownership
+	 SET resource_id = 'global'
+	 WHERE resource_type = 'team'
+	   AND LOWER(BTRIM(resource_id)) IN ('__general__', 'root', 'general')`,
 	`ALTER TABLE auth_team_members DROP CONSTRAINT IF EXISTS auth_team_members_subject_type_check`,
 	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_subject_type_check`,
 	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_role_name_subject_type_subject_id_key`,

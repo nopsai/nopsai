@@ -5,6 +5,7 @@ import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import type { PipelineAnalysisScope } from '../analysis/model';
 import { analysisCategoryLabel, type AnalysisFinding } from '../analysis/model';
 import { formatPipelineDetailPath, formatPipelineDetailSource } from './pipelineDetailPresentation';
+import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams';
 import type { PipelineDependencyReference, PipelineDetail } from './model';
 
 export type DetailTabID = 'flow' | 'definition' | 'triggers' | 'runs' | 'health' | 'dependencies';
@@ -256,7 +257,7 @@ function DefinitionSidePanel({
           </div>
         ) : (
           <dl className="pipeline-detail-key-values">
-            <KeyValue label="Team" value={detail.path || 'root'} />
+            <KeyValue label="Team" value={detail.path || GLOBAL_RESOURCE_TEAM_PATH} />
             <KeyValue label="Name" value={detail.name || detail.id} />
           </dl>
         )}

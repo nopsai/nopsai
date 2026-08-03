@@ -7,6 +7,7 @@ import {
   deriveDefaultPipelinePath,
   encodeTriggerSlug,
   filterTriggerListItems,
+  normalizeTriggerTeamPath,
   parseTriggerOverrideList,
   triggerAllowlistStatusLabel,
   triggerBelongsToOwner,
@@ -69,7 +70,8 @@ test('normalizes trigger lists and default pipeline paths', () => {
     scopes: ['', 'prod'],
   }]);
   assert.equal(triggerManagementLabel('repository'), 'Repository');
-  assert.equal(triggerTeamLabel('root'), 'Workspace');
+  assert.equal(triggerTeamLabel('root'), 'Global');
+  assert.equal(normalizeTriggerTeamPath('root'), 'global');
   assert.equal(triggerAllowlistStatusLabel('allowed'), 'Allowed');
   assert.equal(triggerScopesLabel(['', 'prod']), 'default, prod');
   assert.equal(triggerIngressLabel({ provider: 'gitlab', webhookSourceName: 'Corporate GitLab' }), 'Corporate GitLab');

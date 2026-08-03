@@ -34,7 +34,7 @@ func normalizeTeamForWrite(team *Team) error {
 			return fmt.Errorf("team name is required")
 		}
 		if configsync.IsReservedRootTeamName(team.Name) {
-			return fmt.Errorf("root is reserved and cannot be used as a team name")
+			return fmt.Errorf("root, global, and general are reserved and cannot be used as team names")
 		}
 		team.RepoURL = ""
 		team.RepositoryFullName = ""

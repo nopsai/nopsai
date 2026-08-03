@@ -418,8 +418,8 @@ func looksLikeUUID(value string) bool {
 func (a *App) resolveTeamIDForPath(ctx context.Context, teamPath string) (sql.NullInt32, error) {
 	var out sql.NullInt32
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
-	teamPath, rootOnly := stripRootPathPrefix(teamPath)
-	if rootOnly || teamPath == "" {
+	teamPath, globalOnly := stripGlobalPathPrefix(teamPath)
+	if globalOnly || teamPath == "" {
 		return out, nil
 	}
 	records, err := loadTeamPathRecords(ctx, a.db)

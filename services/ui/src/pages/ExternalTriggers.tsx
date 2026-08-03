@@ -19,7 +19,12 @@ import {
 } from '../features/external-triggers/model';
 import { apiClient, buildApiUrl } from '../lib/api';
 import { copyTextToClipboard } from '../lib/clipboard';
-import { fetchPipelineRunTeamPaths } from '../lib/resourceTeams';
+import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTeamPathsWithGlobalFirst,
+  fetchPipelineRunTeamPaths,
+  isGlobalResourceTeamPath,
+} from '../lib/resourceTeams';
 
 type PipelineListItem = {
   id?: string;
@@ -61,7 +66,7 @@ const emptyForm: ExternalTriggerForm = {
   description: '',
   pipeline: '',
   scope: '',
-  runTeamPath: 'root',
+  runTeamPath: GLOBAL_RESOURCE_TEAM_PATH,
   enabled: true,
   allowedCallers: [],
   variableMappingText: '{\n  "VERSION": "payload.version"\n}',
@@ -149,7 +154,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   );
   const selectedRunTeamPath = useMemo(() => {
     const normalized = normalizeIdentifier(form.runTeamPath);
-    return runTeamOptions.includes(normalized) ? normalized : 'root';
+    return runTeamOptions.includes(normalized) ? normalized : GLOBAL_RESOURCE_TEAM_PATH;
   }, [form.runTeamPath, runTeamOptions]);
 
   const callerOptions = useMemo<Record<AllowedCaller['type'], SelectOption[]>>(
@@ -309,7 +314,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
     if (!canWriteExternalTriggers) return;
     const pipeline = pipelines[0] || '';
     const pipelineParent = parentPathFromIdentifier(pipeline);
-    const defaultRunTeam = pipelineParent && runTeams.includes(pipelineParent) ? pipelineParent : 'root';
+    const defaultRunTeam = pipelineParent && runTeams.includes(pipelineParent) ? pipelineParent : GLOBAL_RESOURCE_TEAM_PATH;
     setForm({ ...emptyForm, pipeline, runTeamPath: defaultRunTeam });
     setCallerDraft({ type: 'service_account', id: callerOptions.service_account[0]?.value || '' });
     setFormError('');
@@ -323,7 +328,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       description: trigger.description || '',
       pipeline: trigger.pipeline || '',
       scope: normalizeScopeOption(trigger.scope),
-      runTeamPath: normalizeIdentifier(trigger.run_team_path) || 'root',
+      runTeamPath: normalizeIdentifier(trigger.run_team_path) || GLOBAL_RESOURCE_TEAM_PATH,
       enabled: Boolean(trigger.enabled),
       allowedCallers: Array.isArray(trigger.allowed_callers) ? trigger.allowed_callers : [],
       variableMappingText: JSON.stringify(trigger.variable_mapping || {}, null, 2),
@@ -380,7 +385,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       description: form.description.trim(),
       pipeline: normalizeIdentifier(form.pipeline),
       scope: normalizeScopeOption(form.scope),
-      run_team_path: normalizeIdentifier(form.runTeamPath) || 'root',
+      run_team_path: normalizeIdentifier(form.runTeamPath) || GLOBAL_RESOURCE_TEAM_PATH,
       enabled: form.enabled,
       allowed_callers: form.allowedCallers,
       variable_mapping: variableMapping,
@@ -428,7 +433,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       description: trigger.description || '',
       pipeline: trigger.pipeline,
       scope: normalizeScopeOption(trigger.scope),
-      run_team_path: normalizeIdentifier(trigger.run_team_path) || 'root',
+      run_team_path: normalizeIdentifier(trigger.run_team_path) || GLOBAL_RESOURCE_TEAM_PATH,
       enabled: trigger.enabled,
       allowed_callers: trigger.allowed_callers || [],
       variable_mapping: trigger.variable_mapping || {},
@@ -534,11 +539,11 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
           onPipelineChange={value => {
             const pipeline = normalizeIdentifier(value);
             const pipelineParent = parentPathFromIdentifier(pipeline);
-            const defaultRunTeam = pipelineParent && runTeams.includes(pipelineParent) ? pipelineParent : 'root';
+            const defaultRunTeam = pipelineParent && runTeams.includes(pipelineParent) ? pipelineParent : GLOBAL_RESOURCE_TEAM_PATH;
             setForm(current => ({
               ...current,
               pipeline,
-              runTeamPath: current.runTeamPath && current.runTeamPath !== 'root'
+              runTeamPath: current.runTeamPath && !isGlobalResourceTeamPath(current.runTeamPath)
                 ? current.runTeamPath
                 : defaultRunTeam,
             }));
@@ -588,7 +593,7 @@ function normalizeScopeOption(value?: string) {
 }
 
 function uniqueRunTeamOptions(values: string[]) {
-  return uniqueSortedStrings(['root', ...values.map(normalizeIdentifier).filter(Boolean)]);
+  return uniqueSortedStrings([GLOBAL_RESOURCE_TEAM_PATH, ...values.map(normalizeIdentifier).filter(Boolean)]);
 }
 
 function parentPathFromIdentifier(identifier?: string) {
@@ -606,13 +611,7 @@ function readPerMinute(rateLimit?: Record<string, unknown>) {
 
 function uniqueSortedStrings(values: string[]) {
   return Array.from(new Set(values.map(value => String(value || '').trim()).filter(value => value.length > 0 || value === '')))
-    .sort((a, b) => {
-      if (a === 'root') return -1;
-      if (b === 'root') return 1;
-      if (a === '') return -1;
-      if (b === '') return 1;
-      return a.localeCompare(b);
-    });
+    .sort(compareResourceTeamPathsWithGlobalFirst);
 }
 
 function identityLabel(primary?: string, secondary?: string, fallback?: string) {

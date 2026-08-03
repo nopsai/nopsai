@@ -441,7 +441,7 @@ func TestAccessGrantResponseUsesInternalSubjectID(t *testing.T) {
 		SubjectDisplay: "alice",
 		RoleName:       productRoleDeveloper,
 		ResourceType:   grantResourceTeam,
-		ResourceID:     generalGrantID,
+		ResourceID:     globalGrantID,
 		Inherit:        true,
 	})
 
@@ -450,6 +450,28 @@ func TestAccessGrantResponseUsesInternalSubjectID(t *testing.T) {
 	}
 	if response.SubjectDisplay != "alice" {
 		t.Fatalf("SubjectDisplay = %q, want display label", response.SubjectDisplay)
+	}
+}
+
+func TestAccessGrantResponseExternalizesGlobalTeamSubject(t *testing.T) {
+	response := accessGrantResponseFromRecord(accessGrantRecord{
+		ID:             43,
+		SubjectType:    grantSubjectTeam,
+		SubjectID:      globalGrantID,
+		SubjectDisplay: globalGrantID,
+		RoleName:       customUseGrantRole,
+		ResourceType:   grantResourcePipeline,
+		ResourceID:     "deploy",
+	})
+
+	if response.SubjectID != globalGrantID {
+		t.Fatalf("SubjectID = %q, want global", response.SubjectID)
+	}
+	if response.SubjectDisplay != globalGrantID {
+		t.Fatalf("SubjectDisplay = %q, want global", response.SubjectDisplay)
+	}
+	if got := formatSubjectLabel(grantSubjectTeam, globalGrantID); got != "team global" {
+		t.Fatalf("formatSubjectLabel(global team) = %q, want team global", got)
 	}
 }
 
@@ -663,9 +685,9 @@ func TestPipelineRunListAllowsChildTeamOwnerThroughRunTeamInheritance(t *testing
 
 func TestGeneralTeamGrantInheritance(t *testing.T) {
 	backend := newUserGrantBackend()
-	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeUser, "user-1", grantResourceTeam, model.TeamGeneralID)...)
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeUser, "user-1", grantResourceTeam, model.TeamGlobalID)...)
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "root-pipeline"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceTeam, ID: model.TeamGeneralID},
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: model.TeamGlobalID},
 		Reason:   "team_inheritance",
 	}}
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "dev/root-pipeline"})] = []model.InheritedResource{{
@@ -692,29 +714,43 @@ func TestGeneralTeamGrantInheritance(t *testing.T) {
 	}
 }
 
-func TestResolveAccessGrantTeamRoot(t *testing.T) {
-	tests := []string{"root", "/root"}
+func TestResolveAccessGrantTeamGlobal(t *testing.T) {
+	tests := []string{"global", "/global"}
 	for _, raw := range tests {
 		resource, err := resolveAccessGrantTeam(context.Background(), &noopQueryRunner{}, raw, false)
 		if err != nil {
 			t.Fatalf("resolveAccessGrantTeam(%q) error = %v", raw, err)
 		}
-		if resource.ID != model.TeamGeneralID || resource.Display != "root" {
-			t.Fatalf("resolveAccessGrantTeam(%q) = %#v, want root team resource", raw, resource)
+		if resource.ID != model.TeamGlobalID || resource.Display != "global" {
+			t.Fatalf("resolveAccessGrantTeam(%q) = %#v, want global team resource", raw, resource)
 		}
 	}
 }
 
-func TestResolveAccessGrantTeamDoesNotTreatLegacyAliasesAsRoot(t *testing.T) {
-	tests := []string{"general", "/general", ".", model.TeamGeneralID}
+func TestResolveAccessGrantTeamRejectsRetiredGlobalAliases(t *testing.T) {
+	tests := []string{"root", "/root", "general", "/general", "__general__", "/__general__"}
 	for _, raw := range tests {
-		resource, err := resolveAccessGrantTeam(context.Background(), &noopQueryRunner{}, raw, false)
-		if err != nil {
-			t.Fatalf("resolveAccessGrantTeam(%q) error = %v", raw, err)
+		if _, err := resolveAccessGrantTeam(context.Background(), &noopQueryRunner{}, raw, false); err == nil {
+			t.Fatalf("resolveAccessGrantTeam(%q) error = nil, want retired alias error", raw)
 		}
-		normalized := strings.Trim(strings.TrimSpace(raw), "/")
-		if resource.ID != normalized || resource.Display != "/"+normalized {
-			t.Fatalf("resolveAccessGrantTeam(%q) = %#v, want concrete team resource", raw, resource)
+	}
+}
+
+func TestResolveAccessGrantTeamTreatsNonReservedPathAsConcreteTeam(t *testing.T) {
+	resource, err := resolveAccessGrantTeam(context.Background(), &noopQueryRunner{}, ".", false)
+	if err != nil {
+		t.Fatalf("resolveAccessGrantTeam(.) error = %v", err)
+	}
+	if resource.ID != "." || resource.Display != "/." {
+		t.Fatalf("resolveAccessGrantTeam(.) = %#v, want concrete team resource", resource)
+	}
+}
+
+func TestAccessGrantRetiredGlobalTeamAliases(t *testing.T) {
+	tests := []string{"root", "/root", "general", "/general", "__general__", "/__general__"}
+	for _, raw := range tests {
+		if !isRetiredGlobalTeamAlias(raw) {
+			t.Fatalf("isRetiredGlobalTeamAlias(%q) = false, want true", raw)
 		}
 	}
 }
@@ -1153,7 +1189,7 @@ func TestTeamGrantResourceForPathNormalizesRootAndTeamPaths(t *testing.T) {
 		wantID  string
 	}{
 		{name: "empty path does not override fallback", rawPath: "", wantOK: false},
-		{name: "root maps to general team grant", rawPath: "root", wantOK: true, wantID: generalGrantID},
+		{name: "global maps to global team grant", rawPath: "global", wantOK: true, wantID: globalGrantID},
 		{name: "nested team trims slashes", rawPath: "/platform/prod/", wantOK: true, wantID: "platform/prod"},
 	}
 

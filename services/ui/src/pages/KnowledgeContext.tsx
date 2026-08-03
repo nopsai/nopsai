@@ -33,6 +33,7 @@ import {
   findKnowledgeTeam,
   isExternalKnowledgeDocument,
   isGitManagedDocument,
+  knowledgeDocumentTreePathFromID,
   knowledgeConnectionIdentifier,
   knowledgeConnectionMatchesIdentifier,
   knowledgeTreePathToTeam,
@@ -59,7 +60,7 @@ import {
   type KnowledgeFormModalState,
 } from '../features/knowledge-context/KnowledgeContextModals';
 import { KnowledgeContextWorkspace } from '../features/knowledge-context/KnowledgeContextWorkspace';
-import { fetchResourceTeamPaths } from '../lib/resourceTeams';
+import { fetchResourceTeamPaths, isGlobalResourceTeamPath } from '../lib/resourceTeams';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 type KnowledgeContextPageProps = {
@@ -79,6 +80,11 @@ function downloadKnowledgeContextFile(detail: Pick<KnowledgeContextDetail, 'name
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function normalizeKnowledgeFormTeamPath(value: string) {
+  const normalized = normalizeTeamPath(value);
+  return isGlobalResourceTeamPath(normalized) ? '' : normalized;
 }
 
 export default function KnowledgeContextPage({
@@ -241,7 +247,7 @@ export default function KnowledgeContextPage({
 
   const activeTeam = useMemo(() => {
     const routeTeam = isTeamRoute ? decodeTeamRouteSegments(routeSegments.slice(2)) : '';
-    const selectedTeam = selectedID ? splitKnowledgePath(selectedID).team : '';
+    const selectedTeam = selectedID ? knowledgeDocumentTreePathFromID(selectedID) : '';
     return normalizeTeamPath(routeTeam || searchParams.get('team') || selectedTeam || '');
   }, [isTeamRoute, routeSegments, searchParams, selectedID]);
   const activeWorkspaceTab = normalizeKnowledgeWorkspaceTab(searchParams.get('tab'));
@@ -320,7 +326,10 @@ export default function KnowledgeContextPage({
         addToast('You have read-only access to knowledge connections.', 'info');
         return;
       }
-      const team = normalizeTeamPath(teamPath || activeConnectionTeam || defaultKnowledgeTeam);
+      const requestedTeam = normalizeTeamPath(teamPath || activeConnectionTeam);
+      const team = requestedTeam
+        ? normalizeKnowledgeFormTeamPath(requestedTeam)
+        : normalizeKnowledgeFormTeamPath(defaultKnowledgeTeam);
       setConnectionModal({
         mode: 'create',
         team,
@@ -362,7 +371,7 @@ export default function KnowledgeContextPage({
     if (!connectionModal) return;
     const normalizedConnection = {
       ...connectionModal,
-      team: normalizeTeamPath(connectionModal.team),
+      team: normalizeKnowledgeFormTeamPath(connectionModal.team),
       name: connectionModal.name.trim() || deriveKnowledgeConnectionName(connectionModal.display_name || connectionModal.provider),
       display_name: connectionModal.display_name.trim(),
       base_url: connectionModal.base_url.trim(),
@@ -538,14 +547,14 @@ export default function KnowledgeContextPage({
 
   const submitFormModal = useCallback(async () => {
     if (!formModal || formModal.pending) return;
-    const error = validateKnowledgeIdentity(formModal.kind, formModal.team, formModal.name, items);
+    const kind = formModal.kind.trim();
+    const team = normalizeKnowledgeFormTeamPath(formModal.team);
+    const name = formModal.name.trim().replace(/\.(yaml|yml)$/i, '');
+    const error = validateKnowledgeIdentity(kind, team, name, items);
     if (error) {
       setFormModal(prev => (prev ? { ...prev, error } : prev));
       return;
     }
-    const kind = formModal.kind.trim();
-    const team = normalizeTeamPath(formModal.team);
-    const name = formModal.name.trim().replace(/\.(yaml|yml)$/i, '');
     const id = buildKnowledgeID(kind, team, name);
     const content = formModal.content || '';
 
@@ -664,7 +673,7 @@ export default function KnowledgeContextPage({
     if (!detail || !canWriteKnowledge || saving) return;
     const isGitManaged = isGitManagedDocument(detail);
     const originalID = editSessionOriginalRef.current?.detail.id || draftID || detail.id;
-    const normalizedTeam = normalizeTeamPath(detail.team);
+    const normalizedTeam = normalizeKnowledgeFormTeamPath(detail.team);
     const normalizedName = detail.name.trim().replace(/\.(yaml|yml)$/i, '');
     const saveCandidate = {
       ...detail,

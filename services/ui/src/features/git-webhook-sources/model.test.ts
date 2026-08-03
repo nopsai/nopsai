@@ -108,7 +108,7 @@ test('maps source state, stored forms, dates, and remaining delivery tones', () 
     ...gitWebhookSourceForm(),
     id: 'source',
     name: 'Source',
-    teamPath: 'root',
+    teamPath: 'global',
     repositoryAllowlistText: 'owner/repo',
     rateLimitPerMinute: '30',
   });
@@ -187,7 +187,7 @@ test('builds Git webhook source team tree items with global fallback', () => {
     },
   ];
 
-  assert.equal(gitWebhookSourceTeamPath(sources[0]), '');
+  assert.equal(gitWebhookSourceTeamPath(sources[0]), 'global');
   assert.equal(gitWebhookSourceTeamLabel(sources[0]), 'Global');
   assert.equal(gitWebhookSourceTeamPath(sources[1]), 'platform/prod');
   assert.equal(gitWebhookSourceVisibilityLabel(sources[1].visibility), 'Workspace-shared');
@@ -199,11 +199,19 @@ test('builds Git webhook source team tree items with global fallback', () => {
     credentialRef: 'credential://system/webhooks/platform',
   }).team_path, 'platform/prod');
   assert.deepEqual(buildGitWebhookSourceTreeItems(sources), [
-    { id: 'global', label: 'Global', path: '', source: undefined },
+    { id: 'global', label: 'Global', path: 'global', source: undefined },
     { id: 'platform', label: 'Platform', path: 'platform/prod', source: 'git' },
   ]);
   assert.deepEqual(
     sources.filter(source => gitWebhookSourceBelongsToTeam(source, 'platform')).map(source => source.id),
     ['platform']
+  );
+  assert.deepEqual(
+    sources.filter(source => gitWebhookSourceBelongsToTeam(source, '')).map(source => source.id),
+    ['global', 'platform']
+  );
+  assert.deepEqual(
+    sources.filter(source => gitWebhookSourceBelongsToTeam(source, 'global')).map(source => source.id),
+    ['global']
   );
 });

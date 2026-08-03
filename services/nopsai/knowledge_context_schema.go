@@ -183,8 +183,123 @@ var knowledgeContextSchemaStatements = []string{
 			config_source_path TEXT NOT NULL DEFAULT '',
 			config_source_commit_sha TEXT NOT NULL DEFAULT '',
 			resolved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)`,
+	)`,
 	`ALTER TABLE pipeline_run_knowledge_contexts ADD COLUMN IF NOT EXISTS team_path TEXT NOT NULL DEFAULT ''`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			kind,
+			CASE
+				WHEN LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global') THEN ''
+				ELSE team_path
+			END AS normalized_team_path,
+			name
+		FROM knowledge_contexts
+	),
+	ranked AS (
+		SELECT
+			id,
+			FIRST_VALUE(id) OVER (PARTITION BY kind, normalized_team_path, name ORDER BY id::text) AS keep_id
+		FROM normalized
+	)
+	UPDATE knowledge_context_assets assets
+	SET knowledge_context_id = ranked.keep_id
+	FROM ranked
+	WHERE assets.knowledge_context_id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			kind,
+			CASE
+				WHEN LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global') THEN ''
+				ELSE team_path
+			END AS normalized_team_path,
+			name
+		FROM knowledge_contexts
+	),
+	ranked AS (
+		SELECT
+			id,
+			FIRST_VALUE(id) OVER (PARTITION BY kind, normalized_team_path, name ORDER BY id::text) AS keep_id
+		FROM normalized
+	)
+	UPDATE pipeline_run_knowledge_contexts run_contexts
+	SET knowledge_context_id = ranked.keep_id
+	FROM ranked
+	WHERE run_contexts.knowledge_context_id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			kind,
+			CASE
+				WHEN LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global') THEN ''
+				ELSE team_path
+			END AS normalized_team_path,
+			name
+		FROM knowledge_contexts
+	),
+	ranked AS (
+		SELECT
+			id,
+			FIRST_VALUE(id) OVER (PARTITION BY kind, normalized_team_path, name ORDER BY id::text) AS keep_id
+		FROM normalized
+	)
+	DELETE FROM knowledge_contexts contexts
+	USING ranked
+	WHERE contexts.id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`UPDATE knowledge_contexts
+		SET team_path = ''
+		WHERE LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global')`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			CASE
+				WHEN LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global') THEN ''
+				ELSE team_path
+			END AS normalized_team_path,
+			name
+		FROM knowledge_context_connections
+	),
+	ranked AS (
+		SELECT
+			id,
+			FIRST_VALUE(id) OVER (PARTITION BY normalized_team_path, name ORDER BY id::text) AS keep_id
+		FROM normalized
+	)
+	UPDATE knowledge_contexts contexts
+	SET connection_id = ranked.keep_id
+	FROM ranked
+	WHERE contexts.connection_id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`WITH normalized AS (
+		SELECT
+			id,
+			CASE
+				WHEN LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global') THEN ''
+				ELSE team_path
+			END AS normalized_team_path,
+			name
+		FROM knowledge_context_connections
+	),
+	ranked AS (
+		SELECT
+			id,
+			FIRST_VALUE(id) OVER (PARTITION BY normalized_team_path, name ORDER BY id::text) AS keep_id
+		FROM normalized
+	)
+	DELETE FROM knowledge_context_connections connections
+	USING ranked
+	WHERE connections.id = ranked.id
+	  AND ranked.id <> ranked.keep_id`,
+	`UPDATE knowledge_context_connections
+		SET team_path = ''
+		WHERE LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global')`,
+	`UPDATE pipeline_run_knowledge_contexts
+		SET team_path = ''
+		WHERE LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__', 'global')`,
 	`ALTER TABLE pipeline_run_knowledge_contexts DROP COLUMN IF EXISTS title`,
 	`ALTER TABLE pipeline_run_knowledge_contexts DROP COLUMN IF EXISTS content_format`,
 	`ALTER TABLE pipeline_run_knowledge_contexts DROP COLUMN IF EXISTS visibility`,

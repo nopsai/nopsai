@@ -5,6 +5,7 @@ import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { copyTextToClipboard } from '../../lib/clipboard';
+import { GLOBAL_RESOURCE_TEAM_LABEL, isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 import type { ObjectIconType } from '../../components/objectIconRegistry';
 import {
   isGitManagedDocument,
@@ -140,6 +141,7 @@ export function KnowledgeContextDetailView({
   const rawConnectionID = detail.connection_ref || detail.connection_id || '';
   const selectedConnection = connections.find(connection => knowledgeConnectionMatchesIdentifier(connection, rawConnectionID));
   const selectedConnectionID = selectedConnection?.id || rawConnectionID;
+  const ownerLabel = isGlobalResourceTeamPath(detail.team) || !detail.team ? GLOBAL_RESOURCE_TEAM_LABEL : detail.team;
   const editableTeamOptions = Array.from(
     new Set(teamOptions.map(option => normalizeTeamPath(option)).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
@@ -164,7 +166,7 @@ export function KnowledgeContextDetailView({
               </h2>
               <div className="kc-demo-resource-sub">
                 <span>ID: {detail.id}</span>
-                <span>Owner: {detail.team || 'Root'}</span>
+                <span>Owner: {ownerLabel}</span>
               </div>
             </div>
           </div>
@@ -336,7 +338,7 @@ export function KnowledgeContextDetailView({
                 <OverviewPanel title="Document Details" iconType={kindIconType(detail.kind || '')} tone="purple">
                   <InfoRow label="Document ID" value={detail.id} copyable />
                   <InfoRow label="Kind" value={detail.kind} />
-                  <InfoRow label="Owner" value={detail.team || 'Root'} />
+                  <InfoRow label="Owner" value={ownerLabel} />
                   <InfoRow label="Visibility" value={detail.visibility || 'team'} />
                   <div className="kc-overview-divider" aria-hidden="true" />
                   <InfoRow label="Content source" value={isExternal ? 'External page' : 'Inline content'} />

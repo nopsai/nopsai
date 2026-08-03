@@ -1,3 +1,5 @@
+import { compareResourceTreeNodes } from '../../lib/resourceTeams.js';
+
 export type AutomationResourceTreeItem = {
   id: string;
   label: string;
@@ -98,5 +100,5 @@ function sortAutomationNodesByName(
   left: AutomationResourceTreeNode,
   right: AutomationResourceTreeNode
 ): number {
-  return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+  return compareResourceTreeNodes(left, right);
 }

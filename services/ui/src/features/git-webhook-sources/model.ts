@@ -1,3 +1,5 @@
+import { GLOBAL_RESOURCE_TEAM_PATH, isGlobalResourceTeamPath } from '../../lib/resourceTeams.js';
+
 export const GIT_WEBHOOK_PROVIDERS = ['generic', 'gitlab', 'bitbucket', 'gitea'] as const;
 export const GIT_WEBHOOK_AUTH_MODES = ['hmac', 'static_token', 'none'] as const;
 export const GIT_WEBHOOK_VISIBILITIES = ['team', 'workspace'] as const;
@@ -112,7 +114,7 @@ export const emptyGitWebhookSourceForm: GitWebhookSourceFormState = {
   enabled: true,
   authMode: 'hmac',
   visibility: 'team',
-  teamPath: 'root',
+  teamPath: GLOBAL_RESOURCE_TEAM_PATH,
   credentialRef: '',
   repositoryAllowlistText: '',
   rateLimitPerMinute: '',
@@ -168,7 +170,7 @@ export function gitWebhookSourceForm(source?: GitWebhookSource): GitWebhookSourc
     enabled: source.enabled,
     authMode: source.auth_mode,
     visibility: normalizeGitWebhookSourceVisibility(source.visibility),
-    teamPath: gitWebhookSourceTeamPath(source) || 'root',
+    teamPath: gitWebhookSourceTeamPath(source),
     credentialRef: source.credential_ref || '',
     repositoryAllowlistText: source.repository_allowlist.join('\n'),
     rateLimitPerMinute: perMinute ? String(perMinute) : '',
@@ -208,7 +210,7 @@ export function gitWebhookSourceRequest(form: GitWebhookSourceFormState): GitWeb
     description: form.description.trim(),
     provider: form.provider,
     enabled: form.enabled,
-    team_path: normalizeGitWebhookSourceTeamPath(form.teamPath) || 'root',
+    team_path: normalizeGitWebhookSourceTeamPath(form.teamPath),
     visibility: normalizeGitWebhookSourceVisibility(form.visibility),
     auth_mode: form.authMode,
     repository_allowlist: repositoryAllowlist,
@@ -231,7 +233,8 @@ export function gitWebhookSourceTeamPath(source: GitWebhookSource): string {
 }
 
 export function gitWebhookSourceTeamLabel(source: GitWebhookSource): string {
-  return gitWebhookSourceTeamPath(source) || 'Global';
+  const teamPath = gitWebhookSourceTeamPath(source);
+  return isGlobalResourceTeamPath(teamPath) ? 'Global' : teamPath;
 }
 
 export function gitWebhookSourceVisibilityLabel(value?: string): string {
@@ -246,7 +249,7 @@ export function gitWebhookSourceBelongsToTeam(
   source: GitWebhookSource,
   activeTeamPath: string
 ): boolean {
-  const active = normalizeGitWebhookSourceTeamPath(activeTeamPath);
+  const active = normalizeGitWebhookSourceTeamPath(activeTeamPath, false);
   if (!active) return true;
   const teamPath = gitWebhookSourceTeamPath(source);
   return teamPath === active || teamPath.startsWith(`${active}/`);
@@ -302,12 +305,12 @@ function isCredentialReference(value: string): boolean {
     match[2].split('/').every(segment => segmentPattern.test(segment));
 }
 
-function normalizeGitWebhookSourceTeamPath(value?: string): string {
-  return String(value || '')
+function normalizeGitWebhookSourceTeamPath(value?: string, fallbackToGlobal = true): string {
+  const normalized = String(value || '')
     .trim()
     .replace(/\/+/g, '/')
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/^root$/i, '');
+    .replace(/^\/+|\/+$/g, '');
+  return normalized || (fallbackToGlobal ? GLOBAL_RESOURCE_TEAM_PATH : '');
 }
 
 function normalizeGitWebhookSourceVisibility(value?: string): GitWebhookVisibility {

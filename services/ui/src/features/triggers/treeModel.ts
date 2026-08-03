@@ -1,4 +1,10 @@
 import type { TriggerListItem } from './model.js';
+import {
+  GLOBAL_RESOURCE_TEAM_LABEL,
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTreeNodes,
+  isGlobalResourceTeamPath,
+} from '../../lib/resourceTeams.js';
 
 export type TriggerTreeNode = {
   id: string;
@@ -58,7 +64,7 @@ export function buildTriggerTree(items: readonly TriggerListItem[]): TriggerTree
     if (!child) {
       child = {
         id,
-        name: teamPath === 'root' ? 'Workspace' : teamPath,
+        name: isGlobalResourceTeamPath(teamPath) ? GLOBAL_RESOURCE_TEAM_LABEL : teamPath,
         fullPath: id,
         kind: 'team',
         ownerPath,
@@ -80,7 +86,7 @@ export function buildTriggerTree(items: readonly TriggerListItem[]): TriggerTree
     // ownership and inherited AAA grants come from the manifest `team_path`.
     // Keep both dimensions in the explorer so selecting a team bucket under an
     // owner filters by the owner/team intersection instead of conflating them.
-    const teamNode = ensureTeamNode(ownerNode, ownerPath, item.teamPath || 'root');
+    const teamNode = ensureTeamNode(ownerNode, ownerPath, item.teamPath || GLOBAL_RESOURCE_TEAM_PATH);
     teamNode.triggerSlugs.push(item.slug);
     teamNode.triggerSlugs.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   });
@@ -134,11 +140,11 @@ function sortNodesByName(a: TriggerTreeNode, b: TriggerTreeNode) {
     if (a.kind === 'owner') return -1;
     if (b.kind === 'owner') return 1;
   }
-  if (a.kind === 'team' && b.kind === 'team' && (a.teamPath === 'root' || b.teamPath === 'root')) {
+  if (a.kind === 'team' && b.kind === 'team' && (isGlobalResourceTeamPath(a.teamPath) || isGlobalResourceTeamPath(b.teamPath))) {
     if (a.teamPath === b.teamPath) return 0;
-    return a.teamPath === 'root' ? -1 : 1;
+    return isGlobalResourceTeamPath(a.teamPath) ? -1 : 1;
   }
-  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  return compareResourceTreeNodes(a, b);
 }
 
 function triggerOwnerPath(slug: string) {
@@ -157,5 +163,8 @@ function normalizeOwnerPath(value?: string) {
 
 function normalizeTeamPath(value?: string) {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
-  return normalized && normalized.toLowerCase() !== 'root' ? normalized : 'root';
+  if (!normalized || normalized.toLowerCase() === 'root' || isGlobalResourceTeamPath(normalized)) {
+    return GLOBAL_RESOURCE_TEAM_PATH;
+  }
+  return normalized;
 }

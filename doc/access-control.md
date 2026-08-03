@@ -142,11 +142,11 @@ Supported grant resources:
 - `config_repo`
 - `platform`
 
-Team grant requests use the internal `team` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. Use `root` for the root team scope; new teams cannot be named `root`.
+Team grant requests use the internal `team` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. Use `global` for the global team scope; new teams cannot be named `root`, `global`, or `general`.
 
 Named secret and variable resources use query-style internal IDs built from repository, scope, and name. The public grant API accepts the same logical IDs shown in the UI.
 
-Runtime resource-sharing grants use a separate `team` subject type for existing team paths. That `team` subject is only used by the resource Access UI/API to share a resource with a team path; it is not the same as an AAA `auth_team`.
+Runtime resource-sharing grants use a separate `team` subject type for existing team paths. Use `team: global` to share a resource with the global team so any authenticated caller with the resource-use check can match it. `root` and `general` are not accepted aliases for the global team. That `team` subject is only used by the resource Access UI/API to share a resource with a team path; it is not the same as an AAA `auth_team`.
 
 Pipeline schedules use `pipeline_schedule` as the resource type. `viewer`
 grants include `pipeline_schedule.list` and `pipeline_schedule.read`;
@@ -244,7 +244,7 @@ Current resource Access UI behavior:
 - Pipeline, dashboard, step, scope, and knowledge context pages show an `Access` button next to the normal action buttons.
 - The Access dialog offers `Only this team`, `This team and selected subjects`, and, for non-sensitive resources, `Public`.
 - Dashboard grants use `dashboard.read`; other resource-use grants use their resource-specific `*.use` action.
-- Team sharing uses existing Teams entries from `GET /v1/access/teams`.
+- Team sharing uses existing Teams entries from `GET /v1/access/teams`; the response always includes `global` for global sharing.
 - Team dropdowns in Access, resource creation, monitoring, and resource
   configuration surfaces list team paths only; application/repository nodes are
   reserved for the Teams and run-navigation resource trees.
@@ -449,8 +449,8 @@ to `dashboard.read`.
 
 The grant subjects match the Access UI. Use `repository:` with a canonical
 repository ID, `service_account:` with a service-account sub, or `team:` with a
-team path. The canonical `subject_type` plus `subject_id` form is
-also accepted.
+team path. `team: global` is the GitOps form of sharing with the global team. The
+canonical `subject_type` plus `subject_id` form is also accepted.
 
 ```yaml
 access:
@@ -479,6 +479,8 @@ The evaluator resolves parent resources before checking ACLs. A team grant can a
 - child teams
 - pipelines and runs under the team path
 - pipeline schedules under the team path
+- global pipelines, reusable steps, schedules, default scope, and global
+  knowledge contexts inherit from `team:global`
 - repositories assigned under the team path
 - runs associated with repositories under the team path
 - triggers for inherited repositories

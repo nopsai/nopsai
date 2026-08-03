@@ -11,15 +11,15 @@ import { AI_RESOURCE_TEAM_FILTER_GLOBAL } from './aiResourceTeams.js';
 
 test('builds AI resource trees from team paths and resource ids', () => {
   const tree = buildAIResourceTree(
-    ['hosted', 'platform/ml/reasoning', 'platform/security/reviewer'],
-    ['platform/ml', 'ops']
+    ['hosted', 'platform/ml/reasoning', 'platform/security/reviewer', 'global/default'],
+    ['platform/ml', 'ops', 'data']
   );
 
   assert.equal(tree.id, AI_RESOURCE_TREE_ROOT_ID);
   assert.deepEqual(tree.resourceIDs, ['hosted']);
-  assert.equal(countAIResourceTreeResources(tree), 3);
-  assert.deepEqual(tree.children.map(child => child.fullPath), ['ops', 'platform']);
-  assert.deepEqual(tree.children[1]?.children.map(child => child.fullPath), ['platform/ml', 'platform/security']);
+  assert.equal(countAIResourceTreeResources(tree), 4);
+  assert.deepEqual(tree.children.map(child => child.fullPath), ['global', 'data', 'ops', 'platform']);
+  assert.deepEqual(tree.children[3]?.children.map(child => child.fullPath), ['platform/ml', 'platform/security']);
 });
 
 test('derives open ancestors and team filters for selected AI resources', () => {

@@ -335,6 +335,7 @@ test('normalizes pipeline source labels', () => {
 
 test('filters visible pipelines by all teams, selected team subtree, and search', () => {
   const items = [
+    { id: 'release' },
     { id: 'platform/api/build' },
     { id: 'platform/deploy' },
     { id: 'sandbox/release' },
@@ -342,7 +343,11 @@ test('filters visible pipelines by all teams, selected team subtree, and search'
 
   assert.deepEqual(
     filterVisiblePipelineList(items, '', '').map(item => item.id),
-    ['platform/api/build', 'platform/deploy', 'sandbox/release']
+    ['platform/api/build', 'platform/deploy', 'release', 'sandbox/release']
+  );
+  assert.deepEqual(
+    filterVisiblePipelineList(items, '', 'global').map(item => item.id),
+    ['release']
   );
   assert.deepEqual(
     filterVisiblePipelineList(items, '', 'platform').map(item => item.id),

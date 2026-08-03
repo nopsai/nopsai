@@ -16,7 +16,7 @@ const (
 	SubjectTypeServiceAccount  = "service_account"
 
 	RoleNameAdmin = "nopsai-admin"
-	TeamGeneralID = "__general__"
+	TeamGlobalID  = "global"
 )
 
 type Subject struct {

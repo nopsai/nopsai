@@ -50,8 +50,8 @@ func parseGitOpsGitWebhookSources(
 			teamPath := strings.Trim(strings.TrimSpace(doc.TeamPath), "/")
 			if teamPath == "" {
 				doc.TeamPath = strings.Trim(strings.TrimSpace(boundTeam), "/")
-			} else if _, rootOnly := stripRootPathPrefix(teamPath); rootOnly {
-				doc.TeamPath = rootGrantID
+			} else if _, globalOnly := stripGlobalPathPrefix(teamPath); globalOnly {
+				doc.TeamPath = globalGrantID
 			} else {
 				normalizedTeam, err := configsync.NormalizePathForTeam(boundTeam, teamPath)
 				if err != nil {
@@ -97,5 +97,5 @@ func effectiveGitWebhookSourceTeamPath(source gitWebhookSourceRecord) string {
 	if teamPath := strings.Trim(strings.TrimSpace(source.TeamPath), "/"); teamPath != "" {
 		return teamPath
 	}
-	return rootGrantID
+	return globalGrantID
 }

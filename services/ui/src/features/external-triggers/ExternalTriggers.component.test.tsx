@@ -18,7 +18,16 @@ vi.mock('../../lib/api', () => ({
 }));
 
 vi.mock('../../lib/resourceTeams', () => ({
+  GLOBAL_RESOURCE_TEAM_LABEL: 'Global',
+  GLOBAL_RESOURCE_TEAM_PATH: 'global',
+  compareResourceTeamPathsWithGlobalFirst: (left: string, right: string) => {
+    const leftGlobal = String(left || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase() === 'global';
+    const rightGlobal = String(right || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase() === 'global';
+    if (leftGlobal || rightGlobal) return leftGlobal === rightGlobal ? 0 : leftGlobal ? -1 : 1;
+    return String(left || '').localeCompare(String(right || ''));
+  },
   fetchPipelineRunTeamPaths: mocks.fetchPipelineRunTeamPaths,
+  isGlobalResourceTeamPath: (path?: string | null) => String(path || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase() === 'global',
 }));
 
 function LocationProbe() {
@@ -190,7 +199,7 @@ describe('ExternalTriggerFormModal', () => {
     description: 'Authenticated deployment endpoint',
     pipeline: 'platform/deploy',
     scope: '',
-    runTeamPath: 'root',
+    runTeamPath: 'global',
     enabled: true,
     allowedCallers: [{ type: 'service_account', id: 'deployer' }],
     variableMappingText: '{"VERSION":"payload.version"}',
@@ -218,7 +227,7 @@ describe('ExternalTriggerFormModal', () => {
         saving={false}
         pipelineOptions={['platform/deploy', 'platform/rollback']}
         scopeOptions={['', 'production']}
-        runTeamOptions={['root', 'platform']}
+        runTeamOptions={['global', 'platform']}
         callerDraft={{ type: 'service_account', id: 'deployer' }}
         activeCallerOptions={[{ value: 'deployer', label: 'deployer' }]}
         {...callbacks}
@@ -258,13 +267,13 @@ describe('ExternalTriggerFormModal', () => {
     const onClose = vi.fn();
     const { rerender } = render(
       <ExternalTriggerFormModal
-        modal={{ mode: 'edit', trigger: { ...form, run_team_path: 'root' } }}
+        modal={{ mode: 'edit', trigger: { ...form, run_team_path: 'global' } }}
         form={form}
         formError="Variable mapping must be valid JSON."
         saving={false}
         pipelineOptions={[form.pipeline]}
         scopeOptions={['']}
-        runTeamOptions={['root']}
+        runTeamOptions={['global']}
         callerDraft={{ type: 'service_account', id: '' }}
         activeCallerOptions={[]}
         onClose={onClose}
@@ -293,7 +302,7 @@ describe('ExternalTriggerFormModal', () => {
         saving
         pipelineOptions={[form.pipeline]}
         scopeOptions={['']}
-        runTeamOptions={['root']}
+        runTeamOptions={['global']}
         callerDraft={{ type: 'service_account', id: '' }}
         activeCallerOptions={[]}
         onClose={onClose}

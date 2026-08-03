@@ -5,6 +5,11 @@ import {
   findLineNumberForKey,
   parseYamlWithLocation,
 } from '../../lib/yamlValidation.js';
+import {
+  GLOBAL_RESOURCE_TEAM_LABEL,
+  GLOBAL_RESOURCE_TEAM_PATH,
+  isGlobalResourceTeamPath,
+} from '../../lib/resourceTeams.js';
 
 export const TRIGGER_ROOT_KEYS = ['provider', 'team', 'team_path', 'webhook_source', 'management', 'triggers'];
 export const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'include_paths', 'exclude_paths', 'pipelines', 'scope'];
@@ -157,7 +162,9 @@ export function triggerManagementLabel(value?: string): string {
 
 export function triggerTeamLabel(value?: string): string {
   const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '');
-  if (!normalized || normalized.toLowerCase() === 'root') return 'Workspace';
+  if (!normalized || normalized.toLowerCase() === 'root' || isGlobalResourceTeamPath(normalized)) {
+    return GLOBAL_RESOURCE_TEAM_LABEL;
+  }
   return normalized;
 }
 
@@ -214,7 +221,10 @@ export function normalizeTriggerTeamPath(value?: string): string {
     .trim()
     .replace(/^\/+|\/+$/g, '')
     .replace(/\/+/g, '/');
-  return normalized && normalized.toLowerCase() !== 'root' ? normalized : 'root';
+  if (!normalized || normalized.toLowerCase() === 'root' || isGlobalResourceTeamPath(normalized)) {
+    return GLOBAL_RESOURCE_TEAM_PATH;
+  }
+  return normalized;
 }
 
 export function triggerDetailsFormFromYaml(rawYaml: string, detail?: Partial<TriggerDetail> | null): TriggerDetailsFormState {
@@ -346,7 +356,7 @@ export function normalizePipelineIdentifier(value: unknown): string {
 export function describePipeline(identifier: string): PipelineRef {
   const segments = identifier.split('/').filter(Boolean);
   const name = segments.pop() || identifier;
-  return { identifier, display: name, pathLabel: segments.join('/') || 'root' };
+  return { identifier, display: name, pathLabel: segments.join('/') || GLOBAL_RESOURCE_TEAM_PATH };
 }
 
 export function parseTriggerYaml(raw: string): Record<string, unknown> {
@@ -494,7 +504,7 @@ export function triggerBelongsToTeam(item: Pick<TriggerListItem, 'teamPath'>, te
   if (!rawTeamPath) return true;
   const activeTeam = normalizeTriggerTeamPath(rawTeamPath);
   const itemTeam = normalizeTriggerTeamPath(item.teamPath);
-  if (activeTeam === 'root') return itemTeam === 'root';
+  if (isGlobalResourceTeamPath(activeTeam)) return isGlobalResourceTeamPath(itemTeam);
   return itemTeam === activeTeam || itemTeam.startsWith(`${activeTeam}/`);
 }
 

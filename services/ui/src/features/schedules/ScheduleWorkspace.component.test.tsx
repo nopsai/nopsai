@@ -38,7 +38,7 @@ const releaseWindowSchedule: PipelineSchedule = {
   run_at: '2026-06-18T09:30:00Z',
   timezone: 'UTC',
   scope: '',
-  run_team_path: 'root',
+  run_team_path: 'global',
   enabled: false,
   source: 'git',
   managed_by_config_repo: true,

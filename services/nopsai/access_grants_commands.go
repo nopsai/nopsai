@@ -331,7 +331,7 @@ func validateTeamOwnerGuard(ctx context.Context, runner queryRunner, roleName st
 	if resource.Type != grantResourceTeam {
 		return nil
 	}
-	if resource.ID == generalGrantID {
+	if resource.ID == globalGrantID {
 		return nil
 	}
 	if roleName != productRoleOwner {

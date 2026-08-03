@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { ArrowRight, Trash2 } from 'lucide-react';
 import { ResourceCollectionWorkspace, type ResourceCollectionTreeNode } from '../editor/ResourceCollectionWorkspace';
 import { formatResourceListUpdatedAt } from '../editor/resourceCollectionModel';
+import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams';
 import { normalizePipelineSource, splitIdentifier, type PipelineListItem } from './model';
 
 type PipelineTreeNode = {
@@ -220,7 +221,7 @@ function PipelineRow({
         </button>
       </td>
       <td>
-        <span className="pipeline-runs-mono">{path || 'root'}</span>
+        <span className="pipeline-runs-mono">{path || GLOBAL_RESOURCE_TEAM_PATH}</span>
       </td>
       <td className="pipeline-runs-mono">{updatedLabel}</td>
       <td className="pipeline-runs-mono">{versionLabel}</td>
