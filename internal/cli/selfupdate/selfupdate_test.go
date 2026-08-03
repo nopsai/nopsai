@@ -68,6 +68,73 @@ func TestUpdaterDownloadsVerifiesAndInstallsRelease(t *testing.T) {
 	}
 }
 
+func TestUpdaterDownloadsVerifiesAndInstallsOCIPackage(t *testing.T) {
+	version := "2.7.184"
+	archiveName, err := archiveName(version, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := []byte("#!/bin/sh\necho updated from oci\n")
+	archive := tarGzipArchive(t, "nopsai", binary)
+	checksums := []byte(fmt.Sprintf("%s  %s\n", sha256Hex(archive), archiveName))
+	archiveDigest := "sha256:" + sha256Hex(archive)
+	checksumDigest := "sha256:" + sha256Hex(checksums)
+	var sawChallengeToken bool
+	var sawBearerToken bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/token":
+			if request.URL.Query().Get("scope") != "repository:acme/nopsai-cli:pull" {
+				t.Fatalf("token scope = %q, want repository pull scope", request.URL.Query().Get("scope"))
+			}
+			sawChallengeToken = true
+			_, _ = writer.Write([]byte(`{"token":"registry-token"}`))
+		case "/v2/acme/nopsai-cli/manifests/2.7.184":
+			if request.Header.Get("Authorization") == "" {
+				writer.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm="%s/token",service="ghcr.io",scope="repository:acme/nopsai-cli:pull"`, serverURL(request)))
+				writer.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if request.Header.Get("Authorization") == "Bearer registry-token" {
+				sawBearerToken = true
+			}
+			writer.Header().Set("Content-Type", ociImageManifestMediaType)
+			_, _ = writer.Write([]byte(fmt.Sprintf(`{"schemaVersion":2,"layers":[{"mediaType":"application/gzip","digest":%q,"size":%d,"annotations":{"%s":%q}},{"mediaType":"text/plain","digest":%q,"size":%d,"annotations":{"%s":"SHA256SUMS"}}]}`,
+				archiveDigest, len(archive), ociLayerTitleAnnotation, archiveName,
+				checksumDigest, len(checksums), ociLayerTitleAnnotation,
+			)))
+		case "/v2/acme/nopsai-cli/blobs/" + archiveDigest:
+			_, _ = writer.Write(archive)
+		case "/v2/acme/nopsai-cli/blobs/" + checksumDigest:
+			_, _ = writer.Write(checksums)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	installPath := filepath.Join(t.TempDir(), "nopsai")
+	result, err := (Updater{
+		HTTPClient: server.Client(),
+		GOOS:       "linux",
+		GOARCH:     "amd64",
+	}).Update(context.Background(), Options{
+		Version:     version,
+		PackageRef:  strings.TrimPrefix(server.URL, "https://") + "/acme/nopsai-cli",
+		InstallPath: installPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(installPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Updated || result.Plan.PackageRef == "" || string(contents) != string(binary) || !sawChallengeToken || !sawBearerToken {
+		t.Fatalf("result=%#v contents=%q sawChallengeToken=%v sawBearerToken=%v", result, contents, sawChallengeToken, sawBearerToken)
+	}
+}
+
 func TestUpdaterRejectsChecksumMismatch(t *testing.T) {
 	version := "2.7.184"
 	archiveName, err := archiveName(version, "linux", "amd64")
@@ -132,7 +199,25 @@ func TestReadBoundedBinaryRejectsOversizedDeclaredSize(t *testing.T) {
 	}
 }
 
-func TestUpdaterDryRunPlansDefaultGitHubAsset(t *testing.T) {
+func TestUpdaterDryRunPlansDefaultOCIPackageAsset(t *testing.T) {
+	plan, err := (Updater{
+		GOOS:       "darwin",
+		GOARCH:     "arm64",
+		Executable: func() (string, error) { return "/usr/local/bin/nopsai", nil },
+	}).Plan(Options{Version: "2.7.184"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.AssetName != "nopsai-cli_2.7.184_darwin_arm64.tar.gz" ||
+		plan.AssetURL != "oci://ghcr.io/nopsai/nopsai-cli:2.7.184#nopsai-cli_2.7.184_darwin_arm64.tar.gz" ||
+		plan.ChecksumURL != "oci://ghcr.io/nopsai/nopsai-cli:2.7.184#SHA256SUMS" ||
+		plan.PackageRef != DefaultOCIPackage ||
+		plan.InstallPath != "/usr/local/bin/nopsai" {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestUpdaterDryRunPlansLegacyGitHubAssetWhenRepositoryIsExplicit(t *testing.T) {
 	plan, err := (Updater{
 		GOOS:       "darwin",
 		GOARCH:     "arm64",
@@ -141,10 +226,9 @@ func TestUpdaterDryRunPlansDefaultGitHubAsset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.AssetName != "nopsai-cli_2.7.184_darwin_arm64.tar.gz" ||
-		plan.AssetURL != "https://github.com/acme/nopsai/releases/download/v2.7.184/nopsai-cli_2.7.184_darwin_arm64.tar.gz" ||
+	if plan.AssetURL != "https://github.com/acme/nopsai/releases/download/v2.7.184/nopsai-cli_2.7.184_darwin_arm64.tar.gz" ||
 		plan.ChecksumURL != "https://github.com/acme/nopsai/releases/download/v2.7.184/SHA256SUMS" ||
-		plan.InstallPath != "/usr/local/bin/nopsai" {
+		plan.PackageRef != "" {
 		t.Fatalf("plan = %#v", plan)
 	}
 }
@@ -158,6 +242,9 @@ func TestUpdaterRejectsUnsupportedOrNonExactVersions(t *testing.T) {
 	}
 	if _, err := (Updater{GOOS: "linux", GOARCH: "amd64"}).Plan(Options{Version: "2.7.184", Repository: "../nopsai"}); err == nil || !strings.Contains(err.Error(), "parent traversal") {
 		t.Fatalf("repository validation error = %v", err)
+	}
+	if _, err := (Updater{GOOS: "linux", GOARCH: "amd64"}).Plan(Options{Version: "2.7.184", PackageRef: "ghcr.io/acme/nopsai-cli:latest"}); err == nil || !strings.Contains(err.Error(), "must not include a tag") {
+		t.Fatalf("package validation error = %v", err)
 	}
 }
 
@@ -185,4 +272,8 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func serverURL(request *http.Request) string {
+	return "https://" + request.Host
 }

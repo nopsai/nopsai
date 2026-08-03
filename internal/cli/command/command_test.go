@@ -1027,17 +1027,43 @@ func TestRootVersionAndInputHelpers(t *testing.T) {
 	}
 }
 
-func TestUpdateCommandPlansExactReleaseAsset(t *testing.T) {
-	dependencies := testDependencies(nil, map[string]string{"NOPSAI_UPDATE_GITHUB_REPOSITORY": "acme/nopsai"})
+func TestUpdateCommandPlansExactPublicPackageAsset(t *testing.T) {
+	dependencies := testDependencies(nil, nil)
 	output, err := executeCommand(dependencies, "update", "--version", "2.7.184", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
 	}
 	expectedAsset := fmt.Sprintf("nopsai-cli_2.7.184_%s_%s", runtime.GOOS, runtime.GOARCH)
 	if !strings.Contains(output, "Would update nopsai to 2.7.184") ||
-		!strings.Contains(output, "https://github.com/acme/nopsai/releases/download/v2.7.184/") ||
+		!strings.Contains(output, "oci://ghcr.io/nopsai/nopsai-cli:2.7.184#") ||
 		!strings.Contains(output, expectedAsset) ||
 		!strings.Contains(output, "SHA256SUMS") {
+		t.Fatalf("update dry run output = %q", output)
+	}
+}
+
+func TestUpdateCommandCanPlanLegacyReleaseAsset(t *testing.T) {
+	dependencies := testDependencies(nil, map[string]string{"NOPSAI_UPDATE_GITHUB_REPOSITORY": "acme/nopsai"})
+	output, err := executeCommand(dependencies, "update", "--version", "2.7.184", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedAsset := fmt.Sprintf("nopsai-cli_2.7.184_%s_%s", runtime.GOOS, runtime.GOARCH)
+	if !strings.Contains(output, "https://github.com/acme/nopsai/releases/download/v2.7.184/") ||
+		!strings.Contains(output, expectedAsset) ||
+		!strings.Contains(output, "SHA256SUMS") {
+		t.Fatalf("update dry run output = %q", output)
+	}
+}
+
+func TestUpdateCommandPackageOverridesLegacyRepositoryEnv(t *testing.T) {
+	dependencies := testDependencies(nil, map[string]string{"NOPSAI_UPDATE_GITHUB_REPOSITORY": "../private"})
+	output, err := executeCommand(dependencies, "update", "--version", "2.7.184", "--package", "ghcr.io/acme/nopsai-cli", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "oci://ghcr.io/acme/nopsai-cli:2.7.184#") ||
+		strings.Contains(output, "github.com") {
 		t.Fatalf("update dry run output = %q", output)
 	}
 }

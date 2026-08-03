@@ -485,7 +485,9 @@ NopsAI is designed for controlled self-hosted operation:
   knowledge context.
 - Encrypted secret values using the configured master key.
 - Strict scope isolation for scoped secrets and variables.
-- Secret masking in agent logs and execution history.
+- Secret masking in agent logs and execution history while preserving
+  non-sensitive runtime evidence such as environment names, versions, image
+  references, and declared non-sensitive outputs.
 - Audit logging for denied requests and sensitive allowed operations.
 - Internal service authentication for dispatcher and runner/agent callbacks.
 - Production setup guardrails that reject unsafe direct bootstrap behavior.

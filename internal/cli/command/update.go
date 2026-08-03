@@ -16,6 +16,7 @@ const defaultUpdateTimeout = 5 * time.Minute
 type updateOptions struct {
 	version      string
 	repository   string
+	packageRef   string
 	assetBaseURL string
 	installPath  string
 	dryRun       bool
@@ -50,6 +51,7 @@ func newUpdateCommand(root *rootOptions) *cobra.Command {
 			}).Update(command.Context(), selfupdate.Options{
 				Version:      options.version,
 				Repository:   updateRepository(root, options.repository),
+				PackageRef:   updatePackageRef(root, options.packageRef),
 				AssetBaseURL: updateAssetBaseURL(root, options.assetBaseURL),
 				InstallPath:  options.installPath,
 				DryRun:       options.dryRun,
@@ -61,8 +63,9 @@ func newUpdateCommand(root *rootOptions) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&options.version, "version", "", "exact semantic NopsAI CLI release version to install")
-	command.Flags().StringVar(&options.repository, "repository", "", "GitHub owner/repository for release assets (default: nopsai/nopsai or $NOPSAI_UPDATE_GITHUB_REPOSITORY)")
-	command.Flags().StringVar(&options.assetBaseURL, "asset-base-url", "", "HTTPS base URL containing release assets and SHA256SUMS; overrides --repository")
+	command.Flags().StringVar(&options.packageRef, "package", "", "OCI package containing public CLI release assets (default: ghcr.io/nopsai/nopsai-cli or $NOPSAI_UPDATE_PACKAGE)")
+	command.Flags().StringVar(&options.repository, "repository", "", "legacy GitHub owner/repository for release assets; used only when --package and --asset-base-url are empty")
+	command.Flags().StringVar(&options.assetBaseURL, "asset-base-url", "", "HTTPS base URL containing release assets and SHA256SUMS; overrides package and repository sources")
 	command.Flags().StringVar(&options.installPath, "install-path", "", "path to replace (default: current nopsai executable)")
 	command.Flags().BoolVar(&options.dryRun, "dry-run", false, "print the planned update without downloading or replacing the binary")
 	return command
@@ -77,7 +80,17 @@ func updateRepository(root *rootOptions, value string) string {
 			return env
 		}
 	}
-	return selfupdate.DefaultGitHubRepository
+	return ""
+}
+
+func updatePackageRef(root *rootOptions, value string) string {
+	if value = strings.TrimSpace(value); value != "" {
+		return value
+	}
+	if root != nil {
+		return strings.TrimSpace(root.dependencies.Getenv("NOPSAI_UPDATE_PACKAGE"))
+	}
+	return ""
 }
 
 func updateTimeout(root *rootOptions, command *cobra.Command) (time.Duration, error) {
