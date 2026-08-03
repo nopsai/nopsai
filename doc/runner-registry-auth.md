@@ -126,13 +126,13 @@ database-managed **Credentials** page.
   rotated credentials are honored.
 - Docker runners do not call NopsAI for every image pull. They match the image
   registry host against the local env-carried Docker config.
-- The compatibility registry-auth broker binds runner-specific internal service
-  subjects to the requested `runner_id`. Legacy generic `runner` and `agent`
-  subjects remain accepted during upgrades.
+- The legacy `POST /v1/internal/registry-auth/docker` broker route has been
+  removed. Runner and agent service subjects must use the current runtime config
+  and bootstrap-delivered registry-auth path instead of generic broker access.
 - Agents filter `NOPSAI_REGISTRY_DOCKER_CONFIG_*` out of pipeline environment
   inheritance so registry auth is used for image pulls, not exposed as a normal
   step variable.
 - Credential access logs record registry-auth delivery purpose without storing
   the secret payload.
 - `GET /metrics` includes `nopsai_registry_auth_resolutions_total` for
-  bootstrap-time registry-auth delivery activity and compatibility broker use.
+  bootstrap-time registry-auth delivery activity.

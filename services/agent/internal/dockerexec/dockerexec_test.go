@@ -1,8 +1,6 @@
 package dockerexec
 
 import (
-	"context"
-	"errors"
 	"testing"
 
 	"nopsai/pkg/models"
@@ -86,38 +84,4 @@ func TestDockerStepHostConfigUsesSandboxDefaults(t *testing.T) {
 	if hostConfig.Tmpfs[models.RuntimeOutputsMountPath] != dockerStepOutputsTmpfs {
 		t.Fatalf("outputs tmpfs = %q, want %q", hostConfig.Tmpfs[models.RuntimeOutputsMountPath], dockerStepOutputsTmpfs)
 	}
-}
-
-func TestDockerImagePullOptionsFailsClosedOnResolverError(t *testing.T) {
-	wantErr := errors.New("resolver down")
-	_, _, err := dockerImagePullOptions(context.Background(), "registry.local/app:latest", failingRegistryAuthResolver{err: wantErr})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("dockerImagePullOptions() error = %v, want wrapped resolver error", err)
-	}
-}
-
-func TestDockerImagePullOptionsUsesResolvedAuth(t *testing.T) {
-	options, authenticated, err := dockerImagePullOptions(context.Background(), "registry.local/app:latest", staticRegistryAuthResolver{auth: " encoded-auth "})
-	if err != nil {
-		t.Fatalf("dockerImagePullOptions() error = %v", err)
-	}
-	if !authenticated || options.RegistryAuth != "encoded-auth" {
-		t.Fatalf("dockerImagePullOptions() = auth %q authenticated %v, want trimmed auth", options.RegistryAuth, authenticated)
-	}
-}
-
-type failingRegistryAuthResolver struct {
-	err error
-}
-
-func (r failingRegistryAuthResolver) Resolve(context.Context, string) (string, error) {
-	return "", r.err
-}
-
-type staticRegistryAuthResolver struct {
-	auth string
-}
-
-func (r staticRegistryAuthResolver) Resolve(context.Context, string) (string, error) {
-	return r.auth, nil
 }

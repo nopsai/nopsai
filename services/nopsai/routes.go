@@ -204,7 +204,6 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/system/data/cleanup/schedules/{scheduleID}/enable", a.handleEnableDataCleanupSchedule)
 	mux.HandleFunc("POST /v1/system/data/cleanup/schedules/{scheduleID}/disable", a.handleDisableDataCleanupSchedule)
 	mux.HandleFunc("POST /v1/internal/config/sync", a.handleConfigSync)
-	mux.HandleFunc("POST /v1/internal/registry-auth/docker", a.handleDockerRegistryAuth)
 	mux.HandleFunc("GET /v1/internal/dispatcher/routing", a.handleInternalDispatcherRouting)
 	mux.HandleFunc("GET /internal/v1/runtime-config/{service}", a.handleInternalRuntimeConfig)
 	mux.HandleFunc("GET /internal/v1/runtime-config/{service}/watch", a.handleInternalRuntimeConfigWatch)

@@ -114,8 +114,6 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 	case path == "/v1/internal/config/sync":
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
-	case path == "/v1/internal/registry-auth/docker":
-		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/internal/runs/"):
 		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/setup/"):
@@ -425,6 +423,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		switch r.Method {
 		case http.MethodGet:
 			return "knowledge_context.read", resource, false, nil
+		case http.MethodPost:
+			return "", resource, false, nil
 		case http.MethodPut, http.MethodPatch:
 			return "", resource, false, nil
 		case http.MethodDelete:
@@ -434,7 +434,52 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "", model.ResourceRef{}, false, nil
 	}
 
+	if handlerAuthorizedMutatingRoute(r.Method, path) {
+		return "", model.ResourceRef{}, false, nil
+	}
+	if mutatingMethod(r.Method) {
+		return "", model.ResourceRef{}, false, fmt.Errorf("unmapped mutating route %s %s", r.Method, path)
+	}
 	return "", model.ResourceRef{}, false, nil
+}
+
+func mutatingMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func handlerAuthorizedMutatingRoute(method, path string) bool {
+	if !mutatingMethod(method) {
+		return false
+	}
+	switch {
+	case path == "/v1/analysis/evaluate":
+		return true
+	case path == "/v1/assistant/conversations" || strings.HasPrefix(path, "/v1/assistant/conversations/"):
+		return true
+	case path == "/v1/auth/discover", path == "/v1/auth/login", path == "/v1/auth/logout",
+		path == "/v1/auth/refresh", path == "/v1/auth/session/exchange":
+		return true
+	case path == "/v1/authz/resource-use/check", path == "/v1/authz/resource-use/batch-check":
+		return true
+	case path == "/v1/git/events" || strings.HasPrefix(path, "/v1/git/webhooks/"):
+		return true
+	case path == "/v1/mcp":
+		return true
+	case path == "/v1/monitoring/alert-rules" || strings.HasPrefix(path, "/v1/monitoring/alert-rules/"):
+		return true
+	case path == "/v1/monitoring/views" || strings.HasPrefix(path, "/v1/monitoring/views/"):
+		return true
+	case strings.HasPrefix(path, "/v1/monitoring/recommendations/") &&
+		(strings.HasSuffix(path, "/acknowledge") || strings.HasSuffix(path, "/resolve")):
+		return true
+	default:
+		return false
+	}
 }
 
 func SystemLogResource(sourceID string) model.ResourceRef {
