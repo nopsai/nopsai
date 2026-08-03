@@ -2478,6 +2478,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Docker runners cannot rely on host `docker login` alone because the runner pulls images through the Docker Engine API; bootstrap passes a selected Docker config as `NOPSAI_REGISTRY_DOCKER_CONFIG_B64` so pulls can pass matching per-image RegistryAuth locally.',
           'Kubernetes bootstrap commands create an imagePullSecret from selected credentials, while raw GitOps manifests avoid returning secret material.',
           '`runner_registry_credentials` in setting/system/runner.yaml assigns runner IDs to credential references; values stay in Credentials.',
+          'The legacy `/v1/internal/registry-auth/docker` broker route and generic `runner`/`agent` broker subjects are removed; current Docker runners use bootstrap-delivered local RegistryAuth config.',
         ],
         details: [
           'Platform release pull secrets remain an infrastructure concern: Helm imagePullSecrets, ServiceAccount imagePullSecrets, secret managers, cluster RBAC, host Docker access, and registry egress are still administered outside NopsAI.',

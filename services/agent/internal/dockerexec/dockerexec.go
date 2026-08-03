@@ -3,14 +3,14 @@ package dockerexec
 import (
 	"context"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 	"time"
 
+	"nopsai/pkg/dockerimage"
+	"nopsai/pkg/dockervolume"
 	"nopsai/pkg/models"
 
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
@@ -28,9 +28,7 @@ type StepContainerRequest struct {
 	RegistryAuth      RegistryAuthResolver
 }
 
-type RegistryAuthResolver interface {
-	Resolve(context.Context, string) (string, error)
-}
+type RegistryAuthResolver = dockerimage.RegistryAuthResolver
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 
@@ -96,6 +94,11 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 		return "", err
 	}
 	if _, err := cli.ContainerStart(ctx, cont.ID, client.ContainerStartOptions{}); err != nil {
+		cleanupCtx, cancel := dockerCleanupContext(ctx, 30*time.Second)
+		defer cancel()
+		if _, removeErr := cli.ContainerRemove(cleanupCtx, cont.ID, client.ContainerRemoveOptions{Force: true}); removeErr != nil && logger != nil {
+			logger.Warn().Err(removeErr).Str("container_id", cont.ID).Msg("Failed to roll back step container after start failure")
+		}
 		return "", err
 	}
 	return cont.ID, nil
@@ -117,34 +120,15 @@ func ensureManagedDockerStepVolume(ctx context.Context, logger *zerolog.Logger, 
 	if owner == "" {
 		return fmt.Errorf("step volume owner is required")
 	}
-	inspected, err := cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
-	if err == nil {
-		if dockerStepVolumeOwnedBy(inspected.Volume.Labels, owner) {
-			return nil
-		}
-		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
-	}
-	if !cerrdefs.IsNotFound(err) {
-		return fmt.Errorf("inspect docker volume %q: %w", volumeName, err)
-	}
 	if logger != nil {
-		logger.Info().Str("volume", volumeName).Msg("Creating NopsAI-managed step volume")
+		logger.Debug().Str("volume", volumeName).Msg("Ensuring NopsAI-managed step volume")
 	}
-	_, err = cli.VolumeCreate(ctx, client.VolumeCreateOptions{
-		Name:   volumeName,
-		Labels: dockerStepVolumeLabels(owner),
+	return dockervolume.EnsureManaged(ctx, cli, dockervolume.ManagedSpec{
+		Name:              volumeName,
+		Labels:            dockerStepVolumeLabels(owner),
+		ValidateOwnership: func(labels map[string]string) bool { return dockerStepVolumeOwnedBy(labels, owner) },
+		OwnerDescription:  "run",
 	})
-	if err != nil {
-		return fmt.Errorf("create docker volume %q: %w", volumeName, err)
-	}
-	inspected, err = cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
-	if err != nil {
-		return fmt.Errorf("inspect docker volume %q after create: %w", volumeName, err)
-	}
-	if !dockerStepVolumeOwnedBy(inspected.Volume.Labels, owner) {
-		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
-	}
-	return nil
 }
 
 func dockerStepTmpfs(outputsEnabled bool) map[string]string {
@@ -193,10 +177,12 @@ func Cleanup(ctx context.Context, logger *zerolog.Logger, cli *client.Client, co
 	if containerID == "" {
 		return
 	}
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	ctx, cancel := dockerCleanupContext(ctx, 30*time.Second)
+	defer cancel()
+
+	if logger == nil {
+		nullLogger := zerolog.Nop()
+		logger = &nullLogger
 	}
 
 	logger.Info().Str("container_id", containerID).Msg("Cleaning up pipeline container")
@@ -219,58 +205,41 @@ func Cleanup(ctx context.Context, logger *zerolog.Logger, cli *client.Client, co
 	}
 }
 
+// EnsureImageExists keeps the pre-registry-auth image pull API available for
+// older callers.
+//
+// Deprecated: use EnsureImageExistsWithAuth. Remove after NopsAI v3.0.0 when
+// all supported runners and agents pass explicit registry-auth resolvers.
 func EnsureImageExists(ctx context.Context, logger *zerolog.Logger, cli *client.Client, imageName string) error {
 	return EnsureImageExistsWithAuth(ctx, logger, cli, imageName, nil)
 }
 
 func EnsureImageExistsWithAuth(ctx context.Context, logger *zerolog.Logger, cli *client.Client, imageName string, authResolver RegistryAuthResolver) error {
-	imageFilters := make(client.Filters).Add("reference", imageName)
-	images, err := cli.ImageList(ctx, client.ImageListOptions{Filters: imageFilters})
+	result, err := dockerimage.EnsureExists(ctx, cli, imageName, authResolver)
 	if err != nil {
-		return fmt.Errorf("failed to list images to check for %s: %w", imageName, err)
+		return fmt.Errorf("failed to ensure image %s exists: %w", imageName, err)
 	}
-
-	if len(images.Items) == 0 {
-		if logger != nil {
-			logger.Info().Str("image", imageName).Msg("Image not found locally, pulling")
-		}
-		options, usingRegistryAuth, err := dockerImagePullOptions(ctx, imageName, authResolver)
-		if err != nil {
-			return err
-		}
-		if usingRegistryAuth && logger != nil {
-			logger.Info().Str("image", imageName).Msg("Using local Docker registry auth for image pull")
-		}
-		out, err := cli.ImagePull(ctx, imageName, options)
-		if err != nil {
-			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
-		}
-		defer out.Close()
-		io.Copy(io.Discard, out)
-	} else if logger != nil {
+	if logger == nil {
+		return nil
+	}
+	switch {
+	case result.FoundLocal:
 		logger.Info().Str("image", imageName).Msg("Image found locally")
+	case result.Pulled && result.UsedRegistryAuth:
+		logger.Info().Str("image", imageName).Msg("Pulled image with local Docker registry auth")
+	case result.Pulled:
+		logger.Info().Str("image", imageName).Msg("Pulled image")
 	}
 	return nil
 }
 
-func dockerImagePullOptions(ctx context.Context, imageName string, authResolver RegistryAuthResolver) (client.ImagePullOptions, bool, error) {
-	options := client.ImagePullOptions{}
-	if authResolver == nil {
-		return options, false, nil
-	}
-	registryAuth, err := authResolver.Resolve(ctx, imageName)
-	if err != nil {
-		return options, false, fmt.Errorf("resolve registry auth for image %s: %w", imageName, err)
-	}
-	registryAuth = strings.TrimSpace(registryAuth)
-	if registryAuth == "" {
-		return options, false, nil
-	}
-	options.RegistryAuth = registryAuth
-	return options, true, nil
-}
-
+// StartImagePrePull keeps the pre-registry-auth pre-pull API available for
+// older callers.
+//
+// Deprecated: use StartImagePrePullWithAuth. Remove after NopsAI v3.0.0 when
+// all supported runners and agents pass explicit registry-auth resolvers.
 func StartImagePrePull(ctx context.Context, logger zerolog.Logger, cli *client.Client, queue []string) {
+	logger.Warn().Str("removal_version", "v3.0.0").Msg("Deprecated Docker image pre-pull wrapper used without explicit registry auth")
 	StartImagePrePullWithAuth(ctx, logger, cli, queue, nil)
 }
 
@@ -308,4 +277,11 @@ func StartImagePrePullWithAuth(ctx context.Context, logger zerolog.Logger, cli *
 func sanitizeInput(name string) string {
 	sanitized := strings.ReplaceAll(name, " ", "-")
 	return nonAlphanumericRegex.ReplaceAllString(sanitized, "")
+}
+
+func dockerCleanupContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		return context.WithTimeout(context.Background(), timeout)
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }

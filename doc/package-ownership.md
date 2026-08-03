@@ -107,6 +107,9 @@ release model logic.
   `latest`, major, and major.minor publication.
 - `scripts/generate-changelog.sh` owns deterministic history-to-Markdown
   rendering.
+- `scripts/install-release-tools.sh` owns verified release-tool downloads for
+  Helm, ORAS, and GitHub CLI; pipeline YAML should copy/source it instead of
+  embedding duplicate installer bodies.
 - `internal/cli/selfupdate` owns CLI release asset resolution, checksum
   verification, archive extraction, and local binary replacement.
 - `internal/cli/platform/install.go` owns version-to-image generation,
@@ -121,7 +124,7 @@ release model logic.
   publication.
 
 GitOps pipeline and trigger YAML should orchestrate these owners rather than
-duplicate their model or rendering logic inline.
+duplicate their model, rendering, or tool-installation logic inline.
 
 ## Provider Clients
 
