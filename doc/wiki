@@ -134,10 +134,20 @@ tab owns the full pipeline analysis result and AI Evaluation surface; the
 Analyse Pipeline header action switches there instead of opening a separate
 pipeline-analysis modal. Trigger rules, Runs, and Dependencies are full-width
 row lists on their own tabs, while clone, edit, access, YAML download, and YAML
-copy belong in the detail header beside Execute. Pipeline edit sessions can
-change YAML, name, and team path together; an identity move persists the new
-resource and removes the old one through the existing AAA/GitOps-aware mutation
-path. Pipeline run detail documentation must also show the task-oriented
+copy belong in the detail header beside Execute. YAML copy must use the shared
+clipboard helper so the fallback selection-copy path works when the browser
+Clipboard API is unavailable. Other resource copy actions, including step YAML,
+trigger YAML, knowledge content, external trigger fields, Git webhook fields,
+credential references, scope GitOps encryption output, system logs, run graph
+links, run definition YAML, product docs examples, and GitHub App endpoints must
+use the same helper rather than direct `navigator.clipboard` calls. Pipeline edit
+sessions can change YAML, name, and team path together; an identity move persists
+the new resource and removes the old one through the existing AAA/GitOps-aware
+mutation path. Resource Access API documentation must state that
+`/v1/resources/...` routes are handler-authorized: the route middleware defers
+them, then the handler resolves the concrete resource and checks owner-level
+manage access before reading settings, changing visibility, or adding/removing
+use grants. Pipeline run detail documentation must also show the task-oriented
 execution graph: selected multi-task steps reveal their task DAG below the step
 overview, keep direct upstream/downstream context, expose the full step-detail
 modal through node info controls with optional task preselection, separate Graph
@@ -816,7 +826,9 @@ triggers, external triggers, runners, LLM usage, reliability, efficiency, and
 security. The API exposes Prometheus metrics at `GET /metrics`, including
 identity provider capability and authorization grant ownership series. Metrics
 are public by default for compatibility and can require bearer auth with
-`metrics_require_auth`.
+`metrics_require_auth`. The backend also exposes `GET /favicon.ico` as a public,
+empty, cacheable browser probe so missing favicon requests do not create bearer
+token errors in the console or audit logs.
 
 Pipeline logs are durable run records. System Logs are live allow-listed
 platform container or pod logs streamed through authenticated SSE. Docker

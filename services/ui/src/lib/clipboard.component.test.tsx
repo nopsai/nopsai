@@ -30,3 +30,17 @@ test('falls back to selection copy when navigator clipboard fails', async () => 
   assert.deepEqual(execCommand.mock.calls, [['copy']]);
   assert.equal(document.querySelector('textarea'), null);
 });
+
+test('falls back to selection copy when navigator clipboard is unavailable', async () => {
+  vi.stubGlobal('navigator', {});
+  const execCommand = vi.fn().mockReturnValue(true);
+  Object.defineProperty(document, 'execCommand', {
+    value: execCommand,
+    configurable: true,
+  });
+
+  await copyTextToClipboard('name: deploy');
+
+  assert.deepEqual(execCommand.mock.calls, [['copy']]);
+  assert.equal(document.querySelector('textarea'), null);
+});

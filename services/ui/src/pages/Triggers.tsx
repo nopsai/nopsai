@@ -4,6 +4,7 @@ import * as yaml from 'js-yaml';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { TreeColumnResizeHandle } from '../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../components/resizableTreeColumnState';
+import { copyTextToClipboard } from '../lib/clipboard';
 import {
   buildTriggerEditorSuggestion,
   type TriggerEditorSuggestion,
@@ -636,7 +637,7 @@ function TriggersPage({
   const handleCopyYaml = async () => {
     if (!detail?.rawYaml) return;
     try {
-      await navigator.clipboard.writeText(detail.rawYaml);
+      await copyTextToClipboard(detail.rawYaml);
       addToast('Trigger YAML copied to clipboard.', 'success');
     } catch (error) {
       console.error('Copy failed', error);

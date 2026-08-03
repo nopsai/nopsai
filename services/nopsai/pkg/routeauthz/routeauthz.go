@@ -432,6 +432,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		}
 	case strings.HasPrefix(path, "/v1/access/"):
 		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/resources/"):
+		return "", model.ResourceRef{}, false, nil
 	}
 
 	if handlerAuthorizedMutatingRoute(r.Method, path) {

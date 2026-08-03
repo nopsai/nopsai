@@ -9,6 +9,7 @@ import {
   upsertStepDraft,
 } from '../lib/stepDrafts';
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
+import { copyTextToClipboard } from '../lib/clipboard';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
@@ -748,7 +749,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const handleCopy = async () => {
     if (!detail?.rawYaml) return;
     try {
-      await navigator.clipboard.writeText(detail.rawYaml);
+      await copyTextToClipboard(detail.rawYaml);
       addToast('Step YAML copied to clipboard.', 'success');
     } catch (error) {
       console.error('Copy failed', error);

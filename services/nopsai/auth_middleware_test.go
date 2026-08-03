@@ -169,6 +169,7 @@ func TestAuditMiddlewareRecordsAuthenticatedActorFromAuthMiddleware(t *testing.T
 
 func TestOIDCAuthEndpointsArePublic(t *testing.T) {
 	publicPaths := []string{
+		"/favicon.ico",
 		"/healthz",
 		"/livez",
 		"/v1/auth/providers",
@@ -184,6 +185,25 @@ func TestOIDCAuthEndpointsArePublic(t *testing.T) {
 		if !isPublicPath(path) {
 			t.Fatalf("isPublicPath(%q) = false, want true", path)
 		}
+	}
+}
+
+func TestFaviconEndpointDoesNotRequireBearerToken(t *testing.T) {
+	app := &App{}
+	handler := app.buildHTTPHandler()
+
+	req := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "" {
+		t.Fatalf("body = %q, want empty favicon probe response", got)
+	}
+	if rec.Header().Get("Cache-Control") == "" {
+		t.Fatal("Cache-Control header is empty, want cacheable favicon probe response")
 	}
 }
 

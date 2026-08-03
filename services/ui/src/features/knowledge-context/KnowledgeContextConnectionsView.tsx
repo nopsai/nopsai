@@ -1,6 +1,7 @@
 import { Copy, ExternalLink, KeyRound, Link2, PencilLine, Power, PowerOff, RefreshCw, Trash2, X } from 'lucide-react';
 
 import { ObjectIcon } from '../../components/ObjectIcon';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import {
   knowledgeConnectionDisplayName,
   knowledgeConnectionProviderLabel,
@@ -197,8 +198,7 @@ function ConnectionDetailPanel({
     { label: 'Connection ID', value: connection.id },
   ];
   const copyReference = () => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    void navigator.clipboard.writeText(reference).catch(() => undefined);
+    void copyTextToClipboard(reference).catch(() => undefined);
   };
   return (
     <div

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { ObjectIcon } from '../../../components/ObjectIcon';
 import { WorkflowFormDialog } from '../../../components/WorkflowFormDialog';
+import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
   buildGitHubAppMetrics,
   filterGitHubAppInstallations,
@@ -53,8 +54,8 @@ export default function GitHubAppPanel({
 
   const copyWebhookEndpoint = () => {
     const endpoint = controller.app.webhook_endpoint.trim();
-    if (!endpoint || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    void navigator.clipboard.writeText(endpoint);
+    if (!endpoint) return;
+    void copyTextToClipboard(endpoint).catch(() => undefined);
   };
 
   return (

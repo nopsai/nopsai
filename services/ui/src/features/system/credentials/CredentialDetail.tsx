@@ -1,5 +1,6 @@
 import { Copy, GitBranch, Power, RotateCcw, ShieldAlert, Trash2, X } from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
+import { copyTextToClipboard } from '../../../lib/clipboard';
 import type { CredentialRecord } from './model';
 import { credentialReferenceDisplay } from './model';
 import { formatCredentialDate, formatCredentialLabel, formatCredentialScopeLabel } from './presentation';
@@ -53,8 +54,7 @@ export function CredentialDetail({
     { label: 'Namespace', value: reference.namespace },
   ];
   const copyReference = () => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    void navigator.clipboard.writeText(credential.reference).catch(() => undefined);
+    void copyTextToClipboard(credential.reference).catch(() => undefined);
   };
 
   return (

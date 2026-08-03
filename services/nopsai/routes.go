@@ -408,6 +408,7 @@ func (a *App) registerRunRoutes(mux *http.ServeMux) {
 
 func (a *App) buildHTTPHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /favicon.ico", handleFavicon)
 	mux.HandleFunc("GET /version", handleVersion)
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /livez", handleLivez)
@@ -441,4 +442,9 @@ func (a *App) buildHTTPHandler() http.Handler {
 	handler = httpapi.LimitRequestBody(handler, httpapi.DefaultMaxRequestBodyBytes)
 	handler = a.corsMiddleware(handler)
 	return handler
+}
+
+func handleFavicon(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.WriteHeader(http.StatusNoContent)
 }

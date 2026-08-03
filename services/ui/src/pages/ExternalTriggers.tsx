@@ -18,6 +18,7 @@ import {
   type SelectOption,
 } from '../features/external-triggers/model';
 import { apiClient, buildApiUrl } from '../lib/api';
+import { copyTextToClipboard } from '../lib/clipboard';
 import { fetchPipelineRunTeamPaths } from '../lib/resourceTeams';
 
 type PipelineListItem = {
@@ -465,7 +466,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
 
   const copyText = async (label: string, value: string) => {
     if (!value) return;
-    await navigator.clipboard.writeText(value);
+    await copyTextToClipboard(value);
     setCopyState(label);
     window.setTimeout(() => setCopyState(''), 1600);
   };
