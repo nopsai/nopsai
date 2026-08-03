@@ -73,9 +73,10 @@ production timeout defaults from `pkg/httpapi`:
 - default request body cap: 64 MiB
 - public git-bot webhook body cap: 5 MiB
 
-`cors_allowed_origins` or `CORS_ALLOWED_ORIGINS` can restrict browser origins.
-When unset, wildcard CORS is preserved for compatibility. `metrics_require_auth`
-or `METRICS_REQUIRE_AUTH=true` makes `/metrics` require a bearer token. Metrics
+`cors_allowed_origins` or `CORS_ALLOWED_ORIGINS` controls browser origins. When
+unset, CORS response origins are omitted. Use an explicit `"*"` only for
+intentional wildcard deployments. `metrics_require_auth` or
+`METRICS_REQUIRE_AUTH=true` makes `/metrics` require a bearer token. Metrics
 remain public by default for local and legacy compatibility, but production gate
 mode requires authenticated metrics.
 

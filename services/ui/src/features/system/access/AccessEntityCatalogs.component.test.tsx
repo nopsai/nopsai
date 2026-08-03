@@ -67,6 +67,7 @@ test("renders externally authenticated users with friendly identity labels", asy
     external_provider_id: "nopsai",
     external_provider_name: "Local Keycloak",
     external_subject: "7e9b8422-a701-4b4a-bf36-60b973fa98c6",
+    external_email_verification_status: "unknown",
     external_teams: ["nopsai-admin"],
     external_auth_teams: [{ id: "team-1", name: "sso-admins" }],
   };
@@ -88,6 +89,7 @@ test("renders externally authenticated users with friendly identity labels", asy
 
   expect(screen.getByText("sso-admin@example.com")).toBeInTheDocument();
   expect(screen.getByText("Authenticated by Local Keycloak")).toBeInTheDocument();
+  expect(screen.getByText("Email verification unknown")).toBeInTheDocument();
   expect(screen.getByText(/External subject 7e9b8422/)).toBeInTheDocument();
   expect(screen.getByText("IdP: nopsai-admin")).toBeInTheDocument();
   expect(screen.getByText("NopsAI: sso-admins")).toBeInTheDocument();

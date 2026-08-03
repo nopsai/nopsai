@@ -8,25 +8,24 @@ volumes:
     name: db
 
 x-service-auth-env: &service-auth-env
-  SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}
+  SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:?set SERVICE_JWT_SIGNING_KEY}
 
 x-local-topology-env: &local-topology-env
   NOPSAI_API_URL: http://nopsai:8080
   DISPATCHER_GRPC_ADDRESS: dispatcher:9090
-  DOCKER_NETWORK_NAME: nopsai-net
 
 x-observability-env: &observability-env
   NOPSAI_ENV: ${NOPSAI_ENV:-local}
 
 x-compose-safety-env: &compose-safety-env
   NOPSAI_BIND_ADDRESS: ${NOPSAI_BIND_ADDRESS:-127.0.0.1}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yoursecurepassword}
-  DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
-  SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}
-  NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-local-dev-master-key-change-me-please-rotate}
-  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}
-  NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-admin}
-  AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+  SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:?set SERVICE_JWT_SIGNING_KEY}
+  NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:?set NOPSAI_MASTER_KEY}
+  JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
+  NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:?set NOPSAI_BOOTSTRAP_ADMIN_PASSWORD}
+  AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?set AAA_SHARED_INTERNAL_TOKEN}
 
 x-release-build-args: &release-build-args
   VERSION: ${NOPSAI_VERSION:-dev}
@@ -57,13 +56,6 @@ services:
           failed=1
         fi
       }
-      check_changed POSTGRES_PASSWORD "$${POSTGRES_PASSWORD:-}" yoursecurepassword
-      check_changed DATABASE_URL "$${DATABASE_URL:-}" postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db
-      check_changed SERVICE_JWT_SIGNING_KEY "$${SERVICE_JWT_SIGNING_KEY:-}" local-dev-service-jwt-key-change-me-please-rotate
-      check_changed NOPSAI_MASTER_KEY "$${NOPSAI_MASTER_KEY:-}" local-dev-master-key-change-me-please-rotate
-      check_changed JWT_SIGNING_KEY "$${JWT_SIGNING_KEY:-}" local-dev-jwt-signing-key-change-me-please-rotate
-      check_changed NOPSAI_BOOTSTRAP_ADMIN_PASSWORD "$${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-}" admin
-      check_changed AAA_SHARED_INTERNAL_TOKEN "$${AAA_SHARED_INTERNAL_TOKEN:-}" local-dev-aaa-token-change-me-please-rotate
       exit "$$failed"
 
   base:
@@ -86,7 +78,7 @@ services:
     environment:
       POSTGRES_DB: nopsai_db
       POSTGRES_USER: nopsai_user
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yoursecurepassword}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     ports:
       - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:5432:5432"
     volumes:
@@ -130,16 +122,16 @@ services:
     environment:
       <<: [*service-auth-env, *local-topology-env, *observability-env]
       NOPSAI_SERVICE_NAME: nopsai
-      DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
       GIT_BOT_API_URL: http://nopsai-git-bot:8081
-      NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-local-dev-master-key-change-me-please-rotate}
-      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}
+      NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:?set NOPSAI_MASTER_KEY}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}
       NOPSAI_BOOTSTRAP_ADMIN_EMAIL: ${NOPSAI_BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
-      NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-admin}
-      NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD:-true}
+      NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:?set NOPSAI_BOOTSTRAP_ADMIN_PASSWORD}
+      NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD:-false}
       NOPSAI_BOOTSTRAP_ADMIN_MUST_CHANGE_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_MUST_CHANGE_PASSWORD:-true}
       AAA_API_URL: http://aaa:8082
-      AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
+      AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?set AAA_SHARED_INTERNAL_TOKEN}
       FINAL_OUTPUT_PDF_RENDERER_URL: http://gotenberg:3000
       FINAL_OUTPUT_PDF_TIMEOUT_SECONDS: ${FINAL_OUTPUT_PDF_TIMEOUT_SECONDS:-45}
       RUNTIME_OUTPUT_MAX_BYTES: ${RUNTIME_OUTPUT_MAX_BYTES:-65536}
@@ -211,8 +203,8 @@ services:
     environment:
       <<: *observability-env
       NOPSAI_SERVICE_NAME: aaa
-      DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
-      AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?set AAA_SHARED_INTERNAL_TOKEN}
     networks:
       - nopsai-net
 

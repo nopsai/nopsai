@@ -123,9 +123,6 @@ func applyConfigDefaults(cfg *config.Config) {
 	if cfg.LoginLockoutWindowMin == 0 {
 		cfg.LoginLockoutWindowMin = 15
 	}
-	if !cfg.AuthProviderLocalEnabled {
-		cfg.AuthProviderLocalEnabled = true
-	}
 	if strings.TrimSpace(cfg.NopsaiListenAddress) == "" {
 		cfg.NopsaiListenAddress = "0.0.0.0:8080"
 	}

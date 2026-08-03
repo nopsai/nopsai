@@ -158,7 +158,10 @@ directory.
 6. It creates a Docker client for Docker runtime, or a Kubernetes client for Kubernetes runtime.
 7. It starts background cancellation and signal handlers.
 8. Docker runtime optionally starts asynchronous image pre-pulling for pipeline step images.
-9. It initializes execution history, including inherited parent history for child pipelines when the run is not resuming from an approval checkpoint.
+9. Docker step containers default to `network_mode=none` and do not inherit the
+   runner Docker network. Runner networking is selected at deployment time
+   through bridge/host mode and dispatcher address configuration.
+10. It initializes execution history, including inherited parent history for child pipelines when the run is not resuming from an approval checkpoint.
 
 ## 6. Agent Execution Loop
 

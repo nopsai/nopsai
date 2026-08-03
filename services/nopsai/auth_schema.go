@@ -9,6 +9,11 @@ import (
 
 var authSchemaStatements = []string{
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`,
+	`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_unique`,
+	`DROP INDEX IF EXISTS idx_users_email_unique`,
+	`DROP INDEX IF EXISTS users_email_unique_idx`,
+	`CREATE INDEX IF NOT EXISTS idx_users_email_lower_lookup ON users(LOWER(email)) WHERE email IS NOT NULL AND email <> ''`,
 	`UPDATE users
 	 SET must_change_password = TRUE
 	 WHERE provider = 'local'
@@ -47,6 +52,17 @@ var authSchemaStatements = []string{
 		value JSONB NOT NULL DEFAULT '{}'::jsonb,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`CREATE TABLE IF NOT EXISTS auth_login_attempts (
+		key_hash TEXT PRIMARY KEY,
+		attempt_window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		attempt_count INTEGER NOT NULL DEFAULT 0,
+		failure_window_start TIMESTAMPTZ,
+		failure_count INTEGER NOT NULL DEFAULT 0,
+		locked_until TIMESTAMPTZ,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_login_attempts_updated ON auth_login_attempts(updated_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_login_attempts_locked ON auth_login_attempts(locked_until) WHERE locked_until IS NOT NULL`,
 	`CREATE TABLE IF NOT EXISTS auth_identity_providers (
 		id TEXT PRIMARY KEY,
 		type TEXT NOT NULL DEFAULT 'oidc',
@@ -105,10 +121,23 @@ var authSchemaStatements = []string{
 		subject TEXT NOT NULL,
 		email TEXT NOT NULL DEFAULT '',
 		email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+		email_verification_status TEXT NOT NULL DEFAULT 'unknown',
 		linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		last_login_at TIMESTAMPTZ,
 		UNIQUE(provider_id, issuer, subject)
 	)`,
+	`ALTER TABLE auth_external_identities ADD COLUMN IF NOT EXISTS email_verification_status TEXT NOT NULL DEFAULT 'unknown'`,
+	`UPDATE auth_external_identities
+	 SET email_verification_status = CASE
+	   WHEN COALESCE(email, '') = '' THEN 'not_provided'
+	   WHEN email_verified = TRUE THEN 'verified'
+	   ELSE 'unknown'
+	 END
+	 WHERE email_verification_status IS NULL
+	    OR email_verification_status = ''
+	    OR email_verification_status = 'unknown'`,
+	`ALTER TABLE auth_external_identities DROP CONSTRAINT IF EXISTS auth_external_identities_email_verification_status_check`,
+	`ALTER TABLE auth_external_identities ADD CONSTRAINT auth_external_identities_email_verification_status_check CHECK (email_verification_status IN ('not_provided', 'unknown', 'unverified', 'verified'))`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_external_identities_user ON auth_external_identities(user_id)`,
 	`CREATE TABLE IF NOT EXISTS auth_oidc_states (
 		state_hash TEXT PRIMARY KEY,

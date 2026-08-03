@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"nopsai/pkg/httpapi"
+	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -29,18 +30,23 @@ func (a *App) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load auth settings", http.StatusInternalServerError)
 		return
 	}
+	identifier := strings.TrimSpace(req.Identifier)
+	password := strings.TrimSpace(req.Password)
 	if !settings.LocalEnabled {
-		http.Error(w, "local authentication is disabled", http.StatusUnauthorized)
+		a.auditLocalLogin(r, identifier, "failure", "local_auth_disabled")
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	if a.authService != nil {
 		a.authService.SetLocalEnabled(settings.LocalEnabled)
 	}
-	result, err := a.authService.LoginLocal(r.Context(), strings.TrimSpace(req.Identifier), strings.TrimSpace(req.Password))
+	result, err := a.authService.LoginLocal(r.Context(), identifier, password)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		a.auditLocalLogin(r, identifier, "failure", localLoginFailureReason(err))
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	a.auditLocalLogin(r, identifier, "success", "")
 
 	_ = httpapi.WriteJSON(w, http.StatusOK, authLoginResponse{
 		AccessToken:        result.AccessToken,
@@ -208,6 +214,53 @@ func (a *App) oidcPostLogoutRedirectURL(r *http.Request) string {
 		return "/"
 	}
 	return base + "/"
+}
+
+func (a *App) auditLocalLogin(r *http.Request, identifier, result, reason string) {
+	if a == nil || a.auditLogger == nil || r == nil {
+		return
+	}
+	metadata := map[string]any{}
+	if normalized := strings.ToLower(strings.TrimSpace(identifier)); normalized != "" {
+		metadata["identifier_hash"] = auth.HashToken(normalized)
+	}
+	if reason != "" {
+		metadata["reason"] = reason
+	}
+	_ = a.auditLogger.Write(r.Context(), audit.Entry{
+		Provider: "local",
+		Action:   "auth.local.login",
+		Resource: "auth",
+		Result:   result,
+		Metadata: metadata,
+	})
+}
+
+func localLoginFailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "local authentication is disabled"):
+		return "local_auth_disabled"
+	case strings.Contains(message, "local jwt signing is not configured"):
+		return "local_jwt_unconfigured"
+	case strings.Contains(message, "required"):
+		return "missing_identifier_or_password"
+	case strings.Contains(message, "temporarily locked"):
+		return "lockout"
+	case strings.Contains(message, "too many login attempts"):
+		return "rate_limited"
+	case strings.Contains(message, "account disabled"):
+		return "account_disabled"
+	case strings.Contains(message, "password login is unavailable"):
+		return "non_local_account"
+	case strings.Contains(message, "ambiguous"):
+		return "ambiguous_identifier"
+	default:
+		return "invalid_credentials"
+	}
 }
 
 func (a *App) handleAuthMe(w http.ResponseWriter, r *http.Request) {

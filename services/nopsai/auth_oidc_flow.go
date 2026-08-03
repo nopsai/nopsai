@@ -213,10 +213,7 @@ func (a *App) verifyOIDCIDToken(ctx context.Context, provider oidcProviderRecord
 	}
 	email, _ := claims["email"].(string)
 	email = strings.TrimSpace(email)
-	emailVerified, hasEmailVerified := boolClaim(claims["email_verified"])
-	if hasEmailVerified && !emailVerified {
-		return identity, fmt.Errorf("identity provider did not verify the email address")
-	}
+	emailVerificationStatus, emailVerified, emailVerificationClaimMalformed := oidcEmailVerificationStatusFromClaim(email, claims["email_verified"])
 	if email != "" && !emailDomainAllowed(emailDomain(email), provider.AllowedEmailDomains) {
 		return identity, fmt.Errorf("email domain is not allowed for this provider")
 	}
@@ -225,12 +222,14 @@ func (a *App) verifyOIDCIDToken(ctx context.Context, provider oidcProviderRecord
 		teams = stringSliceClaim(claims["teams"])
 	}
 	return oidcVerifiedIdentity{
-		ProviderID:    provider.ID,
-		Issuer:        issuer,
-		Subject:       sub,
-		Email:         email,
-		EmailVerified: emailVerified || !hasEmailVerified,
-		Teams:         teams,
+		ProviderID:                      provider.ID,
+		Issuer:                          issuer,
+		Subject:                         sub,
+		Email:                           email,
+		EmailVerified:                   emailVerified,
+		EmailVerificationStatus:         emailVerificationStatus,
+		EmailVerificationClaimMalformed: emailVerificationClaimMalformed,
+		Teams:                           teams,
 	}, nil
 }
 
@@ -335,6 +334,21 @@ func boolClaim(value any) (bool, bool) {
 	return false, false
 }
 
+func oidcEmailVerificationStatusFromClaim(email string, claim any) (string, bool, bool) {
+	emailVerified, claimParsed := boolClaim(claim)
+	claimMalformed := claim != nil && !claimParsed
+	if strings.TrimSpace(email) == "" {
+		return oidcEmailVerificationNotProvided, false, claimMalformed
+	}
+	if !claimParsed {
+		return oidcEmailVerificationUnknown, false, claimMalformed
+	}
+	if emailVerified {
+		return oidcEmailVerificationVerified, true, false
+	}
+	return oidcEmailVerificationUnverified, false, false
+}
+
 func stringSliceClaim(value any) []string {
 	var raw []string
 	switch typed := value.(type) {
@@ -397,15 +411,33 @@ func appendQuery(rawURL string, values url.Values) string {
 	return rawURL + separator + values.Encode()
 }
 
-func (a *App) oidcCallbackURL(r *http.Request, providerID string) string {
+func (a *App) oidcCallbackURL(r *http.Request, providerID string) (string, error) {
 	path := "/v1/auth/oidc/" + url.PathEscape(providerID) + "/callback"
+	baseURL, err := a.externalAuthCallbackBaseURL(r)
+	if err != nil {
+		return "", err
+	}
+	return baseURL + path, nil
+}
+
+func (a *App) externalAuthCallbackBaseURL(r *http.Request) (string, error) {
 	if a != nil && a.cfg != nil && strings.TrimSpace(a.cfg.PublicURL) != "" {
-		return strings.TrimRight(strings.TrimSpace(a.cfg.PublicURL), "/") + path
+		rawPublicURL := strings.TrimSpace(a.cfg.PublicURL)
+		parsed, err := url.Parse(rawPublicURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return "", fmt.Errorf("public_url must be an absolute URL without query or fragment")
+		}
+		return strings.TrimRight(rawPublicURL, "/"), nil
 	}
-	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
-	if scheme == "" {
-		scheme = "http"
+	if a != nil && a.cfg != nil && a.cfg.RequiresProductionGates() {
+		return "", fmt.Errorf("public_url is required for external authentication callbacks in production")
 	}
-	host := r.Host
-	return scheme + "://" + host + path
+	if r == nil || strings.TrimSpace(r.Host) == "" {
+		return "", fmt.Errorf("request host is required for development callback URL")
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host, nil
 }

@@ -148,7 +148,7 @@ func dockerStepHostConfig(binds []string, tmpfs map[string]string, networkName s
 	return &container.HostConfig{
 		Binds:          binds,
 		Tmpfs:          tmpfs,
-		NetworkMode:    container.NetworkMode(networkName),
+		NetworkMode:    dockerStepNetworkMode(networkName),
 		CapDrop:        []string{"ALL"},
 		SecurityOpt:    []string{"no-new-privileges:true"},
 		ReadonlyRootfs: true,
@@ -156,6 +156,16 @@ func dockerStepHostConfig(binds []string, tmpfs map[string]string, networkName s
 			PidsLimit: &defaultDockerStepPidsLimit,
 		},
 		Init: &initProcess,
+	}
+}
+
+func dockerStepNetworkMode(networkName string) container.NetworkMode {
+	networkName = strings.TrimSpace(networkName)
+	switch strings.ToLower(networkName) {
+	case "", "none", "nopsai-net":
+		return container.NetworkMode("none")
+	default:
+		return container.NetworkMode(networkName)
 	}
 }
 

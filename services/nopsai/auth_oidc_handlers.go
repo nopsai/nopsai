@@ -1,8 +1,10 @@
 package nopsai
 
 import (
+	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -130,9 +132,14 @@ func (a *App) handleAuthOIDCStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist oidc state", http.StatusInternalServerError)
 		return
 	}
+	redirectURI, err := a.oidcCallbackURL(r, provider.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	values := url.Values{}
 	values.Set("client_id", provider.ClientID)
-	values.Set("redirect_uri", a.oidcCallbackURL(r, provider.ID))
+	values.Set("redirect_uri", redirectURI)
 	values.Set("response_type", "code")
 	values.Set("scope", strings.Join(provider.Scopes, " "))
 	values.Set("state", state)
@@ -202,7 +209,13 @@ func (a *App) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to discover provider metadata", http.StatusBadGateway)
 		return
 	}
-	tokenResponse, err := a.exchangeOIDCCode(r.Context(), provider, metadata, code, stateRecord.CodeVerifier, a.oidcCallbackURL(r, provider.ID))
+	redirectURI, err := a.oidcCallbackURL(r, provider.ID)
+	if err != nil {
+		a.auditOIDC(r, provider.ID, "", "auth.oidc.failure", "failure", map[string]any{"reason": "callback_url_unavailable"})
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tokenResponse, err := a.exchangeOIDCCode(r.Context(), provider, metadata, code, stateRecord.CodeVerifier, redirectURI)
 	if err != nil {
 		a.auditOIDC(r, provider.ID, "", "auth.oidc.failure", "failure", map[string]any{"reason": "token_exchange_failed"})
 		http.Error(w, "oidc token exchange failed", http.StatusBadGateway)
@@ -216,13 +229,16 @@ func (a *App) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	identity, err = a.enrichOIDCIdentityEntitlements(r.Context(), provider, identity)
 	if err != nil {
-		a.auditOIDC(r, provider.ID, identity.Email, "auth.oidc.failure", "failure", map[string]any{"reason": "entitlement_sync_failed"})
+		a.auditOIDC(r, provider.ID, identity.Email, "auth.oidc.failure", "failure", oidcIdentityAuditMetadata(identity, map[string]any{"reason": "entitlement_sync_failed"}))
 		http.Error(w, "oidc entitlement sync failed", http.StatusBadGateway)
 		return
 	}
 	resolution, err := resolveOIDCUser(r.Context(), a.db, settings, provider, identity)
 	if err != nil {
-		a.auditOIDC(r, provider.ID, identity.Email, "auth.oidc.failure", "failure", map[string]any{"reason": "user_resolution_failed"})
+		a.auditOIDC(r, provider.ID, identity.Email, "auth.oidc.failure", "failure", oidcIdentityAuditMetadata(identity, map[string]any{
+			"reason":                    "user_resolution_failed",
+			"email_verification_status": identity.normalizedEmailVerificationStatus(),
+		}))
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -235,10 +251,12 @@ func (a *App) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist session exchange code", http.StatusInternalServerError)
 		return
 	}
-	a.auditOIDC(r, provider.ID, identity.Email, "auth.oidc.login", "success", map[string]any{
-		"created_user": resolution.Created,
-		"linked_user":  resolution.Linked,
-	})
+	a.auditOIDC(r, provider.ID, identity.Email, "auth.oidc.login", "success", oidcIdentityAuditMetadata(identity, map[string]any{
+		"created_user":                resolution.Created,
+		"linked_user":                 resolution.Linked,
+		"email_verification_status":   identity.normalizedEmailVerificationStatus(),
+		"email_used_for_auto_linking": resolution.Linked,
+	}))
 	http.Redirect(w, r, callbackRedirectURL(stateRecord.ReturnTo, loginCode), http.StatusFound)
 }
 
@@ -350,11 +368,7 @@ func (a *App) handleUpdateAdminIdentityProviderSettings(w http.ResponseWriter, r
 		return
 	}
 	if req.LocalEnabled != nil {
-		if !*req.LocalEnabled {
-			http.Error(w, "local authentication cannot be disabled", http.StatusBadRequest)
-			return
-		}
-		current.LocalEnabled = true
+		current.LocalEnabled = *req.LocalEnabled
 	}
 	if req.OIDCEnabled != nil {
 		current.OIDCEnabled = *req.OIDCEnabled
@@ -367,6 +381,10 @@ func (a *App) handleUpdateAdminIdentityProviderSettings(w http.ResponseWriter, r
 	}
 	if req.DefaultRole != nil {
 		current.DefaultRole = strings.TrimSpace(*req.DefaultRole)
+	}
+	if err := validateLocalAuthAvailability(r.Context(), a.db, current); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	if err := upsertOIDCSettings(r.Context(), a.db, current); err != nil {
 		http.Error(w, "failed to save auth settings", http.StatusInternalServerError)
@@ -429,6 +447,10 @@ func (a *App) handleUpsertAdminIdentityProvider(w http.ResponseWriter, r *http.R
 		http.Error(w, "provider id is invalid", http.StatusBadRequest)
 		return
 	}
+	if err := a.validateIdentityProviderChangeKeepsLoginAvailable(r.Context(), provider.ID, provider.Enabled, false); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := a.ensureOIDCProviderCredentialReferences(r.Context(), provider, credentialActor(r)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -450,6 +472,10 @@ func (a *App) handleUpsertAdminIdentityProvider(w http.ResponseWriter, r *http.R
 
 func (a *App) handleDeleteAdminIdentityProvider(w http.ResponseWriter, r *http.Request) {
 	providerID := normalizeOIDCProviderID(r.PathValue("provider"))
+	if err := a.validateIdentityProviderChangeKeepsLoginAvailable(r.Context(), providerID, false, true); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := deleteOIDCProvider(r.Context(), a.db, providerID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "provider not found", http.StatusNotFound)
@@ -459,6 +485,36 @@ func (a *App) handleDeleteAdminIdentityProvider(w http.ResponseWriter, r *http.R
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) validateIdentityProviderChangeKeepsLoginAvailable(ctx context.Context, providerID string, nextEnabled bool, deleting bool) error {
+	if a == nil {
+		return nil
+	}
+	settings, err := getOIDCSettings(ctx, a.db, a.cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load auth settings")
+	}
+	if settings.LocalEnabled {
+		return nil
+	}
+	providers, err := listOIDCProviders(ctx, a.db, false)
+	if err != nil {
+		return fmt.Errorf("failed to load identity providers")
+	}
+	enabledCount := 0
+	for _, provider := range providers {
+		if provider.ID == providerID {
+			if !deleting && nextEnabled {
+				enabledCount++
+			}
+			continue
+		}
+		if provider.Enabled {
+			enabledCount++
+		}
+	}
+	return validateLocalAuthEnabledProviderCount(settings, enabledCount)
 }
 
 func normalizeDiscoveryEmail(raw string) (string, error) {
@@ -492,4 +548,14 @@ func (a *App) auditOIDC(r *http.Request, providerID, email, action, result strin
 		Result:     result,
 		Metadata:   metadata,
 	})
+}
+
+func oidcIdentityAuditMetadata(identity oidcVerifiedIdentity, metadata map[string]any) map[string]any {
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	if identity.EmailVerificationClaimMalformed {
+		metadata["email_verification_claim_malformed"] = true
+	}
+	return metadata
 }

@@ -706,6 +706,8 @@ CREATE TABLE users (
     last_login TIMESTAMPTZ
 );
 
+CREATE INDEX idx_users_email_lower_lookup ON users(LOWER(email)) WHERE email IS NOT NULL AND email <> '';
+
 CREATE TABLE user_roles (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role TEXT NOT NULL,

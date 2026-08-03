@@ -75,6 +75,9 @@ func TestDockerStepHostConfigUsesSandboxDefaults(t *testing.T) {
 	if hostConfig.PidsLimit == nil || *hostConfig.PidsLimit != defaultDockerStepPidsLimit {
 		t.Fatalf("PidsLimit = %#v, want %d", hostConfig.PidsLimit, defaultDockerStepPidsLimit)
 	}
+	if hostConfig.NetworkMode != "none" {
+		t.Fatalf("NetworkMode = %q, want none for the control-plane network", hostConfig.NetworkMode)
+	}
 	if hostConfig.Init == nil || !*hostConfig.Init {
 		t.Fatalf("Init = %#v, want true", hostConfig.Init)
 	}
@@ -83,5 +86,14 @@ func TestDockerStepHostConfigUsesSandboxDefaults(t *testing.T) {
 	}
 	if hostConfig.Tmpfs[models.RuntimeOutputsMountPath] != dockerStepOutputsTmpfs {
 		t.Fatalf("outputs tmpfs = %q, want %q", hostConfig.Tmpfs[models.RuntimeOutputsMountPath], dockerStepOutputsTmpfs)
+	}
+}
+
+func TestDockerStepNetworkModeAllowsDedicatedWorkloadNetwork(t *testing.T) {
+	if got := dockerStepNetworkMode("pipeline-egress"); got != "pipeline-egress" {
+		t.Fatalf("dockerStepNetworkMode() = %q, want dedicated network", got)
+	}
+	if got := dockerStepNetworkMode(""); got != "none" {
+		t.Fatalf("dockerStepNetworkMode(empty) = %q, want none", got)
 	}
 }

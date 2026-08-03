@@ -50,16 +50,22 @@ Main API JWT settings:
 | `jwt_expiry_minutes` | `JWT_EXPIRY_MINUTES` | Access-token TTL, defaulted to `60` in `services/nopsai/internal/app` |
 | `refresh_token_ttl_minutes` | `REFRESH_TOKEN_TTL_MINUTES` | Refresh-token lifetime; if `0`, login does not issue refresh tokens |
 | `idle_timeout_minutes` | `IDLE_TIMEOUT_MINUTES` | Optional in-memory idle timeout for presented access tokens |
-| `auth_provider_local_enabled` | `AUTH_PROVIDER_LOCAL_ENABLED` | Legacy compatibility flag; local username/password login is always enabled |
+| `auth_provider_local_enabled` | `AUTH_PROVIDER_LOCAL_ENABLED` | Legacy compatibility flag mapped to `auth.local_enabled`; default is enabled |
 | `rate_limit_login_per_minute` | `RATE_LIMIT_LOGIN_PER_MINUTE` | Per-identifier login rate limit |
 | `login_lockout_threshold` | `LOGIN_LOCKOUT_THRESHOLD` | Failed password attempts before lockout |
 | `login_lockout_window_minutes` | `LOGIN_LOCKOUT_WINDOW_MINUTES` | Lockout window |
 
+Login rate limits and lockouts use a canonical lower-cased, trimmed identifier
+hash stored in Postgres (`auth_login_attempts`), so identifier case variants and
+multiple API replicas share the same throttling state.
+
 Enterprise SSO is normally managed by the global config repository at
 `setting/system/auth.yaml`. The runtime config loader still accepts the same
 fields under nested `auth` for bootstrap-only or non-GitOps deployments. Local
-authentication and the protected break-glass administrator cannot be disabled;
-GitOps and admin API writes reject `local_enabled: false`.
+authentication defaults on, but GitOps and admin API writes may set
+`local_enabled: false` only when external authentication is enabled and at least
+one identity provider remains enabled. Disabling or deleting the last enabled
+provider is rejected while local authentication is off.
 
 Canonical GitOps shape:
 
@@ -198,7 +204,19 @@ OIDC security behavior:
 - `state` and `nonce` are stored hashed, short-lived, and single-use.
 - ID tokens are validated for issuer, audience/client ID, expiration, nonce,
   and RS256/RS384/RS512 JWKS signature.
-- `email_verified=false` is rejected when the claim is present.
+- OIDC authentication resolves accounts by provider ID, issuer, and ID-token
+  `sub`. Email is optional metadata and is not the primary identity key.
+- `email_verified=false`, a missing `email_verified` claim, or a missing
+  `email` claim does not block login. NopsAI records the email status as
+  `verified`, `unverified`, `unknown`, or `not_provided`.
+- Malformed `email_verified` values are treated as `unknown` for login and add
+  `email_verification_claim_malformed=true` to the auth audit metadata.
+- Email-based linking runs only when `allow_email_linking` is explicitly enabled
+  and the provider supplied `email_verified=true`. Unverified, unknown, and
+  missing email values are never used for silent account linking.
+- `public_url` is the canonical redirect base in production. If production
+  gates are enabled and `public_url` is missing or invalid, OIDC/OAuth2 callback
+  URL construction fails instead of trusting request host or forwarded headers.
 - Provider domain allowlists are enforced when configured.
 - Session exchange codes are short-lived and single-use.
 - `return_to` values must be local paths and cannot point back to `/login`.
@@ -209,7 +227,7 @@ SSO users remain normal Nopsai users:
 - `users.provider = "oidc:<provider>"` or `"oauth2:<provider>"`
 - `users.password_hash = NULL`
 - `users.must_change_password = false`
-- `auth_external_identities` links provider issuer/subject to `users.id`
+- `auth_external_identities` links provider ID, issuer, and subject to `users.id`
 - `auth_external_team_memberships` stores last-seen external teams
 - `auth_external_role_assignments` tracks roles derived from external teams so
   stale mapped roles can be pruned on later logins
@@ -228,16 +246,20 @@ SSO users remain normal Nopsai users:
 Nopsai does not automatically link a new SSO identity to an existing local
 account unless the provider or global policy allows verified-email linking.
 Otherwise, auto-create creates a separate external-provider-backed user only
-when the email is not already owned by another account.
+when provisioning policy allows it. Duplicate or null user emails are permitted;
+email collisions do not merge accounts.
 
 Refresh:
 
 1. Client calls `POST /v1/auth/refresh` with `refresh_token`.
-2. Nopsai hashes the presented refresh token and looks it up in Postgres.
+2. Nopsai hashes the presented refresh token and locks the matching row in
+   Postgres.
 3. The token must exist, not be revoked, and not be expired.
 4. The user must still be active.
 5. Nopsai mints a new access JWT.
-6. Nopsai creates a new refresh token and revokes the old refresh token.
+6. In the same transaction, Nopsai revokes the old refresh token and creates a
+   new refresh token. If the old token was already revoked by a concurrent
+   refresh, rotation fails.
 
 Logout:
 
@@ -299,6 +321,10 @@ Authorization: Bearer <access-token>
 ```
 
 When an authenticated request gets `401`, the UI calls `/v1/auth/refresh` once, persists the new tokens, and retries the original request. If refresh fails, it clears the local session.
+
+The packaged UI serves a restrictive Content Security Policy, denies framing,
+sets `X-Content-Type-Options: nosniff`, and applies a strict referrer policy to
+reduce token exposure from browser-side injection bugs.
 
 The Profile page manages personal access tokens. It lists token metadata, creates tokens with 30-day, 90-day, or 1-year expiry, displays the raw token only immediately after creation, and can revoke existing tokens.
 
@@ -498,7 +524,9 @@ If both `SERVICE_JWT_SIGNING_KEY` and `JWT_SIGNING_KEY` are missing:
 - Access JWTs are not stored server-side and are not individually revocable in the current implementation.
 - Refresh tokens are opaque, hashed in Postgres, rotated on refresh, and revocable on logout.
 - Personal access tokens are opaque, hashed in Postgres, owner-scoped, revocable, and never displayed after creation. Never-expiring tokens are supported for stable integrations, but they should be rare and manually revoked when no longer needed.
-- The UI stores tokens in `localStorage`, which is convenient but means XSS would be serious. Avoid injecting untrusted script into the UI.
+- The UI stores tokens in `localStorage`, so XSS would be serious. The packaged
+  nginx config serves a restrictive CSP and related browser security headers;
+  do not loosen those headers or inject untrusted script into the UI.
 - Dispatcher gRPC uses automatic mTLS by default. Only set `DISPATCHER_TLS_MODE=disabled` for isolated local debugging.
 - Use different keys for user/API JWTs and service gRPC JWTs in production to reduce blast radius.
 - Never commit real signing keys or refresh tokens.

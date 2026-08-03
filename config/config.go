@@ -605,6 +605,7 @@ func applyNestedEnvOverrides(config *Config) {
 	setStringEnv("NOPSAI_BOOTSTRAP_ADMIN_PASSWORD_FILE", &config.BootstrapAdmin.PasswordFile)
 	setBoolEnv("NOPSAI_BOOTSTRAP_ADMIN_ALLOW_DEFAULT_PASSWORD", &config.BootstrapAdmin.AllowDefaultPassword)
 	setBoolPtrEnv("NOPSAI_BOOTSTRAP_ADMIN_MUST_CHANGE_PASSWORD", &config.BootstrapAdmin.MustChangePassword)
+	setBoolPtrEnv("AUTH_PROVIDER_LOCAL_ENABLED", &config.Auth.LocalEnabled)
 	setStringSliceEnv("CORS_ALLOWED_ORIGINS", &config.CORSAllowedOrigins)
 }
 
@@ -1401,6 +1402,9 @@ func (c Config) EffectiveMCPProfiles() map[string]models.MCPProfile {
 }
 
 func (c Config) EffectiveAuthProviderLocalEnabled() bool {
+	if c.Auth.LocalEnabled != nil {
+		return *c.Auth.LocalEnabled
+	}
 	return true
 }
 

@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestNormalizeLLMProvider(t *testing.T) {
 	tests := []struct {
@@ -294,7 +298,7 @@ func TestEffectiveServiceJWTConfig(t *testing.T) {
 	}
 }
 
-func TestEffectiveAuthProviderLocalEnabledCannotBeDisabled(t *testing.T) {
+func TestEffectiveAuthProviderLocalEnabledHonorsExplicitDisable(t *testing.T) {
 	disabled := false
 	cfg := Config{
 		AuthProviderLocalEnabled: false,
@@ -303,8 +307,35 @@ func TestEffectiveAuthProviderLocalEnabledCannotBeDisabled(t *testing.T) {
 		},
 	}
 
+	if cfg.EffectiveAuthProviderLocalEnabled() {
+		t.Fatal("EffectiveAuthProviderLocalEnabled() = true, want explicit local auth disable")
+	}
+}
+
+func TestEffectiveAuthProviderLocalEnabledDefaultsOn(t *testing.T) {
+	cfg := Config{}
+
 	if !cfg.EffectiveAuthProviderLocalEnabled() {
-		t.Fatal("EffectiveAuthProviderLocalEnabled() = false, want local auth forced on")
+		t.Fatal("EffectiveAuthProviderLocalEnabled() = false, want default local auth enabled")
+	}
+}
+
+func TestLoadConfigMapsLegacyLocalAuthEnvToExplicitSetting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("AUTH_PROVIDER_LOCAL_ENABLED", "false")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Auth.LocalEnabled == nil || *cfg.Auth.LocalEnabled {
+		t.Fatalf("Auth.LocalEnabled = %#v, want explicit false from env", cfg.Auth.LocalEnabled)
+	}
+	if cfg.EffectiveAuthProviderLocalEnabled() {
+		t.Fatal("EffectiveAuthProviderLocalEnabled() = true, want env disable")
 	}
 }
 

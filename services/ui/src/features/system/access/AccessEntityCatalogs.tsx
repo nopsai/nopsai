@@ -6,6 +6,7 @@ import {
   isProtectedAccessRole,
   policyLabel,
   userDisplayName,
+  userEmailVerificationLabel,
   userProviderLabel,
   userSubjectLabel,
   type AccessGrantRecord,
@@ -340,6 +341,7 @@ export function AccessUsersCatalog({
         const providerLabel = userProviderLabel(user);
         const subjectLabel = userSubjectLabel(user);
         const externalManaged = isExternallyManagedUser(user);
+        const emailVerificationLabel = userEmailVerificationLabel(user);
         const identityTeams: AccessChipItem[] = [
           ...(user.external_teams || []).map((team) => ({
             id: `${user.id}-external-${team}`,
@@ -374,9 +376,16 @@ export function AccessUsersCatalog({
                 }
                 detail={
                   externalManaged ? (
-                    <span className="access-chip access-chip--muted">
-                      Authenticated by {providerLabel}
-                    </span>
+                    <>
+                      <span className="access-chip access-chip--muted">
+                        Authenticated by {providerLabel}
+                      </span>
+                      {emailVerificationLabel ? (
+                        <span className="access-chip access-chip--warn">
+                          {emailVerificationLabel}
+                        </span>
+                      ) : null}
+                    </>
                   ) : null
                 }
               />

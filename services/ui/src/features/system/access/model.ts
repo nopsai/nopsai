@@ -47,6 +47,7 @@ export type UserSummary = {
   external_provider_id?: string;
   external_provider_name?: string;
   external_subject?: string;
+  external_email_verification_status?: string;
   external_teams?: string[];
   external_auth_teams?: UserAuthTeamSummary[];
   external_roles?: string[];
@@ -303,6 +304,17 @@ export const userSubjectLabel = (
     if (prefix && sub.startsWith(prefix)) return sub.slice(prefix.length);
   }
   return sub;
+};
+
+export const userEmailVerificationLabel = (
+  user?: Pick<UserSummary, "external_email_verification_status" | "email"> | null,
+) => {
+  const status = (user?.external_email_verification_status || "").trim().toLowerCase();
+  if (!status || status === "verified") return "";
+  if (status === "not_provided") return "Email not provided";
+  if (status === "unverified") return user?.email ? "Email unverified" : "";
+  if (status === "unknown") return user?.email ? "Email verification unknown" : "";
+  return "";
 };
 
 export const isRootAccessScopeID = (value?: string) => {
@@ -598,7 +610,7 @@ export function normalizeIdentityProvidersState(
   const mappings = asRecord(record?.domain_mappings);
   return {
     settings: {
-      local_enabled: true,
+      local_enabled: Boolean(settings?.local_enabled),
       oidc_enabled: Boolean(settings?.oidc_enabled),
       auto_create_users: Boolean(settings?.auto_create_users),
       default_role: readString(settings?.default_role),

@@ -41,3 +41,53 @@ func TestAuthSchemaDefinesExternalTeamMemberships(t *testing.T) {
 	}
 	assertTeamOnlySchemaVocabulary(t, joined)
 }
+
+func TestAuthSchemaTracksOIDCEmailVerificationStatus(t *testing.T) {
+	joined := strings.Join(authSchemaStatements, "\n")
+	required := []string{
+		"email_verification_status TEXT NOT NULL DEFAULT 'unknown'",
+		"ADD COLUMN IF NOT EXISTS email_verification_status",
+		"auth_external_identities_email_verification_status_check",
+		"'not_provided', 'unknown', 'unverified', 'verified'",
+	}
+	for _, statement := range required {
+		if !strings.Contains(joined, statement) {
+			t.Fatalf("auth schema missing OIDC email verification statement %q", statement)
+		}
+	}
+}
+
+func TestAuthSchemaAllowsDuplicateOrNullUserEmails(t *testing.T) {
+	joined := strings.Join(authSchemaStatements, "\n")
+	required := []string{
+		"DROP CONSTRAINT IF EXISTS users_email_key",
+		"DROP CONSTRAINT IF EXISTS users_email_unique",
+		"DROP INDEX IF EXISTS idx_users_email_unique",
+		"CREATE INDEX IF NOT EXISTS idx_users_email_lower_lookup",
+	}
+	for _, statement := range required {
+		if !strings.Contains(joined, statement) {
+			t.Fatalf("auth schema missing duplicate-email guardrail %q", statement)
+		}
+	}
+	if strings.Contains(joined, "UNIQUE(email)") || strings.Contains(joined, "UNIQUE (email)") {
+		t.Fatal("auth schema must not enforce unique user email addresses")
+	}
+}
+
+func TestAuthSchemaDefinesPersistentLoginAttemptTracking(t *testing.T) {
+	joined := strings.Join(authSchemaStatements, "\n")
+	required := []string{
+		"CREATE TABLE IF NOT EXISTS auth_login_attempts",
+		"key_hash TEXT PRIMARY KEY",
+		"attempt_window_start TIMESTAMPTZ",
+		"failure_window_start TIMESTAMPTZ",
+		"locked_until TIMESTAMPTZ",
+		"idx_auth_login_attempts_locked",
+	}
+	for _, statement := range required {
+		if !strings.Contains(joined, statement) {
+			t.Fatalf("auth schema missing persistent login tracking statement %q", statement)
+		}
+	}
+}

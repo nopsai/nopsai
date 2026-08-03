@@ -422,6 +422,41 @@ full history.
 Run details include the stored snapshot, so a completed run records the exact
 knowledge content that influenced it even if the source document later changes.
 
+## Prompt Injection Probe Sample
+
+The GitOps sample repository includes a governed red-team pipeline at:
+
+```text
+examples/sample-config-repo/team-1-repo/pipelines/team-1/prompt-injection-guardrail-probe.yaml
+```
+
+It demonstrates the existing guardrail and policy path without adding a custom
+runtime primitive. The pipeline attaches these managed Knowledge Context
+documents:
+
+```text
+guardrail/team-1/prompt-injection-safety
+policy/team-1/llm-task-integrity
+```
+
+The first pipeline step prepares the report directory and then runs an LLM goal
+containing an admin-tagged prompt-injection payload as untrusted data. The prompt
+asks the model to write a bounded probe report instead of obeying the payload. A
+deterministic script step then verifies that the generated report records
+`outcome: blocked` and does not copy blocked admin/session text before later
+release-readiness work can run.
+
+This sample keeps the enterprise boundaries explicit:
+
+- model logic stays in managed Knowledge Context documents
+- route and API logic stay on the existing pipeline and config-sync routes
+- hook orchestration stays in the agent's task scheduler and LLM resolver
+- rendering stays in normal run logs, generated files, and run detail output
+- GitOps ownership stays in the sample config repository paths
+- monitoring stays on existing run, task, and AI-usage events without storing
+  prompt bodies
+- MCP stays out of scope because the sample declares no `mcp_profiles`
+
 ## Permissions
 
 Knowledge Context is a first-class resource type:
