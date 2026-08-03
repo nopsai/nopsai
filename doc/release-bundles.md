@@ -149,6 +149,7 @@ nopsai install kubernetes \
   --version <version> \
   --output-dir ./nopsai-prod \
   --values-file values.yaml \
+  --secret-file nopsai-secrets.yaml \
   --existing-secret nopsai-secrets
 ```
 
@@ -157,21 +158,25 @@ and `.nopsai/install.lock`. The `.env` file contains generated local secrets and
 must stay out of Git. The install lock is non-secret and records the generated
 version, image references, and file hashes.
 
-Kubernetes generation writes editable Helm values, `README.md`, and
-`.nopsai/install.lock`. The values reference the versioned OCI chart and image
-tags, plus the Secret named by `secrets.existingSecret`. The generated README
-records prerequisites, the expected Secret keys, `kubectl` Secret creation
-examples, registry pull Secret setup, CLI deploy commands, direct Helm
-commands, and basic verification commands. Create the Secret with External
-Secrets, SOPS, Sealed Secrets, or another cluster secret manager before
-deploying. The generated values include a bundled PostgreSQL StatefulSet and
-PVC by default; set `postgres.enabled=false` and point `database-url` at a
-managed database when the cluster owns PostgreSQL separately. With bundled
-PostgreSQL, `database-url` and `postgres-password` must contain the same
-password, and an existing PVC keeps the password from first initialization until
-the database role is updated or the PVC is intentionally recreated. When release
-images are private, the operator creates a registry pull Secret in the namespace
-and references it through `global.imagePullSecrets`.
+Kubernetes generation writes editable Helm values, `nopsai-secrets.yaml`,
+`installation.md`, and `.nopsai/install.lock`. The values reference the
+versioned OCI chart and image tags, plus the Secret named by
+`secrets.existingSecret`; the generated Secret manifest creates that Secret with
+database URL, bundled PostgreSQL password, master key, JWT keys, service JWT
+key, AAA shared token, dispatcher TLS secret, and bootstrap admin password.
+Keep the generated Secret manifest private, or encrypt/seal it with External
+Secrets, SOPS, Sealed Secrets, or another cluster secret manager before storing
+it in GitOps. The generated installation guide records requirements, registry
+pull Secret setup, image pull Secret wiring, ServiceAccount notes, applying
+secrets, values review, CLI deploy commands, direct Helm commands, verification,
+and how the secrets were generated. The generated values include a bundled
+PostgreSQL StatefulSet and PVC by default; set `postgres.enabled=false` and
+point `database-url` at a managed database when the cluster owns PostgreSQL
+separately. With bundled PostgreSQL, `database-url` and `postgres-password` must
+contain the same password, and an existing PVC keeps the password from first
+initialization until the database role is updated or the PVC is intentionally
+recreated. When release images are private, the operator creates a registry pull
+Secret in the namespace and references it through `global.imagePullSecrets`.
 
 After editing values, deploy from the generated directory:
 
@@ -214,13 +219,14 @@ the CLI release version, and generates the required files itself.
 file is generated with local secrets and must stay out of Git; the install lock
 is non-secret and can be kept with environment state.
 
-`nopsai install kubernetes` generates editable Helm values for the selected
-version and references a Secret through `secrets.existingSecret`. Operators can
-edit those values, create the Secret with their cluster secret manager, then run
-the printed `nopsai install kubernetes ... --deploy` command from the generated
-directory. The installer reuses stored `release-manifest.json` and `values.yaml`
-without overwriting edits. `nopsai platform release` remains available for CI
-and advanced GitOps workflows that want direct render/deploy control.
+`nopsai install kubernetes` generates editable Helm values, a Kubernetes Secret
+manifest, `installation.md`, and install lock metadata for the selected version.
+Operators review `installation.md`, edit values, apply or seal the generated
+Secret manifest, then run the printed
+`nopsai install kubernetes ... --deploy` command from the generated directory.
+The installer reuses stored `values.yaml` without overwriting edits. `nopsai
+platform release` remains available for CI and advanced GitOps workflows that
+want direct render/deploy control.
 
 Planning verifies compatibility, downloads the exact OCI chart with Helm,
 verifies the chart package digest, injects the release version, manifest
@@ -246,12 +252,13 @@ The generated deployment bundle still has a deployment-only `docker-compose.yaml
 and `.env` with digest-pinned NopsAI image references for operators who want the
 release archive instead of CLI generation. The GitHub asset
 `nopsai-helm-chart-<version>.tgz` is the deployable chart containing the same
-digest-pinned images. Kubernetes installations must create the Secret named by
-`secrets.existingSecret` before installing the chart; the chart includes
-PostgreSQL by default and can be switched to managed PostgreSQL with
-`postgres.enabled=false`. Override `topology.dispatcherGRPCAddress` only when
-the dispatcher Service DNS name or port differs from the chart default
-`dispatcher:9090`.
+digest-pinned images. Kubernetes installations must apply or externally manage
+the Secret named by `secrets.existingSecret` before installing the chart; the
+`nopsai install kubernetes` generator writes a bootstrap Secret manifest for
+new installs. The chart includes PostgreSQL by default and can be switched to
+managed PostgreSQL with `postgres.enabled=false`. Override
+`topology.dispatcherGRPCAddress` only when the dispatcher Service DNS name or
+port differs from the chart default `dispatcher:9090`.
 
 ```bash
 helm upgrade --install nopsai \

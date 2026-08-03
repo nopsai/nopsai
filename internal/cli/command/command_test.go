@@ -682,7 +682,12 @@ func TestInstallPreviewCommandQuotesAndRedactsSensitiveValues(t *testing.T) {
 
 	kubernetesOptions := defaultKubernetesInstallOptions(&rootOptions{})
 	kubernetesOptions.version = commandTestVersion
+	kubernetesOptions.secretFile = "secret file.yaml"
 	kubernetesOptions.ingressHost = "nopsai.example.com"
+	kubernetesOptions.bootstrapAdminPassword = "never-print-admin"
+	kubernetesOptions.postgresPassword = "never-print-postgres"
+	kubernetesOptions.databaseURL = "postgres://nopsai_user:never-print-postgres@postgres:5432/nopsai_db?sslmode=disable"
+	kubernetesOptions.masterKey = "never-print-master"
 	kubernetesOptions.values = []string{"overrides/prod values.yaml"}
 	kubernetesOptions.deploy = true
 	kubernetesOptions.wait = true
@@ -690,6 +695,13 @@ func TestInstallPreviewCommandQuotesAndRedactsSensitiveValues(t *testing.T) {
 	kubernetesCommand := commandShellJoin(kubernetesInstallPreviewArgs(kubernetesOptions))
 	for _, required := range []string{
 		"nopsai install kubernetes",
+		"--secret-file 'secret file.yaml'",
+		"--postgres-database nopsai_db",
+		"--postgres-user nopsai_user",
+		"--bootstrap-admin-password '<redacted>'",
+		"--postgres-password '<redacted>'",
+		"--database-url '<redacted>'",
+		"--master-key '<redacted>'",
 		"--ingress-host nopsai.example.com",
 		"--values 'overrides/prod values.yaml'",
 		"--deploy",
@@ -699,6 +711,100 @@ func TestInstallPreviewCommandQuotesAndRedactsSensitiveValues(t *testing.T) {
 		if !strings.Contains(kubernetesCommand, required) {
 			t.Fatalf("kubernetes preview missing %q in %q", required, kubernetesCommand)
 		}
+	}
+	for _, leaked := range []string{"never-print-admin", "never-print-postgres", "never-print-master"} {
+		if strings.Contains(kubernetesCommand, leaked) {
+			t.Fatalf("kubernetes preview leaked secret %q in %q", leaked, kubernetesCommand)
+		}
+	}
+}
+
+func TestInstallKubernetesDeployAppliesGeneratedSecretsBeforeHelm(t *testing.T) {
+	outputDir := filepath.Join(t.TempDir(), "install")
+	dependencies := testDependencies(nil, nil)
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
+	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 512))
+	var calls []string
+	dependencies.RunProcess = func(_ context.Context, name string, args []string, stdout, _ io.Writer) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		switch name {
+		case "kubectl":
+			switch {
+			case containsCommandArgument(args, "create"):
+				for _, required := range []string{"create", "namespace", "nopsai-system", "--dry-run=client", "-o", "yaml"} {
+					if !containsCommandArgument(args, required) {
+						t.Fatalf("namespace args missing %q in %#v", required, args)
+					}
+				}
+				_, _ = io.WriteString(stdout, "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: nopsai-system\n")
+			case containsCommandArgument(args, "apply") && containsCommandArgument(args, filepath.Join(outputDir, "prod", "nopsai-secrets.yaml")):
+				return nil
+			case containsCommandArgument(args, "apply"):
+				if len(args) != 3 || args[0] != "apply" || args[1] != "-f" || !strings.Contains(args[2], "nopsai-namespace-") {
+					t.Fatalf("namespace apply args = %#v", args)
+				}
+			default:
+				t.Fatalf("unexpected kubectl args %#v", args)
+			}
+		case "helm":
+			for _, required := range []string{
+				"upgrade",
+				"--install",
+				"nopsai-prod",
+				cliplatform.DefaultInstallChartReference,
+				"--version",
+				commandTestVersion,
+				"--namespace",
+				"nopsai-system",
+				"--values",
+				filepath.Join(outputDir, "prod", "values.yaml"),
+				"--create-namespace",
+			} {
+				if !containsCommandArgument(args, required) {
+					t.Fatalf("helm args missing %q in %#v", required, args)
+				}
+			}
+		default:
+			t.Fatalf("unexpected process %s %#v", name, args)
+		}
+		return nil
+	}
+
+	output, err := executeCommand(dependencies,
+		"install", "kubernetes",
+		"--version", commandTestVersion,
+		"--output-dir", outputDir,
+		"--values-file", "prod/values.yaml",
+		"--secret-file", "prod/nopsai-secrets.yaml",
+		"--release", "nopsai-prod",
+		"--namespace", "nopsai-system",
+		"--deploy",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 4 ||
+		!strings.HasPrefix(calls[0], "kubectl create namespace ") ||
+		!strings.HasPrefix(calls[1], "kubectl apply -f ") ||
+		!strings.HasPrefix(calls[2], "kubectl apply -f "+filepath.Join(outputDir, "prod", "nopsai-secrets.yaml")) ||
+		!strings.HasPrefix(calls[3], "helm ") {
+		t.Fatalf("process order = %#v", calls)
+	}
+	for _, required := range []string{
+		"Generated NopsAI " + commandTestVersion + " kubernetes install",
+		"prod/nopsai-secrets.yaml (sensitive, 0600)",
+		"installation.md",
+		"Deployed NopsAI " + commandTestVersion + " as nopsai-prod in namespace nopsai-system",
+	} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("output missing %q in:\n%s", required, output)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "prod", "nopsai-secrets.yaml")); err != nil {
+		t.Fatalf("generated Secret manifest: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "installation.md")); err != nil {
+		t.Fatalf("generated installation guide: %v", err)
 	}
 }
 

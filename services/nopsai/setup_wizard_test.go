@@ -2,8 +2,12 @@ package nopsai
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"nopsai/config"
 )
@@ -365,5 +369,67 @@ func TestSetupPreflightBlocksProductionGateFailures(t *testing.T) {
 	}
 	if resp.Ready || resp.CanLogin {
 		t.Fatalf("preflight ready = %v canLogin = %v, want both false", resp.Ready, resp.CanLogin)
+	}
+}
+
+func TestSetupPreflightHandlerReflectsLatestDatabaseRetryState(t *testing.T) {
+	state := newSetupPreflightDatabaseState(nil, errors.New("database is still starting"))
+	handler := setupPreflightHandler(&config.Config{
+		DatabaseURL:   "postgres://db",
+		MasterKey:     "01234567890123456789012345678901",
+		JWTSigningKey: "abcdefghijklmnopqrstuvwxyz123456",
+	}, "config.yml", ".env", "preflight_only", state)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "database is still starting") {
+		t.Fatalf("healthz = %d %s, want current database error", rec.Code, rec.Body.String())
+	}
+
+	state.update(nil, errors.New("database DNS resolved but connection refused"))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "connection refused") {
+		t.Fatalf("healthz = %d %s, want updated database error", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRetrySetupDatabaseConnectionContinuesUntilReady(t *testing.T) {
+	attempts := 0
+	var updates []string
+	result := retrySetupDatabaseConnection(context.Background(), time.Millisecond, func(context.Context) setupDatabaseConnectionResult {
+		attempts++
+		if attempts < 3 {
+			return setupDatabaseConnectionResult{dbErr: errors.New("database booting")}
+		}
+		return setupDatabaseConnectionResult{}
+	}, func(result setupDatabaseConnectionResult) {
+		if result.dbErr != nil {
+			updates = append(updates, result.dbErr.Error())
+			return
+		}
+		updates = append(updates, "ready")
+	})
+
+	if result.dbErr != nil || attempts != 3 {
+		t.Fatalf("retry result = %#v attempts=%d, want success on third attempt", result, attempts)
+	}
+	if strings.Join(updates, ",") != "database booting,database booting,ready" {
+		t.Fatalf("updates = %#v", updates)
+	}
+}
+
+func TestRetrySetupDatabaseConnectionStopsOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	attempts := 0
+	result := retrySetupDatabaseConnection(ctx, time.Hour, func(context.Context) setupDatabaseConnectionResult {
+		attempts++
+		cancel()
+		return setupDatabaseConnectionResult{dbErr: errors.New("database down")}
+	}, nil)
+
+	if !errors.Is(result.dbErr, context.Canceled) || attempts != 1 {
+		t.Fatalf("retry result = %#v attempts=%d, want context cancellation after one attempt", result, attempts)
 	}
 }

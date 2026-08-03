@@ -132,6 +132,10 @@ func RunSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath str
 	runSetupPreflightOnlyServer(cfg, configPath, envFilePath, db, dbErr)
 }
 
+func RunSetupPreflightUntilDatabaseReadyServer(cfg *config.Config, configPath, envFilePath string, dbErr error, retryDelay time.Duration) (*pgxpool.Pool, bool) {
+	return runSetupPreflightUntilDatabaseReadyServer(cfg, configPath, envFilePath, dbErr, retryDelay)
+}
+
 func EnsureDatabaseBootstrap(ctx context.Context, db *pgxpool.Pool) error {
 	return EnsureDatabaseBootstrapForConfig(ctx, db, nil)
 }

@@ -44,12 +44,25 @@ func Run() {
 		dbAttempts = 1
 	}
 	dbpool, dbErr := service.ConnectDatabaseWithRetries(context.Background(), cfg.DatabaseURL, dbAttempts, 3*time.Second)
-	if hardConfigMissing || dbErr != nil {
+	if hardConfigMissing {
 		service.RunSetupPreflightOnlyServer(cfg, configPath, envFilePath, dbpool, dbErr)
 		if dbpool != nil {
 			dbpool.Close()
 		}
 		return
+	}
+	if dbErr != nil {
+		if dbpool != nil {
+			dbpool.Close()
+		}
+		var ready bool
+		dbpool, ready = service.RunSetupPreflightUntilDatabaseReadyServer(cfg, configPath, envFilePath, dbErr, 3*time.Second)
+		if !ready {
+			if dbpool != nil {
+				dbpool.Close()
+			}
+			return
+		}
 	}
 	if service.HasBlockingEnterpriseDatabaseGates(context.Background(), cfg, dbpool) {
 		service.RunSetupPreflightOnlyServer(cfg, configPath, envFilePath, dbpool, nil)

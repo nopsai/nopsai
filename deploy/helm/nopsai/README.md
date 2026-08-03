@@ -27,24 +27,25 @@ example `postgres://nopsai_user:<postgres-password>@postgres:5432/nopsai_db?sslm
 For managed PostgreSQL, set `postgres.enabled=false` and point `database-url` at
 the external database instead.
 
-For a direct `kubectl` installation, create the runtime Secret before Helm
-renders workloads. Keep generated values non-secret.
+For a new installation, let the CLI generate non-secret values, an applyable
+Secret manifest, and the installation guide:
 
 ```bash
-kubectl create namespace nopsai --dry-run=client -o yaml | kubectl apply -f -
-POSTGRES_PASSWORD="$(openssl rand -hex 24)"
-kubectl -n nopsai create secret generic nopsai-secrets \
-  --from-literal=database-url="postgres://nopsai_user:${POSTGRES_PASSWORD}@postgres:5432/nopsai_db?sslmode=disable" \
-  --from-literal=postgres-password="$POSTGRES_PASSWORD" \
-  --from-literal=master-key="$(openssl rand -base64 32)" \
-  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \
-  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \
-  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)" \
-  --from-literal=dispatcher-tls-secret="$(openssl rand -base64 48)" \
-  --from-literal=bootstrap-admin-password="$(openssl rand -base64 24)"
+nopsai install kubernetes \
+  --version <version> \
+  --output-dir ./nopsai-prod \
+  --values-file values.yaml \
+  --secret-file nopsai-secrets.yaml
 ```
 
+Review `./nopsai-prod/installation.md`, keep `values.yaml` and lock metadata
+GitOps-tracked, and keep `nopsai-secrets.yaml` private or encrypt/seal it before
+GitOps. Apply the generated Secret before Helm renders workloads:
+
 ```bash
+cd ./nopsai-prod
+kubectl create namespace nopsai --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f nopsai-secrets.yaml
 helm upgrade --install nopsai ./nopsai-<version>.tgz \
   --namespace nopsai \
   --create-namespace \
