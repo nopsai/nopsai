@@ -91,22 +91,41 @@ auth:
 		t.Fatalf("parseGitOpsAuthSettingsFile() error = %v", err)
 	}
 	if !plan.settings.LocalEnabled {
-		t.Fatalf("local enabled = false, want local auth forced on")
+		t.Fatalf("local enabled = false, want explicit local auth enabled")
 	}
 	if plan.settings.OIDCEnabled {
 		t.Fatalf("oidc enabled = true, want false")
 	}
 }
 
-func TestParseGitOpsAuthSettingsFileRejectsDisabledLocalAuth(t *testing.T) {
+func TestParseGitOpsAuthSettingsFileRejectsDisabledLocalAuthWithoutProvider(t *testing.T) {
 	_, err := parseGitOpsAuthSettingsFile(`
 auth:
   local_enabled: false
   oidc:
     enabled: false
 `, "setting/system/auth.yaml")
-	if err == nil || !strings.Contains(err.Error(), "cannot disable local authentication") {
+	if err == nil || !strings.Contains(err.Error(), "local authentication can be disabled only") {
 		t.Fatalf("expected disabled local auth error, got %v", err)
+	}
+}
+
+func TestParseGitOpsAuthSettingsFileAllowsSSOOnlyWithEnabledProvider(t *testing.T) {
+	plan, err := parseGitOpsAuthSettingsFile(`
+auth:
+  local_enabled: false
+  oidc:
+    enabled: true
+    providers:
+      nopsai:
+        issuer: http://keycloak:8080/realms/nopsai
+        client_id: nopsai
+`, "setting/system/auth.yaml")
+	if err != nil {
+		t.Fatalf("parseGitOpsAuthSettingsFile() error = %v", err)
+	}
+	if plan.settings.LocalEnabled {
+		t.Fatalf("local enabled = true, want SSO-only GitOps state")
 	}
 }
 
@@ -244,8 +263,8 @@ func TestBuildAuthSettingsGitOpsFileExportsCredentialReferences(t *testing.T) {
 		},
 		map[string]string{"Example.COM": "NopsAI"},
 	)
-	if doc.LocalEnabled == nil || !*doc.LocalEnabled {
-		t.Fatalf("local_enabled = %#v, want explicit true", doc.LocalEnabled)
+	if doc.LocalEnabled == nil || *doc.LocalEnabled {
+		t.Fatalf("local_enabled = %#v, want explicit false", doc.LocalEnabled)
 	}
 	if doc.OIDC == nil || !doc.OIDC.Enabled || !doc.OIDC.AutoCreateUsers || !doc.OIDC.AllowEmailLinking {
 		t.Fatalf("oidc = %#v, want enabled auto-create/linking", doc.OIDC)

@@ -89,17 +89,21 @@ Validate the fixture mappings from the repository root:
 python3 examples/sso/idp-test-pack/scripts/validate-fixtures.py
 ```
 
-## Automatic user creation requires email
+## Email claims in the fixtures
 
-NopsAI rejects first-time SSO login when `auto_create_users: true` and the
-verified identity has no `email` claim. Every normal user mapping in this pack
-therefore includes a non-empty `email` and `email_verified: true`.
+NopsAI auto-creates first-time SSO users from the provider ID, issuer, and
+`sub` claim when `auto_create_users: true`. The `email` claim is optional
+metadata. `email_verified=false`, a missing `email_verified` claim, or a missing
+`email` claim does not block login, but only `email_verified=true` allows the
+email value to participate in explicit email-linking policy.
 
-If you see `identity email is required for automatic user creation`, the most
-likely cause is that the mock login value did not match any `requestMapping`,
-so mock-oauth2-server issued its default token instead of the configured user
-claims. Use one of the exact short-name or email values above. The included
-validator also fails if a normal user mapping lacks an email.
+Every normal user mapping in this pack still includes a non-empty `email` and
+`email_verified: true` so provider-domain filters, display labels, and optional
+email-linking tests remain deterministic. If login produces an unexpected
+subject or empty profile metadata, the most likely cause is that the mock login
+value did not match any `requestMapping`, so mock-oauth2-server issued its
+default token instead of the configured user claims. Use one of the exact
+short-name or email values above.
 
 ## Apply a NopsAI scenario
 
@@ -183,9 +187,9 @@ API and cannot be simulated by mock-oauth2-server alone.
 ## GitHub
 
 NopsAI supports GitHub through its dedicated OAuth2 flow, not through generic
-OIDC. It loads the GitHub user, verified email, and team memberships from the
-GitHub API; external team keys have the form `organisation/team-slug`. A real
-GitHub configuration is included at:
+OIDC. It loads the GitHub user, email metadata or a verified primary email when
+visible, and team memberships from the GitHub API; external team keys have the
+form `organisation/team-slug`. A real GitHub configuration is included at:
 
 ```text
 examples/sso/idp-test-pack/nopsai-tests/github-real-auth-and-team-authz/setting/system/auth.yaml
@@ -224,10 +228,11 @@ http://host.docker.internal:8090/<provider>/jwks
 http://host.docker.internal:8090/<provider>/userinfo
 ```
 
-The current NopsAI OIDC login implementation reads `sub`, `email`,
-`email_verified`, and the configured team claim from the signed ID token. It
-does not call UserInfo to recover a missing email or group claim, so those
-claims must remain in the ID token fixtures.
+The current NopsAI OIDC login implementation reads `sub`, optional `email`,
+optional `email_verified`, and the configured team claim from the signed ID
+token. It does not call UserInfo to recover a missing email or group claim, so
+team claims must remain in the ID token fixtures. Missing email data is accepted
+for authentication but recorded as untrusted profile metadata.
 
 ## v6 Keycloak fixture correction
 

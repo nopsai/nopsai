@@ -226,7 +226,6 @@ func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *ru
 	if runner != nil {
 		if override, ok := runner.metadata["docker_network"]; ok {
 			copyJob.DockerNetwork = strings.TrimSpace(override)
-			runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", copyJob.DockerNetwork)
 		}
 		if addr, ok := runner.metadata["dispatcher_addr"]; ok {
 			runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_GRPC_ADDRESS", strings.TrimSpace(addr))

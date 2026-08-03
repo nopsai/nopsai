@@ -141,6 +141,7 @@ type userSummary struct {
 	ExternalProviderID   string                `json:"external_provider_id,omitempty"`
 	ExternalProviderName string                `json:"external_provider_name,omitempty"`
 	ExternalSubject      string                `json:"external_subject,omitempty"`
+	ExternalEmailStatus  string                `json:"external_email_verification_status,omitempty"`
 	ExternalTeams        []string              `json:"external_teams,omitempty"`
 	ExternalAuthTeams    []userAuthTeamSummary `json:"external_auth_teams,omitempty"`
 	ExternalRoles        []string              `json:"external_roles,omitempty"`

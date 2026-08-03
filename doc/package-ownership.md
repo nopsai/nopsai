@@ -144,8 +144,9 @@ Concrete HTTP/gRPC/Postgres clients are wired in command/bootstrap packages.
 Enterprise authentication follows the same split:
 
 - Config model logic lives in `config/config.go`.
-- OIDC persistence, provider records, state, login-code, external identity, and
-  team-membership logic live in `services/nopsai/auth_oidc_store.go`.
+- OIDC persistence, provider records, state, login-code, external identity,
+  issuer/subject resolution, email trust metadata, and team-membership logic
+  live in `services/nopsai/auth_oidc_store.go`.
 - OIDC provider HTTP behavior, metadata discovery, token exchange, JWKS
   verification, PKCE, nonce, and safe redirect rules live in
   `services/nopsai/auth_oidc_flow.go`.

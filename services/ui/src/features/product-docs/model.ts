@@ -1336,7 +1336,7 @@ const requiredEnvironmentRows: WikiConfigRow[] = [
   {
     key: 'DOCKER_NETWORK_NAME',
     area: 'Docker runner',
-    description: 'Docker network used when the Docker runner starts per-run agent and step containers.',
+    description: 'Optional Docker network used when the Docker runner starts per-run agent containers with bridge networking.',
     example: 'nopsai-net',
     type: 'string',
     required: true,
@@ -2320,7 +2320,7 @@ const baseWikiSections: WikiSectionInput[] = [
           {
             key: 'DOCKER_NETWORK_NAME',
             area: 'Docker runner',
-            description: 'Network used for agent and step containers in local Docker execution.',
+            description: 'Optional network used for agent containers in local Docker execution; step containers default to no network.',
             example: 'nopsai-net',
           },
         ],
@@ -2741,8 +2741,11 @@ const baseWikiSections: WikiSectionInput[] = [
           'Supported auth paths include local access JWTs, refresh tokens, personal tokens, service-account tokens, internal service JWTs, dispatcher service JWTs, and OIDC login with PKCE.',
           'AAA handles Check, BatchCheck, Filter, ACL expansion, inheritance, and decision auditing, with a short-outage in-process fallback in the API.',
           'Product roles are viewer, developer, owner, and platform admin; admin is granted only on the platform resource.',
-          'Only one external identity provider can be enabled per installation; local login and the protected break-glass administrator remain available.',
+          'Only one external identity provider can be enabled per installation; local login can be disabled only while external authentication is enabled with at least one enabled provider.',
           'GitOps owns identity-provider settings through setting/system/auth.yaml and credential references; provider users and IdP-managed grants are runtime state.',
+          'OIDC users are resolved by provider ID, issuer, and ID-token subject. Email is optional profile metadata, with verified, unverified, unknown, or not-provided status.',
+          'Malformed email_verified claims continue login as unknown email assurance and are flagged in auth audit metadata.',
+          'Email-based account linking requires explicit allow_email_linking and email_verified=true; unverified, unknown, and missing email values never silently link accounts.',
           'System > Access provides Basic and Advanced modes with top-row summary metrics, Pipeline Runs-style advanced tabs, full-width table-first catalogs, status dots beside identities, drawer create/edit flows, toolbar search, and icon add actions without extra state/scope filters or export controls.',
           'Runnable SSO examples live under examples/sso/keycloak and examples/sso/idp-test-pack; they are test fixtures, not production config.',
           'Scopes are runtime context such as dev, test, production, or platform/prod. They are not run-navigation parents.',
@@ -2752,6 +2755,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Teams form hierarchical product boundaries for ownership, access, run navigation, config repository delegation, notifications, team AI overlays, and repository-to-application matching.',
           'Cross-team execution requires access to every concrete resource used by the run, not only the pipeline.',
           'System Access create/edit/delete workflows continue to use the existing users, service-account token, access-grant, role/policy, and identity-provider APIs, so UI changes do not create a second AAA mutation path.',
+          'First-time SSO provisioning can create a user without an email claim when the provider policy allows auto-create; NopsAI stores the email only when the provider supplies it.',
           'Scope variables can be revealed and copied when the current subject has value-read access; secret values stay write-only in the UI and are managed through create/update flows or GitOps encryption.',
         ],
         configRows: [
@@ -3187,6 +3191,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Knowledge may be declared at pipeline, step, and task level, then merged into effective task context.',
           'Managed documents require knowledge_context.use. Repo-local files are loaded from the run repository at the run commit.',
           'Guardrails and policies are strict prompt constraints for goals, commands, scripts, file writes, MCP calls, MCP arguments, and conditions.',
+          'The sample config repository includes a prompt-injection guardrail probe that attaches managed guardrail and policy documents before later LLM work.',
         ],
         details: [
           'A reference must use kind plus ref for managed knowledge, or kind plus a safe relative path for repo-local markdown.',
@@ -3194,6 +3199,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Effective context is merged from pipeline-level references, then step-level references, then task-level references. Required duplicates win over optional duplicates.',
           'Managed refs use knowledge_context.use authorization and are snapshotted into pipeline_run_knowledge_contexts so completed runs preserve exactly what the model saw.',
           'Policy snapshots are pinned by scope, then recomputed as pipeline, step, and task scopes start. Emergency policy response cancels active runs instead of mutating already-resolved policy.',
+          'The prompt-injection sample keeps model rules in Knowledge Context, route behavior in existing pipeline/config-sync APIs, rendering in run files and logs, and monitoring in existing run and AI-usage events; it declares no MCP profiles.',
         ],
         configRows: knowledgeRows,
         examples: [
@@ -3202,6 +3208,13 @@ const baseWikiSections: WikiSectionInput[] = [
             language: 'yaml',
             code:
               'knowledge_context:\n  - kind: guardrail\n    ref: security/repository-policy\n    required: true\n  - kind: architecture\n    path: .nopsai/docs/backend.md\n    required: true',
+          },
+          {
+            title: 'Prompt-injection guardrail probe references',
+            language: 'yaml',
+            code:
+              'knowledge_context:\n  - kind: guardrail\n    ref: team-1/prompt-injection-safety\n    required: true\n  - kind: policy\n    ref: team-1/llm-task-integrity\n    required: true',
+            testedIn: DEFAULT_VERIFIED_DATE,
           },
         ],
         relatedDocs: ['doc/knowledge-context.md', 'examples/sample-config-repo/README.md'],

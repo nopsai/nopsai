@@ -280,6 +280,38 @@ func TestPruneSupersededExternalIdentitiesDeletesSameProviderEmailSubjects(t *te
 	}
 }
 
+func TestInsertExternalIdentityPersistsEmailVerificationStatus(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.MustParse("66666666-6666-4666-8666-666666666666")
+	tx := &recordingOIDCTx{}
+
+	err := insertExternalIdentity(ctx, tx, userID, oidcProviderRecord{ID: "nopsai"}, oidcVerifiedIdentity{
+		Issuer:                  "http://keycloak.test/realms/nopsai",
+		Subject:                 "unverified-subject",
+		Email:                   "jip@example.com",
+		EmailVerificationStatus: oidcEmailVerificationUnverified,
+	})
+	if err != nil {
+		t.Fatalf("insertExternalIdentity() error = %v", err)
+	}
+
+	if !recordedOIDCExecContains(tx.execs, "email_verification_status", userID.String(), "unverified-subject", oidcEmailVerificationUnverified) {
+		t.Fatalf("execs missing email verification status upsert: %#v", tx.execs)
+	}
+}
+
+func TestExternalOIDCUserSubIncludesIssuer(t *testing.T) {
+	first := externalOIDCUserSub("oidc", "nopsai", "https://idp-a.example.com", "stable-subject")
+	second := externalOIDCUserSub("oidc", "nopsai", "https://idp-b.example.com", "stable-subject")
+
+	if first == second {
+		t.Fatalf("externalOIDCUserSub() collapsed distinct issuers to %q", first)
+	}
+	if !strings.HasPrefix(first, "oidc:nopsai:") || !strings.HasSuffix(first, ":stable-subject") {
+		t.Fatalf("externalOIDCUserSub() = %q, want provider and subject visible", first)
+	}
+}
+
 func recordedOIDCExecContains(execs []recordedOIDCExec, sqlFragment string, args ...string) bool {
 	for _, exec := range execs {
 		if !strings.Contains(exec.sql, sqlFragment) {

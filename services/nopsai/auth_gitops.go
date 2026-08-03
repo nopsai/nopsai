@@ -88,10 +88,6 @@ func parseGitOpsAuthSettingsFile(content, sourcePath string) (*gitOpsAuthSetting
 	default:
 		return nil, fmt.Errorf("auth settings GitOps file '%s' must define auth settings", sourcePath)
 	}
-	if authCfg.LocalEnabled != nil && !*authCfg.LocalEnabled {
-		return nil, fmt.Errorf("auth settings GitOps file '%s' cannot disable local authentication", sourcePath)
-	}
-
 	authCfg = config.NormalizeAuthConfig(authCfg)
 	settings, providers, domainMappings, err := oidcGitOpsStateFromAuthConfig(authCfg)
 	if err != nil {
@@ -109,6 +105,9 @@ func parseGitOpsAuthSettingsFile(content, sourcePath string) (*gitOpsAuthSetting
 
 func oidcGitOpsStateFromAuthConfig(authCfg config.AuthConfig) (oidcSettings, map[string]oidcProviderRecord, map[string]string, error) {
 	localEnabled := true
+	if authCfg.LocalEnabled != nil {
+		localEnabled = *authCfg.LocalEnabled
+	}
 
 	settings := oidcSettings{
 		LocalEnabled:      localEnabled,
@@ -120,6 +119,7 @@ func oidcGitOpsStateFromAuthConfig(authCfg config.AuthConfig) (oidcSettings, map
 
 	providers := make(map[string]oidcProviderRecord, len(authCfg.OIDC.Providers))
 	providerIDs := make(map[string]struct{}, len(authCfg.OIDC.Providers))
+	enabledProviderCount := 0
 	for id, providerCfg := range authCfg.OIDC.Providers {
 		provider := oidcProviderRecordFromConfig(id, providerCfg, authProviderSourceGitOps)
 		if provider.ID == "" {
@@ -134,6 +134,13 @@ func oidcGitOpsStateFromAuthConfig(authCfg config.AuthConfig) (oidcSettings, map
 		}
 		providers[provider.ID] = provider
 		providerIDs[provider.ID] = struct{}{}
+		if provider.Enabled {
+			enabledProviderCount++
+		}
+	}
+
+	if !settings.LocalEnabled && (!settings.OIDCEnabled || enabledProviderCount == 0) {
+		return oidcSettings{}, nil, nil, fmt.Errorf("local authentication can be disabled only when external authentication is enabled with at least one enabled provider")
 	}
 
 	domainMappings := normalizeOIDCDomainMappings(authCfg.OIDC.DomainMapping)
@@ -190,10 +197,6 @@ func (a *App) applyAuthSettingsGitOpsPlan(ctx context.Context, plan *gitOpsAuthS
 		return nil
 	}
 
-	if err := upsertOIDCSettings(ctx, a.db, plan.settings); err != nil {
-		return err
-	}
-
 	providerIDs := make([]string, 0, len(plan.providers))
 	for id := range plan.providers {
 		providerIDs = append(providerIDs, id)
@@ -234,12 +237,15 @@ func (a *App) applyAuthSettingsGitOpsPlan(ctx context.Context, plan *gitOpsAuthS
 	if err := reconcileOIDCAuthTeamMappings(ctx, a.db); err != nil {
 		return err
 	}
-	return reconcileOIDCBasicRoleMappings(ctx, a.db)
+	if err := reconcileOIDCBasicRoleMappings(ctx, a.db); err != nil {
+		return err
+	}
+	return upsertOIDCSettings(ctx, a.db, plan.settings)
 }
 
 func buildAuthSettingsGitOpsFile(settings oidcSettings, providers []oidcProviderRecord, mappings map[string]string) authSettingsGitOpsFile {
 	doc := authSettingsGitOpsFile{
-		LocalEnabled: boolPtr(true),
+		LocalEnabled: boolPtr(settings.LocalEnabled),
 		OIDC: &config.OIDCAuthConfig{
 			Enabled:           settings.OIDCEnabled,
 			AutoCreateUsers:   settings.AutoCreateUsers,

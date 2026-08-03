@@ -81,9 +81,14 @@ func (a *App) handleAuthOAuth2Start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist oauth2 state", http.StatusInternalServerError)
 		return
 	}
+	redirectURI, err := a.oauth2CallbackURL(r, provider.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	values := url.Values{}
 	values.Set("client_id", provider.ClientID)
-	values.Set("redirect_uri", a.oauth2CallbackURL(r, provider.ID))
+	values.Set("redirect_uri", redirectURI)
 	values.Set("scope", strings.Join(provider.Scopes, " "))
 	values.Set("state", state)
 	values.Set("code_challenge", codeChallenge(codeVerifier))
@@ -126,7 +131,13 @@ func (a *App) handleAuthOAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid oauth2 state", http.StatusBadRequest)
 		return
 	}
-	token, err := a.exchangeOAuth2Code(r.Context(), provider, code, stateRecord.CodeVerifier, a.oauth2CallbackURL(r, provider.ID))
+	redirectURI, err := a.oauth2CallbackURL(r, provider.ID)
+	if err != nil {
+		a.auditOIDC(r, provider.ID, "", "auth.oauth2.failure", "failure", map[string]any{"reason": "callback_url_unavailable"})
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	token, err := a.exchangeOAuth2Code(r.Context(), provider, code, stateRecord.CodeVerifier, redirectURI)
 	if err != nil {
 		a.auditOIDC(r, provider.ID, "", "auth.oauth2.failure", "failure", map[string]any{"reason": "token_exchange_failed"})
 		http.Error(w, "oauth2 token exchange failed", http.StatusBadGateway)
@@ -140,7 +151,10 @@ func (a *App) handleAuthOAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	resolution, err := resolveOIDCUser(r.Context(), a.db, settings, provider, identity)
 	if err != nil {
-		a.auditOIDC(r, provider.ID, identity.Email, "auth.oauth2.failure", "failure", map[string]any{"reason": "user_resolution_failed"})
+		a.auditOIDC(r, provider.ID, identity.Email, "auth.oauth2.failure", "failure", map[string]any{
+			"reason":                    "user_resolution_failed",
+			"email_verification_status": identity.normalizedEmailVerificationStatus(),
+		})
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -154,8 +168,10 @@ func (a *App) handleAuthOAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.auditOIDC(r, provider.ID, identity.Email, "auth.oauth2.login", "success", map[string]any{
-		"created_user": resolution.Created,
-		"linked_user":  resolution.Linked,
+		"created_user":                resolution.Created,
+		"linked_user":                 resolution.Linked,
+		"email_verification_status":   identity.normalizedEmailVerificationStatus(),
+		"email_used_for_auto_linking": resolution.Linked,
 	})
 	http.Redirect(w, r, callbackRedirectURL(stateRecord.ReturnTo, loginCode), http.StatusFound)
 }
@@ -225,7 +241,11 @@ func (a *App) githubOAuth2Identity(ctx context.Context, provider oidcProviderRec
 		return oidcVerifiedIdentity{}, fmt.Errorf("github user response did not include id or login")
 	}
 	email := strings.TrimSpace(user.Email)
-	emailVerified := email != ""
+	emailVerified := false
+	emailVerificationStatus := oidcEmailVerificationNotProvided
+	if email != "" {
+		emailVerificationStatus = oidcEmailVerificationUnknown
+	}
 	if email == "" {
 		resolved, verified, err := a.githubPrimaryEmail(ctx, accessToken)
 		if err != nil {
@@ -233,6 +253,7 @@ func (a *App) githubOAuth2Identity(ctx context.Context, provider oidcProviderRec
 		}
 		email = resolved
 		emailVerified = verified
+		emailVerificationStatus = oidcEmailVerificationStatusFromVerifiedEmail(email, verified)
 	}
 	if email != "" && !emailDomainAllowed(emailDomain(email), provider.AllowedEmailDomains) {
 		return oidcVerifiedIdentity{}, fmt.Errorf("email domain is not allowed for this provider")
@@ -242,13 +263,24 @@ func (a *App) githubOAuth2Identity(ctx context.Context, provider oidcProviderRec
 		teams = nil
 	}
 	return oidcVerifiedIdentity{
-		ProviderID:    provider.ID,
-		Issuer:        firstNonEmptyString(provider.Issuer, "https://github.com"),
-		Subject:       subject,
-		Email:         email,
-		EmailVerified: emailVerified,
-		Teams:         teams,
+		ProviderID:              provider.ID,
+		Issuer:                  firstNonEmptyString(provider.Issuer, "https://github.com"),
+		Subject:                 subject,
+		Email:                   email,
+		EmailVerified:           emailVerified,
+		EmailVerificationStatus: emailVerificationStatus,
+		Teams:                   teams,
 	}, nil
+}
+
+func oidcEmailVerificationStatusFromVerifiedEmail(email string, verified bool) string {
+	if strings.TrimSpace(email) == "" {
+		return oidcEmailVerificationNotProvided
+	}
+	if verified {
+		return oidcEmailVerificationVerified
+	}
+	return oidcEmailVerificationUnverified
 }
 
 func (a *App) githubPrimaryEmail(ctx context.Context, accessToken string) (string, bool, error) {
@@ -305,14 +337,11 @@ func (a *App) githubGET(ctx context.Context, accessToken, endpoint string, out a
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (a *App) oauth2CallbackURL(r *http.Request, providerID string) string {
+func (a *App) oauth2CallbackURL(r *http.Request, providerID string) (string, error) {
 	path := "/v1/auth/oauth2/" + url.PathEscape(providerID) + "/callback"
-	if a != nil && a.cfg != nil && strings.TrimSpace(a.cfg.PublicURL) != "" {
-		return strings.TrimRight(strings.TrimSpace(a.cfg.PublicURL), "/") + path
+	baseURL, err := a.externalAuthCallbackBaseURL(r)
+	if err != nil {
+		return "", err
 	}
-	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
-	if scheme == "" {
-		scheme = "http"
-	}
-	return scheme + "://" + r.Host + path
+	return baseURL + path, nil
 }

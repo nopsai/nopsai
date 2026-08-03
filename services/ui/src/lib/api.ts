@@ -328,7 +328,7 @@ export async function fetchAuthProviders(): Promise<AuthProvidersResponse> {
   }
   const payload = await response.json();
   return {
-    local_enabled: true,
+    local_enabled: Boolean(payload?.local_enabled),
     oidc_enabled: Boolean(payload?.oidc_enabled),
     providers: Array.isArray(payload?.providers)
       ? payload.providers.filter((provider: unknown): provider is AuthProviderOption => {

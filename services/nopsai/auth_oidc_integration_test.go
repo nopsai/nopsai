@@ -19,10 +19,13 @@ import (
 )
 
 type localOIDCTestIdentity struct {
-	Subject string
-	Email   string
-	Nonce   string
-	Teams   []string
+	Subject           string
+	Email             string
+	EmailVerified     *bool
+	OmitEmail         bool
+	OmitEmailVerified bool
+	Nonce             string
+	Teams             []string
 }
 
 type localOIDCTestProvider struct {
@@ -151,17 +154,25 @@ func (p *localOIDCTestProvider) signIDToken(audience string, identity localOIDCT
 	kid := p.kid
 	p.mu.Unlock()
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"iss":            p.issuer(),
-		"sub":            identity.Subject,
-		"aud":            audience,
-		"exp":            time.Now().Add(5 * time.Minute).Unix(),
-		"iat":            time.Now().Add(-time.Minute).Unix(),
-		"nonce":          identity.Nonce,
-		"email":          identity.Email,
-		"email_verified": true,
-		"teams":          identity.Teams,
-	})
+	claims := jwt.MapClaims{
+		"iss":   p.issuer(),
+		"sub":   identity.Subject,
+		"aud":   audience,
+		"exp":   time.Now().Add(5 * time.Minute).Unix(),
+		"iat":   time.Now().Add(-time.Minute).Unix(),
+		"nonce": identity.Nonce,
+		"teams": identity.Teams,
+	}
+	if !identity.OmitEmail {
+		claims["email"] = identity.Email
+	}
+	if identity.EmailVerified != nil {
+		claims["email_verified"] = *identity.EmailVerified
+	} else if !identity.OmitEmailVerified {
+		claims["email_verified"] = true
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = kid
 	return token.SignedString(key)
 }
@@ -262,6 +273,83 @@ func TestOIDCFlowWithLocalProviderAndRotatingJWKS(t *testing.T) {
 	}
 	if tokenForms[0].Get("code_verifier") != "verifier-admin" || tokenForms[1].Get("code_verifier") != "verifier-operator" {
 		t.Fatalf("token code_verifier forms = %#v, want PKCE verifier forwarded", tokenForms)
+	}
+}
+
+func TestOIDCIDTokenEmailVerificationStatusDoesNotBlockLogin(t *testing.T) {
+	ctx := context.Background()
+	idp := newLocalOIDCTestProvider(t)
+	app := &App{httpClient: idp.server.Client()}
+	provider := oidcProviderRecord{
+		ID:                  "keycloak",
+		Issuer:              idp.issuer(),
+		ClientID:            "nopsai",
+		AllowedEmailDomains: []string{"example.com"},
+	}
+	metadata := oidcMetadata{JWKSURI: idp.issuer() + "/certs"}
+	emailNotVerified := false
+
+	tests := []struct {
+		name                   string
+		identity               localOIDCTestIdentity
+		wantEmail              string
+		wantEmailVerified      bool
+		wantVerificationStatus string
+	}{
+		{
+			name: "explicit false claim",
+			identity: localOIDCTestIdentity{
+				Subject:       "unverified-user",
+				Email:         "unverified@example.com",
+				EmailVerified: &emailNotVerified,
+				Nonce:         "nonce-unverified",
+			},
+			wantEmail:              "unverified@example.com",
+			wantVerificationStatus: oidcEmailVerificationUnverified,
+		},
+		{
+			name: "missing claim",
+			identity: localOIDCTestIdentity{
+				Subject:           "unknown-user",
+				Email:             "unknown@example.com",
+				OmitEmailVerified: true,
+				Nonce:             "nonce-unknown",
+			},
+			wantEmail:              "unknown@example.com",
+			wantVerificationStatus: oidcEmailVerificationUnknown,
+		},
+		{
+			name: "missing email",
+			identity: localOIDCTestIdentity{
+				Subject:           "no-email-user",
+				OmitEmail:         true,
+				OmitEmailVerified: true,
+				Nonce:             "nonce-no-email",
+			},
+			wantVerificationStatus: oidcEmailVerificationNotProvided,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rawIDToken, err := idp.signIDToken(provider.ClientID, tt.identity)
+			if err != nil {
+				t.Fatalf("signIDToken() error = %v", err)
+			}
+			identity, err := app.verifyOIDCIDToken(ctx, provider, metadata, rawIDToken, authHash(tt.identity.Nonce))
+			if err != nil {
+				t.Fatalf("verifyOIDCIDToken() error = %v", err)
+			}
+			if identity.Email != tt.wantEmail {
+				t.Fatalf("email = %q, want %q", identity.Email, tt.wantEmail)
+			}
+			if identity.EmailVerified != tt.wantEmailVerified {
+				t.Fatalf("email verified = %v, want %v", identity.EmailVerified, tt.wantEmailVerified)
+			}
+			if identity.EmailVerificationStatus != tt.wantVerificationStatus {
+				t.Fatalf("email verification status = %q, want %q", identity.EmailVerificationStatus, tt.wantVerificationStatus)
+			}
+		})
 	}
 }
 

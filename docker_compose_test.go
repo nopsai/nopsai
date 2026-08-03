@@ -162,12 +162,10 @@ func TestDockerComposeProvidesLocalBootstrapTopology(t *testing.T) {
 	compose := readCompose(t)
 	assertEnvValue(t, compose, "nopsai", "NOPSAI_API_URL", "http://nopsai:8080")
 	assertEnvValue(t, compose, "nopsai", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
-	assertEnvValue(t, compose, "nopsai", "DOCKER_NETWORK_NAME", "nopsai-net")
 	assertEnvValue(t, compose, "nopsai", "GIT_BOT_API_URL", "http://nopsai-git-bot:8081")
 	assertEnvValue(t, compose, "dispatcher", "NOPSAI_API_URL", "http://nopsai:8080")
 	assertEnvValue(t, compose, "git-bot", "NOPSAI_API_URL", "http://nopsai:8080")
 	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
-	assertEnvValue(t, compose, "docker-runner", "DOCKER_NETWORK_NAME", "nopsai-net")
 	assertEnvValue(t, compose, "nopsai", "SYSTEM_LOGS_DOCKER_HOST", "tcp://docker-socket-proxy:2375")
 }
 
@@ -201,16 +199,35 @@ func TestDockerComposeGuardsNonLocalDefaults(t *testing.T) {
 	}
 	for key, want := range map[string]string{
 		"NOPSAI_BIND_ADDRESS":             "${NOPSAI_BIND_ADDRESS:-127.0.0.1}",
-		"POSTGRES_PASSWORD":               "${POSTGRES_PASSWORD:-yoursecurepassword}",
-		"DATABASE_URL":                    "${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}",
-		"SERVICE_JWT_SIGNING_KEY":         "${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}",
-		"NOPSAI_MASTER_KEY":               "${NOPSAI_MASTER_KEY:-local-dev-master-key-change-me-please-rotate}",
-		"JWT_SIGNING_KEY":                 "${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}",
-		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD": "${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-admin}",
-		"AAA_SHARED_INTERNAL_TOKEN":       "${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}",
+		"POSTGRES_PASSWORD":               "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}",
+		"DATABASE_URL":                    "${DATABASE_URL:?set DATABASE_URL}",
+		"SERVICE_JWT_SIGNING_KEY":         "${SERVICE_JWT_SIGNING_KEY:?set SERVICE_JWT_SIGNING_KEY}",
+		"NOPSAI_MASTER_KEY":               "${NOPSAI_MASTER_KEY:?set NOPSAI_MASTER_KEY}",
+		"JWT_SIGNING_KEY":                 "${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY}",
+		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD": "${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:?set NOPSAI_BOOTSTRAP_ADMIN_PASSWORD}",
+		"AAA_SHARED_INTERNAL_TOKEN":       "${AAA_SHARED_INTERNAL_TOKEN:?set AAA_SHARED_INTERNAL_TOKEN}",
 	} {
 		if got := service.Environment[key]; got != want {
 			t.Fatalf("safety service environment %s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestDockerComposeDoesNotShipPredictableCredentials(t *testing.T) {
+	contents, err := os.ReadFile("docker-compose.yaml")
+	if err != nil {
+		t.Fatalf("read docker-compose.yaml: %v", err)
+	}
+	for _, forbidden := range []string{
+		"yoursecurepassword",
+		"local-dev-service-jwt-key-change-me-please-rotate",
+		"local-dev-master-key-change-me-please-rotate",
+		"local-dev-jwt-signing-key-change-me-please-rotate",
+		"local-dev-aaa-token-change-me-please-rotate",
+		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD:-admin",
+	} {
+		if strings.Contains(string(contents), forbidden) {
+			t.Fatalf("docker-compose.yaml must not include predictable credential fallback %q", forbidden)
 		}
 	}
 }

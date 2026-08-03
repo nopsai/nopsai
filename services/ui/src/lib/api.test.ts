@@ -5,6 +5,7 @@ import {
   buildOIDCStartUrl,
   clearSession,
   consumeNextSSOLoginPrompt,
+  fetchAuthProviders,
   getStoredSession,
   logoutCurrentSession,
   persistSession,
@@ -98,6 +99,24 @@ test('supports unauthenticated requests without attaching stored credentials', a
   await client.fetch('/v1/auth/login', { auth: false });
 
   assert.deepEqual(seenAuthHeaders, [null]);
+});
+
+test('normalizes auth providers without forcing local login on', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ local_enabled: false, oidc_enabled: true, providers: [] }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    })) as typeof fetch;
+
+  try {
+    const providers = await fetchAuthProviders();
+
+    assert.equal(providers.local_enabled, false);
+    assert.equal(providers.oidc_enabled, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('marks the next SSO login to prompt only once', () => {

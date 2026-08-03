@@ -281,7 +281,6 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		MCPRegistryJSON:         runtimeMCPRegistryJSON,
 		KnowledgeContextsBase64: knowledgeSnapshotsEnv,
 		SharedVolumeName:        sharedVolumeName,
-		DockerNetworkName:       a.getDockerNetworkName(),
 		SecretsJSON:             secretsJSON,
 		VariablesJSON:           variablesJSON,
 		DispatcherAddress:       dispatcherAddr,
@@ -344,7 +343,6 @@ type agentEnvironmentInput struct {
 	MCPRegistryJSON         []byte
 	KnowledgeContextsBase64 string
 	SharedVolumeName        string
-	DockerNetworkName       string
 	SecretsJSON             []byte
 	VariablesJSON           []byte
 	DispatcherAddress       string
@@ -373,7 +371,6 @@ func buildAgentEnvironment(cfg config.Config, input agentEnvironmentInput) []str
 		fmt.Sprintf("LOG_FORMAT=%s", cfg.LogFormat),
 		fmt.Sprintf("PIPELINE_DEFINITION=%s", base64.StdEncoding.EncodeToString(input.PipelineDefinition)),
 		fmt.Sprintf("SHARED_VOLUME_NAME=%s", input.SharedVolumeName),
-		fmt.Sprintf("DOCKER_NETWORK_NAME=%s", input.DockerNetworkName),
 		fmt.Sprintf("NOPSAI_SECRETS=%s", base64.StdEncoding.EncodeToString(input.SecretsJSON)),
 		fmt.Sprintf("DISPATCHER_GRPC_ADDRESS=%s", input.DispatcherAddress),
 		fmt.Sprintf("%s=%s", serviceauth.EnvSigningKey, cfg.EffectiveServiceJWTSigningKey()),

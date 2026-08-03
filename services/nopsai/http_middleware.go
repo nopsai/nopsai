@@ -30,7 +30,7 @@ func (a *App) corsMiddleware(next http.Handler) http.Handler {
 
 func corsMiddlewareWithOrigins(next http.Handler, allowedOrigins []string) http.Handler {
 	allowedOrigins = normalizeAllowedOrigins(allowedOrigins)
-	wildcard := len(allowedOrigins) == 0 || containsFold(allowedOrigins, "*")
+	wildcard := containsFold(allowedOrigins, "*")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		if wildcard {
