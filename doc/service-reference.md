@@ -408,9 +408,10 @@ Responsibilities:
 - Connects to the dispatcher and registers its `runner_id`, scopes, capacity, and metadata.
 - Receives job assignments over gRPC.
 - Ensures the agent image exists locally.
-- Resolves assigned private registry auth from NopsAI before Docker API image
-  pulls.
-- Creates a shared Docker volume for the run.
+- Uses `pkg/dockerimage` for local image lookup, private registry auth, and
+  checked pull-response draining.
+- Uses `pkg/dockervolume` for managed Docker volume ownership checks and
+  create/reinspect validation.
 - Starts the agent container with Docker socket access and the shared workspace volume.
 - Streams container logs back through the dispatcher.
 - Polls run status so a cancelled run stops the agent container quickly.

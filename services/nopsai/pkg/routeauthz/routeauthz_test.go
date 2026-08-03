@@ -63,7 +63,6 @@ func TestMutatingCatalogRoutesRequireAuthzOrExplicitHandlerAuthorization(t *test
 		"POST /v1/git-webhook-sources":                                             "Git webhook source creation derives the concrete source resource from the request body.",
 		"POST /v1/git/events":                                                      "Git event ingestion is authenticated service flow handled outside AAA route mapping.",
 		"POST /v1/git/webhooks/{sourceID}":                                         "Git webhooks are public by design and validate source-specific secrets.",
-		"POST /v1/internal/registry-auth/docker":                                   "Registry auth is an internal service-auth endpoint.",
 		"POST /v1/internal/runs/{runID}/ai-usage":                                  "Run AI usage ingestion is an internal service-auth endpoint.",
 		"POST /v1/internal/runs/{runID}/approvals/pause":                           "Run approval pause is an internal service-auth endpoint.",
 		"POST /v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs": "Task output ingestion is an internal service-auth endpoint.",
@@ -144,6 +143,29 @@ func TestMutatingCatalogRoutesRequireAuthzOrExplicitHandlerAuthorization(t *test
 	if len(missing) > 0 {
 		sort.Strings(missing)
 		t.Fatalf("mutating routes without AAA mapping or explicit handler-authz deferral:\n%s", strings.Join(missing, "\n"))
+	}
+}
+
+func TestMapRequestRejectsUnknownMutatingRoutes(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/new-unmapped-route", nil)
+
+	action, resource, requiresFilter, err := MapRequest(req)
+
+	if err == nil {
+		t.Fatal("MapRequest() error = nil, want unmapped mutating route error")
+	}
+	if action != "" || resource.Type != "" || resource.ID != "" || requiresFilter {
+		t.Fatalf("MapRequest() = action %q resource %#v filter %v, want empty denied mapping", action, resource, requiresFilter)
+	}
+}
+
+func TestMapRequestRejectsRemovedRegistryAuthBroker(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/internal/registry-auth/docker", nil)
+
+	_, _, _, err := MapRequest(req)
+
+	if err == nil {
+		t.Fatal("MapRequest() error = nil, want removed registry-auth broker to be rejected")
 	}
 }
 

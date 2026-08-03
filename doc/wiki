@@ -21,7 +21,9 @@ Runner-private-registry documentation must be searchable by
 `docker_config_json`, `runner_registry_credentials`, `registry_credential_ref`,
 `imagePullSecrets`, and `RegistryAuth`, and must clearly separate
 infrastructure-owned platform pull secrets from NopsAI-owned runner credential
-assignments.
+assignments. It must state that the legacy `/v1/internal/registry-auth/docker`
+broker route is removed and that Docker runners use bootstrap-delivered
+`NOPSAI_REGISTRY_DOCKER_CONFIG_B64` for local per-image RegistryAuth.
 Runner routing documentation must be searchable by `dispatcher_routing`,
 `effective_routing`, `runner_scopes`, Scope runner assignments, and Team runner
 assignments. Runner lifecycle documentation must be searchable by runner

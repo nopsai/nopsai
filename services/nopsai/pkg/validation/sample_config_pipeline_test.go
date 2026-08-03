@@ -117,6 +117,10 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["release-metadata"].GetScript(), "printf 'SOURCE_URL=%q\\n' \"$source_url\"")
 	requireContains(t, steps["release-metadata"].GetScript(), "scripts/release-tags.sh \"$version\"")
 	requireContains(t, steps["release-metadata"].GetScript(), "printf 'RELEASE_TAGS=%q\\n' \"$release_tags_csv\"")
+	requireContains(t, steps["release-metadata"].GetScript(), "cp scripts/install-release-tools.sh dist/release/install-release-tools.sh")
+	if strings.Contains(steps["release-metadata"].GetScript(), "cat >dist/release/install-release-tools.sh") {
+		t.Fatal("release-metadata must copy the checked-in release tool installer instead of embedding a generated copy")
+	}
 	requireContains(t, steps["publish-base-image"].GetScript(), "publish-release-image.sh")
 	requireContains(t, steps["publish-base-image"].GetScript(), "nopsai-base")
 	requireContains(t, steps["publish-base-image"].GetScript(), `release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")`)

@@ -98,3 +98,9 @@ func TestCatalogClassifiesSpecialRoutesAndReturnsCopies(t *testing.T) {
 		t.Fatalf("too few domains: %#v", Domains())
 	}
 }
+
+func TestCatalogDoesNotExposeRemovedRegistryAuthBroker(t *testing.T) {
+	if route, ok := Find("POST", "/v1/internal/registry-auth/docker"); ok {
+		t.Fatalf("removed registry-auth broker route is still in catalog: %#v", route)
+	}
+}

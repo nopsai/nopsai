@@ -10,13 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"nopsai/pkg/dockerimage"
+	"nopsai/pkg/dockervolume"
 	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/registryauth"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicelog"
 
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
@@ -55,9 +56,7 @@ type RunnerOptions struct {
 	RegistryAuthConfigBase64 string
 }
 
-type RegistryAuthResolver interface {
-	Resolve(context.Context, string) (string, error)
-}
+type RegistryAuthResolver = dockerimage.RegistryAuthResolver
 
 type dockerRunner struct {
 	id                       string
@@ -169,7 +168,7 @@ func (r *dockerRunner) connectAndServe() error {
 		}
 	}()
 
-	sendCh <- &proto.RunnerMessage{
+	if !sendRunnerMessage(ctx, sendCh, &proto.RunnerMessage{
 		Message: &proto.RunnerMessage_Register{
 			Register: &proto.RunnerRegistration{
 				RunnerId: r.id,
@@ -178,11 +177,11 @@ func (r *dockerRunner) connectAndServe() error {
 				Metadata: r.registrationMetadata(),
 			},
 		},
+	}, runnerMessageBlock) {
+		return ctx.Err()
 	}
 
-	hbStop := make(chan struct{})
-	defer close(hbStop)
-	go r.heartbeatLoop(sendCh, hbStop)
+	go r.heartbeatLoop(ctx, sendCh)
 
 	for {
 		select {
@@ -199,7 +198,7 @@ func (r *dockerRunner) connectAndServe() error {
 		switch body := msg.Message.(type) {
 		case *proto.DispatcherMessage_Job:
 			if body.Job != nil {
-				go r.handleJob(context.Background(), dispatcherClient, body.Job, sendCh)
+				go r.handleJob(ctx, dispatcherClient, body.Job, sendCh)
 			}
 		case *proto.DispatcherMessage_Note:
 			log.Info().Str("note", body.Note).Msg("dispatcher message")
@@ -226,22 +225,24 @@ func (r *dockerRunner) registrationMetadata() map[string]string {
 	return metadata
 }
 
-func (r *dockerRunner) heartbeatLoop(sendCh chan<- *proto.RunnerMessage, stop <-chan struct{}) {
+func (r *dockerRunner) heartbeatLoop(ctx context.Context, sendCh chan<- *proto.RunnerMessage) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-stop:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sendCh <- &proto.RunnerMessage{
+			if !sendRunnerMessage(ctx, sendCh, &proto.RunnerMessage{
 				Message: &proto.RunnerMessage_Heartbeat{
 					Heartbeat: &proto.RunnerHeartbeat{
 						RunnerId:   r.id,
 						ActiveJobs: r.active.Load(),
 					},
 				},
+			}, runnerMessageDropIfFull) {
+				log.Debug().Str("runner_id", r.id).Msg("dropped heartbeat because runner send buffer is full")
 			}
 		}
 	}
@@ -253,108 +254,109 @@ func (r *dockerRunner) handleJob(ctx context.Context, dispatcher proto.Dispatche
 	}
 
 	r.active.Add(1)
-	sendJobResult(sendCh, job.RunId, "accepted", "")
+	defer r.active.Add(-1)
+	defer r.clearRunStopRequested(job.RunId)
+	sendJobResult(ctx, sendCh, job.RunId, "accepted", "")
 
-	go func() {
-		defer r.active.Add(-1)
-		defer r.clearRunStopRequested(job.RunId)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-		agentImage := job.AgentImage
-		if strings.TrimSpace(agentImage) == "" {
-			agentImage = defaultAgentImage
-		}
+	agentImage := job.AgentImage
+	if strings.TrimSpace(agentImage) == "" {
+		agentImage = defaultAgentImage
+	}
 
-		runtimeVars := append([]string(nil), job.Env...)
-		if strings.TrimSpace(r.dispatcherAddr) != "" {
-			runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_GRPC_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
-		}
-		if r.networkSet {
-			runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", strings.TrimSpace(job.DockerNetwork))
-		}
-		if strings.TrimSpace(r.registryAuthConfigBase64) != "" {
-			runtimeVars = upsertRuntimeVar(runtimeVars, registryauth.DockerConfigBase64Env, r.registryAuthConfigBase64)
-		}
+	runtimeVars := append([]string(nil), job.Env...)
+	if strings.TrimSpace(r.dispatcherAddr) != "" {
+		runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_GRPC_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
+	}
+	if r.networkSet {
+		runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", strings.TrimSpace(job.DockerNetwork))
+	}
+	if strings.TrimSpace(r.registryAuthConfigBase64) != "" {
+		runtimeVars = upsertRuntimeVar(runtimeVars, registryauth.DockerConfigBase64Env, r.registryAuthConfigBase64)
+	}
 
-		runCtx := context.Background()
-		if err := ensureImageExists(runCtx, r.docker, agentImage, r.registryAuth); err != nil {
-			sendJobResult(sendCh, job.RunId, "failed", err.Error())
-			return
-		}
+	if err := ensureImageExists(runCtx, r.docker, agentImage, r.registryAuth); err != nil {
+		sendJobResult(ctx, sendCh, job.RunId, "failed", err.Error())
+		return
+	}
 
-		sharedVolume := job.SharedVolumeName
-		if strings.TrimSpace(sharedVolume) == "" {
-			sharedVolume = fmt.Sprintf("vol-%s", job.RunId)
-		}
+	sharedVolume := job.SharedVolumeName
+	if strings.TrimSpace(sharedVolume) == "" {
+		sharedVolume = fmt.Sprintf("vol-%s", job.RunId)
+	}
 
-		if err := ensureManagedRunVolume(runCtx, r.docker, sharedVolume, job.RunId); err != nil {
-			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("create volume: %v", err))
-			return
-		}
-		defer r.docker.VolumeRemove(context.Background(), sharedVolume, client.VolumeRemoveOptions{Force: true})
+	if err := ensureManagedRunVolume(runCtx, r.docker, sharedVolume, job.RunId); err != nil {
+		sendJobResult(ctx, sendCh, job.RunId, "failed", fmt.Sprintf("create volume: %v", err))
+		return
+	}
+	defer r.removeRunVolume(ctx, sharedVolume)
 
-		hostConfig := &container.HostConfig{
-			Binds: []string{
-				"/var/run/docker.sock:/var/run/docker.sock",
-				fmt.Sprintf("%s:/workspace", sharedVolume),
-			},
-			AutoRemove: job.AutoRemove,
-		}
+	hostConfig := &container.HostConfig{
+		Binds: []string{
+			"/var/run/docker.sock:/var/run/docker.sock",
+			fmt.Sprintf("%s:/workspace", sharedVolume),
+		},
+		AutoRemove: job.AutoRemove,
+	}
 
-		networking := &network.NetworkingConfig{}
-		if name := strings.TrimSpace(job.DockerNetwork); name != "" {
-			networking.EndpointsConfig = map[string]*network.EndpointSettings{
-				name: {},
-			}
+	networking := &network.NetworkingConfig{}
+	if name := strings.TrimSpace(job.DockerNetwork); name != "" {
+		networking.EndpointsConfig = map[string]*network.EndpointSettings{
+			name: {},
 		}
+	}
 
-		containerName := job.ContainerName
-		if strings.TrimSpace(containerName) == "" {
-			containerName = fmt.Sprintf("agent-%s", job.RunId)
-		}
+	containerName := job.ContainerName
+	if strings.TrimSpace(containerName) == "" {
+		containerName = fmt.Sprintf("agent-%s", job.RunId)
+	}
 
-		resp, err := r.docker.ContainerCreate(runCtx, client.ContainerCreateOptions{
-			Config: &container.Config{
-				Image: agentImage,
-				Env:   runtimeVars,
-			},
-			HostConfig:       hostConfig,
-			NetworkingConfig: networking,
-			Name:             containerName,
-		})
+	resp, err := r.docker.ContainerCreate(runCtx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: agentImage,
+			Env:   runtimeVars,
+		},
+		HostConfig:       hostConfig,
+		NetworkingConfig: networking,
+		Name:             containerName,
+	})
+	if err != nil {
+		sendJobResult(ctx, sendCh, job.RunId, "failed", fmt.Sprintf("container create: %v", err))
+		return
+	}
+
+	if _, err := r.docker.ContainerStart(runCtx, resp.ID, client.ContainerStartOptions{}); err != nil {
+		r.removeCreatedContainer(ctx, resp.ID)
+		sendJobResult(ctx, sendCh, job.RunId, "failed", fmt.Sprintf("container start: %v", err))
+		return
+	}
+
+	log.Info().Str("run_id", job.RunId).Str("container_id", resp.ID).Msg("started agent container")
+
+	go r.monitorRunCancellation(runCtx, dispatcher, job.RunId, resp.ID)
+	go r.streamLogs(runCtx, dispatcher, job, resp.ID)
+
+	waitResult := r.docker.ContainerWait(runCtx, resp.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	select {
+	case err := <-waitResult.Error:
 		if err != nil {
-			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container create: %v", err))
+			sendJobResult(ctx, sendCh, job.RunId, "failed", fmt.Sprintf("container wait: %v", err))
 			return
 		}
-
-		if _, err := r.docker.ContainerStart(runCtx, resp.ID, client.ContainerStartOptions{}); err != nil {
-			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container start: %v", err))
+	case status := <-waitResult.Result:
+		if status.StatusCode != 0 {
+			sendJobResult(ctx, sendCh, job.RunId, "failed", fmt.Sprintf("exit code %d", status.StatusCode))
 			return
 		}
+	case <-runCtx.Done():
+		r.stopContainer(ctx, resp.ID)
+		sendJobResult(ctx, sendCh, job.RunId, "failed", runCtx.Err().Error())
+		return
+	}
 
-		log.Info().Str("run_id", job.RunId).Str("container_id", resp.ID).Msg("started agent container")
-
-		runCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		go r.monitorRunCancellation(runCtx, dispatcher, job.RunId, resp.ID)
-		go r.streamLogs(runCtx, dispatcher, job, resp.ID)
-
-		waitResult := r.docker.ContainerWait(context.Background(), resp.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-		select {
-		case err := <-waitResult.Error:
-			if err != nil {
-				sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("container wait: %v", err))
-				return
-			}
-		case status := <-waitResult.Result:
-			if status.StatusCode != 0 {
-				sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("exit code %d", status.StatusCode))
-				return
-			}
-		}
-
-		sendJobResult(sendCh, job.RunId, "completed", "")
-	}()
+	sendJobResult(ctx, sendCh, job.RunId, "completed", "")
 }
 
 func (r *dockerRunner) monitorRunCancellation(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, containerID string) {
@@ -370,7 +372,7 @@ func (r *dockerRunner) monitorRunCancellation(ctx context.Context, dispatcher pr
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			reqCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			resp, err := dispatcher.GetRunStatus(reqCtx, &proto.RunStatusRequest{RunId: runID})
 			cancel()
 			if err != nil {
@@ -383,7 +385,7 @@ func (r *dockerRunner) monitorRunCancellation(ctx context.Context, dispatcher pr
 					return
 				}
 				log.Warn().Str("run_id", runID).Str("container_id", containerID).Msg("run cancelled; stopping agent container")
-				r.stopContainer(containerID)
+				r.stopContainer(ctx, containerID)
 				return
 			}
 		}
@@ -408,17 +410,39 @@ func (r *dockerRunner) clearRunStopRequested(runID string) {
 	delete(r.stoppedRuns, runID)
 }
 
-func (r *dockerRunner) stopContainer(containerID string) {
+func (r *dockerRunner) stopContainer(ctx context.Context, containerID string) {
 	if r == nil || r.docker == nil || strings.TrimSpace(containerID) == "" {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := dockerCleanupContext(ctx, 15*time.Second)
 	defer cancel()
 
 	timeout := 1
 	if _, err := r.docker.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		log.Warn().Err(err).Str("container_id", containerID).Msg("failed to stop agent container after cancellation")
+	}
+}
+
+func (r *dockerRunner) removeCreatedContainer(ctx context.Context, containerID string) {
+	if r == nil || r.docker == nil || strings.TrimSpace(containerID) == "" {
+		return
+	}
+	cleanupCtx, cancel := dockerCleanupContext(ctx, 30*time.Second)
+	defer cancel()
+	if _, err := r.docker.ContainerRemove(cleanupCtx, containerID, client.ContainerRemoveOptions{Force: true}); err != nil {
+		log.Warn().Err(err).Str("container_id", containerID).Msg("failed to remove agent container after start failure")
+	}
+}
+
+func (r *dockerRunner) removeRunVolume(ctx context.Context, volumeName string) {
+	if r == nil || r.docker == nil || strings.TrimSpace(volumeName) == "" {
+		return
+	}
+	cleanupCtx, cancel := dockerCleanupContext(ctx, 30*time.Second)
+	defer cancel()
+	if _, err := r.docker.VolumeRemove(cleanupCtx, volumeName, client.VolumeRemoveOptions{Force: true}); err != nil {
+		log.Warn().Err(err).Str("volume", volumeName).Msg("failed to remove managed run volume")
 	}
 }
 
@@ -471,7 +495,14 @@ func (r *dockerRunner) flushLogs(ctx context.Context, dispatcher proto.Dispatche
 	}
 }
 
-func sendJobResult(sendCh chan<- *proto.RunnerMessage, runID, status, errMsg string) {
+type runnerMessageOverflowPolicy int
+
+const (
+	runnerMessageBlock runnerMessageOverflowPolicy = iota
+	runnerMessageDropIfFull
+)
+
+func sendJobResult(ctx context.Context, sendCh chan<- *proto.RunnerMessage, runID, status, errMsg string) {
 	msg := &proto.RunnerMessage{
 		Message: &proto.RunnerMessage_JobResult{
 			JobResult: &proto.JobResult{
@@ -481,10 +512,33 @@ func sendJobResult(sendCh chan<- *proto.RunnerMessage, runID, status, errMsg str
 			},
 		},
 	}
+	if !sendRunnerMessage(ctx, sendCh, msg, runnerMessageBlock) {
+		log.Warn().Str("run_id", runID).Str("status", status).Msg("runner context ended before job status could be reported")
+	}
+}
+
+func sendRunnerMessage(ctx context.Context, sendCh chan<- *proto.RunnerMessage, msg *proto.RunnerMessage, policy runnerMessageOverflowPolicy) bool {
+	if sendCh == nil || msg == nil {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if policy == runnerMessageDropIfFull {
+		select {
+		case sendCh <- msg:
+			return true
+		case <-ctx.Done():
+			return false
+		default:
+			return false
+		}
+	}
 	select {
 	case sendCh <- msg:
-	default:
-		log.Warn().Str("run_id", runID).Msg("send buffer full while reporting job status")
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -504,27 +558,17 @@ func parseScopes(raw string) []string {
 }
 
 func ensureImageExists(ctx context.Context, cli *client.Client, imageName string, authResolver RegistryAuthResolver) error {
-	imageFilters := make(client.Filters).Add("reference", imageName)
-	images, err := cli.ImageList(ctx, client.ImageListOptions{Filters: imageFilters})
+	result, err := dockerimage.EnsureExists(ctx, cli, imageName, authResolver)
 	if err != nil {
-		return fmt.Errorf("list images: %w", err)
+		return err
 	}
-
-	if len(images.Items) == 0 {
-		log.Info().Msgf("image %s not found locally, pulling", imageName)
-		options, usingRegistryAuth, err := dockerImagePullOptions(ctx, imageName, authResolver)
-		if err != nil {
-			return err
-		}
-		if usingRegistryAuth {
-			log.Info().Str("image", imageName).Msg("using local Docker registry auth for image pull")
-		}
-		out, err := cli.ImagePull(ctx, imageName, options)
-		if err != nil {
-			return fmt.Errorf("pull image: %w", err)
-		}
-		defer out.Close()
-		io.Copy(io.Discard, out)
+	switch {
+	case result.FoundLocal:
+		log.Info().Str("image", imageName).Msg("image found locally")
+	case result.Pulled && result.UsedRegistryAuth:
+		log.Info().Str("image", imageName).Msg("pulled image with local Docker registry auth")
+	case result.Pulled:
+		log.Info().Str("image", imageName).Msg("pulled image")
 	}
 	return nil
 }
@@ -535,31 +579,12 @@ func ensureManagedRunVolume(ctx context.Context, cli *client.Client, volumeName,
 	if volumeName == "" || runID == "" {
 		return fmt.Errorf("volume name and run id are required")
 	}
-	inspected, err := cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
-	if err == nil {
-		if dockerRunVolumeOwnedBy(inspected.Volume.Labels, runID) {
-			return nil
-		}
-		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
-	}
-	if !cerrdefs.IsNotFound(err) {
-		return fmt.Errorf("inspect docker volume %q: %w", volumeName, err)
-	}
-	_, err = cli.VolumeCreate(ctx, client.VolumeCreateOptions{
-		Name:   volumeName,
-		Labels: dockerRunVolumeLabels(runID),
+	return dockervolume.EnsureManaged(ctx, cli, dockervolume.ManagedSpec{
+		Name:              volumeName,
+		Labels:            dockerRunVolumeLabels(runID),
+		ValidateOwnership: func(labels map[string]string) bool { return dockerRunVolumeOwnedBy(labels, runID) },
+		OwnerDescription:  "run",
 	})
-	if err != nil {
-		return fmt.Errorf("create docker volume %q: %w", volumeName, err)
-	}
-	inspected, err = cli.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
-	if err != nil {
-		return fmt.Errorf("inspect docker volume %q after create: %w", volumeName, err)
-	}
-	if !dockerRunVolumeOwnedBy(inspected.Volume.Labels, runID) {
-		return fmt.Errorf("docker volume %q is not owned by this NopsAI run", volumeName)
-	}
-	return nil
 }
 
 func dockerRunVolumeLabels(runID string) map[string]string {
@@ -576,23 +601,6 @@ func dockerRunVolumeOwnedBy(labels map[string]string, runID string) bool {
 		strings.TrimSpace(labels[dockerRunVolumeOwnerLabel]) == strings.TrimSpace(runID)
 }
 
-func dockerImagePullOptions(ctx context.Context, imageName string, authResolver RegistryAuthResolver) (client.ImagePullOptions, bool, error) {
-	options := client.ImagePullOptions{}
-	if authResolver == nil {
-		return options, false, nil
-	}
-	registryAuth, err := authResolver.Resolve(ctx, imageName)
-	if err != nil {
-		return options, false, fmt.Errorf("resolve registry auth for image %s: %w", imageName, err)
-	}
-	registryAuth = strings.TrimSpace(registryAuth)
-	if registryAuth == "" {
-		return options, false, nil
-	}
-	options.RegistryAuth = registryAuth
-	return options, true, nil
-}
-
 func upsertRuntimeVar(runtimeVars []string, key, val string) []string {
 	prefix := key + "="
 	for i, e := range runtimeVars {
@@ -602,4 +610,11 @@ func upsertRuntimeVar(runtimeVars []string, key, val string) []string {
 		}
 	}
 	return append(runtimeVars, prefix+val)
+}
+
+func dockerCleanupContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		return context.WithTimeout(context.Background(), timeout)
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }

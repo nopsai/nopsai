@@ -410,7 +410,8 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"cli_assets=(dist/cli/*)",
 		"No CLI release artifacts were built into dist/cli",
 		`helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1`,
-		"install_oras()",
+		"cp scripts/install-release-tools.sh dist/release/install-release-tools.sh",
+		". dist/release/install-release-tools.sh",
 		`oras_chart_reference="${chart_reference#oci://}"`,
 		`oras copy "$oras_chart_reference:$VERSION" "$oras_chart_reference:$release_tag"`,
 		`grep -Eo 'sha256:[a-f0-9]{64}'`,
@@ -444,9 +445,35 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"compose_asset=",
 		"deployment_bundle_asset=",
 		"tar -C dist/release -czf",
+		"cat >dist/release/install-release-tools.sh",
 	} {
 		if strings.Contains(pipeline, forbidden) {
 			t.Errorf("NopsAI platform release pipeline should not contain %q", forbidden)
+		}
+	}
+}
+
+func TestReleaseToolInstallerIsCheckedInAndVerified(t *testing.T) {
+	pipeline := readNopsAIReleasePipeline(t)
+	installerBytes, err := os.ReadFile("../scripts/install-release-tools.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := string(installerBytes)
+	if !strings.Contains(pipeline, "cp scripts/install-release-tools.sh dist/release/install-release-tools.sh") {
+		t.Fatal("release pipeline must copy the checked-in release tool installer")
+	}
+	for _, required := range []string{
+		"verify_release_download helm",
+		"verify_release_download oras",
+		"verify_release_download gh",
+		"sha256sum -c -",
+		"NOPSAI_RELEASE_HELM_SHA256_AMD64",
+		"NOPSAI_RELEASE_ORAS_SHA256_AMD64",
+		"NOPSAI_RELEASE_GH_SHA256_AMD64",
+	} {
+		if !strings.Contains(installer, required) {
+			t.Errorf("release tool installer is missing %q", required)
 		}
 	}
 }
