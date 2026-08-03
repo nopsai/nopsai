@@ -323,10 +323,11 @@ nopsai install docker-compose \
   --bootstrap-admin-password '<initial-password>' \
   --run
 
-# Kubernetes values generation, then edit values and create the referenced Secret
+# Kubernetes values and Secret generation, then review installation.md
 nopsai install kubernetes \
   --output-dir ./nopsai-prod \
   --values-file values.yaml \
+  --secret-file nopsai-secrets.yaml \
   --existing-secret nopsai-secrets \
   --bootstrap-admin-email platform-admin@example.com \
   --bootstrap-admin-password-secret-key bootstrap-admin-password \
@@ -373,30 +374,28 @@ temporary by default and must be changed on first login. The literal built-in
 `admin` password is rejected for generated installs; use the repository
 development Compose file for local development defaults.
 
-`install kubernetes` generates editable Helm values, `README.md`, and a
-non-secret install lock. The generated README records prerequisites, expected
-Secret keys, registry pull Secret setup, Secret manifest and `kubectl create
-secret` examples, CLI deploy commands, direct Helm commands, and verification
-commands. The generated values reference `secrets.existingSecret`; create that
-Secret through External Secrets, SOPS, Sealed Secrets, or `kubectl` before
-deploying. Kubernetes values include a bundled PostgreSQL StatefulSet by
-default; set `postgres.enabled=false` and replace the database URL when using
-managed PostgreSQL. That Secret must include database URL, bundled PostgreSQL
-password, master key, browser JWT key, service JWT key, AAA shared token,
-dispatcher TLS secret, and the bootstrap admin password key named by
-`--bootstrap-admin-password-secret-key` because the generated values do not
-store plaintext secrets. With bundled PostgreSQL, the password embedded in
+`install kubernetes` generates editable Helm values, `nopsai-secrets.yaml`,
+`installation.md`, and a non-secret install lock. The generated values reference
+`secrets.existingSecret`; the generated Secret manifest creates that Secret with
+database URL, bundled PostgreSQL password, master key, browser JWT key, service
+JWT key, AAA shared token, dispatcher TLS secret, and the bootstrap admin
+password key named by `--bootstrap-admin-password-secret-key`. Keep
+`values.yaml` and the lock in GitOps; keep `nopsai-secrets.yaml` private, or
+encrypt/seal it with External Secrets, SOPS, Sealed Secrets, or the enterprise
+secret workflow before committing it. Kubernetes values include a bundled
+PostgreSQL StatefulSet by default; set `postgres.enabled=false` and provide a
+managed database URL with `--database-url` or by replacing the generated Secret
+when using managed PostgreSQL. With bundled PostgreSQL, the password embedded in
 `database-url` must match `postgres-password`; if a previous PostgreSQL PVC is
 reused, the database keeps the password from its first initialization and a
-Secret-only change will make API/AAA authentication fail. If the release images are private, create the registry
-pull Secret in the namespace and reference it from `global.imagePullSecrets`;
-the CLI documents the command but does not own the registry credential. Add
-`--deploy --wait` on the first command to deploy
-immediately, or run
+Secret-only change will make API/AAA authentication fail. If the release images
+are private, create the registry pull Secret in the namespace and reference it
+from `global.imagePullSecrets`; `installation.md` documents the command but does
+not own the registry credential. Add `--deploy --wait` on the first command to
+apply the generated Secret and deploy immediately, or run
 `nopsai install kubernetes --deploy` later from the stored output directory
-after editing values. Stored-file deploys reuse `values.yaml`
-without overwriting it, then write a GitOps-readable release lock after
-success.
+after editing values. Stored-file deploys reuse `values.yaml` without
+overwriting it, then write a GitOps-readable release lock after success.
 Kubernetes service topology is stored under `topology.nopsaiAPIURL`,
 `topology.dispatcherGRPCAddress`, `topology.aaaAPIURL`,
 `topology.gitBotAPIURL`, and `topology.gotenbergURL` so multi-cluster,
@@ -485,6 +484,10 @@ dispatcher-read permission are warnings. NopsAI API readiness, metrics,
 connectivity, malformed responses, and token rejection are errors and cause a
 non-zero exit. JSON/YAML output is intended for CI and operational monitoring
 ingestion.
+If the API reports setup preflight mode because Postgres is still starting,
+`nopsai` keeps retrying the database and should become ready automatically once
+the database is reachable; persistent preflight errors indicate a required
+configuration or production-gate issue rather than startup ordering.
 
 ## Code Ownership
 

@@ -30,11 +30,11 @@ func previewInteractiveDockerComposeInstall(prompter *interactive.Prompter, opti
 
 func previewInteractiveKubernetesInstall(prompter *interactive.Prompter, options *installKubernetesOptions) error {
 	effects := []string{
-		"Generate Helm values and install lock metadata.",
+		"Generate Helm values, Kubernetes Secret manifest, installation guide, and install lock metadata.",
 		"Write files under " + installCommandOutputDir(options.outputDir) + ".",
 	}
 	if options.deploy {
-		effects = append(effects, "Run Helm upgrade --install after values are generated.")
+		effects = append(effects, "Apply the generated Kubernetes Secret and run Helm upgrade --install.")
 	}
 	return showInstallCommandPreview(prompter, "Kubernetes", kubernetesInstallPreviewArgs(options), effects)
 }
@@ -77,16 +77,31 @@ func kubernetesInstallPreviewArgs(options *installKubernetesOptions) []string {
 		"--version", strings.TrimSpace(options.version),
 		"--output-dir", strings.TrimSpace(options.outputDir),
 		"--values-file", strings.TrimSpace(options.valuesFile),
+		"--secret-file", strings.TrimSpace(options.secretFile),
 		"--release", strings.TrimSpace(options.releaseName),
 		"--namespace", strings.TrimSpace(options.namespace),
 		"--existing-secret", strings.TrimSpace(options.existingSecret),
 		"--bootstrap-admin-email", strings.TrimSpace(options.bootstrapAdminEmail),
 		"--bootstrap-admin-password-secret-key", strings.TrimSpace(options.bootstrapAdminPasswordSecretKey),
+		"--postgres-database", strings.TrimSpace(options.postgresDatabase),
+		"--postgres-user", strings.TrimSpace(options.postgresUser),
 		"--nopsai-api-url", strings.TrimSpace(options.nopsaiAPIURL),
 		"--dispatcher-address", strings.TrimSpace(options.dispatcherAddr),
 		"--aaa-api-url", strings.TrimSpace(options.aaaAPIURL),
 		"--git-bot-api-url", strings.TrimSpace(options.gitBotAPIURL),
 		"--gotenberg-url", strings.TrimSpace(options.gotenbergURL),
+	}
+	if strings.TrimSpace(options.bootstrapAdminPassword) != "" {
+		args = append(args, "--bootstrap-admin-password", "<redacted>")
+	}
+	if strings.TrimSpace(options.postgresPassword) != "" {
+		args = append(args, "--postgres-password", "<redacted>")
+	}
+	if strings.TrimSpace(options.databaseURL) != "" {
+		args = append(args, "--database-url", "<redacted>")
+	}
+	if strings.TrimSpace(options.masterKey) != "" {
+		args = append(args, "--master-key", "<redacted>")
 	}
 	if strings.TrimSpace(options.ingressHost) != "" {
 		args = append(args, "--ingress-host", strings.TrimSpace(options.ingressHost))

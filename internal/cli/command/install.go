@@ -1,8 +1,10 @@
 package command
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,6 +43,7 @@ type installKubernetesOptions struct {
 	version                         string
 	outputDir                       string
 	valuesFile                      string
+	secretFile                      string
 	values                          []string
 	releaseName                     string
 	namespace                       string
@@ -52,7 +55,13 @@ type installKubernetesOptions struct {
 	gitBotAPIURL                    string
 	gotenbergURL                    string
 	bootstrapAdminEmail             string
+	bootstrapAdminPassword          string
 	bootstrapAdminPasswordSecretKey string
+	postgresDatabase                string
+	postgresUser                    string
+	postgresPassword                string
+	databaseURL                     string
+	masterKey                       string
 	lockFile                        string
 	force                           bool
 	deploy                          bool
@@ -261,6 +270,7 @@ func newInstallKubernetesCommand(root *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&options.version, "version", options.version, "exact semantic NopsAI version to install; defaults to this CLI build version")
 	command.Flags().StringVar(&options.outputDir, "output-dir", options.outputDir, "directory where generated values and install metadata are stored")
 	command.Flags().StringVar(&options.valuesFile, "values-file", options.valuesFile, "generated Kubernetes values file path relative to output-dir")
+	command.Flags().StringVar(&options.secretFile, "secret-file", options.secretFile, "generated Kubernetes Secret manifest path relative to output-dir")
 	command.Flags().StringArrayVarP(&options.values, "values", "f", nil, "additional Helm values file to merge after the generated sample; repeat in GitOps order")
 	command.Flags().StringVar(&options.releaseName, "release", options.releaseName, "Helm release name to install or upgrade")
 	command.Flags().StringVar(&options.namespace, "namespace", options.namespace, "Kubernetes namespace for all rendered and deployed resources")
@@ -272,10 +282,16 @@ func newInstallKubernetesCommand(root *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&options.gitBotAPIURL, "git-bot-api-url", options.gitBotAPIURL, "internal git-bot API URL used by the NopsAI API")
 	command.Flags().StringVar(&options.gotenbergURL, "gotenberg-url", options.gotenbergURL, "internal Gotenberg URL used for final-output PDF rendering")
 	command.Flags().StringVar(&options.bootstrapAdminEmail, "bootstrap-admin-email", options.bootstrapAdminEmail, "initial local administrator email")
+	command.Flags().StringVar(&options.bootstrapAdminPassword, "bootstrap-admin-password", "", "initial local administrator password written to the generated Secret; omitted generates one")
 	command.Flags().StringVar(&options.bootstrapAdminPasswordSecretKey, "bootstrap-admin-password-secret-key", options.bootstrapAdminPasswordSecretKey, "Kubernetes Secret key containing the initial local administrator password")
+	command.Flags().StringVar(&options.postgresDatabase, "postgres-database", options.postgresDatabase, "bundled PostgreSQL database name written to generated values and Secret")
+	command.Flags().StringVar(&options.postgresUser, "postgres-user", options.postgresUser, "bundled PostgreSQL username written to generated values and Secret")
+	command.Flags().StringVar(&options.postgresPassword, "postgres-password", "", "bundled PostgreSQL password written to the generated Secret; omitted generates one")
+	command.Flags().StringVar(&options.databaseURL, "database-url", "", "database URL written to the generated Secret; omitted uses bundled PostgreSQL defaults")
+	command.Flags().StringVar(&options.masterKey, "master-key", "", "master encryption key written to the generated Secret; omitted generates one")
 	command.Flags().StringVar(&options.lockFile, "lock-file", "", "GitOps-tracked release lock path written after successful deployment (default: output-dir/.nopsai/release.lock)")
 	command.Flags().BoolVar(&options.force, "force", false, "replace previously generated install files in the output directory")
-	command.Flags().BoolVar(&options.deploy, "deploy", false, "run Helm upgrade --install after writing generated values")
+	command.Flags().BoolVar(&options.deploy, "deploy", false, "apply the generated Secret and run Helm upgrade --install after writing generated values")
 	command.Flags().BoolVar(&options.wait, "wait", false, "wait for Kubernetes resources to become ready before writing the release lock")
 	command.Flags().BoolVar(&options.interactive, "interactive", false, "prompt for version, values, namespace, bootstrap admin, secrets, overwrite, and deployment")
 	return command
@@ -286,6 +302,7 @@ func defaultKubernetesInstallOptions(root *rootOptions) *installKubernetesOption
 		version:                         defaultPlatformVersion(root),
 		outputDir:                       platform.DefaultInstallOutputDir,
 		valuesFile:                      platform.DefaultKubernetesValuesFile,
+		secretFile:                      platform.DefaultKubernetesSecretFile,
 		releaseName:                     platform.DefaultReleaseName,
 		namespace:                       platform.DefaultNamespace,
 		existingSecret:                  platform.DefaultKubernetesExistingSecret,
@@ -296,6 +313,8 @@ func defaultKubernetesInstallOptions(root *rootOptions) *installKubernetesOption
 		gotenbergURL:                    platform.DefaultInstallGotenbergURL,
 		bootstrapAdminEmail:             platform.DefaultInstallBootstrapAdminEmail,
 		bootstrapAdminPasswordSecretKey: platform.DefaultKubernetesBootstrapAdminPasswordSecretKey,
+		postgresDatabase:                platform.DefaultInstallPostgresDB,
+		postgresUser:                    platform.DefaultInstallPostgresUser,
 	}
 }
 
@@ -339,20 +358,22 @@ func installTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 					"",
 					"Generates",
 					"  - values.yaml",
-					"  - README.md with PostgreSQL, Secret creation, and Helm commands",
+					"  - nopsai-secrets.yaml with generated Kubernetes Secret data",
+					"  - installation.md with requirements, Secret apply, and Helm steps",
 					"  - .nopsai/install.lock",
 					"",
 					"Configurable",
 					"  - Helm release and namespace",
-					"  - existing Secret name",
-					"  - bundled PostgreSQL or external database URL",
-					"  - bootstrap admin email and Secret key",
+					"  - generated Secret file and Secret name",
+					"  - bundled PostgreSQL database, user, password, or external database URL",
+					"  - bootstrap admin email, password, and Secret key",
+					"  - master key",
 					"  - service URLs and gRPC addresses",
 					"  - optional ingress host",
 					"  - GitOps release lock path",
 					"",
 					"Noninteractive example",
-					fmt.Sprintf("  nopsai install kubernetes --version %s --output-dir ./nopsai-prod --values-file values.yaml", exampleVersion),
+					fmt.Sprintf("  nopsai install kubernetes --version %s --output-dir ./nopsai-prod --values-file values.yaml --secret-file nopsai-secrets.yaml", exampleVersion),
 				}
 			default:
 				return []string{choice.Description}
@@ -476,6 +497,7 @@ func executeInstallKubernetes(command *cobra.Command, root *rootOptions, options
 		Version:                         options.version,
 		OutputDir:                       options.outputDir,
 		ValuesFile:                      options.valuesFile,
+		SecretFile:                      options.secretFile,
 		ReleaseName:                     options.releaseName,
 		Namespace:                       options.namespace,
 		ExistingSecret:                  options.existingSecret,
@@ -486,7 +508,13 @@ func executeInstallKubernetes(command *cobra.Command, root *rootOptions, options
 		GitBotAPIURL:                    options.gitBotAPIURL,
 		GotenbergURL:                    options.gotenbergURL,
 		BootstrapAdminEmail:             options.bootstrapAdminEmail,
+		BootstrapAdminPassword:          options.bootstrapAdminPassword,
 		BootstrapAdminPasswordSecretKey: options.bootstrapAdminPasswordSecretKey,
+		PostgresDatabase:                options.postgresDatabase,
+		PostgresUser:                    options.postgresUser,
+		PostgresPassword:                options.postgresPassword,
+		DatabaseURL:                     options.databaseURL,
+		MasterKey:                       options.masterKey,
 		Wait:                            options.wait,
 	})
 	if err != nil {
@@ -500,6 +528,13 @@ func executeInstallKubernetes(command *cobra.Command, root *rootOptions, options
 	}
 	if !options.deploy {
 		return nil
+	}
+	namespace := strings.TrimSpace(options.namespace)
+	if namespace == "" {
+		namespace = platform.DefaultNamespace
+	}
+	if err := applyGeneratedKubernetesInstallSecret(command, root, namespace, plan.OutputDir, installPlanSecretFile(plan, options.secretFile)); err != nil {
+		return err
 	}
 	valuesFiles := []string{filepath.Join(plan.OutputDir, installPlanValuesFile(plan, options.valuesFile))}
 	valuesFiles = append(valuesFiles, options.values...)
@@ -623,6 +658,18 @@ func cleanInstallValuesFile(value string) (string, error) {
 	return filepath.FromSlash(cleaned), nil
 }
 
+func cleanInstallSecretFile(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = platform.DefaultKubernetesSecretFile
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(value))
+	if filepath.IsAbs(value) || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("secret file %q must stay inside the output directory", value)
+	}
+	return filepath.FromSlash(cleaned), nil
+}
+
 func regularFileExists(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err == nil {
@@ -738,6 +785,11 @@ func resolveInteractiveKubernetesInstall(prompter *interactive.Prompter, options
 		return err
 	}
 	options.valuesFile = strings.TrimSpace(valuesFile)
+	secretFile, err := prompter.AskRequired("Generated Secret file", valueOrDefault(options.secretFile, platform.DefaultKubernetesSecretFile))
+	if err != nil {
+		return err
+	}
+	options.secretFile = strings.TrimSpace(secretFile)
 	releaseName, err := prompter.AskRequired("Helm release name", valueOrDefault(options.releaseName, platform.DefaultReleaseName))
 	if err != nil {
 		return err
@@ -758,11 +810,41 @@ func resolveInteractiveKubernetesInstall(prompter *interactive.Prompter, options
 		return err
 	}
 	options.bootstrapAdminEmail = strings.TrimSpace(adminEmail)
+	adminPassword, err := prompter.Ask("Bootstrap admin password (blank generates)", options.bootstrapAdminPassword)
+	if err != nil {
+		return err
+	}
+	options.bootstrapAdminPassword = strings.TrimSpace(adminPassword)
 	adminPasswordKey, err := prompter.AskRequired("Bootstrap admin password Secret key", valueOrDefault(options.bootstrapAdminPasswordSecretKey, platform.DefaultKubernetesBootstrapAdminPasswordSecretKey))
 	if err != nil {
 		return err
 	}
 	options.bootstrapAdminPasswordSecretKey = strings.TrimSpace(adminPasswordKey)
+	postgresDatabase, err := prompter.AskRequired("PostgreSQL database", valueOrDefault(options.postgresDatabase, platform.DefaultInstallPostgresDB))
+	if err != nil {
+		return err
+	}
+	options.postgresDatabase = strings.TrimSpace(postgresDatabase)
+	postgresUser, err := prompter.AskRequired("PostgreSQL user", valueOrDefault(options.postgresUser, platform.DefaultInstallPostgresUser))
+	if err != nil {
+		return err
+	}
+	options.postgresUser = strings.TrimSpace(postgresUser)
+	postgresPassword, err := prompter.Ask("PostgreSQL password (blank generates)", options.postgresPassword)
+	if err != nil {
+		return err
+	}
+	options.postgresPassword = strings.TrimSpace(postgresPassword)
+	databaseURL, err := prompter.Ask("Database URL (blank uses bundled PostgreSQL)", options.databaseURL)
+	if err != nil {
+		return err
+	}
+	options.databaseURL = strings.TrimSpace(databaseURL)
+	masterKey, err := prompter.Ask("Master key (blank generates)", options.masterKey)
+	if err != nil {
+		return err
+	}
+	options.masterKey = strings.TrimSpace(masterKey)
 	ingressHost, err := prompter.Ask("Ingress host (blank disables ingress)", options.ingressHost)
 	if err != nil {
 		return err
@@ -798,7 +880,7 @@ func resolveInteractiveKubernetesInstall(prompter *interactive.Prompter, options
 		return err
 	}
 	options.force = force
-	deploy, err := prompter.Confirm("Deploy with Helm after generating values", options.deploy)
+	deploy, err := prompter.Confirm("Apply generated Secret and deploy with Helm", options.deploy)
 	if err != nil {
 		return err
 	}
@@ -862,13 +944,20 @@ func resolveLiveDockerComposeInstall(prompter *interactive.Prompter, options *in
 func resolveLiveKubernetesInstall(prompter *interactive.Prompter, options *installKubernetesOptions, defaultVersion string) error {
 	fields := []interactive.Field{
 		{Name: "version", Label: "NopsAI version", Value: options.version, Default: strings.TrimSpace(defaultVersion), Required: true, Description: "Exact semantic NopsAI version used to generate image tags, Helm chart version, values, and lock metadata.", Example: cliExampleVersion(defaultVersion)},
-		{Name: "outputDir", Label: "Output directory", Value: options.outputDir, Default: platform.DefaultInstallOutputDir, Required: true, Description: "Directory where generated Helm values and install metadata are written.", Example: "./nopsai-prod"},
+		{Name: "outputDir", Label: "Output directory", Value: options.outputDir, Default: platform.DefaultInstallOutputDir, Required: true, Description: "Directory where generated Helm values, Secret manifest, installation guide, and install metadata are written.", Example: "./nopsai-prod"},
 		{Name: "valuesFile", Label: "Values file", Value: options.valuesFile, Default: platform.DefaultKubernetesValuesFile, Required: true, Description: "Generated values file path relative to the output directory. Keep this GitOps-tracked.", Example: "values.yaml"},
+		{Name: "secretFile", Label: "Secret file", Value: options.secretFile, Default: platform.DefaultKubernetesSecretFile, Required: true, Description: "Generated Kubernetes Secret manifest path relative to the output directory. Keep private or encrypt/seal before GitOps.", Example: "nopsai-secrets.yaml"},
 		{Name: "releaseName", Label: "Helm release", Value: options.releaseName, Default: platform.DefaultReleaseName, Required: true, Description: "Helm release name to install or upgrade.", Example: "nopsai"},
 		{Name: "namespace", Label: "Namespace", Value: options.namespace, Default: platform.DefaultNamespace, Required: true, Description: "Kubernetes namespace for rendered and deployed resources.", Example: "nopsai"},
-		{Name: "existingSecret", Label: "Existing Secret", Value: options.existingSecret, Default: platform.DefaultKubernetesExistingSecret, Required: true, Description: "Kubernetes Secret referenced by generated values. It should contain database URL, bundled PostgreSQL password, master key, JWT keys, service JWT key, AAA shared internal token, dispatcher TLS secret, and bootstrap admin password.", Example: "nopsai-secrets"},
+		{Name: "existingSecret", Label: "Secret name", Value: options.existingSecret, Default: platform.DefaultKubernetesExistingSecret, Required: true, Description: "Kubernetes Secret name referenced by generated values and created by the generated Secret manifest.", Example: "nopsai-secrets"},
 		{Name: "bootstrapAdminEmail", Label: "Admin email", Value: options.bootstrapAdminEmail, Default: platform.DefaultInstallBootstrapAdminEmail, Required: true, Description: "Initial local administrator email created on first startup.", Example: "platform-admin@example.com"},
+		{Name: "bootstrapAdminPassword", Label: "Admin password", Value: options.bootstrapAdminPassword, Description: "Initial local administrator password written to the generated Secret. Leave blank to generate one.", Example: "use-a-unique-secret"},
 		{Name: "bootstrapAdminPasswordSecretKey", Label: "Admin password key", Value: options.bootstrapAdminPasswordSecretKey, Default: platform.DefaultKubernetesBootstrapAdminPasswordSecretKey, Required: true, Description: "Secret key in the existing Kubernetes Secret that contains the initial local administrator password.", Example: "bootstrap-admin-password"},
+		{Name: "postgresDatabase", Label: "Postgres database", Value: options.postgresDatabase, Default: platform.DefaultInstallPostgresDB, Required: true, Description: "Bundled PostgreSQL database name written to generated values and the generated database URL.", Example: "nopsai_db"},
+		{Name: "postgresUser", Label: "Postgres user", Value: options.postgresUser, Default: platform.DefaultInstallPostgresUser, Required: true, Description: "Bundled PostgreSQL username written to generated values and the generated database URL.", Example: "nopsai_user"},
+		{Name: "postgresPassword", Label: "Postgres password", Value: options.postgresPassword, Description: "Bundled PostgreSQL password written to the generated Secret. Leave blank to generate one.", Example: "use-a-unique-secret"},
+		{Name: "databaseURL", Label: "Database URL", Value: options.databaseURL, Description: "Database URL written to the generated Secret. Leave blank to use the bundled PostgreSQL service.", Example: "postgres://nopsai_user:secret@postgres:5432/nopsai_db?sslmode=disable"},
+		{Name: "masterKey", Label: "Master key", Value: options.masterKey, Description: "NopsAI master encryption key written to the generated Secret. Leave blank to generate one.", Example: "32-or-more-characters-of-secret"},
 		{Name: "ingressHost", Label: "Ingress host", Value: options.ingressHost, Description: "Optional ingress host. Leave blank to keep ingress disabled in generated values.", Example: "nopsai.example.com"},
 		{Name: "nopsaiAPIURL", Label: "NopsAI API URL", Value: options.nopsaiAPIURL, Default: platform.DefaultInstallNopsaiAPIURL, Required: true, Description: "Internal NopsAI API URL used by dispatcher, git-bot, and runners. Change this for custom service DNS or mesh addresses.", Example: "http://nopsai:8080"},
 		{Name: "dispatcherAddr", Label: "Dispatcher gRPC", Value: options.dispatcherAddr, Default: platform.DefaultInstallDispatcherAddress, Required: true, Description: "Internal dispatcher gRPC host:port used by the API and runners.", Example: "dispatcher:9090"},
@@ -876,7 +965,7 @@ func resolveLiveKubernetesInstall(prompter *interactive.Prompter, options *insta
 		{Name: "gitBotAPIURL", Label: "git-bot API URL", Value: options.gitBotAPIURL, Default: platform.DefaultInstallGitBotAPIURL, Required: true, Description: "Internal git-bot API URL used by NopsAI for repository automation.", Example: "http://git-bot:8081"},
 		{Name: "gotenbergURL", Label: "Gotenberg URL", Value: options.gotenbergURL, Default: platform.DefaultInstallGotenbergURL, Required: true, Description: "Internal Gotenberg URL used for final-output PDF rendering.", Example: "http://gotenberg:3000"},
 		{Name: "force", Label: "Replace files", Value: formatYesNo(options.force), Kind: interactive.FieldBoolean, Description: "Replace existing generated install files in the output directory."},
-		{Name: "deploy", Label: "Deploy with Helm", Value: formatYesNo(options.deploy), Kind: interactive.FieldBoolean, Description: "Run Helm upgrade --install after writing generated values. Leave off for GitOps-only generation."},
+		{Name: "deploy", Label: "Deploy with Helm", Value: formatYesNo(options.deploy), Kind: interactive.FieldBoolean, Description: "Apply the generated Secret and run Helm upgrade --install after writing generated values. Leave off for GitOps-only generation."},
 		{Name: "wait", Label: "Wait for rollout", Value: formatYesNo(options.wait), Kind: interactive.FieldBoolean, Description: "Wait for Kubernetes resources to become ready before writing the release lock."},
 		{Name: "lockFile", Label: "Release lock", Value: options.lockFile, Description: "GitOps-tracked release lock path. Blank defaults to output-dir/.nopsai/release.lock.", Example: "clusters/prod/nopsai/.nopsai/release.lock"},
 	}
@@ -888,11 +977,18 @@ func resolveLiveKubernetesInstall(prompter *interactive.Prompter, options *insta
 	options.version = strings.TrimSpace(values["version"])
 	options.outputDir = strings.TrimSpace(values["outputDir"])
 	options.valuesFile = strings.TrimSpace(values["valuesFile"])
+	options.secretFile = strings.TrimSpace(values["secretFile"])
 	options.releaseName = strings.TrimSpace(values["releaseName"])
 	options.namespace = strings.TrimSpace(values["namespace"])
 	options.existingSecret = strings.TrimSpace(values["existingSecret"])
 	options.bootstrapAdminEmail = strings.TrimSpace(values["bootstrapAdminEmail"])
+	options.bootstrapAdminPassword = strings.TrimSpace(values["bootstrapAdminPassword"])
 	options.bootstrapAdminPasswordSecretKey = strings.TrimSpace(values["bootstrapAdminPasswordSecretKey"])
+	options.postgresDatabase = strings.TrimSpace(values["postgresDatabase"])
+	options.postgresUser = strings.TrimSpace(values["postgresUser"])
+	options.postgresPassword = strings.TrimSpace(values["postgresPassword"])
+	options.databaseURL = strings.TrimSpace(values["databaseURL"])
+	options.masterKey = strings.TrimSpace(values["masterKey"])
 	options.ingressHost = strings.TrimSpace(values["ingressHost"])
 	options.nopsaiAPIURL = strings.TrimSpace(values["nopsaiAPIURL"])
 	options.dispatcherAddr = strings.TrimSpace(values["dispatcherAddr"])
@@ -974,6 +1070,42 @@ func renderInstallDeploymentPlan(command *cobra.Command, plan platform.Kubernete
 	return nil
 }
 
+func applyGeneratedKubernetesInstallSecret(command *cobra.Command, root *rootOptions, namespace, outputDir, secretFile string) error {
+	runner := root.dependencies.RunProcess
+	if runner == nil {
+		return errors.New("process runner is not configured")
+	}
+	stderr := command.ErrOrStderr()
+	var namespaceManifest bytes.Buffer
+	if err := runner(command.Context(), "kubectl", []string{"create", "namespace", namespace, "--dry-run=client", "-o", "yaml"}, &namespaceManifest, stderr); err != nil {
+		return fmt.Errorf("render Kubernetes namespace: %w", err)
+	}
+	if namespaceManifest.Len() == 0 {
+		return errors.New("render Kubernetes namespace: kubectl produced no manifest")
+	}
+	namespaceFile, err := os.CreateTemp("", "nopsai-namespace-*.yaml")
+	if err != nil {
+		return fmt.Errorf("create temporary namespace manifest: %w", err)
+	}
+	namespacePath := namespaceFile.Name()
+	defer os.Remove(namespacePath)
+	if _, err := namespaceFile.Write(namespaceManifest.Bytes()); err != nil {
+		namespaceFile.Close()
+		return fmt.Errorf("write temporary namespace manifest: %w", err)
+	}
+	if err := namespaceFile.Close(); err != nil {
+		return fmt.Errorf("close temporary namespace manifest: %w", err)
+	}
+	if err := runner(command.Context(), "kubectl", []string{"apply", "-f", namespacePath}, io.Discard, stderr); err != nil {
+		return fmt.Errorf("apply Kubernetes namespace: %w", err)
+	}
+	secretPath := filepath.Join(outputDir, secretFile)
+	if err := runner(command.Context(), "kubectl", []string{"apply", "-f", secretPath}, io.Discard, stderr); err != nil {
+		return fmt.Errorf("apply generated Kubernetes secrets: %w", err)
+	}
+	return nil
+}
+
 func installPlanValuesFile(plan platform.InstallPlan, configured string) string {
 	configured = strings.TrimSpace(configured)
 	if configured != "" {
@@ -985,4 +1117,16 @@ func installPlanValuesFile(plan platform.InstallPlan, configured string) string 
 		}
 	}
 	return platform.DefaultKubernetesValuesFile
+}
+
+func installPlanSecretFile(plan platform.InstallPlan, configured string) string {
+	if cleaned, err := cleanInstallSecretFile(configured); err == nil {
+		return cleaned
+	}
+	for _, file := range plan.Files {
+		if file.Sensitive && (strings.HasSuffix(file.RelativePath, ".yaml") || strings.HasSuffix(file.RelativePath, ".yml")) {
+			return filepath.FromSlash(file.RelativePath)
+		}
+	}
+	return platform.DefaultKubernetesSecretFile
 }

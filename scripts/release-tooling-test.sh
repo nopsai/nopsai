@@ -130,6 +130,8 @@ test ! -e "$temp_dir/compose-install/release-manifest.json"
 require_text "releaseVersion: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values release version"
 require_text "tag: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values image tag"
 require_text "postgres:" "$temp_dir/kubernetes-install/values.yaml" "the generated PostgreSQL values"
+require_text "kind: Secret" "$temp_dir/kubernetes-install/nopsai-secrets.yaml" "the generated Kubernetes Secret manifest"
+require_text "NopsAI Kubernetes Installation" "$temp_dir/kubernetes-install/installation.md" "the generated Kubernetes installation guide"
 require_text "oci://ghcr.io/nopsai/charts/nopsai" "$temp_dir/kubernetes-install/.nopsai/install.lock" "the generated chart reference"
 test ! -e "$temp_dir/kubernetes-install/release-manifest.json"
 
