@@ -37,7 +37,6 @@ const (
 	dockerStepVolumePurposeLabel = "nopsai.io/volume-purpose"
 	dockerStepVolumeOwnerLabel   = "nopsai.io/shared-volume"
 	dockerStepVolumePurpose      = "pipeline-step"
-	dockerStepTmpfsOptions       = "rw,noexec,nosuid,nodev,size=64m"
 	dockerStepOutputsTmpfs       = "rw,nosuid,nodev,size=64m"
 )
 
@@ -132,10 +131,7 @@ func ensureManagedDockerStepVolume(ctx context.Context, logger *zerolog.Logger, 
 }
 
 func dockerStepTmpfs(outputsEnabled bool) map[string]string {
-	tmpfs := map[string]string{
-		"/tmp":     dockerStepTmpfsOptions,
-		"/var/tmp": dockerStepTmpfsOptions,
-	}
+	tmpfs := map[string]string{}
 	if !outputsEnabled {
 		return tmpfs
 	}
@@ -149,9 +145,8 @@ func dockerStepHostConfig(binds []string, tmpfs map[string]string, networkName s
 		Binds:          binds,
 		Tmpfs:          tmpfs,
 		NetworkMode:    dockerStepNetworkMode(networkName),
-		CapDrop:        []string{"ALL"},
 		SecurityOpt:    []string{"no-new-privileges:true"},
-		ReadonlyRootfs: true,
+		ReadonlyRootfs: false,
 		Resources: container.Resources{
 			PidsLimit: &defaultDockerStepPidsLimit,
 		},
@@ -162,8 +157,10 @@ func dockerStepHostConfig(binds []string, tmpfs map[string]string, networkName s
 func dockerStepNetworkMode(networkName string) container.NetworkMode {
 	networkName = strings.TrimSpace(networkName)
 	switch strings.ToLower(networkName) {
-	case "", "none", "nopsai-net":
+	case "none":
 		return container.NetworkMode("none")
+	case "", "default", "bridge", "nopsai-net":
+		return container.NetworkMode("bridge")
 	default:
 		return container.NetworkMode(networkName)
 	}

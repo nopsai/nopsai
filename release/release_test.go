@@ -483,6 +483,8 @@ func TestReleaseToolInstallerIsCheckedInAndVerified(t *testing.T) {
 		"verify_release_download helm",
 		"verify_release_download oras",
 		"verify_release_download gh",
+		"extract_release_archive",
+		"tar --no-same-owner",
 		"sha256sum -c -",
 		"NOPSAI_RELEASE_HELM_SHA256_AMD64",
 		"NOPSAI_RELEASE_ORAS_SHA256_AMD64",

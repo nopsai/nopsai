@@ -56,17 +56,6 @@ steps:
         exit 1
       fi
 
-      if [[ -n "${NOPSAI_RELEASE_GITHUB_TOKEN:-}" ]]; then
-        printf '%s\n' \
-          '#!/bin/sh' \
-          'case "$1" in' \
-          '  *Username*) printf "%s\n" "x-access-token" ;;' \
-          '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
-          '  *) printf "\n" ;;' \
-          'esac' >/tmp/nopsai-git-askpass
-        chmod 700 /tmp/nopsai-git-askpass
-        export GIT_ASKPASS=/tmp/nopsai-git-askpass
-      fi
       export GIT_TERMINAL_PROMPT=0
 
       if [[ -d .git ]]; then
@@ -78,6 +67,18 @@ steps:
         fi
         git init .
         git remote add origin "$repo_url"
+      fi
+      if [[ -n "${NOPSAI_RELEASE_GITHUB_TOKEN:-}" ]]; then
+        askpass_path="$(git rev-parse --absolute-git-dir)/nopsai-git-askpass"
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'case "$1" in' \
+          '  *Username*) printf "%s\n" "x-access-token" ;;' \
+          '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
+          '  *) printf "\n" ;;' \
+          'esac' >"$askpass_path"
+        chmod 700 "$askpass_path"
+        export GIT_ASKPASS="$askpass_path"
       fi
 
       source_ref="${NOPSAI_RELEASE_SOURCE_REF:-${GIT_COMMIT_SHA:-main}}"
@@ -116,15 +117,16 @@ steps:
       set -euo pipefail
 
       if [[ -n "${NOPSAI_RELEASE_GITHUB_TOKEN:-}" ]]; then
+        askpass_path="$(git rev-parse --absolute-git-dir)/nopsai-git-askpass"
         printf '%s\n' \
           '#!/bin/sh' \
           'case "$1" in' \
           '  *Username*) printf "%s\n" "x-access-token" ;;' \
           '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
           '  *) printf "\n" ;;' \
-          'esac' >/tmp/nopsai-git-askpass
-        chmod 700 /tmp/nopsai-git-askpass
-        export GIT_ASKPASS=/tmp/nopsai-git-askpass
+          'esac' >"$askpass_path"
+        chmod 700 "$askpass_path"
+        export GIT_ASKPASS="$askpass_path"
       fi
       export GIT_TERMINAL_PROMPT=0
 
@@ -335,8 +337,14 @@ steps:
       }
 
       export CI=1
+      export NPM_CONFIG_AUDIT=false
+      export NPM_CONFIG_FOREGROUND_SCRIPTS=true
+      export NPM_CONFIG_FUND=false
+      export NPM_CONFIG_PROGRESS=false
+      node --version
+      npm --version
       cd services/ui
-      run_ui_gate npm-ci npm ci
+      run_ui_gate npm-ci npm ci --foreground-scripts --no-audit --no-fund --loglevel=notice
       run_ui_gate lint npm run lint
       run_ui_gate ui-boundaries npm run check:ui-boundaries
       run_ui_gate tests npm run test
@@ -952,15 +960,17 @@ steps:
       trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
 
       configure_git_auth() {
+        local askpass_path
+        askpass_path="$(git rev-parse --absolute-git-dir)/nopsai-git-askpass"
         printf '%s\n' \
           '#!/bin/sh' \
           'case "$1" in' \
           '  *Username*) printf "%s\n" "x-access-token" ;;' \
           '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
           '  *) printf "\n" ;;' \
-          'esac' >/tmp/nopsai-git-askpass
-        chmod 700 /tmp/nopsai-git-askpass
-        export GIT_ASKPASS=/tmp/nopsai-git-askpass
+          'esac' >"$askpass_path"
+        chmod 700 "$askpass_path"
+        export GIT_ASKPASS="$askpass_path"
         export GIT_TERMINAL_PROMPT=0
       }
 

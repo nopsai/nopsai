@@ -107,10 +107,10 @@ still handled by the agent: when a step declares `volumes`, the agent creates
 missing PVCs with NopsAI ownership labels for that run and refuses to attach an
 existing PVC that was not created for the same run.
 
-Runner pods, agent pods, and step pods use `RuntimeDefault` seccomp, disable
-privilege escalation, and drop Linux capabilities by default. They do not force
-`runAsNonRoot`, because many enterprise base images still declare root as their
-default user and would fail before the task starts.
+Runner pods, agent pods, and step pods use `RuntimeDefault` seccomp and disable
+privilege escalation by default. Step pods do not drop workload container
+capabilities or force `runAsNonRoot`, because many enterprise base images still
+declare root as their default user and would fail before the task starts.
 
 You can also configure `kubernetes.existing_workspace_pvc` with
 `workspace_volume_mode: existing` when you want the agent and step pods to mount

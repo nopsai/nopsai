@@ -100,12 +100,18 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireDependsOn(t, steps["package-release-assets"].GetDependsOn(), "build-cli-archives", "publish-helm-chart")
 	requireDependsOn(t, steps["publish-release"].GetDependsOn(), "package-release-assets")
 	requireContains(t, steps["release-metadata"].GetScript(), "GIT_ASKPASS")
+	requireContains(t, steps["checkout-repository"].GetScript(), "git rev-parse --absolute-git-dir")
+	requireContains(t, steps["release-metadata"].GetScript(), "git rev-parse --absolute-git-dir")
+	requireContains(t, steps["publish-release"].GetScript(), "git rev-parse --absolute-git-dir")
 	requireContains(t, steps["checkout-repository"].GetScript(), "git fetch --force --tags origin")
 	requireContains(t, steps["quality-gates"].GetScript(), "apk add --no-cache bash build-base")
 	requireContains(t, steps["quality-gates"].GetScript(), "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2")
 	requireContains(t, steps["quality-gates"].GetScript(), "go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1")
 	requireContains(t, steps["quality-gates"].GetScript(), "go install golang.org/x/vuln/cmd/govulncheck@v1.6.0")
 	requireContains(t, steps["quality-gates"].GetScript(), "SKIP_DOCKER_BUILDS=1 scripts/enterprise-gates.sh")
+	requireContains(t, steps["ui-gates"].GetScript(), "NPM_CONFIG_FOREGROUND_SCRIPTS=true")
+	requireContains(t, steps["ui-gates"].GetScript(), "node --version")
+	requireContains(t, steps["ui-gates"].GetScript(), "npm ci --foreground-scripts --no-audit --no-fund --loglevel=notice")
 	requireContains(t, steps["build-cli-archives"].GetScript(), "asset=\"nopsai-cli_${VERSION}_${goos}_${goarch}\"")
 	requireContains(t, steps["build-cli-archives"].GetScript(), "nopsai/pkg/buildinfo.APIVersion=${API_VERSION}")
 	requireContains(t, steps["build-cli-archives"].GetScript(), "nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY}")
@@ -168,7 +174,7 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["publish-release"].GetScript(), "legacy_assets=(")
 	requireContains(t, steps["publish-release"].GetScript(), "gh release delete-asset \"v$VERSION\" \"$asset\"")
 	requireContains(t, steps["publish-release"].GetScript(), "gh release upload \"v$VERSION\" dist/assets/* --repo \"$GITHUB_REPOSITORY\" --clobber")
-	forbidden := []string{"release-manifest.json", "release-index.json", "deployment_bundle_asset=", "compose_asset=", "render-release-bundle", "validate-release-compose"}
+	forbidden := []string{"release-manifest.json", "release-index.json", "deployment_bundle_asset=", "compose_asset=", "render-release-bundle", "validate-release-compose", "/tmp/nopsai-git-askpass"}
 	for _, step := range pipeline.Steps {
 		script := step.GetScript()
 		for _, value := range forbidden {
