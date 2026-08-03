@@ -226,7 +226,7 @@ func parseKnowledgeContextDriftPath(filePath string) (string, string, string, er
 	rel = strings.TrimPrefix(rel, "knowledge/")
 	parts := strings.Split(rel, "/")
 	if len(parts) < 2 {
-		return "", "", "", fmt.Errorf("knowledge document path must use kind/team/document")
+		return "", "", "", fmt.Errorf("knowledge document path must use kind/document or kind/team/document")
 	}
 	kind, err := normalizeKnowledgeContextKind(parts[0])
 	if err != nil {

@@ -62,11 +62,12 @@ test('normalizes scoped item metadata and clone names', () => {
 test('builds scope trees with empty enterprise team teams', () => {
   const root = buildScopeTree(
     [{ scope: '', label: 'Default', teamPath: '', description: '', secretCountHint: 0 }],
-    ['teams/platform']
+    ['teams/platform', 'data']
   );
-  assert.deepEqual(root.scopes, ['']);
-  assert.equal(root.children[0]?.fullPath, 'teams');
-  assert.equal(root.children[0]?.children[0]?.fullPath, 'teams/platform');
+  assert.deepEqual(root.scopes, []);
+  assert.deepEqual(root.children.map(child => child.fullPath), ['global', 'data', 'teams']);
+  assert.deepEqual(getScopeTreeNode(root, 'global')?.scopes, ['']);
+  assert.equal(getScopeTreeNode(root, 'teams')?.children[0]?.fullPath, 'teams/platform');
   assert.equal(countScopesRecursive(root), 1);
   assert.equal(getScopeTreeNode(root, 'teams/platform')?.fullPath, 'teams/platform');
   assert.equal(parentScopeTeam('teams/platform'), 'teams');
@@ -85,6 +86,9 @@ test('filters visible scopes by team and global search like resource collections
     'data/prod',
     'platform/dev',
     'platform/prod',
+  ]);
+  assert.deepEqual(filterVisibleScopeList(scopes, '', 'global').map(scope => scope.scope), [
+    '',
   ]);
   assert.deepEqual(filterVisibleScopeList(scopes, '', 'platform').map(scope => scope.scope), [
     'platform/dev',

@@ -23,7 +23,7 @@ type repositoryTriggerApplication struct {
 
 func repositoryTriggerApplicationFromRecord(record repositoryTriggerRecord) (repositoryTriggerApplication, bool, error) {
 	teamPath := strings.Trim(strings.TrimSpace(record.TeamPath), "/")
-	if teamPath == "" || strings.EqualFold(teamPath, rootGrantID) {
+	if teamPath == "" || isGlobalGrantResourceID(teamPath) || strings.EqualFold(teamPath, rootGrantID) {
 		return repositoryTriggerApplication{}, false, nil
 	}
 
@@ -172,7 +172,7 @@ func (a *App) ensureRepositoryTriggerApplication(ctx context.Context, runner que
 
 func repositoryTriggerApplicationParentID(ctx context.Context, runner queryRunner, teamPath string) (*int, error) {
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
-	if teamPath == "" || strings.EqualFold(teamPath, rootGrantID) {
+	if teamPath == "" || isGlobalGrantResourceID(teamPath) || strings.EqualFold(teamPath, rootGrantID) {
 		return nil, nil
 	}
 	records, err := loadTeamPathRecords(ctx, runner)

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle, GitBranch, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 
 import { apiClient } from '../lib/api';
-import { fetchResourceTeamPaths } from '../lib/resourceTeams';
+import { GLOBAL_RESOURCE_TEAM_LABEL, fetchResourceTeamPaths, isGlobalResourceTeamPath } from '../lib/resourceTeams';
 import { useDialogFocus } from './useDialogFocus';
 
 type AccessGrant = {
@@ -112,6 +112,7 @@ function defaultUseAction(resourceType: ResourceAccessCardProps['resourceType'])
 
 function subjectLabel(grant: AccessGrant) {
   const display = grant.subject_display || grant.subject_id;
+  if (grant.subject_type === 'team' && isGlobalResourceTeamPath(display)) return GLOBAL_RESOURCE_TEAM_LABEL;
   if (grant.subject_type === 'team') return `Team ${display}`;
   if (grant.subject_type === 'auth_team') return `Team ${display}`;
   if (grant.subject_type === 'repository') return `Repository ${display}`;
@@ -217,7 +218,10 @@ export default function ResourceAccessCard({
     setTeamsLoading(true);
     try {
       const paths = await fetchResourceTeamPaths();
-      setTeams(paths.map(path => ({ id: path, name: `/${path}` })));
+      setTeams(paths.map(path => ({
+        id: path,
+        name: isGlobalResourceTeamPath(path) ? GLOBAL_RESOURCE_TEAM_LABEL : `/${path}`,
+      })));
     } finally {
       setTeamsLoading(false);
     }

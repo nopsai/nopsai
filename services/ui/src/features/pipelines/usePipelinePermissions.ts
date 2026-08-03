@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { checkPipelinePermission } from './api';
-import { splitIdentifier } from './model';
+import { normalizeRootPath, splitIdentifier } from './model';
 
 const PIPELINE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
 
@@ -17,7 +17,7 @@ export function usePipelinePermissions(selectedID: string | null, activeTeam: st
     canExecute: boolean;
   } | null>(null);
   const permissionTeam = useMemo(
-    () => (selectedID ? splitIdentifier(selectedID).path : activeTeam),
+    () => normalizeRootPath(selectedID ? splitIdentifier(selectedID).path : activeTeam),
     [activeTeam, selectedID]
   );
 

@@ -25,6 +25,9 @@ func TestKnowledgeContextSchemaUsesTeamPath(t *testing.T) {
 		"CREATE TABLE IF NOT EXISTS knowledge_context_assets",
 		"REFERENCES knowledge_contexts(id) ON DELETE CASCADE",
 		"CREATE INDEX IF NOT EXISTS idx_knowledge_context_assets_context",
+		"UPDATE knowledge_contexts",
+		"UPDATE knowledge_context_connections",
+		"UPDATE pipeline_run_knowledge_contexts",
 	}
 	for _, statement := range required {
 		if !strings.Contains(joined, statement) {
@@ -38,4 +41,17 @@ func TestKnowledgeContextSchemaUsesTeamPath(t *testing.T) {
 		t.Fatalf("knowledge context creation must run before visibility backfill; create index %d backfill index %d", createIndex, visibilityBackfillIndex)
 	}
 	assertTeamOnlySchemaVocabulary(t, joined)
+}
+
+func TestKnowledgeContextSchemaAvoidsUUIDMinAggregate(t *testing.T) {
+	joined := strings.Join(knowledgeContextSchemaStatements, "\n")
+	if strings.Contains(joined, "MIN(id) OVER") {
+		t.Fatalf("knowledge context schema must not use MIN(id) over UUID columns")
+	}
+	if got := strings.Count(joined, "FIRST_VALUE(id) OVER"); got != 5 {
+		t.Fatalf("knowledge context schema should choose keeper UUIDs in 5 dedupe statements, got %d", got)
+	}
+	if !strings.Contains(joined, "ORDER BY id::text") {
+		t.Fatalf("knowledge context schema keeper UUID choice must be ordered by text-cast UUID")
+	}
 }

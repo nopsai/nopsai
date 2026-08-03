@@ -4,6 +4,7 @@ import { ObjectIcon } from '../../components/ObjectIcon';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
+import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams';
 import type { StepUsageItem } from './api';
 import { formatUpdatedAt, normalizeSource, type StepDetail } from './model';
 import { StepUsagePanel } from './StepUsagePanel';
@@ -85,7 +86,7 @@ export function StepDetailView({
   const sourceLabel = source === 'git' ? 'Git' : source === 'draft' ? 'Draft' : 'Database';
   const isGitSource = source === 'git';
   const updatedLabel = source === 'draft' ? 'Draft' : formatUpdatedAt(detail.updatedAt);
-  const pathLabel = detail.path || 'root';
+  const pathLabel = detail.path || GLOBAL_RESOURCE_TEAM_PATH;
 
   return (
     <div id="steps-detail-view" className="pipelines-view">

@@ -1,5 +1,10 @@
 import * as yaml from 'js-yaml';
-import { insertTeamPath } from '../../lib/resourceTeams.js';
+import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTreeNodes,
+  insertTeamPath,
+  isGlobalResourceTeamPath,
+} from '../../lib/resourceTeams.js';
 
 export type ScopeEntry = {
   scope: string;
@@ -172,14 +177,22 @@ export function decodeScopeFromRoute(segments: string[]): string {
 
 export function buildScopeTree(scopes: ScopeEntry[], teamPaths: string[] = []): ScopeTreeNode {
   const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
+  const createNode = (id: string, name: string, fullPath: string): ScopeTreeNode => ({ id, name, fullPath, children: [], scopes: [] });
+  const ensureGlobalNode = () => {
+    insertTeamPath(root, GLOBAL_RESOURCE_TEAM_PATH, createNode);
+    return root.children.find(child => child.fullPath === GLOBAL_RESOURCE_TEAM_PATH) || root;
+  };
+  ensureGlobalNode();
   teamPaths.forEach(path => {
-    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
+    insertTeamPath(root, path, createNode);
   });
   scopes.forEach(scope => {
     const normalized = normalizeScopeLabel(scope.scope);
     const parts = normalized.split('/').filter(Boolean);
     if (!parts.length) {
-      root.scopes.push('');
+      const global = ensureGlobalNode();
+      global.scopes.push('');
+      global.scopes.sort((a, b) => a.localeCompare(b));
       return;
     }
     let current = root;
@@ -190,7 +203,7 @@ export function buildScopeTree(scopes: ScopeEntry[], teamPaths: string[] = []): 
       if (!child) {
         child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], scopes: [] };
         current.children.push(child);
-        current.children.sort((a, b) => a.name.localeCompare(b.name));
+        current.children.sort(compareResourceTreeNodes);
       }
       current = child;
     });
@@ -203,6 +216,7 @@ export function buildScopeTree(scopes: ScopeEntry[], teamPaths: string[] = []): 
 export function filterVisibleScopeList(items: ScopeEntry[], searchTerm: string, activeTeam: string): ScopeEntry[] {
   const query = searchTerm.trim().toLowerCase();
   const normalizedTeam = normalizeScopeLabel(activeTeam);
+  const rootTeamSelected = isGlobalResourceTeamPath(activeTeam);
   const filtered = query
     ? items.filter(item => {
         if (item.scope.toLowerCase().includes(query)) return true;
@@ -211,9 +225,13 @@ export function filterVisibleScopeList(items: ScopeEntry[], searchTerm: string, 
         return false;
       })
     : items;
-  const scoped = query || !normalizedTeam
+  const scoped = query
     ? filtered
-    : filtered.filter(item => scopeBelongsToTeam(item, normalizedTeam));
+    : rootTeamSelected
+      ? filtered.filter(item => normalizeScopeLabel(item.scope) === '')
+      : !normalizedTeam
+        ? filtered
+        : filtered.filter(item => scopeBelongsToTeam(item, normalizedTeam));
   return [...scoped].sort((a, b) => {
     const scopeCompare = a.scope.localeCompare(b.scope, undefined, { sensitivity: 'base' });
     if (scopeCompare !== 0) return scopeCompare;

@@ -15,10 +15,10 @@ test('formats external trigger scope and team labels', () => {
   assert.equal(externalTriggerScopeLabel(), 'default');
   assert.equal(externalTriggerScopeLabel('default'), 'default');
   assert.equal(externalTriggerScopeLabel('.nopsai/pipelines/platform.yaml'), 'platform');
-  assert.equal(externalTriggerTeamLabel(), 'Root');
-  assert.equal(externalTriggerTeamLabel('root'), 'Root');
+  assert.equal(externalTriggerTeamLabel(), 'Global');
+  assert.equal(externalTriggerTeamLabel('global'), 'Global');
   assert.equal(externalTriggerTeamLabel('platform/prod'), 'platform/prod');
-  assert.equal(externalTriggerTeamPath('root'), '');
+  assert.equal(externalTriggerTeamPath('global'), 'global');
   assert.equal(externalTriggerTeamPath('.nopsai/external-triggers/platform/prod.yaml'), 'platform/prod');
 });
 
@@ -84,13 +84,13 @@ test('builds external trigger team tree items and filters team subtrees', () => 
       name: 'Global deploy',
       enabled: true,
       pipeline: 'global',
-      run_team_path: 'root',
+      run_team_path: 'global',
     },
   ];
 
   assert.deepEqual(buildExternalTriggerTreeItems(triggers), [
     { id: 'dev', label: 'dev', path: 'platform/dev', source: 'git' },
-    { id: 'global', label: 'Global deploy', path: '', source: undefined },
+    { id: 'global', label: 'Global deploy', path: 'global', source: undefined },
     { id: 'prod', label: 'Prod deploy', path: 'platform/prod', source: undefined },
   ]);
   assert.deepEqual(
@@ -100,5 +100,13 @@ test('builds external trigger team tree items and filters team subtrees', () => 
   assert.deepEqual(
     triggers.filter(trigger => externalTriggerBelongsToTeam(trigger, 'platform/prod')).map(trigger => trigger.id),
     ['prod']
+  );
+  assert.deepEqual(
+    triggers.filter(trigger => externalTriggerBelongsToTeam(trigger, '')).map(trigger => trigger.id),
+    ['prod', 'dev', 'global']
+  );
+  assert.deepEqual(
+    triggers.filter(trigger => externalTriggerBelongsToTeam(trigger, 'global')).map(trigger => trigger.id),
+    ['global']
   );
 });

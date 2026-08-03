@@ -6,6 +6,7 @@ import {
   normalizeScheduleMetadata,
   parseVariablesText,
   scheduleRequestFromForm,
+  uniqueRunTeamOptions,
 } from './model.js';
 
 test('round-trips supported cron modes through schedule form fields', () => {
@@ -37,7 +38,7 @@ test('builds one-time and recurring schedule requests', () => {
       timezone: 'UTC',
       enabled: true,
       scope: '',
-      run_team_path: 'root',
+      run_team_path: 'global',
       variables: { ENV: 'prod', RETRIES: '3' },
     }
   );
@@ -73,6 +74,10 @@ test('normalizes schedule metadata payloads', () => {
   );
 });
 
+test('keeps global first in schedule run team options', () => {
+  assert.deepEqual(uniqueRunTeamOptions(['data', 'platform', 'global']), ['global', 'data', 'platform']);
+});
+
 const baseForm = {
   name: 'Nightly',
   description: '',
@@ -90,6 +95,6 @@ const baseForm = {
   timezone: 'UTC',
   enabled: true,
   scope: '',
-  runTeamPath: 'root',
+  runTeamPath: 'global',
   variablesText: '',
 };

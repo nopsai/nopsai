@@ -1,4 +1,5 @@
 import * as yaml from 'js-yaml';
+import { isGlobalResourceTeamPath } from '../../lib/resourceTeams.js';
 import {
   findLineNumberForKey,
   findLineNumberForTaskName,
@@ -71,7 +72,7 @@ export type StepDetail = {
 
 export function normalizeRootPath(path: string) {
   const parts = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
-  if (parts[0]?.toLowerCase() === 'root') parts.shift();
+  if (isGlobalResourceTeamPath(parts[0])) parts.shift();
   return parts.join('/');
 }
 
@@ -98,10 +99,15 @@ export function normalizeSource(raw: unknown): 'git' | 'database' | 'draft' {
 export function filterVisibleStepList<T extends { id: string }>(items: T[], searchTerm: string, activeTeam: string): T[] {
   const query = searchTerm.trim().toLowerCase();
   const normalizedTeam = normalizeRootPath(activeTeam);
+  const rootTeamSelected = isGlobalResourceTeamPath(activeTeam);
   const filtered = query ? items.filter(item => item.id.toLowerCase().includes(query)) : items;
-  const scoped = query || !normalizedTeam
+  const scoped = query
     ? filtered
-    : filtered.filter(item => stepListItemBelongsToTeam(item, normalizedTeam));
+    : rootTeamSelected
+      ? filtered.filter(item => normalizeRootPath(splitIdentifier(item.id).path) === '')
+      : !normalizedTeam
+        ? filtered
+        : filtered.filter(item => stepListItemBelongsToTeam(item, normalizedTeam));
   return [...scoped].sort((a, b) => a.id.localeCompare(b.id));
 }
 

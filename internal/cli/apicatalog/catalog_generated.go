@@ -3,6 +3,7 @@
 package apicatalog
 
 var generatedRoutes = []Route{
+	newRoute("GET", "/favicon.ico"),
 	newRoute("GET", "/healthz"),
 	newRoute("GET", "/internal/v1/runtime-config/{service}"),
 	newRoute("GET", "/internal/v1/runtime-config/{service}/watch"),

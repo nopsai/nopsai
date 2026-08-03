@@ -15,7 +15,7 @@ var externalTriggerSchemaStatements = []string{
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		pipeline TEXT NOT NULL,
 		scope TEXT NOT NULL DEFAULT '',
-		run_team_path TEXT NOT NULL DEFAULT '',
+		run_team_path TEXT NOT NULL DEFAULT 'global',
 		allowed_callers JSONB NOT NULL DEFAULT '[]'::jsonb,
 		variable_mapping JSONB NOT NULL DEFAULT '{}'::jsonb,
 		payload_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -30,7 +30,11 @@ var externalTriggerSchemaStatements = []string{
 		config_source_commit_sha TEXT NOT NULL DEFAULT '',
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE
 	)`,
-	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT 'global'`,
+	`ALTER TABLE external_triggers ALTER COLUMN run_team_path SET DEFAULT 'global'`,
+	`UPDATE external_triggers
+		SET run_team_path = 'global'
+		WHERE BTRIM(run_team_path) = '' OR LOWER(BTRIM(run_team_path)) IN ('root', 'general', '__general__')`,
 	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'database'`,
 	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,

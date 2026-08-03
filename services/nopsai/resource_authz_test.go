@@ -45,7 +45,10 @@ func TestTeamGrantIncludesCallerTeam(t *testing.T) {
 		{name: "child caller", grantTeam: "team-1", callerTeam: "team-1/app", want: true},
 		{name: "sibling caller excluded", grantTeam: "team-1/shared", callerTeam: "team-1/app", want: false},
 		{name: "other team", grantTeam: "team-1", callerTeam: "team-2/app", want: false},
-		{name: "general excluded", grantTeam: generalGrantID, callerTeam: "team-1", want: false},
+		{name: "global includes concrete caller", grantTeam: globalGrantID, callerTeam: "team-1", want: true},
+		{name: "global includes unteamed caller", grantTeam: globalGrantID, callerTeam: "", want: true},
+		{name: "root is not a global alias", grantTeam: rootGrantID, callerTeam: "", want: false},
+		{name: "concrete grant excludes unteamed caller", grantTeam: "team-1", callerTeam: "", want: false},
 	}
 
 	for _, tt := range tests {

@@ -192,7 +192,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Runner defaults, runtime defaults, dispatcher routing, and assistant settings can be managed in the global config repo at `setting/system/runner.yaml`.
 - Scheduled cleanup rules can be managed in the global config repo at `setting/system/data-management.yaml`.
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
-- Managed knowledge context markdown files can be synced from `knowledge/<kind>/<team>/<document>.md`.
+- Managed knowledge context markdown files can be synced from `knowledge/<kind>/<team>/<document>.md`; in a system/global repo, `knowledge/<kind>/<document>.md` creates a global document.
 
 ## Teams
 
@@ -1057,9 +1057,9 @@ Authorization and controls:
 - Invocation requires a valid bearer token, a matching `allowed_callers` entry, `external_trigger.invoke` on the trigger, `pipeline.execute` for the selected pipeline, and runtime `*.use` checks for the selected pipeline, scope, reusable steps, child pipelines, knowledge contexts, secrets, variables, and runners.
 - `allowed_callers` supports `user`, `auth_team`, and `service_account`; use service accounts for external systems.
 - `run_team_path` selects the Pipeline Runs team for invoked runs so team
-  notification routes can deliver external-trigger run events. Use `root` for
-  root runs with no team assignment; omitted or empty values normalize to
-  `root`.
+  notification routes can deliver external-trigger run events. Use `global`
+  for runs with no concrete team assignment; omitted or empty values normalize
+  to `global`.
 - Idempotency keys are scoped to trigger, caller type, and caller id. A repeated successful key returns the original run response; an in-flight key returns `409`.
 - `payload_schema` supports object schemas with `required` and simple `properties.<name>.type` validation.
 - `variable_mapping` maps invoke payload fields into run variables. For example, `"VERSION":"payload.version"` reads `{ "payload": { "version": "1.2.3" } }`.
@@ -1230,7 +1230,7 @@ Validation and guardrails:
 - Only `owner` or `admin` can manage grants.
 - `admin` grants are only valid on `platform`.
 - `GET /v1/access/auth-teams` lists persisted SSO/AAA auth teams from `auth_teams` for subject selectors.
-- `GET /v1/access/teams` lists product team resources for team sharing and resource selectors, excluding application and repository-backed nodes.
+- `GET /v1/access/teams` lists product team resources for team sharing and resource selectors, always including `global` for the global team and excluding application and repository-backed nodes.
 
 ---
 
@@ -1274,11 +1274,17 @@ curl -X POST \
   -d '{"subject_type":"team","subject_id":"team-1/app","actions":["pipeline.use"]}' \
   http://localhost:8080/v1/resources/pipeline/team-1/build/grants
 
+# Share with the global team
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"subject_type":"team","subject_id":"global","actions":["pipeline.use"]}' \
+  http://localhost:8080/v1/resources/pipeline/deploy/grants
+
 # Delete a sharing grant
 curl -X DELETE http://localhost:8080/v1/resources/pipeline/team-1/build/grants/grant_123
 ```
 
-The team dropdown in the UI is populated from `GET /v1/access/teams`, using resolved team paths rather than numeric team IDs. Application and repository-backed nodes are intentionally not selectable in these dropdowns. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
+The team dropdown in the UI is populated from `GET /v1/access/teams`, using resolved team paths rather than numeric team IDs. `global` is selectable for global sharing and is returned as `global`; `root` and `general` are not accepted aliases. Application and repository-backed nodes are intentionally not selectable in these dropdowns. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
 
 Resource access routes resolve and authorize the concrete target inside the
 handler. A caller needs owner-level manage access on the resolved resource to
@@ -1685,8 +1691,8 @@ Schedule payload fields:
   target pipeline path. The UI uses this default; API and GitOps flows can still
   use paths such as `prod/scheduled` when an operational subteam is useful.
 - `run_team_path`: optional Pipeline Runs team for runs started by the
-  schedule. Use `root` for root runs with no team assignment; omitted or empty
-  values normalize to `root`. Use a concrete team when the schedule should
+  schedule. Use `global` for runs with no concrete team assignment; omitted or
+  empty values normalize to `global`. Use a concrete team when the schedule should
   notify or appear under an operational team that is different from the
   pipeline definition path.
 - `name`: schedule name, unique within `path`.
@@ -1749,10 +1755,10 @@ are normalized under the bound team. For example,
 schedule `team-1/prod/scheduled/nightly-api-deploy`, and `pipeline:
 services/api/deploy`, `scope: prod`, and `run_team_path: prod` become
 `team-1/services/api/deploy`, `team-1/prod`, and `team-1/prod`.
-Use `run_team_path: root` when the resulting scheduled run should stay at the
-Pipeline Runs root instead of being assigned to a team. A leading `root/`
-prefix on runtime references means the root hierarchy, not a team named
-`root`.
+Use `run_team_path: global` when the resulting scheduled run should stay in the
+global run context instead of being assigned to a concrete team. A leading
+`global/` prefix on runtime references means the global hierarchy, not a team
+named `global`.
 
 ---
 
@@ -1761,8 +1767,8 @@ prefix on runtime references means the root hierarchy, not a team named
 - The GitOps config repository can define the team and app hierarchy administered from Teams via scoped files such as `config-repositories/teams/team-1/structure.yaml`.
 - Each top-level key is a team. Nest teams by adding child keys, assign apps under a team with an `apps:` list, and optionally delegate a team with a `config:` block.
 - Schedule and external-trigger `run_team_path` values should reference teams
-  from this team hierarchy, or `root` for unassigned root runs; their UI
-  selectors are populated from Teams.
+  from this team hierarchy, or `global` for runs with no concrete team
+  assignment; their UI selectors are populated from Teams.
 - App entries require `name` and `repo_url`; NopsAI normalizes that URL to the repository identity used by triggers and run metadata.
 - Team repo bindings under `config-repositories/teams/...` always create matching team shells.
 - Structure files colocated under `config-repositories/teams` are merged into those team shells, so repository placement can live next to the team binding.
@@ -1828,7 +1834,7 @@ curl -X POST -H "Content-Type: application/json" \
 - Config repositories support `provider` values `github`, `gitlab`, `bitbucket`, and `gitea`. GitHub without `credential_ref` uses the existing GitHub App/git-bot integration; GitHub with `credential_ref`, GitLab, Bitbucket Cloud-compatible repositories, and Gitea use a bearer-token credential reference for repository contents and commit APIs.
 - System- and team-scoped repos may define team repo bindings under `config-repositories/teams/<team>.yaml`.
 - System- and team-scoped repos may define pipeline schedules under `schedules/`.
-- System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`.
+- System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`. System/global repos support `knowledge/<kind>/<document>.md` for global documents; team-scoped repos keep the legacy `knowledge/<kind>/<document>.md` meaning the bound team.
 - System- and team-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`; team repos keep the bound team path explicit.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
 - The system/global repo may define mandatory local login and one enabled external identity provider under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.

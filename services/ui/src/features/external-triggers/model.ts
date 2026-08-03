@@ -1,3 +1,5 @@
+import { GLOBAL_RESOURCE_TEAM_LABEL, GLOBAL_RESOURCE_TEAM_PATH, isGlobalResourceTeamPath } from '../../lib/resourceTeams.js';
+
 export type AllowedCaller = {
   type: 'user' | 'service_account' | 'auth_team';
   id: string;
@@ -118,16 +120,17 @@ export function externalTriggerScopeLabel(scope?: string) {
 }
 
 export function externalTriggerTeamLabel(path?: string) {
-  return externalTriggerTeamPath(path) || 'Root';
+  const normalized = externalTriggerTeamPath(path);
+  return isGlobalResourceTeamPath(normalized) ? GLOBAL_RESOURCE_TEAM_LABEL : normalized;
 }
 
 export function externalTriggerTeamPath(path?: string) {
   const normalized = normalizeExternalTriggerIdentifier(path);
-  return normalized.toLowerCase() === 'root' ? '' : normalized;
+  return normalized || GLOBAL_RESOURCE_TEAM_PATH;
 }
 
 export function externalTriggerBelongsToTeam(trigger: ExternalTrigger, activeTeamPath: string) {
-  const active = externalTriggerTeamPath(activeTeamPath);
+  const active = normalizeExternalTriggerIdentifier(activeTeamPath);
   if (!active) return true;
   const teamPath = externalTriggerTeamPath(trigger.run_team_path);
   return teamPath === active || teamPath.startsWith(`${active}/`);

@@ -102,10 +102,36 @@ func TestScopeTeamAncestorsUsesScopePathAsContainingTeam(t *testing.T) {
 func TestScopeTeamAncestorsUsesGeneralTeamForDefaultScope(t *testing.T) {
 	got := scopeTeamAncestors("")
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "team", ID: model.TeamGeneralID}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: model.TeamGlobalID}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("scopeTeamAncestors(default) = %#v, want %#v", got, want)
+	}
+}
+
+func TestKnowledgeContextTeamPathTreatsKindNameAsGeneral(t *testing.T) {
+	teamPath, ok := knowledgeContextTeamPath("runbook/restart")
+	if !ok {
+		t.Fatal("expected kind/name knowledge context to be recognized")
+	}
+	if teamPath != "" {
+		t.Fatalf("teamPath = %q, want global team path", teamPath)
+	}
+
+	teamPath, ok = knowledgeContextTeamPath("runbook/global/restart")
+	if !ok {
+		t.Fatal("expected kind/global/name knowledge context to be recognized")
+	}
+	if teamPath != "" {
+		t.Fatalf("teamPath = %q, want global team path", teamPath)
+	}
+
+	teamPath, ok = knowledgeContextTeamPath("runbook/platform/restart")
+	if !ok {
+		t.Fatal("expected kind/team/name knowledge context to be recognized")
+	}
+	if teamPath != "platform" {
+		t.Fatalf("teamPath = %q, want platform", teamPath)
 	}
 }
 
@@ -123,7 +149,7 @@ func TestRepositoryIDTeamAncestorsUsesRepositoryPathPrefix(t *testing.T) {
 func TestRepositoryIDTeamAncestorsUsesGeneralForRootRepository(t *testing.T) {
 	got := repositoryIDTeamAncestors("app")
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "team", ID: model.TeamGeneralID}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: model.TeamGlobalID}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repositoryIDTeamAncestors(root) = %#v, want %#v", got, want)

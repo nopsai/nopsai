@@ -22,7 +22,7 @@ var scheduleSchemaStatements = []string{
 		timezone TEXT NOT NULL DEFAULT 'UTC',
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		scope TEXT NOT NULL DEFAULT '',
-		run_team_path TEXT NOT NULL DEFAULT '',
+		run_team_path TEXT NOT NULL DEFAULT 'global',
 		variables JSONB NOT NULL DEFAULT '{}'::jsonb,
 		next_run_at TIMESTAMPTZ,
 		last_run_at TIMESTAMPTZ,
@@ -45,7 +45,11 @@ var scheduleSchemaStatements = []string{
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS schedule_kind TEXT NOT NULL DEFAULT 'cron'`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_at TIMESTAMPTZ`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS variables JSONB NOT NULL DEFAULT '{}'::jsonb`,
-	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT 'global'`,
+	`ALTER TABLE pipeline_schedules ALTER COLUMN run_team_path SET DEFAULT 'global'`,
+	`UPDATE pipeline_schedules
+		SET run_team_path = 'global'
+		WHERE BTRIM(run_team_path) = '' OR LOWER(BTRIM(run_team_path)) IN ('root', 'general', '__general__')`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'team'`,
 	`ALTER TABLE pipeline_schedules ALTER COLUMN visibility SET DEFAULT 'team'`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,

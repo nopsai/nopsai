@@ -4,8 +4,14 @@ import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import { YamlValidationPanel, type YamlValidationError } from '../editor/YamlValidationPanel';
 import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTeamPathsWithGlobalFirst,
+} from '../../lib/resourceTeams';
+import {
   TRIGGER_PROVIDERS,
+  normalizeTriggerTeamPath,
   triggerDetailsWithProvider,
+  triggerTeamLabel,
   triggerWebhookSourceOptionLabel,
   type TriggerDetailsFormState,
   type TriggerProvider,
@@ -419,7 +425,7 @@ function TriggerMetadataFields({
           disabled={pending}
         >
           {teamPaths.map(path => (
-            <option key={path} value={path}>{path === 'root' ? 'Workspace' : path}</option>
+            <option key={path} value={path}>{triggerTeamLabel(path)}</option>
           ))}
         </select>
       </Field>
@@ -468,10 +474,6 @@ function Field({
 function uniqueTeamOptions(paths: string[]): string[] {
   const normalized = paths
     .map(path => String(path || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/'))
-    .map(path => path && path.toLowerCase() !== 'root' ? path : 'root');
-  return Array.from(new Set(['root', ...normalized])).sort((left, right) => {
-    if (left === 'root') return -1;
-    if (right === 'root') return 1;
-    return left.localeCompare(right);
-  });
+    .map(normalizeTriggerTeamPath);
+  return Array.from(new Set([GLOBAL_RESOURCE_TEAM_PATH, ...normalized])).sort(compareResourceTeamPathsWithGlobalFirst);
 }

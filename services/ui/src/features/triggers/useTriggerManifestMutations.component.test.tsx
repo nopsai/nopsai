@@ -32,7 +32,7 @@ const detail: TriggerDetail = {
   rawYaml: 'triggers:\n  - on: push\n    pipelines:\n      - pipelines/release.yaml\n',
   summary: {
     triggerCount: 1,
-    pipelines: [{ identifier: 'release', display: 'release', pathLabel: 'root' }],
+    pipelines: [{ identifier: 'release', display: 'release', pathLabel: 'global' }],
     events: ['push'],
     branches: [],
     skipBranches: [],
@@ -180,13 +180,13 @@ test('clones trigger manifests from the target-aware YAML preview', async () => 
     result.current.updateCloneRepository('owner/repo-copy');
   });
   expect(result.current.cloneModal?.yamlPreview).toContain('provider: github');
-  expect(result.current.cloneModal?.yamlPreview).toContain('team: root');
+  expect(result.current.cloneModal?.yamlPreview).toContain('team: global');
 
   await act(async () => {
     expect(await result.current.submitCloneModal()).toBe(true);
   });
 
-  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', 'owner/repo-copy', 'root');
+  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', 'owner/repo-copy', 'global');
   expect(saveTriggerMock).toHaveBeenCalledWith(
     'owner/repo-copy',
     expect.stringContaining('provider: github')

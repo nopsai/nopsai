@@ -574,7 +574,7 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 		}
 
 		if strings.TrimSpace(pipelinePath) == "" {
-			return appendInheritedResources(out, generalTeamAncestors()), nil
+			return appendInheritedResources(out, globalTeamAncestors()), nil
 		}
 		teamAncestors, err := s.containingTeamAncestors(ctx, pipelinePath)
 		if err != nil {
@@ -584,7 +584,7 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 	case "pipeline":
 		pipelinePath, _ := model.SplitPipelineID(resource.ID)
 		if strings.TrimSpace(pipelinePath) == "" {
-			return generalTeamAncestors(), nil
+			return globalTeamAncestors(), nil
 		}
 		return s.containingTeamAncestors(ctx, pipelinePath)
 	case "pipeline_schedule":
@@ -602,7 +602,7 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return nil, err
 		}
 		if strings.TrimSpace(schedulePath) == "" {
-			return generalTeamAncestors(), nil
+			return globalTeamAncestors(), nil
 		}
 		return s.containingTeamAncestors(ctx, schedulePath)
 	case "dashboard":
@@ -632,18 +632,18 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 		}
 		teamPath := strings.Trim(strings.Join(parts[:len(parts)-1], "/"), "/")
 		if teamPath == "" {
-			return generalTeamAncestors(), nil
+			return globalTeamAncestors(), nil
 		}
 		return s.containingTeamAncestors(ctx, teamPath)
 	case "team":
-		if strings.TrimSpace(resource.ID) == model.TeamGeneralID {
+		if strings.TrimSpace(resource.ID) == model.TeamGlobalID {
 			return nil, nil
 		}
 		return s.teamAncestors(ctx, resource.ID)
 	case "step":
 		stepPath, _ := model.SplitPipelineID(resource.ID)
 		if strings.TrimSpace(stepPath) == "" {
-			return generalTeamAncestors(), nil
+			return globalTeamAncestors(), nil
 		}
 		return s.containingTeamAncestors(ctx, stepPath)
 	case "scope":
@@ -669,13 +669,12 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 	case "git_webhook_source":
 		return s.gitWebhookSourceTeamAncestors(ctx, resource.ID)
 	case "knowledge_context":
-		parts := strings.Split(strings.Trim(strings.TrimSpace(resource.ID), "/"), "/")
-		if len(parts) < 3 {
+		teamPath, ok := knowledgeContextTeamPath(resource.ID)
+		if !ok {
 			return nil, nil
 		}
-		teamPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
 		if teamPath == "" {
-			return generalTeamAncestors(), nil
+			return globalTeamAncestors(), nil
 		}
 		return s.containingTeamAncestors(ctx, teamPath)
 	case "secret", "variable":
@@ -701,7 +700,7 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 		}
 		if repoName == "" {
 			if scope == "" {
-				out = append(out, generalTeamAncestors()...)
+				out = append(out, globalTeamAncestors()...)
 			}
 		}
 		return out, nil
@@ -767,14 +766,51 @@ func appendInheritedResource(out []model.InheritedResource, resource model.Inher
 func scopeTeamAncestors(scope string) []model.InheritedResource {
 	scope = strings.Trim(strings.TrimSpace(scope), "/")
 	if scope == "" {
-		return generalTeamAncestors()
+		return globalTeamAncestors()
 	}
 	return prefixTeamResources(strings.Split(scope, "/"), true)
 }
 
-func generalTeamAncestors() []model.InheritedResource {
+func knowledgeContextTeamPath(resourceID string) (string, bool) {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(resourceID), "/"), "/")
+	if len(parts) < 2 {
+		return "", false
+	}
+	if len(parts) == 2 {
+		return "", true
+	}
+	teamPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+	if normalized, globalOnly := stripGlobalTeamPathPrefix(teamPath); globalOnly {
+		return "", true
+	} else if normalized != teamPath {
+		return normalized, true
+	}
+	return teamPath, true
+}
+
+func stripGlobalTeamPathPrefix(path string) (string, bool) {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if isGlobalTeamPath(path) {
+		return "", true
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 || !isGlobalTeamPath(parts[0]) {
+		return path, false
+	}
+	parts = parts[1:]
+	if len(parts) == 0 {
+		return "", true
+	}
+	return strings.Join(parts, "/"), false
+}
+
+func isGlobalTeamPath(path string) bool {
+	return strings.EqualFold(strings.Trim(strings.TrimSpace(path), "/"), model.TeamGlobalID)
+}
+
+func globalTeamAncestors() []model.InheritedResource {
 	return []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: "team", ID: model.TeamGeneralID},
+		Resource: model.ResourceRef{Type: "team", ID: model.TeamGlobalID},
 		Reason:   "team_inheritance",
 	}}
 }
@@ -999,11 +1035,11 @@ func (s *PGStore) teamHierarchyAncestors(ctx context.Context, teamID int) ([]mod
 func repositoryIDTeamAncestors(repoID string) []model.InheritedResource {
 	repoID = strings.Trim(strings.TrimSpace(repoID), "/")
 	if repoID == "" {
-		return generalTeamAncestors()
+		return globalTeamAncestors()
 	}
 	segments := strings.Split(repoID, "/")
 	if len(segments) <= 1 {
-		return generalTeamAncestors()
+		return globalTeamAncestors()
 	}
 	return prefixTeamResources(segments[:len(segments)-1], true)
 }
@@ -1060,7 +1096,7 @@ func (s *PGStore) automationResourceTeamAncestors(ctx context.Context, resourceI
 	}
 	resourcePath, _ := model.SplitPipelineID(resourceID)
 	if strings.TrimSpace(resourcePath) == "" {
-		return generalTeamAncestors(), nil
+		return globalTeamAncestors(), nil
 	}
 	return s.containingTeamAncestors(ctx, resourcePath)
 }

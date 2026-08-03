@@ -175,6 +175,17 @@ func normalizeKnowledgeContextTeam(raw string) (string, error) {
 	if team == "" {
 		return "", nil
 	}
+	if isRetiredGlobalTeamAlias(team) {
+		return "", fmt.Errorf("use global for the global team")
+	}
+	if stripped, globalOnly := stripGlobalPathPrefix(team); globalOnly {
+		return "", nil
+	} else if stripped != team {
+		team = stripped
+	}
+	if parts := strings.Split(team, "/"); len(parts) > 0 && isRetiredGlobalTeamAlias(parts[0]) {
+		return "", fmt.Errorf("use global for the global team")
+	}
 	for _, segment := range strings.Split(team, "/") {
 		if segment == "" || segment == "." || segment == ".." {
 			return "", fmt.Errorf("team contains invalid path segments")
@@ -196,7 +207,7 @@ func splitKnowledgeContextIdentifier(raw string) (string, string, string, error)
 	value := strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/")), "/")
 	parts := strings.Split(value, "/")
 	if len(parts) < 2 {
-		return "", "", "", fmt.Errorf("knowledge context id must use kind/team/name")
+		return "", "", "", fmt.Errorf("knowledge context id must use kind/name or kind/team/name")
 	}
 	kind, err := normalizeKnowledgeContextKind(parts[0])
 	if err != nil {
@@ -210,9 +221,6 @@ func splitKnowledgeContextIdentifier(raw string) (string, string, string, error)
 	if err != nil {
 		return "", "", "", err
 	}
-	if team == "" {
-		return "", "", "", fmt.Errorf("knowledge context id must include a team")
-	}
 	return kind, team, name, nil
 }
 
@@ -223,8 +231,8 @@ func knowledgeContextRefToParts(kind, ref string) (string, string, string, error
 	}
 	ref = strings.Trim(strings.TrimSpace(strings.ReplaceAll(ref, "\\", "/")), "/")
 	parts := strings.Split(ref, "/")
-	if len(parts) < 2 {
-		return "", "", "", fmt.Errorf("knowledge context ref must use team/document")
+	if len(parts) < 1 {
+		return "", "", "", fmt.Errorf("knowledge context ref must use document or team/document")
 	}
 	name, err := normalizeKnowledgeContextName(parts[len(parts)-1])
 	if err != nil {
@@ -233,9 +241,6 @@ func knowledgeContextRefToParts(kind, ref string) (string, string, string, error
 	team, err := normalizeKnowledgeContextTeam(strings.Join(parts[:len(parts)-1], "/"))
 	if err != nil {
 		return "", "", "", err
-	}
-	if team == "" {
-		return "", "", "", fmt.Errorf("knowledge context ref must include a team")
 	}
 	return kind, team, name, nil
 }
@@ -269,12 +274,8 @@ func isKnowledgeContextGitOpsFile(path string) bool {
 func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository, boundTeam string) (string, string, string, error) {
 	rel = strings.Trim(strings.TrimSpace(filepath.ToSlash(rel)), "/")
 	parts := strings.Split(rel, "/")
-	minParts := 3
-	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-		minParts = 2
-	}
-	if len(parts) < minParts {
-		return "", "", "", fmt.Errorf("knowledge document path must use kind/team/document")
+	if len(parts) < 2 {
+		return "", "", "", fmt.Errorf("knowledge document path must use kind/document or kind/team/document")
 	}
 	kind, err := normalizeKnowledgeContextKind(parts[0])
 	if err != nil {
@@ -293,6 +294,8 @@ func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository
 		if err != nil {
 			return "", "", "", err
 		}
+	} else if len(parts) == 2 {
+		team = ""
 	} else {
 		team, err = normalizeKnowledgeContextTeam(strings.Join(parts[1:len(parts)-1], "/"))
 		if err != nil {
@@ -308,9 +311,6 @@ func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository
 				return "", "", "", err
 			}
 		}
-	}
-	if team == "" {
-		return "", "", "", fmt.Errorf("knowledge document path must include a team")
 	}
 	return kind, team, name, nil
 }

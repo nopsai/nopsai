@@ -14,7 +14,7 @@ var gitWebhookSourceSchemaStatements = []string{
 		description TEXT NOT NULL DEFAULT '',
 		provider TEXT NOT NULL,
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
-		team_path TEXT NOT NULL DEFAULT '',
+		team_path TEXT NOT NULL DEFAULT 'global',
 		visibility TEXT NOT NULL DEFAULT 'team',
 		auth_mode TEXT NOT NULL,
 		credential_ref TEXT NOT NULL DEFAULT '',
@@ -30,7 +30,11 @@ var gitWebhookSourceSchemaStatements = []string{
 		config_source_commit_sha TEXT NOT NULL DEFAULT '',
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE
 	)`,
-	`ALTER TABLE git_webhook_sources ADD COLUMN IF NOT EXISTS team_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE git_webhook_sources ADD COLUMN IF NOT EXISTS team_path TEXT NOT NULL DEFAULT 'global'`,
+	`ALTER TABLE git_webhook_sources ALTER COLUMN team_path SET DEFAULT 'global'`,
+	`UPDATE git_webhook_sources
+		SET team_path = 'global'
+		WHERE BTRIM(team_path) = '' OR LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__')`,
 	`ALTER TABLE git_webhook_sources ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'team'`,
 	`ALTER TABLE git_webhook_sources DROP CONSTRAINT IF EXISTS git_webhook_sources_visibility_check`,
 	`UPDATE git_webhook_sources SET visibility = 'workspace' WHERE visibility IN ('workspace_shared', 'shared')`,

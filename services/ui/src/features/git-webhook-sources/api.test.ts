@@ -77,7 +77,7 @@ test('loads selectable team paths for Git webhook source ownership', async () =>
   };
 
   try {
-    assert.deepEqual(await fetchGitWebhookSourceTeamPaths(), ['platform', 'platform/prod']);
+    assert.deepEqual(await fetchGitWebhookSourceTeamPaths(), ['global', 'platform', 'platform/prod']);
   } finally {
     apiClient.fetch = originalFetch;
   }

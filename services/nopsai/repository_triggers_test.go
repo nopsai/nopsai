@@ -13,6 +13,8 @@ func TestRepositoryTriggerSchemaAddsProviderTeamAndWebhookSource(t *testing.T) {
 	for _, want := range []string{
 		"ALTER TABLE triggers ADD COLUMN IF NOT EXISTS provider",
 		"ALTER TABLE triggers ADD COLUMN IF NOT EXISTS team_path",
+		"UPDATE triggers SET team_path = 'global'",
+		"LOWER(BTRIM(team_path)) IN ('root', 'general', '__general__')",
 		"ALTER TABLE triggers ADD COLUMN IF NOT EXISTS management",
 		"ALTER TABLE triggers ADD COLUMN IF NOT EXISTS webhook_source_id",
 		"FOREIGN KEY (webhook_source_id)",
@@ -21,6 +23,27 @@ func TestRepositoryTriggerSchemaAddsProviderTeamAndWebhookSource(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("repository trigger schema missing %q in:\n%s", want, joined)
 		}
+	}
+}
+
+func TestRepositoryTriggerRecordFromManifestDefaultsMissingTeamToGlobal(t *testing.T) {
+	repository := "hosein-yousefii/test-app"
+	record, err := repositoryTriggerRecordFromManifest(
+		repository,
+		"triggers: []",
+		"git",
+		resourceVisibilityTeam,
+		models.Manifest{},
+		fallbackRepositoryTriggerTeamPath(repository),
+	)
+	if err != nil {
+		t.Fatalf("repositoryTriggerRecordFromManifest() error = %v", err)
+	}
+	if record.TeamPath != globalGrantID {
+		t.Fatalf("TeamPath = %q, want global", record.TeamPath)
+	}
+	if record.RepositoryForWebhook != "hosein-yousefii/test-app" {
+		t.Fatalf("RepositoryForWebhook = %q, want full owner/repo for global trigger", record.RepositoryForWebhook)
 	}
 }
 
@@ -41,6 +64,21 @@ func TestRepositoryTriggerRecordFromManifestNormalizesMetadata(t *testing.T) {
 	}
 	if err := validateRepositoryTriggerForNopsAI(record); err != nil {
 		t.Fatalf("validateRepositoryTriggerForNopsAI() error = %v", err)
+	}
+}
+
+func TestRepositoryTriggerApplicationSkipsGlobalTriggers(t *testing.T) {
+	_, ok, err := repositoryTriggerApplicationFromRecord(repositoryTriggerRecord{
+		RepositoryName:       "hosein-yousefii/test-app",
+		RepositoryForWebhook: "hosein-yousefii/test-app",
+		Provider:             repositoryTriggerProviderGitHub,
+		TeamPath:             globalGrantID,
+	})
+	if err != nil {
+		t.Fatalf("repositoryTriggerApplicationFromRecord() error = %v", err)
+	}
+	if ok {
+		t.Fatal("repositoryTriggerApplicationFromRecord() ok = true, want false for global trigger")
 	}
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { checkStepPermission } from './api';
-import { splitIdentifier } from './model';
+import { normalizeRootPath, splitIdentifier } from './model';
 
 const STEP_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
 
@@ -13,7 +13,7 @@ export function useStepPermissions(selectedID: string | null, activeTeam: string
   const [createPermission, setCreatePermission] = useState<{ team: string; allowed: boolean } | null>(null);
   const [updatePermission, setUpdatePermission] = useState<{ id: string; allowed: boolean } | null>(null);
   const permissionTeam = useMemo(
-    () => (selectedID ? splitIdentifier(selectedID).path : activeTeam),
+    () => normalizeRootPath(selectedID ? splitIdentifier(selectedID).path : activeTeam),
     [activeTeam, selectedID]
   );
 

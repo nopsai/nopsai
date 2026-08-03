@@ -75,7 +75,7 @@ test('renders trigger detail sections on one page and delegates actions', async 
         management: 'nopsai',
         webhookSourceID: 'corporate-gitlab',
       }}
-      teamPaths={['root', 'platform']}
+      teamPaths={['global', 'platform']}
       webhookSources={[
         { id: 'corporate-gitlab', name: 'Corporate GitLab', provider: 'gitlab', teamPath: 'platform', visibility: 'workspace' },
       ]}
@@ -172,7 +172,7 @@ test('keeps edit and clone reachable before action-time authorization', async ()
         management: 'nopsai',
         webhookSourceID: 'corporate-gitlab',
       }}
-      teamPaths={['root', 'platform']}
+      teamPaths={['global', 'platform']}
       webhookSources={[
         { id: 'corporate-gitlab', name: 'Corporate GitLab', provider: 'gitlab', teamPath: 'platform', visibility: 'workspace' },
       ]}
@@ -242,7 +242,7 @@ test('renders editable trigger detail fields while editing', async () => {
         management: 'nopsai',
         webhookSourceID: 'corporate-gitlab',
       }}
-      teamPaths={['root', 'platform']}
+      teamPaths={['global', 'platform']}
       webhookSources={[
         { id: 'corporate-gitlab', name: 'Corporate GitLab', provider: 'gitlab', teamPath: 'platform', visibility: 'workspace' },
       ]}

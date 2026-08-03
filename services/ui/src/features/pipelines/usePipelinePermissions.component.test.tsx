@@ -40,6 +40,12 @@ test('coordinates team, update, and execute permission checks', async () => {
     expect(result.current.canExecuteSelectedPipeline).toBe(false);
   });
   expect(checkPermissionMock).toHaveBeenCalledWith('pipeline.create', '__nopsai_permission_probe__');
+
+  rerender({ selectedID: null, team: 'global' });
+  await waitFor(() => {
+    expect(result.current.permissionTeam).toBe('');
+  });
+  expect(checkPermissionMock).toHaveBeenCalledWith('pipeline.create', '__nopsai_permission_probe__');
 });
 
 test('fails closed when permission checks reject', async () => {
