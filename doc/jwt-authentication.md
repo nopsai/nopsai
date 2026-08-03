@@ -294,7 +294,8 @@ Request authentication:
 1. Most REST endpoints require `Authorization: Bearer <access-token>`.
 2. Public paths include local/session auth endpoints, external provider
    start/callback endpoints, setup preflight, selected health metadata, and
-   provider webhook ingress.
+   provider webhook ingress. `GET /favicon.ico` is also public for browser
+   favicon probes and returns no protected data.
 3. `authMiddleware` first attempts service-token validation. If that succeeds, the request is normalized as `provider = internal-service` with the service `role`.
 4. If service-token validation fails, Nopsai validates the bearer token as a user/API HS256 JWT with signature, expiration, issuer, and audience checks.
 5. If JWT validation fails and the token starts with `nopat_`, Nopsai hashes the value and looks for a non-revoked, non-expired personal access token.

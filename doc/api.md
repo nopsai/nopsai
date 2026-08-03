@@ -3,7 +3,8 @@
 The core service exposes its REST API on `http://localhost:8080`. This guide summarises the high-impact endpoints that power day-to-day automation. All examples assume local development defaults.
 
 Except for login, SSO discovery/callback/session exchange, token refresh,
-logout, setup preflight, and runner bootstrap, API calls require a bearer token:
+logout, setup preflight, runner bootstrap, health/version metadata, provider
+webhook ingress, and the browser favicon probe, API calls require a bearer token:
 
 ```bash
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
@@ -22,6 +23,9 @@ ranges, capability IDs, and optional legacy release-manifest digest. It contains
 deployment configuration or credentials. Released CLIs use this endpoint to
 reject incompatible mutating requests before sending them. See
 [release-bundles.md](./release-bundles.md).
+
+`GET /favicon.ico` is also public and returns an empty cacheable response so
+browser favicon probes do not produce authentication errors.
 
 The `nopsai` CLI provides the same authenticated API surface without embedding
 server behavior:
@@ -1275,6 +1279,10 @@ curl -X DELETE http://localhost:8080/v1/resources/pipeline/team-1/build/grants/g
 ```
 
 The team dropdown in the UI is populated from `GET /v1/access/teams`, using resolved team paths rather than numeric team IDs. Application and repository-backed nodes are intentionally not selectable in these dropdowns. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
+
+Resource access routes resolve and authorize the concrete target inside the
+handler. A caller needs owner-level manage access on the resolved resource to
+read settings, change visibility, or add/remove use grants.
 
 Resource-use check endpoints:
 

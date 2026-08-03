@@ -2750,6 +2750,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Runnable SSO examples live under examples/sso/keycloak and examples/sso/idp-test-pack; they are test fixtures, not production config.',
           'Scopes are runtime context such as dev, test, production, or platform/prod. They are not run-navigation parents.',
           'The Scopes detail page combines variables, secrets, usage relationships, access controls, GitOps encryption, and runner assignments for the selected runtime scope.',
+          'Resource Access API routes under /v1/resources/... are handler-authorized: middleware defers them, then the handler resolves the target and checks owner-level manage access before reads, visibility updates, and use-grant changes.',
         ],
         details: [
           'Teams form hierarchical product boundaries for ownership, access, run navigation, config repository delegation, notifications, team AI overlays, and repository-to-application matching.',
@@ -3657,12 +3658,14 @@ const baseWikiSections: WikiSectionInput[] = [
           'Protected requests go through bearer authentication, route authorization, resource checks, and audit regardless of UI, CLI, or API origin.',
           'API categories include auth, setup, teams, pipelines, steps, runs, schedules, triggers, Git webhook sources, external triggers, scopes, credentials, knowledge, LLM, Agent, MCP, notifications, monitoring, System Logs, dispatcher, access, users, service accounts, identity providers, audit, backups, cleanup, and hosted MCP.',
           'Binary downloads and SSE responses are preserved by CLI generic API commands.',
-          'Except for public setup and identity discovery endpoints, API requests require bearer authentication.',
+          'Except for public setup, identity discovery, health/version metadata, provider webhook ingress, and the empty favicon probe, API requests require bearer authentication.',
           'Personal tokens and service-account tokens inherit the same authorization checks as browser sessions.',
         ],
         details: [
           'Route registration parity is tested against the generated CLI API catalog so new server APIs are discoverable through the CLI.',
           'Stored pipelines can be run by name through POST /v1/run/{pipelineName...}. Details, status, logs, approvals, reruns, cancellation, deletion, and output downloads remain separate authorized routes.',
+          'Resource access management uses GET/PUT /v1/resources/{type}/{id...}/access and POST/DELETE /v1/resources/{type}/{id...}/grants. These routes rely on concrete resource resolution in the handler instead of a generic route-level resource mapping.',
+          'GET /favicon.ico is public and returns an empty cacheable response so browser favicon probes do not log missing bearer-token errors.',
         ],
         configRows: [],
         examples: [

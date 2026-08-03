@@ -7,6 +7,7 @@ import {
   saveScopedValue,
   scopedResourcePath,
 } from './api';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import {
   normalizeRepositorySlug,
   normalizeScopeLabel,
@@ -622,7 +623,7 @@ export function useScopeModalMutations({
     const value = gitOpsEncryptModal?.encryptedValue;
     if (!value) return false;
     try {
-      await navigator.clipboard.writeText(value);
+      await copyTextToClipboard(value);
       addToast('Encrypted value copied.', 'success');
       return true;
     } catch (error) {

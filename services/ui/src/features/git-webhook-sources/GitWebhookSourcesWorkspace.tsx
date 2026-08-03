@@ -4,6 +4,7 @@ import { ObjectIcon } from '../../components/ObjectIcon';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { buildApiUrl } from '../../lib/api';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import { AutomationResourceTree } from '../event-automation/AutomationResourceTree';
 import { buildAutomationResourceTree } from '../event-automation/resourceTreeModel';
 import { CredentialReferenceLink } from '../system/credentials/CredentialReferenceLink';
@@ -502,6 +503,6 @@ function formatRateLimit(rateLimit: Record<string, unknown>): string {
 }
 
 function copyText(value: string) {
-  if (!value || typeof navigator === 'undefined' || !navigator.clipboard) return;
-  void navigator.clipboard.writeText(value);
+  if (!value) return;
+  void copyTextToClipboard(value).catch(() => undefined);
 }

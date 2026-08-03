@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { copyTextToClipboard } from '../../../lib/clipboard';
 import { systemLogSourceStatusLabel } from './presentation.js';
 import { useSystemLogs } from './useSystemLogs.js';
 import type { SystemLogEntry, SystemLogStream } from './types.js';
@@ -58,7 +59,7 @@ function SystemLogsPanel() {
   };
 
   const copyVisible = async () => {
-    await navigator.clipboard?.writeText(formatLogText(visibleEntries));
+    await copyTextToClipboard(formatLogText(visibleEntries));
   };
 
   const downloadVisible = () => {

@@ -4,6 +4,7 @@ import { ArrowLeft, Copy, Download, Edit3, ExternalLink, Lock, MoreHorizontal, P
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import type { ObjectIconType } from '../../components/objectIconRegistry';
 import {
   isGitManagedDocument,
@@ -599,7 +600,7 @@ function InfoRow({
             type="button"
             className="kc-info-copy-btn"
             aria-label={copyLabel}
-            onClick={() => void navigator.clipboard?.writeText(displayValue)}
+            onClick={() => void copyTextToClipboard(displayValue).catch(() => undefined)}
           >
             <Copy className="h-3.5 w-3.5" aria-hidden="true" />
           </button>

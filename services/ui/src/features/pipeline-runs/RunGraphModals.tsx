@@ -10,6 +10,7 @@ import type {
 } from './contracts';
 import { calculateGraphLayout, deriveTaskGraphStatus, getGraphStatusColor } from './graphLayout';
 import { TASK_HEIGHT, TASK_MAX_WIDTH, TASK_MIN_WIDTH, TaskNodeRenderer } from './RunGraph';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import { formatAIUsageBreakdown, formatRunTimestamp, formatTokenCount } from './runPresentation';
 import { formatStepDuration, formatTaskDuration } from './runGraphModel';
 import { getStatusMeta } from './statusPresentation';
@@ -671,7 +672,7 @@ export function PipelineDefinitionModal({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(content);
+      await copyTextToClipboard(content);
       return true;
     } catch {
       return false;

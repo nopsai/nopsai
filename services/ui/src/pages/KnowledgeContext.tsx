@@ -16,6 +16,7 @@ import {
   testKnowledgeConnection,
   updateKnowledgeConnection,
 } from '../features/knowledge-context/api';
+import { copyTextToClipboard } from '../lib/clipboard';
 import {
   KNOWLEDGE_CONTEXTS_CHANGED_EVENT,
   buildKnowledgeConnectionTeamSummaries,
@@ -780,7 +781,7 @@ export default function KnowledgeContextPage({
   const handleCopy = useCallback(async () => {
     if (!detail) return;
     try {
-      await navigator.clipboard.writeText(previewContent);
+      await copyTextToClipboard(previewContent);
       setDetailError(null);
       addToast('Content copied to clipboard.', 'success');
     } catch {

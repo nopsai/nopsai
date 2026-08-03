@@ -66,6 +66,7 @@ direct HTTP calls.
 
 Public endpoint:
 
+- `GET /favicon.ico` returns an empty cacheable response for browser favicon probes.
 - `GET /healthz`
 - `GET /livez`
 - `GET /version` exposes only immutable build, API compatibility, capability,
@@ -260,6 +261,12 @@ Resource Access API:
 - `DELETE /v1/resources/{type}/{id}/grants/{grantID}`
 - `POST /v1/authz/resource-use/check`
 - `POST /v1/authz/resource-use/batch-check`
+
+The `/v1/resources/...` routes are deliberately authorized in their handlers:
+each request resolves the concrete resource, then checks owner-level manage
+access before reading settings, changing visibility, or adding/removing use
+grants. Route middleware must therefore pass these routes through instead of
+returning a generic unmapped-route authorization error.
 
 Resource-use grant requests accept `subject_type: "repository"` with `subject_id: "owner/repo"` or `subject_type: "team"` with a team path such as `team-1`. Team use grants are stored in `access_grants` for audit and UI display; they do not write broad ACL rows that would elevate every member of the team. At check time, the original caller must resolve into the granted team boundary.
 
