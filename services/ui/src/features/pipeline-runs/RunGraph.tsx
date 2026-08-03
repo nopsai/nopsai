@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type MouseEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { Copy, Maximize2, Search, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import type {
   GraphLayout,
   GraphPoint,
@@ -494,8 +495,7 @@ export function StepsGraph({
     if (!effectiveSelection) return;
     const href = buildSelectionHref(effectiveSelection);
     try {
-      if (typeof navigator === 'undefined' || !navigator.clipboard) throw new Error('clipboard unavailable');
-      await navigator.clipboard.writeText(href);
+      await copyTextToClipboard(href);
       setCopyState('copied');
     } catch {
       setCopyState('unavailable');

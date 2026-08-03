@@ -8,6 +8,7 @@ import {
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
 import { applyEnterIndent } from '../lib/lab';
+import { copyTextToClipboard } from '../lib/clipboard';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
@@ -699,7 +700,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const handleCopy = async () => {
     if (!detail?.rawYaml) return;
     try {
-      await navigator.clipboard.writeText(detail.rawYaml);
+      await copyTextToClipboard(detail.rawYaml);
       addToast('Pipeline YAML copied to clipboard.', 'success');
     } catch (error) {
       console.error('Copy failed', error);
@@ -813,7 +814,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
               onOpenDependency={handleSelect}
               onCopyDependency={async identifier => {
                 try {
-                  await navigator.clipboard.writeText(identifier);
+                  await copyTextToClipboard(identifier);
                   addToast('Copied dependency reference.', 'success');
                 } catch (error) {
                   console.error('Failed to copy dependency reference', error);

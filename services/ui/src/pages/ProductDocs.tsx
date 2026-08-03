@@ -15,6 +15,7 @@ import {
 } from '../features/product-docs/quality';
 import { scrollDocumentationViewport } from '../features/product-docs/scroll';
 import { searchDocumentation, type DocumentationSearchResult } from '../features/product-docs/search';
+import { copyTextToClipboard } from '../lib/clipboard';
 
 type ArticleBlock = 'prerequisites' | 'procedure' | 'key-facts' | 'details' | 'configuration' | 'examples' | 'operations' | 'boundaries' | 'sources';
 
@@ -84,9 +85,8 @@ export default function ProductDocsPage() {
   };
 
   const handleCopy = async (key: string, code: string) => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
     try {
-      await navigator.clipboard.writeText(code);
+      await copyTextToClipboard(code);
       setCopiedKey(key);
       window.setTimeout(() => setCopiedKey(current => current === key ? '' : current), 1600);
     } catch {

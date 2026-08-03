@@ -169,6 +169,31 @@ func TestMapRequestRejectsRemovedRegistryAuthBroker(t *testing.T) {
 	}
 }
 
+func TestMapRequestDefersResourceAccessRoutesToHandlers(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/v1/resources/pipeline/team-1/build/access"},
+		{method: http.MethodPut, path: "/v1/resources/pipeline/team-1/build/access"},
+		{method: http.MethodPost, path: "/v1/resources/pipeline/team-1/build/grants"},
+		{method: http.MethodDelete, path: "/v1/resources/pipeline/team-1/build/grants/grant_123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			action, resource, requiresFilter, err := MapRequest(req)
+			if err != nil {
+				t.Fatalf("MapRequest() error = %v", err)
+			}
+			if action != "" || resource.Type != "" || resource.ID != "" || requiresFilter {
+				t.Fatalf("MapRequest() = action %q resource %#v filter %v, want handler deferral", action, resource, requiresFilter)
+			}
+		})
+	}
+}
+
 func mutatingRouteMethod(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
