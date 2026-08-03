@@ -99,6 +99,31 @@ content: |
 	}
 }
 
+func TestKnowledgeContextRefToPartsAcceptsGlobalDocumentRef(t *testing.T) {
+	kind, team, name, err := knowledgeContextRefToParts("runbook", "restart")
+	if err != nil {
+		t.Fatalf("knowledgeContextRefToParts(global ref) error = %v", err)
+	}
+	if kind != "runbook" || team != "" || name != "restart" {
+		t.Fatalf("global ref = (%q, %q, %q), want runbook/global restart", kind, team, name)
+	}
+	kind, team, name, err = knowledgeContextRefToParts("runbook", "global/restart")
+	if err != nil {
+		t.Fatalf("knowledgeContextRefToParts(global path ref) error = %v", err)
+	}
+	if kind != "runbook" || team != "" || name != "restart" {
+		t.Fatalf("global path ref = (%q, %q, %q), want runbook/global restart", kind, team, name)
+	}
+}
+
+func TestKnowledgeContextRefToPartsRejectsRetiredGlobalAliases(t *testing.T) {
+	for _, ref := range []string{"root/restart", "general/restart", "__general__/restart"} {
+		if _, _, _, err := knowledgeContextRefToParts("runbook", ref); err == nil {
+			t.Fatalf("knowledgeContextRefToParts(%q) error = nil, want retired alias error", ref)
+		}
+	}
+}
+
 func TestParseGitOpsKnowledgeContextsMarkdownFrontMatterDocument(t *testing.T) {
 	plan := newAccessSyncPlan()
 	files := map[string]string{
@@ -344,8 +369,8 @@ content: |
 	}
 }
 
-func TestParseGitOpsKnowledgeContextsSystemRepoRejectsMissingTeamSegment(t *testing.T) {
-	_, err := parseGitOpsKnowledgeContexts(map[string]string{
+func TestParseGitOpsKnowledgeContextsSystemRepoAcceptsRootDocumentPath(t *testing.T) {
+	contexts, err := parseGitOpsKnowledgeContexts(map[string]string{
 		"knowledge/guideline/go-style.md": `name: go-style
 kind: guideline
 content: Keep helpers small.
@@ -354,10 +379,14 @@ content: Keep helpers small.
 		ScopeType: models.ConfigRepositoryScopeSystem,
 		ScopeID:   models.ConfigRepositorySystemGlobalID,
 	}, "", newAccessSyncPlan())
-	if err == nil {
-		t.Fatal("parseGitOpsKnowledgeContexts() error = nil, want missing team path error")
+	if err != nil {
+		t.Fatalf("parseGitOpsKnowledgeContexts() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "knowledge document path must use kind/team/document") {
-		t.Fatalf("error = %q, want missing team path error", err)
+	context, ok := contexts["guideline/go-style"]
+	if !ok {
+		t.Fatalf("expected global knowledge context, got %#v", contexts)
+	}
+	if context.team != "" {
+		t.Fatalf("team = %q, want global team", context.team)
 	}
 }

@@ -76,6 +76,7 @@ test('normalizes step identifiers and source labels', () => {
 
 test('filters visible steps by all teams, selected team subtree, and search', () => {
   const items = [
+    { id: 'setup' },
     { id: 'library/docker/build-image' },
     { id: 'library/deploy' },
     { id: 'sandbox/lint' },
@@ -83,7 +84,11 @@ test('filters visible steps by all teams, selected team subtree, and search', ()
 
   assert.deepEqual(
     filterVisibleStepList(items, '', '').map(item => item.id),
-    ['library/deploy', 'library/docker/build-image', 'sandbox/lint']
+    ['library/deploy', 'library/docker/build-image', 'sandbox/lint', 'setup']
+  );
+  assert.deepEqual(
+    filterVisibleStepList(items, '', 'global').map(item => item.id),
+    ['setup']
   );
   assert.deepEqual(
     filterVisibleStepList(items, '', 'library').map(item => item.id),

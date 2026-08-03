@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Boxes, ChevronRight, Search, UsersRound } from 'lucide-react';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
+import { GLOBAL_RESOURCE_TEAM_LABEL, GLOBAL_RESOURCE_TEAM_PATH, isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 
 export type ResourceCollectionTreeNode = {
   id: string;
@@ -229,7 +230,7 @@ function buildResourceCollectionNavigationItems(
         : !collapsedNodeIds.has(child.id) && (activePathIds.has(child.id) || expandedNodeIds.has(child.id));
       items.push({
         id: child.id,
-        label: child.name,
+        label: isGlobalResourceTeamPath(child.fullPath) ? GLOBAL_RESOURCE_TEAM_LABEL : child.name,
         path: child.fullPath,
         active: normalizedActivePath === child.fullPath,
         expanded,
@@ -250,11 +251,11 @@ function countResourceCollectionItems(node: ResourceCollectionTreeNode): number 
 }
 
 function normalizeResourceTreePath(value?: string | null): string {
-  return String(value || '')
+  const normalized = String(value || '')
     .trim()
     .replace(/\/+/g, '/')
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/^root$/i, '');
+    .replace(/^\/+|\/+$/g, '');
+  return isGlobalResourceTeamPath(normalized) ? GLOBAL_RESOURCE_TEAM_PATH : normalized;
 }
 
 function buildSearchVisibleResourceTreeIds(rootNode: ResourceCollectionTreeNode, term: string): Set<string> {

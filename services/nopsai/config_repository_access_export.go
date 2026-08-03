@@ -546,8 +546,8 @@ func setConfigRepositoryBasicRoleSubjectExport(grant *configRepositoryBasicRoleE
 func configRepositoryBasicRoleResourceExport(resourceType, resourceID string) string {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
-	if resourceType == grantResourceTeam && resourceID == generalGrantID {
-		resourceID = rootGrantID
+	if resourceType == grantResourceTeam && resourceID == globalGrantID {
+		resourceID = globalGrantID
 	}
 	if resourceType == grantResourceTeam {
 		resourceType = grantResourceTeam

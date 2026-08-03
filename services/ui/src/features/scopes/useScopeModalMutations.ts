@@ -8,6 +8,7 @@ import {
   scopedResourcePath,
 } from './api';
 import { copyTextToClipboard } from '../../lib/clipboard';
+import { isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 import {
   normalizeRepositorySlug,
   normalizeScopeLabel,
@@ -145,8 +146,9 @@ export function useScopeModalMutations({
 
   const openNewScopeModal = useCallback(() => {
     if (!canCreateScopeHere) return;
+    const parent = isGlobalResourceTeamPath(activeTeam) ? '' : normalizeScopeLabel(activeTeam);
     setScopeModal({
-      parent: normalizeScopeLabel(activeTeam),
+      parent,
       name: '',
       pending: false,
     });

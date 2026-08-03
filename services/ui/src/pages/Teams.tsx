@@ -32,7 +32,7 @@ type TeamItemPayload = {
 
 function isReservedRootTeamName(name: string) {
   const normalized = name.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
-  return normalized === 'root' || normalized === '__general__';
+  return normalized === 'root' || normalized === 'global' || normalized === 'general';
 }
 
 export default function TeamsPage() {

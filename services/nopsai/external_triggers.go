@@ -611,7 +611,7 @@ func normalizeExternalTriggerInput(req externalTriggerInput, pathID string) (ext
 		return externalTriggerRecord{}, fmt.Errorf("invalid run_team_path: %w", err)
 	}
 	scope := strings.Trim(strings.TrimSpace(req.Scope), "/")
-	if normalizedScope, rootOnly := stripRootPathPrefix(scope); rootOnly {
+	if normalizedScope, globalOnly := stripGlobalPathPrefix(scope); globalOnly {
 		scope = ""
 	} else {
 		scope = normalizedScope
@@ -635,7 +635,7 @@ func effectiveExternalTriggerRunTeamPath(trigger externalTriggerRecord) string {
 	if teamPath := strings.Trim(strings.TrimSpace(trigger.RunTeamPath), "/"); teamPath != "" {
 		return teamPath
 	}
-	return rootGrantID
+	return globalGrantID
 }
 
 func normalizeExternalTriggerPipeline(value string) string {
@@ -652,11 +652,11 @@ func normalizeExternalTriggerPipelineReference(value string) (string, bool) {
 	if value == "" {
 		return "", false
 	}
-	pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(value)
+	pipeline, globalQualified, err := configsync.NormalizePipelineIdentifierReference(value)
 	if err != nil {
-		return value, rootQualified
+		return value, globalQualified
 	}
-	return pipeline, rootQualified
+	return pipeline, globalQualified
 }
 
 func slugifyExternalTriggerID(name string) string {

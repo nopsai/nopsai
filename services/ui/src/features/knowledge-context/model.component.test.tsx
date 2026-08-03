@@ -48,9 +48,10 @@ afterEach(() => {
 
 describe('Knowledge Context model', () => {
   it('builds and navigates knowledge trees with empty enterprise teams', () => {
-    const tree = buildKnowledgeTree(documents, ['platform/security']);
+    const tree = buildKnowledgeTree(documents, ['platform/security', 'analytics']);
     const runbooks = findKnowledgeTeam(tree, 'runbook');
 
+    expect(runbooks.children.map(child => child.fullPath)).toEqual(['runbook/global', 'runbook/analytics', 'runbook/platform']);
     expect(runbooks.children.find(child => child.name === 'platform')?.docs[0]?.name).toBe('restart');
     expect(findKnowledgeTeam(tree, 'runbook/platform/security').docs).toHaveLength(0);
     expect(findKnowledgeTeam(tree, 'missing')).toBe(tree);

@@ -103,7 +103,7 @@ func effectiveScheduleRunTeamPath(record scheduleRecord) string {
 	if teamPath := strings.Trim(strings.TrimSpace(record.RunTeamPath), "/"); teamPath != "" {
 		return teamPath
 	}
-	return rootGrantID
+	return globalGrantID
 }
 
 func parseRunIDFromCreatedMessage(message string) string {

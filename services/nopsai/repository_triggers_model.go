@@ -190,7 +190,7 @@ func fallbackRepositoryTriggerTeamPath(repositoryName string) string {
 	if parent := repositoryParentPath(repositoryName); parent != "" {
 		return parent
 	}
-	return rootGrantID
+	return globalGrantID
 }
 
 func repositoryTriggerConfigScope(record repositoryTriggerRecord) string {
@@ -206,7 +206,7 @@ func repositoryTriggerProviderRepository(repositoryName, teamPath string) string
 	if repositoryName == "" {
 		return ""
 	}
-	if teamPath != "" && teamPath != rootGrantID && strings.HasPrefix(repositoryName, teamPath+"/") {
+	if teamPath != "" && !isGlobalGrantResourceID(teamPath) && teamPath != rootGrantID && strings.HasPrefix(repositoryName, teamPath+"/") {
 		return strings.Trim(strings.TrimPrefix(repositoryName, teamPath+"/"), "/")
 	}
 	return repositoryName

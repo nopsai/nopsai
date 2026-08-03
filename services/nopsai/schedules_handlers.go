@@ -73,7 +73,7 @@ func (a *App) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	teamID := input.Path
 	if teamID == "" {
-		teamID = generalGrantID
+		teamID = globalGrantID
 	}
 	if !a.requireAAADecision(w, r, "pipeline_schedule.create", aaamodel.ResourceRef{Type: grantResourceTeam, ID: teamID}) {
 		return

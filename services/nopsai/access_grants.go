@@ -50,7 +50,7 @@ const (
 	grantSubjectServiceAccount = "service_account"
 
 	platformGrantID = "default"
-	generalGrantID  = model.TeamGeneralID
+	globalGrantID   = model.TeamGlobalID
 	rootGrantID     = "root"
 
 	grantSourceLocal = "local"

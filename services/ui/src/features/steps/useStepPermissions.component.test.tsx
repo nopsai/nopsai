@@ -35,6 +35,10 @@ test('coordinates step create and update permissions', async () => {
     'shared/__nopsai_permission_probe__'
   );
   expect(result.current.canUpdateSelectedStep).toBe(false);
+
+  rerender({ selectedID: null, team: 'global' });
+  await waitFor(() => expect(result.current.permissionTeam).toBe(''));
+  expect(checkPermissionMock).toHaveBeenCalledWith('step.create', '__nopsai_permission_probe__');
 });
 
 test('fails closed when step permission checks reject', async () => {

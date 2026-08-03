@@ -7,6 +7,7 @@ import { ObjectIcon } from '../../components/ObjectIcon';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
+import { GLOBAL_RESOURCE_TEAM_LABEL, GLOBAL_RESOURCE_TEAM_PATH, isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 import { KnowledgeContextConnectionsView } from './KnowledgeContextConnectionsView';
 import { KnowledgeContextDetailView, type KnowledgeContextDetailViewProps } from './KnowledgeContextDetailView';
 import {
@@ -14,11 +15,11 @@ import {
   documentTeamPath,
   isExternalKnowledgeDocument,
   isGitManagedDocument,
+  knowledgeDocumentTreePathFromID,
   knowledgeConnectionDisplayName,
   knowledgeContentSource,
   knowledgeSyncStatusLabel,
   normalizeTeamPath,
-  splitKnowledgePath,
   sourceLabel,
   type KnowledgeConnectionListItem,
   type KnowledgeConnectionTeamSummary,
@@ -463,7 +464,7 @@ function DocumentRows({
   onSelectDocument: (id: string) => void;
 }) {
   const [nodeOpenOverrides, setNodeOpenOverrides] = useState<Map<string, boolean>>(() => new Map());
-  const selectedPath = selectedID ? splitKnowledgePath(selectedID).team : '';
+  const selectedPath = selectedID ? knowledgeDocumentTreePathFromID(selectedID) : '';
   const forcedOpenNodeIDs = useMemo(() => {
     const ids = new Set<string>(['root']);
     knowledgeTreeAncestorIDs(activeTeam).forEach(id => ids.add(id));
@@ -552,7 +553,7 @@ function KnowledgeExplorerNode({
   const active = activeTeam === node.fullPath && !selectedID;
   const isKind = node.fullPath.split('/').filter(Boolean).length === 1;
   const hasChildren = node.children.length > 0 || node.docs.length > 0;
-  const label = isKind ? kindPlural(node.name) : node.name;
+  const label = isKind ? kindPlural(node.name) : isGlobalResourceTeamPath(node.name) ? GLOBAL_RESOURCE_TEAM_LABEL : node.name;
 
   return (
     <li className="triggers-explorer-node">
@@ -716,7 +717,7 @@ function KnowledgeDocumentCollection({
               </thead>
               <tbody>
                 {sortedDocuments.map(document => {
-                  const teamPath = documentTeamPath(document) || 'root';
+                  const teamPath = documentTeamPath(document) || GLOBAL_RESOURCE_TEAM_PATH;
                   const usedByCount = document.used_by_count ?? document.used_by?.length ?? 0;
                   const source = documentSourceLabel(document);
                   const sync = documentSyncBadge(document);
@@ -1008,13 +1009,14 @@ function ConnectionRows({
         {visibleTeams.map(team => {
           const teamIsOpen = openTeamPaths.has(team.teamPath);
           const teamIsActive = team.teamPath === selectedTeamPath && !selectedConnectionID;
+          const teamLabel = isGlobalResourceTeamPath(team.teamPath) ? GLOBAL_RESOURCE_TEAM_LABEL : team.teamPath;
           return (
             <li key={team.teamPath} className="triggers-explorer-node">
               <div className="triggers-explorer-node-row">
                 <button
                   type="button"
                   className="triggers-explorer-toggle"
-                  aria-label={`${teamIsOpen ? 'Collapse' : 'Expand'} ${team.teamPath} connections`}
+                  aria-label={`${teamIsOpen ? 'Collapse' : 'Expand'} ${teamLabel} connections`}
                   aria-expanded={teamIsOpen}
                   onClick={() => toggleTeam(team.teamPath)}
                 >
@@ -1023,14 +1025,14 @@ function ConnectionRows({
                 <button
                   type="button"
                   className={`triggers-explorer-owner ${teamIsActive ? 'active' : ''}`}
-                  aria-label={`Open ${team.teamPath} connections`}
+                  aria-label={`Open ${teamLabel} connections`}
                   aria-current={teamIsActive ? 'page' : undefined}
                   onClick={() => selectTeam(team.teamPath)}
                 >
                   <span className="triggers-explorer-folder" aria-hidden="true">
                     <ObjectIcon type="team" />
                   </span>
-                  <span className="truncate">{team.teamPath}</span>
+                  <span className="truncate">{teamLabel}</span>
                   <strong>{team.connections.length}</strong>
                 </button>
               </div>

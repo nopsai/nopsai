@@ -61,18 +61,18 @@ func NormalizePathForTeam(boundTeam string, repoRelativePath string) (string, er
 	}
 	relative = StripResourcePrefix(relative)
 	relative = strings.TrimSuffix(relative, filepath.Ext(relative))
-	rootQualified := false
-	if normalized, rootOnly := stripRootPathPrefix(relative); rootOnly {
+	globalQualified := false
+	if normalized, globalOnly := stripGlobalPathPrefix(relative); globalOnly {
 		return "", nil
 	} else if normalized != relative {
 		relative = normalized
-		rootQualified = true
+		globalQualified = true
 	}
 	relSegments, err := CleanPathSegments(relative, true)
 	if err != nil {
 		return "", err
 	}
-	if rootQualified {
+	if globalQualified {
 		return strings.Join(relSegments, "/"), nil
 	}
 	if HasPathSegmentPrefix(relSegments, boundSegments) {
@@ -225,7 +225,7 @@ func SplitYAMLIdentifier(identifier string) (string, string, string, error) {
 	var path string
 	if len(parts) > 1 {
 		path = strings.Join(parts[:len(parts)-1], "/")
-		if normalizedPath, rootOnly := stripRootPathPrefix(path); rootOnly {
+		if normalizedPath, globalOnly := stripGlobalPathPrefix(path); globalOnly {
 			path = ""
 		} else {
 			path = normalizedPath
@@ -247,15 +247,15 @@ func NormalizePipelineIdentifierReference(identifier string) (string, bool, erro
 	if trimmed == "" {
 		return "", false, fmt.Errorf("identifier cannot be empty")
 	}
-	rootQualified := YAMLIdentifierPathHasRootPrefix(trimmed)
+	globalQualified := YAMLIdentifierPathHasGlobalPrefix(trimmed)
 	path, name, _, err := SplitPipelineIdentifier(trimmed)
 	if err != nil {
-		return "", rootQualified, err
+		return "", globalQualified, err
 	}
-	return BuildPipelineIdentifier(path, name), rootQualified, nil
+	return BuildPipelineIdentifier(path, name), globalQualified, nil
 }
 
-func YAMLIdentifierPathHasRootPrefix(identifier string) bool {
+func YAMLIdentifierPathHasGlobalPrefix(identifier string) bool {
 	normalized := filepath.ToSlash(strings.Trim(strings.TrimSpace(identifier), "/"))
 	lower := strings.ToLower(normalized)
 	switch {
@@ -269,8 +269,8 @@ func YAMLIdentifierPathHasRootPrefix(identifier string) bool {
 		return false
 	}
 	path := strings.Join(parts[:len(parts)-1], "/")
-	stripped, rootOnly := stripRootPathPrefix(path)
-	return rootOnly || stripped != path
+	stripped, globalOnly := stripGlobalPathPrefix(path)
+	return globalOnly || stripped != path
 }
 
 func BuildPipelineIdentifier(path, name string) string {
@@ -312,7 +312,7 @@ func ParseScopeFilePath(rel string) (string, bool, error) {
 	scopePath := strings.TrimSuffix(rel[:len(rel)-len(base)], "/")
 	scopePath = strings.Trim(scopePath, "/")
 	if scopePath != "" {
-		if normalizedPath, rootOnly := stripRootPathPrefix(scopePath); rootOnly {
+		if normalizedPath, globalOnly := stripGlobalPathPrefix(scopePath); globalOnly {
 			scopePath = ""
 		} else {
 			scopePath = normalizedPath
@@ -334,16 +334,16 @@ func ParseScopeFilePath(rel string) (string, bool, error) {
 	return scopePath, true, nil
 }
 
-func stripRootPathPrefix(raw string) (string, bool) {
+func stripGlobalPathPrefix(raw string) (string, bool) {
 	path := strings.Trim(strings.TrimSpace(raw), "/")
-	if isRootPathAlias(path) {
+	if isGlobalPath(path) {
 		return "", true
 	}
 	parts := strings.Split(path, "/")
 	if len(parts) == 0 {
 		return "", true
 	}
-	if !isRootPathAlias(parts[0]) {
+	if !isGlobalPath(parts[0]) {
 		return path, false
 	}
 	parts = parts[1:]
@@ -353,6 +353,11 @@ func stripRootPathPrefix(raw string) (string, bool) {
 	return strings.Join(parts, "/"), false
 }
 
-func isRootPathAlias(raw string) bool {
-	return strings.EqualFold(strings.Trim(strings.TrimSpace(raw), "/"), "root")
+func isGlobalPath(raw string) bool {
+	switch strings.ToLower(strings.Trim(strings.TrimSpace(raw), "/")) {
+	case "global":
+		return true
+	default:
+		return false
+	}
 }

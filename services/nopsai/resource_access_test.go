@@ -98,6 +98,16 @@ func TestResolveDefaultScopeGrantResourceDoesNotRequireRows(t *testing.T) {
 	}
 }
 
+func TestResolveResourceUseGrantSubjectAllowsGlobalTeam(t *testing.T) {
+	subject, err := resolveResourceUseGrantSubject(t.Context(), &noopQueryRunner{}, grantSubjectTeam, "global")
+	if err != nil {
+		t.Fatalf("resolveResourceUseGrantSubject(global team) error = %v", err)
+	}
+	if subject.Type != grantSubjectTeam || subject.ID != globalGrantID || subject.Display != globalGrantID {
+		t.Fatalf("global team subject = %#v, want team/%s display global", subject, globalGrantID)
+	}
+}
+
 func TestListAccessAuthTeamsQueriesAuthTeamsOnly(t *testing.T) {
 	runner := &accessAuthTeamsQueryRunner{
 		rows: &accessAuthTeamRows{

@@ -1,6 +1,7 @@
 import { Shield } from 'lucide-react';
 import { useCallback, useEffect } from 'react';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
+import { GLOBAL_RESOURCE_TEAM_LABEL, GLOBAL_RESOURCE_TEAM_PATH, isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 import {
   MONTHDAY_VALUES,
   MONTH_OPTIONS,
@@ -57,7 +58,7 @@ export function ScheduleFormModal({
   const teamOptions = uniqueRunTeamOptions(runTeams);
   const selectedRunTeamPath = teamOptions.includes(normalizeIdentifier(form.runTeamPath))
     ? normalizeIdentifier(form.runTeamPath)
-    : 'root';
+    : GLOBAL_RESOURCE_TEAM_PATH;
   const scopeOptions = Array.from(new Set(['', ...scopes, form.scope].map(normalizeScopeOption))).sort((a, b) => a.localeCompare(b));
   const updateCron = (patch: Partial<CronFormFields>) => {
     const next = { ...form, ...patch };
@@ -126,7 +127,7 @@ export function ScheduleFormModal({
                   update({
                     pipeline,
                     runTeamPath:
-                      selectedRunTeamPath && selectedRunTeamPath !== 'root'
+                      selectedRunTeamPath && !isGlobalResourceTeamPath(selectedRunTeamPath)
                         ? selectedRunTeamPath
                         : defaultRunTeamForPipeline(pipeline, runTeams),
                   });
@@ -153,7 +154,7 @@ export function ScheduleFormModal({
               >
                 {teamOptions.map(team => (
                   <option key={team} value={team}>
-                    {team === 'root' ? 'Root' : team}
+                    {isGlobalResourceTeamPath(team) ? GLOBAL_RESOURCE_TEAM_LABEL : team}
                   </option>
                 ))}
               </select>

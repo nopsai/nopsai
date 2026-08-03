@@ -867,7 +867,7 @@ const scheduleExternalRows: WikiConfigRow[] = [
   {
     key: 'schedules[].run_team_path',
     area: 'Schedule',
-    description: 'Pipeline Runs team path and notification lineage for runs created by this schedule. root means unassigned root.',
+    description: 'Pipeline Runs team path and notification lineage for runs created by this schedule. global means no concrete team assignment.',
     example: 'team-1',
   },
   {
@@ -1056,7 +1056,7 @@ const knowledgeRows: WikiConfigRow[] = [
   {
     key: 'knowledge/',
     area: 'GitOps',
-    description: 'Managed Knowledge Context directory grouped by kind and explicit team path. Team config repositories import legacy shorthand but drift exports the explicit team segment.',
+    description: 'Managed Knowledge Context directory grouped by kind and team path. In a system/global repo, knowledge/<kind>/<document>.md creates a global document.',
     example: 'knowledge/guardrail/security/repo-check.md',
   },
   {
@@ -1068,7 +1068,7 @@ const knowledgeRows: WikiConfigRow[] = [
   {
     key: 'knowledge_context[].ref',
     area: 'Knowledge Context',
-    description: 'Managed NopsAI document reference using team/document format. Mutually exclusive with path.',
+    description: 'Managed NopsAI document reference using document or team/document format. Mutually exclusive with path.',
     example: 'security/repo-check',
   },
   {
@@ -1084,9 +1084,15 @@ const knowledgeRows: WikiConfigRow[] = [
     example: 'true',
   },
   {
+    key: 'knowledge/<kind>/<name>.md',
+    area: 'Knowledge GitOps',
+    description: 'System/global config repository path for a global knowledge document.',
+    example: 'knowledge/policy/release-evidence.md',
+  },
+  {
     key: 'knowledge/<kind>/<team>/<name>.md',
     area: 'Knowledge GitOps',
-    description: 'Managed knowledge document path. GitOps documents must provide reusable text through content.',
+    description: 'Managed knowledge document path for a concrete team. GitOps documents must provide reusable text through content.',
     example: 'knowledge/policy/platform/release-evidence.md',
   },
   {
@@ -1444,7 +1450,7 @@ const gitOpsRepositoryRows: WikiConfigRow[] = [
   {
     key: 'knowledge/',
     area: 'GitOps repository',
-    description: 'Managed Knowledge Context documents organized by kind and team.',
+    description: 'Managed Knowledge Context documents organized by kind and team. System/global repos may omit the team segment for global documents.',
     example: 'knowledge/policy/platform/release-evidence.md',
     type: 'directory',
     required: false,
@@ -2642,6 +2648,7 @@ const baseWikiSections: WikiSectionInput[] = [
         keyFacts: [
           'Bootstrap values include database URL, master key, JWT signing keys, AAA token, dispatcher trust, service addresses, renderer, and System Logs topology.',
           'GitOps can own pipelines, steps, schedules, triggers, external triggers, Git webhook sources, scopes, knowledge, access, config repositories, and setting/system files.',
+          'Pipelines, reusable steps, schedules, scopes, and Knowledge Context support a global bucket; resource Access and GitOps use team: global for global sharing.',
           'Global configuration sync runs before delegated team repositories.',
           'The closest enabled team config repository owns resources under its team path, including drift/export for parent-managed or orphaned GitOps-labeled rows.',
           'UI edits to GitOps-managed resources create database overrides until the change is pushed back to Git.',

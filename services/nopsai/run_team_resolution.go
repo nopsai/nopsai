@@ -56,7 +56,7 @@ func repositoryTeamIDFromMatches(matches []repositoryTeamMatch) sql.NullInt32 {
 
 func repositoryTeamIDFromMatchesUnderPath(matches []repositoryTeamMatch, teamPath string) (sql.NullInt32, bool) {
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
-	if teamPath == "" || strings.EqualFold(teamPath, rootGrantID) {
+	if teamPath == "" || isGlobalGrantResourceID(teamPath) {
 		return repositoryTeamIDFromMatches(matches), len(matches) > 0
 	}
 	for _, match := range matches {
@@ -86,7 +86,7 @@ func (a *App) resolveRepositoryTeamIDUnderPath(ctx context.Context, teamPath str
 
 func (a *App) resolveTeamIDForRun(ctx context.Context, explicitTeamPath, pipelinePath string, gitContext map[string]string) (sql.NullInt32, error) {
 	explicitTeamPath = strings.Trim(strings.TrimSpace(explicitTeamPath), "/")
-	if strings.EqualFold(explicitTeamPath, rootGrantID) {
+	if isGlobalGrantResourceID(explicitTeamPath) {
 		explicitTeamPath = ""
 	}
 	if explicitTeamPath != "" {

@@ -365,13 +365,13 @@ func normalizeScheduleRuntimeRefsForTeam(boundTeam string, req *scheduleRequest)
 		return nil
 	}
 	if strings.TrimSpace(req.Pipeline) != "" {
-		pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(configsync.StripResourcePrefix(req.Pipeline))
+		pipeline, globalQualified, err := configsync.NormalizePipelineIdentifierReference(configsync.StripResourcePrefix(req.Pipeline))
 		if err != nil {
 			pipeline, err = configsync.NormalizePathForTeam(boundTeam, req.Pipeline)
 			if err != nil {
 				return err
 			}
-		} else if !rootQualified {
+		} else if !globalQualified {
 			pipeline, err = configsync.NormalizePathForTeam(boundTeam, req.Pipeline)
 			if err != nil {
 				return err
@@ -380,13 +380,13 @@ func normalizeScheduleRuntimeRefsForTeam(boundTeam string, req *scheduleRequest)
 		req.Pipeline = pipeline
 	} else if strings.TrimSpace(req.PipelinePath) != "" || strings.TrimSpace(req.PipelineName) != "" {
 		pipelineID := configsync.BuildPipelineIdentifier(req.PipelinePath, req.PipelineName)
-		pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(pipelineID)
+		pipeline, globalQualified, err := configsync.NormalizePipelineIdentifierReference(pipelineID)
 		if err != nil {
 			pipeline, err = configsync.NormalizePathForTeam(boundTeam, pipelineID)
 			if err != nil {
 				return err
 			}
-		} else if !rootQualified {
+		} else if !globalQualified {
 			pipeline, err = configsync.NormalizePathForTeam(boundTeam, pipelineID)
 			if err != nil {
 				return err
@@ -400,7 +400,7 @@ func normalizeScheduleRuntimeRefsForTeam(boundTeam string, req *scheduleRequest)
 		req.PipelineName = pipelineName
 	}
 	if scope := strings.Trim(strings.TrimSpace(req.Scope), "/"); scope != "" && !strings.EqualFold(scope, "default") {
-		if _, rootOnly := stripRootPathPrefix(scope); rootOnly {
+		if _, globalOnly := stripGlobalPathPrefix(scope); globalOnly {
 			req.Scope = ""
 		} else {
 			normalized, err := configsync.NormalizePathForTeam(boundTeam, scope)
@@ -411,8 +411,8 @@ func normalizeScheduleRuntimeRefsForTeam(boundTeam string, req *scheduleRequest)
 		}
 	}
 	if teamPath := strings.Trim(strings.TrimSpace(req.RunTeamPath), "/"); teamPath != "" {
-		if _, rootOnly := stripRootPathPrefix(teamPath); rootOnly {
-			req.RunTeamPath = rootGrantID
+		if _, globalOnly := stripGlobalPathPrefix(teamPath); globalOnly {
+			req.RunTeamPath = globalGrantID
 			return nil
 		}
 		normalized, err := configsync.NormalizePathForTeam(boundTeam, teamPath)
@@ -426,8 +426,8 @@ func normalizeScheduleRuntimeRefsForTeam(boundTeam string, req *scheduleRequest)
 
 func normalizeSchedulePath(raw string) (string, error) {
 	path := strings.Trim(strings.TrimSpace(raw), "/")
-	path, rootOnly := stripRootPathPrefix(path)
-	if rootOnly {
+	path, globalOnly := stripGlobalPathPrefix(path)
+	if globalOnly {
 		return "", nil
 	}
 	if path == "." {
@@ -453,8 +453,8 @@ func normalizeSchedulePath(raw string) (string, error) {
 
 func normalizeScheduleScope(raw string) string {
 	scope := strings.Trim(strings.TrimSpace(raw), "/")
-	scope, rootOnly := stripRootPathPrefix(scope)
-	if rootOnly {
+	scope, globalOnly := stripGlobalPathPrefix(scope)
+	if globalOnly {
 		return ""
 	}
 	if strings.EqualFold(scope, "default") {
@@ -466,18 +466,21 @@ func normalizeScheduleScope(raw string) string {
 func normalizeRunTeamPath(raw string) (string, error) {
 	path := strings.Trim(strings.TrimSpace(raw), "/")
 	if path == "" {
-		return rootGrantID, nil
+		return globalGrantID, nil
 	}
-	path, rootOnly := stripRootPathPrefix(path)
-	if rootOnly {
-		return rootGrantID, nil
+	if isRetiredGlobalTeamAlias(path) {
+		return "", fmt.Errorf("use global for the global team")
+	}
+	path, globalOnly := stripGlobalPathPrefix(path)
+	if globalOnly {
+		return globalGrantID, nil
 	}
 	normalized, err := normalizeSchedulePath(path)
 	if err != nil {
 		return "", err
 	}
 	if normalized == "" {
-		return rootGrantID, nil
+		return globalGrantID, nil
 	}
 	return normalized, nil
 }

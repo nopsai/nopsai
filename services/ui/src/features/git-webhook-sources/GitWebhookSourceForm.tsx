@@ -1,5 +1,10 @@
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTeamPathsWithGlobalFirst,
+  isGlobalResourceTeamPath,
+} from '../../lib/resourceTeams';
+import {
   GIT_WEBHOOK_AUTH_MODES,
   GIT_WEBHOOK_PROVIDERS,
   GIT_WEBHOOK_VISIBILITIES,
@@ -103,7 +108,7 @@ export function GitWebhookSourceForm({
             onChange={event => update('teamPath', event.target.value)}
           >
             {teamOptions.map(path => (
-              <option key={path} value={path}>{path === 'root' ? 'Global' : `/${path}`}</option>
+              <option key={path} value={path}>{isGlobalResourceTeamPath(path) ? 'Global' : `/${path}`}</option>
             ))}
           </select>
         </Field>
@@ -206,13 +211,10 @@ export function GitWebhookSourceForm({
 function uniqueTeamOptions(paths: string[]): string[] {
   const normalized = paths
     .map(path => String(path || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/'))
-    .map(path => path && path.toLowerCase() !== 'root' ? path : 'root');
-  return Array.from(new Set(['root', ...normalized]))
-    .sort((left, right) => {
-      if (left === 'root') return -1;
-      if (right === 'root') return 1;
-      return left.localeCompare(right);
-    });
+    .map(path => isGlobalResourceTeamPath(path) ? GLOBAL_RESOURCE_TEAM_PATH : path)
+    .filter(Boolean);
+  return Array.from(new Set([GLOBAL_RESOURCE_TEAM_PATH, ...normalized]))
+    .sort(compareResourceTeamPathsWithGlobalFirst);
 }
 
 function Field({

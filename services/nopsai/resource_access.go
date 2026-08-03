@@ -161,13 +161,13 @@ func (a *App) handleListAccessTeams(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	teams := make([]accessTeamResponse, 0, len(records))
+	teams := []accessTeamResponse{{ID: globalGrantID, Name: "Global"}}
 	for _, record := range records {
 		if !isSelectableAccessTeamRecord(record) {
 			continue
 		}
 		path := strings.Trim(strings.TrimSpace(record.Path), "/")
-		if path == "" {
+		if path == "" || isGlobalGrantResourceID(path) {
 			continue
 		}
 		resource := model.ResourceRef{Type: grantResourceTeam, ID: path}
@@ -177,6 +177,12 @@ func (a *App) handleListAccessTeams(w http.ResponseWriter, r *http.Request) {
 		teams = append(teams, accessTeamResponse{ID: path, Name: "/" + path})
 	}
 	sort.Slice(teams, func(i, j int) bool {
+		if teams[i].ID == globalGrantID {
+			return true
+		}
+		if teams[j].ID == globalGrantID {
+			return false
+		}
 		return strings.ToLower(teams[i].Name) < strings.ToLower(teams[j].Name)
 	})
 	_ = httpapi.WriteJSON(w, http.StatusOK, teams)
@@ -674,7 +680,7 @@ func inheritedAccessParentTeams(resource accessGrantResource) []string {
 
 func teamPathPrefixes(path string) []string {
 	path = strings.Trim(strings.TrimSpace(path), "/")
-	if path == "" || path == generalGrantID {
+	if path == "" || path == globalGrantID {
 		return nil
 	}
 	parts := strings.Split(path, "/")
@@ -1059,9 +1065,6 @@ func resolveResourceUseGrantSubject(ctx context.Context, runner queryRunner, raw
 		team, err := resolveAccessGrantTeam(ctx, runner, rawID, true)
 		if err != nil {
 			return accessGrantSubject{}, err
-		}
-		if team.ID == generalGrantID {
-			return accessGrantSubject{}, fmt.Errorf("team grants require a concrete team")
 		}
 		return accessGrantSubject{Type: grantSubjectTeam, ID: team.ID, Display: team.Display}, nil
 	default:

@@ -1,4 +1,8 @@
 import {
+  GLOBAL_RESOURCE_TEAM_LABEL,
+  isGlobalResourceTeamPath,
+} from '../../lib/resourceTeams.js';
+import {
   effectiveScheduleRunTeamPath,
   friendlyCronLabel,
   normalizeIdentifier,
@@ -60,7 +64,7 @@ export function formatScope(scope?: string) {
 
 export function formatTeamPath(path?: string) {
   const normalized = normalizeIdentifier(path);
-  return normalized === 'root' || !normalized ? 'Root' : normalized;
+  return isGlobalResourceTeamPath(normalized) || !normalized ? GLOBAL_RESOURCE_TEAM_LABEL : normalized;
 }
 
 export function friendlyScheduleLabel(schedule: PipelineSchedule) {

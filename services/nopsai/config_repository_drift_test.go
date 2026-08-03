@@ -572,6 +572,12 @@ func TestConfigRepositoryResourceAccessExportUsesTeamGrantKey(t *testing.T) {
 			},
 			{
 				ResourceType: grantResourcePipeline,
+				SubjectType:  grantSubjectTeam,
+				SubjectID:    globalGrantID,
+				Actions:      []string{"pipeline.use"},
+			},
+			{
+				ResourceType: grantResourcePipeline,
 				SubjectType:  grantSubjectRepository,
 				SubjectID:    "nopsai/test-app",
 				Actions:      []string{"pipeline.use"},
@@ -593,6 +599,7 @@ func TestConfigRepositoryResourceAccessExportUsesTeamGrantKey(t *testing.T) {
 	for _, want := range []string{
 		"visibility: restricted",
 		"team: data-team",
+		"team: global",
 		"repository: nopsai/test-app",
 		"service_account: servicenow-prod",
 	} {
@@ -655,7 +662,7 @@ func TestConfigRepositoryAccessExportDocumentRendersServiceAccounts(t *testing.T
 }
 
 func TestConfigRepositoryBasicRoleExportUsesSubjectShortcuts(t *testing.T) {
-	userGrant := configRepositoryBasicRoleExport{Role: productRoleOwner, Resource: configRepositoryBasicRoleResourceExport(grantResourceTeam, generalGrantID)}
+	userGrant := configRepositoryBasicRoleExport{Role: productRoleOwner, Resource: configRepositoryBasicRoleResourceExport(grantResourceTeam, globalGrantID)}
 	if !setConfigRepositoryBasicRoleSubjectExport(&userGrant, grantSubjectUser, "alice") {
 		t.Fatal("expected user subject export to succeed")
 	}
@@ -673,7 +680,7 @@ func TestConfigRepositoryBasicRoleExportUsesSubjectShortcuts(t *testing.T) {
 	rendered := string(content)
 	for _, want := range []string{
 		"user: alice",
-		"resource: team:root",
+		"resource: team:global",
 		"service_account: webhook-deployer",
 		"resource: pipeline:platform-maintenance",
 	} {

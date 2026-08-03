@@ -1,4 +1,9 @@
-import { insertTeamPath } from '../../lib/resourceTeams.js';
+import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTreeNodes,
+  insertTeamPath,
+  isGlobalResourceTeamPath,
+} from '../../lib/resourceTeams.js';
 
 export type KnowledgeContextListItem = {
   id: string;
@@ -277,7 +282,10 @@ export function buildKnowledgeTree(items: KnowledgeContextListItem[], teamPaths:
     return node;
   };
 
-  kindOrder.forEach(kind => ensureNode(kind));
+  kindOrder.forEach(kind => {
+    ensureNode(kind);
+    ensureNode(`${kind}/${GLOBAL_RESOURCE_TEAM_PATH}`);
+  });
   kindOrder.forEach(kind => {
     teamPaths.forEach(teamPath => {
       const normalizedTeam = normalizeTeamPath(teamPath);
@@ -291,14 +299,15 @@ export function buildKnowledgeTree(items: KnowledgeContextListItem[], teamPaths:
   });
 
   items.forEach(item => {
-    ensureNode(splitKnowledgePath(item.id).team).docs.push(item);
+    ensureNode(knowledgeDocumentTreePath(item)).docs.push(item);
   });
 
   nodes.forEach(node => {
     node.children.sort((a, b) => {
       const ai = kindOrder.indexOf(a.name);
       const bi = kindOrder.indexOf(b.name);
-      return (ai < 0 ? kindOrder.length : ai) - (bi < 0 ? kindOrder.length : bi) || a.name.localeCompare(b.name);
+      const kindCompare = (ai < 0 ? kindOrder.length : ai) - (bi < 0 ? kindOrder.length : bi);
+      return kindCompare || compareResourceTreeNodes(a, b);
     });
     node.docs.sort((a, b) => a.name.localeCompare(b.name));
   });
@@ -350,9 +359,13 @@ export function sourceLabel(source: string) {
 export function deriveIdentityFromTeam(activeTeam: string, fallbackTeam = '') {
   const parts = normalizeTeamPath(activeTeam).split('/').filter(Boolean);
   const first = parts[0] || '';
+  const selectedTeam = (teamParts: string[]) =>
+    teamParts.length === 1 && isGlobalResourceTeamPath(teamParts[0])
+      ? ''
+      : teamParts.join('/') || fallbackTeam;
   return kindOrder.includes(first)
-    ? { kind: first, team: parts.slice(1).join('/') || fallbackTeam }
-    : { kind: 'architecture', team: parts.join('/') || fallbackTeam };
+    ? { kind: first, team: selectedTeam(parts.slice(1)) }
+    : { kind: 'architecture', team: selectedTeam(parts) };
 }
 
 export function buildKnowledgeTeamOptions({
@@ -371,7 +384,9 @@ export function buildKnowledgeTeamOptions({
   fallbackTeam?: string;
 }) {
   const activeIdentity = deriveIdentityFromTeam(activeTeam, '');
-  const knownTeams = resourceTeamPaths.map(team => normalizeTeamPath(team)).filter(Boolean);
+  const knownTeams = resourceTeamPaths
+    .map(team => normalizeTeamPath(team))
+    .filter(team => Boolean(team) && !isGlobalResourceTeamPath(team));
   const knownTeamSet = new Set(knownTeams);
   const resourceTeams = [
     activeIdentity.team,
@@ -380,7 +395,7 @@ export function buildKnowledgeTeamOptions({
     ...connections.map(connection => connection.team),
   ]
     .map(team => normalizeTeamPath(team))
-    .filter(Boolean);
+    .filter(team => Boolean(team) && !isGlobalResourceTeamPath(team));
   const teams = Array.from(
     new Set(knownTeamSet.size ? [...knownTeams, ...resourceTeams.filter(team => knownTeamSet.has(team))] : resourceTeams)
   ).sort((a, b) => a.localeCompare(b));
@@ -424,6 +439,29 @@ export function knowledgeTreePathToTeam(path: string) {
 
 export function documentTeamPath(item: Pick<KnowledgeContextListItem, 'id' | 'team'>) {
   return normalizeTeamPath(item.team || knowledgeTreePathToTeam(splitKnowledgePath(item.id).team));
+}
+
+export function knowledgeDocumentTreePathFromID(id: string): string {
+  const parts = normalizeTeamPath(splitKnowledgePath(id).team).split('/').filter(Boolean);
+  if (parts.length === 1 && normalizeKnowledgeKindForTree(parts[0])) {
+    return `${parts[0]}/${GLOBAL_RESOURCE_TEAM_PATH}`;
+  }
+  return parts.join('/');
+}
+
+function knowledgeDocumentTreePath(item: Pick<KnowledgeContextListItem, 'id' | 'kind' | 'team'>): string {
+  const explicitKind = normalizeKnowledgeKindForTree(item.kind);
+  const explicitTeam = normalizeTeamPath(item.team || '');
+  if (explicitKind) {
+    return `${explicitKind}/${explicitTeam || GLOBAL_RESOURCE_TEAM_PATH}`;
+  }
+
+  return knowledgeDocumentTreePathFromID(item.id) || GLOBAL_RESOURCE_TEAM_PATH;
+}
+
+function normalizeKnowledgeKindForTree(kind: string): string {
+  const normalized = String(kind || '').trim().toLowerCase();
+  return kindOrder.includes(normalized) ? normalized : '';
 }
 
 export function normalizeKnowledgeWorkspaceTab(value?: string | null): KnowledgeWorkspaceTab {
@@ -485,7 +523,7 @@ export function buildKnowledgeConnectionTeamSummaries(
 ): KnowledgeConnectionTeamSummary[] {
   const summaries = new Map<string, KnowledgeConnectionTeamSummary>();
   const ensureSummary = (teamPath: string) => {
-    const normalized = normalizeTeamPath(teamPath || 'root');
+    const normalized = normalizeTeamPath(teamPath || GLOBAL_RESOURCE_TEAM_PATH);
     const existing = summaries.get(normalized);
     if (existing) return existing;
     const summary: KnowledgeConnectionTeamSummary = {

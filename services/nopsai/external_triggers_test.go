@@ -46,12 +46,12 @@ func TestNormalizeExternalTriggerInput(t *testing.T) {
 	}
 }
 
-func TestNormalizeExternalTriggerInputTreatsRootAsRootScope(t *testing.T) {
+func TestNormalizeExternalTriggerInputTreatsGlobalAsGlobalScope(t *testing.T) {
 	got, err := normalizeExternalTriggerInput(externalTriggerInput{
-		Name:        "Deploy Root",
-		Pipeline:    "pipelines/root/platform/deploy.yaml",
-		Scope:       "root/prod",
-		RunTeamPath: "root",
+		Name:        "Deploy Global",
+		Pipeline:    "pipelines/global/platform/deploy.yaml",
+		Scope:       "global/prod",
+		RunTeamPath: "global",
 	}, "")
 	if err != nil {
 		t.Fatalf("normalizeExternalTriggerInput() error = %v", err)
@@ -62,8 +62,8 @@ func TestNormalizeExternalTriggerInputTreatsRootAsRootScope(t *testing.T) {
 	if got.Scope != "prod" {
 		t.Fatalf("Scope = %q, want prod", got.Scope)
 	}
-	if got.RunTeamPath != "root" {
-		t.Fatalf("RunTeamPath = %q, want root", got.RunTeamPath)
+	if got.RunTeamPath != "global" {
+		t.Fatalf("RunTeamPath = %q, want global", got.RunTeamPath)
 	}
 }
 
@@ -187,13 +187,13 @@ rate_limit:
 	}
 }
 
-func TestParseGitOpsExternalTriggersKeepsRootRunTeamForTeamRepo(t *testing.T) {
+func TestParseGitOpsExternalTriggersKeepsGlobalRunTeamForTeamRepo(t *testing.T) {
 	triggers, err := parseGitOpsExternalTriggers(map[string]string{
 		"external-triggers/deploy-prod.yaml": `
 name: Deploy prod
-pipeline: root/platform-maintenance
-scope: root
-run_team_path: root
+pipeline: global/platform-maintenance
+scope: global
+run_team_path: global
 `,
 	}, "external-triggers", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeTeam,
@@ -207,13 +207,13 @@ run_team_path: root
 		t.Fatalf("missing normalized trigger id, got %#v", triggers)
 	}
 	if got.input.Scope != "" {
-		t.Fatalf("Scope = %q, want root/default scope", got.input.Scope)
+		t.Fatalf("Scope = %q, want global/default scope", got.input.Scope)
 	}
 	if got.input.Pipeline != "platform-maintenance" {
 		t.Fatalf("Pipeline = %q, want platform-maintenance", got.input.Pipeline)
 	}
-	if got.input.RunTeamPath != "root" {
-		t.Fatalf("RunTeamPath = %q, want root", got.input.RunTeamPath)
+	if got.input.RunTeamPath != "global" {
+		t.Fatalf("RunTeamPath = %q, want global", got.input.RunTeamPath)
 	}
 }
 
@@ -233,7 +233,7 @@ func TestExternalTriggerConfigScopePrefersRunTeam(t *testing.T) {
 		Pipeline: "shared/platform/deploy",
 		Scope:    "shared/prod",
 	})
-	if got != "root" {
-		t.Fatalf("externalTriggerConfigScope() without run team = %q, want root", got)
+	if got != "global" {
+		t.Fatalf("externalTriggerConfigScope() without run team = %q, want global", got)
 	}
 }

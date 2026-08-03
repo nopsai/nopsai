@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { ChevronRight, FolderTree } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
-import { normalizeSource, sourceLabel, triggerSlugLabel, type TriggerListItem } from './model';
+import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams';
+import { normalizeSource, normalizeTriggerTeamPath, sourceLabel, triggerSlugLabel, type TriggerListItem } from './model';
 import { countTriggerTreeSlugs, triggerTreeAncestorIDs, type TriggerTreeNode } from './treeModel';
 
 type TriggerExplorerTreeProps = {
@@ -38,7 +39,8 @@ export function TriggerExplorerTree({
     triggerTreeAncestorIDs(activeOwnerPath, activeTeamPath).forEach(id => ids.add(id));
     if (selectedSlug) {
       const selectedOwnerPath = triggerSlugLabel(selectedSlug).path;
-      triggerTreeAncestorIDs(selectedOwnerPath === 'root' ? '' : selectedOwnerPath, normalizeTreeTeamPath(itemBySlug.get(selectedSlug)?.teamPath)).forEach(id => ids.add(id));
+      const ownerPath = selectedOwnerPath === 'root' ? '' : selectedOwnerPath;
+      triggerTreeAncestorIDs(ownerPath, normalizeTreeTeamPath(itemBySlug.get(selectedSlug)?.teamPath)).forEach(id => ids.add(id));
     }
     return ids;
   }, [activeOwnerPath, activeTeamPath, itemBySlug, selectedSlug]);
@@ -162,7 +164,7 @@ function TriggerExplorerNode({
         <button
           type="button"
           className={`triggers-explorer-owner ${active ? 'active' : ''}`}
-          aria-label={isTeam ? `Open team ${node.name} under owner ${node.ownerPath || 'root'}` : `Open owner ${node.fullPath}`}
+          aria-label={isTeam ? `Open team ${node.name} under owner ${node.ownerPath || GLOBAL_RESOURCE_TEAM_PATH}` : `Open owner ${node.fullPath}`}
           onClick={() => {
             if (isTeam) onOpenTeam(node.ownerPath, node.teamPath);
             else onOpenOwner(node.fullPath);
@@ -209,8 +211,7 @@ function TriggerExplorerNode({
 }
 
 function normalizeTreeTeamPath(value?: string) {
-  const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
-  return normalized && normalized.toLowerCase() !== 'root' ? normalized : 'root';
+  return normalizeTriggerTeamPath(value);
 }
 
 function TriggerExplorerLeaf({

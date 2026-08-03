@@ -53,19 +53,19 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 		if err != nil {
 			return nil, fmt.Errorf("invalid external trigger path '%s': %w", normalized, err)
 		}
-		pipeline, pipelineRootQualified := normalizeExternalTriggerPipelineReference(doc.Pipeline)
+		pipeline, pipelineGlobalQualified := normalizeExternalTriggerPipelineReference(doc.Pipeline)
 		scope := strings.Trim(strings.TrimSpace(doc.Scope), "/")
 		runTeamPath := strings.Trim(strings.TrimSpace(doc.RunTeamPath), "/")
 		if strings.EqualFold(scope, defaultRuntimeScope) {
 			scope = ""
 		}
-		if normalizedScope, rootOnly := stripRootPathPrefix(scope); rootOnly {
+		if normalizedScope, globalOnly := stripGlobalPathPrefix(scope); globalOnly {
 			scope = ""
 		} else {
 			scope = normalizedScope
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-			if pipeline != "" && !pipelineRootQualified {
+			if pipeline != "" && !pipelineGlobalQualified {
 				pipeline, err = configsync.NormalizePathForTeam(boundTeam, pipeline)
 				if err != nil {
 					return nil, fmt.Errorf("invalid team-scoped external trigger pipeline '%s': %w", normalized, err)
@@ -78,8 +78,8 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 				}
 			}
 			if runTeamPath != "" {
-				if _, rootOnly := stripRootPathPrefix(runTeamPath); rootOnly {
-					runTeamPath = rootGrantID
+				if _, globalOnly := stripGlobalPathPrefix(runTeamPath); globalOnly {
+					runTeamPath = globalGrantID
 				} else {
 					runTeamPath, err = configsync.NormalizePathForTeam(boundTeam, runTeamPath)
 					if err != nil {
@@ -144,7 +144,7 @@ func externalTriggerConfigScope(trigger externalTriggerRecord) string {
 	if runTeamPath != "" {
 		return runTeamPath
 	}
-	return rootGrantID
+	return globalGrantID
 }
 
 func externalTriggerExportPath(repo models.ConfigRepository, trigger externalTriggerRecord, sourcePath string, managed bool, configRepoIDValid bool, configRepoID int64) (string, bool) {

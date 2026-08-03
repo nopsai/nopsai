@@ -23,8 +23,8 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 	return accessGrantResponse{
 		ID:                        formatAccessGrantID(record.ID),
 		SubjectType:               record.SubjectType,
-		SubjectID:                 record.SubjectID,
-		SubjectDisplay:            record.SubjectDisplay,
+		SubjectID:                 externalGrantSubjectID(record.SubjectType, record.SubjectID),
+		SubjectDisplay:            externalGrantSubjectDisplay(record.SubjectType, record.SubjectID, record.SubjectDisplay),
 		Role:                      record.RoleName,
 		ResourceType:              record.ResourceType,
 		ResourceID:                externalGrantResourceID(record.ResourceType, record.ResourceDisplay, record.ResourceID),
@@ -48,9 +48,6 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 }
 
 func externalGrantResourceID(resourceType, display, internalID string) string {
-	if resourceType == grantResourceTeam && internalID == generalGrantID {
-		return rootGrantID
-	}
 	if strings.TrimSpace(display) != "" {
 		return display
 	}
@@ -61,6 +58,17 @@ func externalGrantResourceID(resourceType, display, internalID string) string {
 		return "platform"
 	}
 	return internalID
+}
+
+func externalGrantSubjectID(subjectType, internalID string) string {
+	return internalID
+}
+
+func externalGrantSubjectDisplay(subjectType, internalID, display string) string {
+	if subjectType == grantSubjectTeam && internalID == globalGrantID {
+		return globalGrantID
+	}
+	return display
 }
 
 func formatAccessGrantID(id int64) string {
@@ -104,10 +112,7 @@ func formatResourceLabel(resourceType, resourceID string) string {
 	if resourceType == grantResourceScope && resourceID == "" {
 		resourceID = "default"
 	}
-	if resourceType == grantResourceTeam && resourceID == generalGrantID {
-		resourceID = rootGrantID
-	}
-	if resourceType == grantResourceTeam && resourceID != "" && resourceID != rootGrantID && !strings.HasPrefix(resourceID, "/") {
+	if resourceType == grantResourceTeam && resourceID != "" && !isGlobalGrantResourceID(resourceID) && !strings.HasPrefix(resourceID, "/") {
 		resourceID = "/" + strings.Trim(resourceID, "/")
 	}
 	return resourceType + ":" + resourceID
@@ -131,34 +136,29 @@ func formatNamedResourceLabel(resourceType, resourceID string) string {
 	return strings.TrimSpace(resourceType) + ":" + strings.Join(parts, " ")
 }
 
-func isRootGrantResourceID(raw string) bool {
-	switch strings.ToLower(strings.Trim(strings.TrimSpace(raw), "/")) {
-	case rootGrantID:
-		return true
-	default:
-		return false
-	}
+func isGlobalGrantResourceID(raw string) bool {
+	return strings.EqualFold(strings.Trim(strings.TrimSpace(raw), "/"), globalGrantID)
 }
 
-func isRootPathAlias(raw string) bool {
-	switch strings.ToLower(strings.Trim(strings.TrimSpace(raw), "/")) {
-	case rootGrantID:
-		return true
-	default:
-		return false
-	}
+func isRetiredGlobalTeamAlias(raw string) bool {
+	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(raw), "/"))
+	return normalized == rootGrantID || normalized == "general" || normalized == "__general__"
 }
 
-func stripRootPathPrefix(raw string) (string, bool) {
+func isGlobalPathAlias(raw string) bool {
+	return strings.EqualFold(strings.Trim(strings.TrimSpace(raw), "/"), globalGrantID)
+}
+
+func stripGlobalPathPrefix(raw string) (string, bool) {
 	path := strings.Trim(strings.TrimSpace(raw), "/")
-	if isRootPathAlias(path) {
+	if isGlobalPathAlias(path) {
 		return "", true
 	}
 	parts := strings.Split(path, "/")
 	if len(parts) == 0 {
 		return "", true
 	}
-	if !isRootPathAlias(parts[0]) {
+	if !isGlobalPathAlias(parts[0]) {
 		return path, false
 	}
 	parts = parts[1:]

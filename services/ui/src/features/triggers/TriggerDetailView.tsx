@@ -3,9 +3,14 @@ import { ArrowLeft, FileCode2, GitBranch, Trash2 } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
+import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTeamPathsWithGlobalFirst,
+} from '../../lib/resourceTeams';
 import { TriggerRecentRuns } from './TriggerRecentRuns';
 import {
   TRIGGER_PROVIDERS,
+  normalizeTriggerTeamPath,
   normalizeSource,
   sourceLabel,
   triggerDetailsWithProvider,
@@ -215,7 +220,7 @@ export function TriggerDetailView({
                         disabled={saving}
                       >
                         {teamOptions.map(path => (
-                          <option key={path} value={path}>{path === 'root' ? 'Workspace' : path}</option>
+                          <option key={path} value={path}>{triggerTeamLabel(path)}</option>
                         ))}
                       </select>
                     </TriggerFactField>
@@ -387,12 +392,8 @@ function TriggerFactField({ label, children }: { label: string; children: ReactN
 function uniqueTeamOptions(paths: string[]): string[] {
   const normalized = paths
     .map(path => String(path || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/'))
-    .map(path => path && path.toLowerCase() !== 'root' ? path : 'root');
-  return Array.from(new Set(['root', ...normalized])).sort((left, right) => {
-    if (left === 'root') return -1;
-    if (right === 'root') return 1;
-    return left.localeCompare(right);
-  });
+    .map(normalizeTriggerTeamPath);
+  return Array.from(new Set([GLOBAL_RESOURCE_TEAM_PATH, ...normalized])).sort(compareResourceTeamPathsWithGlobalFirst);
 }
 
 function LinkedPipelinesPanel({
@@ -430,7 +431,7 @@ function LinkedPipelinesPanel({
                     <span className="triggers-pipeline-name">{pipeline.display}</span>
                     <dl className="triggers-detail-grid triggers-pipeline-details">
                       <dt className="triggers-detail-label">Path:</dt>
-                      <dd className="triggers-detail-value">{pipeline.pathLabel === 'root' ? '/' : `/${pipeline.pathLabel}`}</dd>
+                      <dd className="triggers-detail-value">{pipeline.pathLabel === GLOBAL_RESOURCE_TEAM_PATH ? '/' : `/${pipeline.pathLabel}`}</dd>
                       <dt className="triggers-detail-label">Version:</dt>
                       <dd className="triggers-detail-value">{meta?.version || 'latest'}</dd>
                       <dt className="triggers-detail-label">Source:</dt>

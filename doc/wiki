@@ -619,7 +619,7 @@ Schedules should document:
 | `timezone` | IANA timezone, default `UTC`. |
 | `pipeline` | Stored pipeline identifier. |
 | `scope` | Runtime scope. |
-| `run_team_path` | Pipeline Runs team path and notification lineage. `root` means unassigned root. |
+| `run_team_path` | Pipeline Runs team path and notification lineage. `global` means no concrete team assignment. |
 | `variables` | Schedule-supplied run variable overrides. |
 
 The Schedules UI groups schedule resources by `run_team_path` when present,
@@ -665,6 +665,10 @@ UI detail selection uses path-backed routes for primary resources: scopes,
 steps, schedules, LLM profiles, agent profiles, MCP servers/profiles,
 credentials, external API triggers, Git webhook sources, dashboards, and Monitoring tabs. Query
 parameters remain for filters, section/tab view state, and run drilldowns.
+Pipelines, reusable steps, schedules, scopes, and Knowledge Context expose a
+selectable `global` team bucket for resources without a concrete team path;
+`root` and `general` are not accepted aliases. `All teams` remains an
+aggregate filter and must not be used as the persisted resource owner.
 The Scopes detail route renders scope metrics, combined variable/secret search
 and type filters, selected-item value inspection, relationship columns, access
 controls, GitOps encryption, and collapsible runner assignments while keeping
@@ -754,10 +758,10 @@ source of truth. GitOps can manage:
 - `setting/git-apps/`
 - `setting/system/`
 
-Team-scoped create authorization must work before a resource row exists. Empty
-teams are exposed through `/v1/access/teams` so the UI can select them for
-pipelines, steps, and scopes. Create preflight checks that depend on manifest
-ownership can pass `team_path` or `run_team_path` to
+Team-scoped create authorization must work before a resource row exists. The
+`global` team is exposed through `/v1/access/teams` so the UI can select it
+for pipelines, steps, schedules, scopes, knowledge, and resource Access grants.
+Create preflight checks that depend on manifest ownership can pass `team_path` or `run_team_path` to
 `/v1/access/effective-permissions`, allowing inherited team owners to create the
 first schedule, trigger, external trigger, Git webhook source, or scope under
 their team without a seed resource.

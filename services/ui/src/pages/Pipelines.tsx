@@ -46,7 +46,12 @@ import {
   type PipelineListItem,
 } from '../features/pipelines/model';
 import { usePipelinePermissions } from '../features/pipelines/usePipelinePermissions';
-import { fetchResourceTeamPaths, insertTeamPath } from '../lib/resourceTeams';
+import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTreeNodes,
+  fetchResourceTeamPaths,
+  insertTeamPath,
+} from '../lib/resourceTeams';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 const MAX_RECENT_RUNS = 5;
@@ -577,14 +582,20 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
+    const createNode = (id: string, name: string, fullPath: string): TreeNode => ({ id, name, fullPath, children: [], pipelineIds: [] });
+    const ensureGlobalNode = () => {
+      insertTeamPath(root, GLOBAL_RESOURCE_TEAM_PATH, createNode);
+      return root.children.find(child => child.fullPath === GLOBAL_RESOURCE_TEAM_PATH) || root;
+    };
+    ensureGlobalNode();
     resourceTeamPaths.forEach(path => {
-      insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
+      insertTeamPath(root, path, createNode);
     });
     pipelines.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const pipelineName = parts.pop();
       if (!pipelineName) return;
-      let current = root;
+      let current = parts.length ? root : ensureGlobalNode();
       let pathSoFar = '';
       parts.forEach(segment => {
         pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
@@ -592,7 +603,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         if (!child) {
           child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], pipelineIds: [] };
           current.children.push(child);
-          current.children.sort((a, b) => a.name.localeCompare(b.name));
+          current.children.sort(compareResourceTreeNodes);
         }
         current = child;
       });

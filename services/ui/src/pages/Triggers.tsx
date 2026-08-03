@@ -6,6 +6,11 @@ import { TreeColumnResizeHandle } from '../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../components/resizableTreeColumnState';
 import { copyTextToClipboard } from '../lib/clipboard';
 import {
+  GLOBAL_RESOURCE_TEAM_PATH,
+  compareResourceTeamPathsWithGlobalFirst,
+  isGlobalResourceTeamPath,
+} from '../lib/resourceTeams';
+import {
   buildTriggerEditorSuggestion,
   type TriggerEditorSuggestion,
 } from '../features/triggers/editorAutocomplete';
@@ -63,7 +68,8 @@ function normalizeTriggerOwnerRoutePath(value?: string | null) {
 }
 
 function normalizeTriggerTeamRoutePath(value?: string | null) {
-  return (value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+  const normalized = (value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+  return normalized ? normalizeTriggerTeamPath(normalized) : '';
 }
 
 function decodeTriggerTeamSegments(segments: string[]) {
@@ -100,7 +106,7 @@ function TriggersPage({
   const location = useLocation();
 
   const [serverTriggers, setServerTriggers] = useState<TriggerListItem[]>([]);
-  const [teamPathOptions, setTeamPathOptions] = useState<string[]>(['root']);
+  const [teamPathOptions, setTeamPathOptions] = useState<string[]>([GLOBAL_RESOURCE_TEAM_PATH]);
   const [webhookSourceOptions, setWebhookSourceOptions] = useState<TriggerWebhookSourceOption[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -547,11 +553,7 @@ function TriggersPage({
   const selectedListItem = selectedSlug ? serverTriggers.find(item => item.slug === selectedSlug) : undefined;
   const triggerTeamPaths = useMemo(() => {
     const paths = teamPathOptions.map(path => normalizeTriggerTeamPath(path)).filter(Boolean);
-    return Array.from(new Set(['root', ...paths])).sort((left, right) => {
-      if (left === 'root') return -1;
-      if (right === 'root') return 1;
-      return left.localeCompare(right);
-    });
+    return Array.from(new Set([GLOBAL_RESOURCE_TEAM_PATH, ...paths])).sort(compareResourceTeamPathsWithGlobalFirst);
   }, [teamPathOptions]);
   const activeOwnerForTree = selectedSlug ? repositoryOwnerForSlug(selectedSlug) : activeOwnerPath;
   const activeTeamForTree = selectedSlug
@@ -565,8 +567,8 @@ function TriggersPage({
     canUpdateSelectedTrigger,
   } = useTriggerPermissions(permissionOwner, selectedSlug, workspaceTeamPath);
   const defaultCreateTeamPath = useMemo(() => {
-    if (selectedSlug || canCreateTriggerHere || workspaceTeamPath !== 'root') return workspaceTeamPath;
-    return triggerTeamPaths.find(path => path !== 'root') || 'root';
+    if (selectedSlug || canCreateTriggerHere || !isGlobalResourceTeamPath(workspaceTeamPath)) return workspaceTeamPath;
+    return triggerTeamPaths.find(path => !isGlobalResourceTeamPath(path)) || GLOBAL_RESOURCE_TEAM_PATH;
   }, [canCreateTriggerHere, selectedSlug, triggerTeamPaths, workspaceTeamPath]);
 
   const handleTriggerSaved = useCallback((updated: TriggerDetail) => {
@@ -681,7 +683,7 @@ function TriggersPage({
       );
     }).catch(() => {
       if (cancelled) return;
-      setTeamPathOptions(['root']);
+      setTeamPathOptions([GLOBAL_RESOURCE_TEAM_PATH]);
       setWebhookSourceOptions([]);
     });
     return () => {

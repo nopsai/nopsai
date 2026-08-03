@@ -29,7 +29,9 @@ const apiMocks = vi.hoisted(() => ({
   testLLMProfile: vi.fn(async () => 'ok'),
 }));
 const teamMocks = vi.hoisted(() => ({
+  compareResourceTreeNodes: (left: { name: string }, right: { name: string }) => left.name.localeCompare(right.name),
   fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
+  isGlobalResourceTeamPath: (path?: string | null) => String(path || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase() === 'global',
 }));
 const teamProfileMocks = vi.hoisted(() => {
   const teamProfiles = (teamPath = 'platform/ml', defaultProfile = 'reasoning') => ({

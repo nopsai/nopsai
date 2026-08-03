@@ -492,7 +492,7 @@ func (a *App) resolveRepositoryTeamRef(ctx context.Context, repositoryID string)
 		if err != nil {
 			return TeamRef{}, err
 		}
-		if strings.Trim(strings.TrimSpace(teamPath), "/") != rootGrantID {
+		if !isGlobalGrantResourceID(teamPath) {
 			return teamRefFromPath(teamPath), nil
 		}
 	}
@@ -509,8 +509,8 @@ func (a *App) resolveRepositoryTeamRef(ctx context.Context, repositoryID string)
 
 func teamRefFromPath(path string) TeamRef {
 	path = strings.Trim(strings.TrimSpace(path), "/")
-	if path == "" || path == generalGrantID {
-		return TeamRef{Path: generalGrantID, Valid: path == generalGrantID}
+	if path == "" || isGlobalGrantResourceID(path) {
+		return TeamRef{Path: globalGrantID, Valid: path != ""}
 	}
 	return TeamRef{Path: path, Valid: true}
 }
@@ -539,7 +539,7 @@ func repositoryParentPath(repositoryID string) string {
 func IsSameTeamBoundary(callerTeam, resourceTeam string) bool {
 	callerTeam = strings.Trim(strings.TrimSpace(callerTeam), "/")
 	resourceTeam = strings.Trim(strings.TrimSpace(resourceTeam), "/")
-	if callerTeam == "" || resourceTeam == "" || callerTeam == generalGrantID || resourceTeam == generalGrantID {
+	if callerTeam == "" || resourceTeam == "" || callerTeam == globalGrantID || resourceTeam == globalGrantID {
 		return false
 	}
 	if callerTeam == resourceTeam {
@@ -564,8 +564,8 @@ func firstPathSegment(path string) string {
 
 func (a *App) callerHasTeamAction(ctx context.Context, subject model.Subject, action, teamPath string) (bool, model.Decision, error) {
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
-	if teamPath == "" {
-		teamPath = generalGrantID
+	if teamPath == "" || isGlobalGrantResourceID(teamPath) {
+		teamPath = globalGrantID
 	}
 	decision, err := a.aaaCheck(ctx, subject, action, model.ResourceRef{Type: grantResourceTeam, ID: teamPath}, map[string]any{"resource_use_check": "same_team"})
 	if err != nil {
@@ -575,13 +575,10 @@ func (a *App) callerHasTeamAction(ctx context.Context, subject model.Subject, ac
 }
 
 func (a *App) callerHasExplicitTeamUseGrant(ctx context.Context, resourceType, resourceID string, callerTeam TeamRef) (bool, int64, string, error) {
-	if a == nil || a.db == nil || !callerTeam.Valid {
+	if a == nil || a.db == nil {
 		return false, 0, "", nil
 	}
 	callerTeam.Path = strings.Trim(strings.TrimSpace(callerTeam.Path), "/")
-	if callerTeam.Path == "" || callerTeam.Path == generalGrantID {
-		return false, 0, "", nil
-	}
 
 	rows, err := a.db.Query(ctx, `
 		SELECT id, subject_id
@@ -619,8 +616,14 @@ func (a *App) callerHasExplicitTeamUseGrant(ctx context.Context, resourceType, r
 
 func teamGrantIncludesCallerTeam(grantTeam, callerTeam string) bool {
 	grantTeam = strings.Trim(strings.TrimSpace(grantTeam), "/")
+	if grantTeam == "" {
+		return false
+	}
+	if isGlobalGrantResourceID(grantTeam) {
+		return true
+	}
 	callerTeam = strings.Trim(strings.TrimSpace(callerTeam), "/")
-	if grantTeam == "" || callerTeam == "" || grantTeam == generalGrantID || callerTeam == generalGrantID {
+	if callerTeam == "" || isGlobalGrantResourceID(callerTeam) {
 		return false
 	}
 	return callerTeam == grantTeam || strings.HasPrefix(callerTeam, grantTeam+"/")

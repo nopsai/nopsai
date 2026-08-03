@@ -16,9 +16,6 @@ func teamGrantResourceForPath(rawPath string) (aaamodel.ResourceRef, bool, error
 	if err != nil {
 		return aaamodel.ResourceRef{}, false, err
 	}
-	if strings.EqualFold(teamPath, rootGrantID) {
-		return aaamodel.ResourceRef{Type: grantResourceTeam, ID: generalGrantID}, true, nil
-	}
 	return aaamodel.ResourceRef{Type: grantResourceTeam, ID: teamPath}, true, nil
 }
 

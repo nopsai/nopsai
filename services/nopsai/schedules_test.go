@@ -121,15 +121,15 @@ func TestNormalizeScheduleInput(t *testing.T) {
 	}
 }
 
-func TestNormalizeScheduleInputTreatsRootAsRootScope(t *testing.T) {
+func TestNormalizeScheduleInputTreatsGlobalAsGlobalScope(t *testing.T) {
 	got, err := normalizeScheduleInput(scheduleRequest{
-		Path:           "root/scheduled",
-		Name:           "Root Deploy",
-		Pipeline:       "root/platform/deploy",
+		Path:           "global/scheduled",
+		Name:           "Global Deploy",
+		Pipeline:       "global/platform/deploy",
 		CronExpression: "0 2 * * *",
 		Timezone:       "UTC",
-		Scope:          "root/prod",
-		RunTeamPath:    "root",
+		Scope:          "global/prod",
+		RunTeamPath:    "global",
 	})
 	if err != nil {
 		t.Fatalf("normalizeScheduleInput() error = %v", err)
@@ -143,18 +143,26 @@ func TestNormalizeScheduleInputTreatsRootAsRootScope(t *testing.T) {
 	if got.Scope != "prod" {
 		t.Fatalf("Scope = %q, want prod", got.Scope)
 	}
-	if got.RunTeamPath != "root" {
-		t.Fatalf("RunTeamPath = %q, want root", got.RunTeamPath)
+	if got.RunTeamPath != "global" {
+		t.Fatalf("RunTeamPath = %q, want global", got.RunTeamPath)
 	}
 }
 
-func TestNormalizeRunTeamPathDefaultsToRoot(t *testing.T) {
+func TestNormalizeRunTeamPathDefaultsToGlobal(t *testing.T) {
 	got, err := normalizeRunTeamPath("")
 	if err != nil {
 		t.Fatalf("normalizeRunTeamPath() error = %v", err)
 	}
-	if got != "root" {
-		t.Fatalf("normalizeRunTeamPath() = %q, want root", got)
+	if got != "global" {
+		t.Fatalf("normalizeRunTeamPath() = %q, want global", got)
+	}
+}
+
+func TestNormalizeRunTeamPathRejectsRetiredGlobalAliases(t *testing.T) {
+	for _, raw := range []string{"root", "general", "__general__"} {
+		if _, err := normalizeRunTeamPath(raw); err == nil {
+			t.Fatalf("normalizeRunTeamPath(%q) error = nil, want retired alias error", raw)
+		}
 	}
 }
 
@@ -236,14 +244,14 @@ run_team_path: prod/scheduled
 	}
 }
 
-func TestParseGitOpsSchedulesKeepsRootRunTeamForTeamRepo(t *testing.T) {
+func TestParseGitOpsSchedulesKeepsGlobalRunTeamForTeamRepo(t *testing.T) {
 	files := map[string]string{
 		"config/schedules/scheduled/nightly.yaml": `
-pipeline: root/platform/deploy
+pipeline: global/platform/deploy
 cron_expression: "0 2 * * *"
 timezone: UTC
-scope: root
-run_team_path: root
+scope: global
+run_team_path: global
 `,
 	}
 	got, err := parseGitOpsSchedules(
@@ -260,22 +268,22 @@ run_team_path: root
 		t.Fatalf("missing normalized schedule key, got %#v", got)
 	}
 	if schedule.input.Scope != "" {
-		t.Fatalf("scope = %q, want root/default scope", schedule.input.Scope)
+		t.Fatalf("scope = %q, want global/default scope", schedule.input.Scope)
 	}
 	if schedule.input.PipelinePath != "platform" || schedule.input.PipelineName != "deploy" {
 		t.Fatalf("pipeline = %q/%q, want platform/deploy", schedule.input.PipelinePath, schedule.input.PipelineName)
 	}
-	if schedule.input.RunTeamPath != "root" {
-		t.Fatalf("RunTeamPath = %q, want root", schedule.input.RunTeamPath)
+	if schedule.input.RunTeamPath != "global" {
+		t.Fatalf("RunTeamPath = %q, want global", schedule.input.RunTeamPath)
 	}
 }
 
-func TestEffectiveScheduleRunTeamPathDefaultsToRoot(t *testing.T) {
+func TestEffectiveScheduleRunTeamPathDefaultsToGlobal(t *testing.T) {
 	got := effectiveScheduleRunTeamPath(scheduleRecord{
 		Path: "prod/scheduled",
 	})
-	if got != "root" {
-		t.Fatalf("effectiveScheduleRunTeamPath() = %q, want root", got)
+	if got != "global" {
+		t.Fatalf("effectiveScheduleRunTeamPath() = %q, want global", got)
 	}
 
 	got = effectiveScheduleRunTeamPath(scheduleRecord{

@@ -4,6 +4,7 @@ import {
   aiResourceTeamScope,
   normalizeAIResourceTeamPath,
 } from './aiResourceTeams.js';
+import { compareResourceTreeNodes } from '../../lib/resourceTeams.js';
 
 export type AIResourceTreeNode = {
   id: string;
@@ -103,7 +104,7 @@ export function aiResourceTreeFilterIsGlobal(value: string) {
 }
 
 function sortAIResourceTree(node: AIResourceTreeNode) {
-  node.children.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }));
+  node.children.sort(compareResourceTreeNodes);
   node.resourceIDs.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
   node.children.forEach(sortAIResourceTree);
 }

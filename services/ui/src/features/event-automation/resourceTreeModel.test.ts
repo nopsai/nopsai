@@ -23,6 +23,16 @@ test('builds reusable team trees for event automation resources', () => {
   assert.equal(findAutomationResourceTreeNode(tree, 'missing'), tree);
 });
 
+test('keeps global first in event automation resource trees', () => {
+  const tree = buildAutomationResourceTree([
+    { id: 'analytics', label: 'Analytics', path: 'analytics' },
+    { id: 'platform', label: 'Platform', path: 'platform' },
+    { id: 'global', label: 'Global', path: 'global' },
+  ]);
+
+  assert.deepEqual(tree.children.map(child => child.fullPath), ['global', 'analytics', 'platform']);
+});
+
 test('normalizes and matches event automation team paths', () => {
   assert.equal(normalizeAutomationTreePath('/root/'), '');
   assert.equal(normalizeAutomationTreePath('root'), '');

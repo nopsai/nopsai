@@ -48,8 +48,8 @@ const schedules: PipelineSchedule[] = [
 
 test('builds stable schedule workspace identifiers and labels', () => {
   assert.equal(scheduleResourceID(schedules[0]), 'platform/prod/nightly-deploy');
-  assert.equal(scheduleResourceID(schedules[1]), 'root/release-window');
-  assert.equal(scheduleResourcePathLabel(schedules[1]), 'Root');
+  assert.equal(scheduleResourceID(schedules[1]), 'global/release-window');
+  assert.equal(scheduleResourcePathLabel(schedules[1]), 'Global');
   assert.equal(scheduleDisplayName(schedules[1]), 'release-window');
   assert.equal(latestScheduleRunID(schedules[1]), 'run-2');
   assert.equal(isGitOpsSchedule(schedules[1]), true);
@@ -58,10 +58,10 @@ test('builds stable schedule workspace identifiers and labels', () => {
 test('uses run team as the schedule browser owner when it differs from the pipeline path', () => {
   const schedule: PipelineSchedule = {
     id: 'schedule-3',
-    path: 'general',
-    name: 'Release from general pipeline',
-    identifier: 'general/release-from-general-pipeline',
-    pipeline: 'general/deploy',
+    path: 'shared',
+    name: 'Release from shared pipeline',
+    identifier: 'shared/release-from-shared-pipeline',
+    pipeline: 'shared/deploy',
     schedule_kind: 'cron',
     cron_expression: '0 1 * * *',
     timezone: 'UTC',
@@ -70,7 +70,7 @@ test('uses run team as the schedule browser owner when it differs from the pipel
     source: 'database',
   };
 
-  assert.equal(scheduleResourceID(schedule), 'prod/release-from-general-pipeline');
+  assert.equal(scheduleResourceID(schedule), 'prod/release-from-shared-pipeline');
   assert.equal(scheduleResourcePathLabel(schedule), 'prod');
   assert.deepEqual(
     filterSchedules({
@@ -129,10 +129,12 @@ test('summarizes visible schedule state for count tabs', () => {
 });
 
 test('includes schedule paths and known teams in tree filter options', () => {
-  assert.deepEqual(schedulePathOptions(schedules, ['platform', 'shared/tools']), [
-    'root',
+  assert.deepEqual(schedulePathOptions(schedules, ['platform', 'data', 'shared/tools']), [
+    'global',
+    'data',
     'platform',
     'platform/prod',
     'shared/tools',
   ]);
+  assert.deepEqual(schedulePathOptions([], ['platform']), ['global', 'platform']);
 });
