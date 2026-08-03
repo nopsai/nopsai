@@ -651,14 +651,15 @@ See [doc/cli.md](doc/cli.md) for the default interactive home, contexts, token
 handling, built-in guides, required API parameter and payload guidance,
 completion files, GitOps-safe automation, and `platform doctor`.
 
-NopsAI first installs generate Docker Compose files or Helm values directly from
-the selected CLI/platform version. `nopsai install kubernetes` generates
-editable values and can later deploy from those stored files with `--deploy`;
-Docker Compose and Kubernetes install generation expose internal service
-hostnames and addresses through CLI flags and generated config so
-multi-environment topology changes stay reviewable. `nopsai platform release`
-remains available for advanced CI/GitOps render and deploy workflows that
-already produce release manifests. See
+NopsAI first installs generate Docker Compose files or Kubernetes Helm values
+directly from the selected CLI/platform version. `nopsai install kubernetes`
+generates non-secret values, a separate `nopsai-secrets.yaml` Secret manifest,
+`installation.md`, and install lock metadata; it can later deploy from those
+stored files with `--deploy`. Docker Compose and Kubernetes install generation
+expose internal service hostnames and addresses through CLI flags and generated
+config so multi-environment topology changes stay reviewable. `nopsai platform
+release` remains available for advanced CI/GitOps render and deploy workflows
+that already produce release manifests. See
 [doc/release-bundles.md](doc/release-bundles.md).
 
 Run backend tests:

@@ -260,8 +260,10 @@ func TestHelmReadmeDocumentsSecretsAndServiceAccountPullSecrets(t *testing.T) {
 	}
 	readme := string(readmeBytes)
 	for _, required := range []string{
-		"kubectl -n nopsai create secret generic nopsai-secrets",
-		"--from-literal=postgres-password=\"$POSTGRES_PASSWORD\"",
+		"nopsai install kubernetes",
+		"--secret-file nopsai-secrets.yaml",
+		"Review `./nopsai-prod/installation.md`",
+		"kubectl apply -f nopsai-secrets.yaml",
 		"global.imagePullSecrets",
 		"nopsai-api",
 		"nopsai-runner",
@@ -271,6 +273,9 @@ func TestHelmReadmeDocumentsSecretsAndServiceAccountPullSecrets(t *testing.T) {
 		if !strings.Contains(readme, required) {
 			t.Errorf("Helm README is missing secret/ServiceAccount guidance %q", required)
 		}
+	}
+	if strings.Contains(readme, "--from-literal") {
+		t.Error("Helm README should not document manual plaintext Secret generation")
 	}
 }
 

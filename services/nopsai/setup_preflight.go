@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -33,6 +34,40 @@ type setupPreflightResponse struct {
 	ConfigPath  string                `json:"config_path,omitempty"`
 	EnvFilePath string                `json:"env_file_path,omitempty"`
 	Checks      []setupPreflightCheck `json:"checks"`
+}
+
+type setupPreflightDatabaseState struct {
+	mu    sync.RWMutex
+	db    *pgxpool.Pool
+	dbErr error
+}
+
+type setupDatabaseConnectionResult struct {
+	db    *pgxpool.Pool
+	dbErr error
+}
+
+func newSetupPreflightDatabaseState(db *pgxpool.Pool, dbErr error) *setupPreflightDatabaseState {
+	return &setupPreflightDatabaseState{db: db, dbErr: dbErr}
+}
+
+func (s *setupPreflightDatabaseState) snapshot() (*pgxpool.Pool, error) {
+	if s == nil {
+		return nil, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.db, s.dbErr
+}
+
+func (s *setupPreflightDatabaseState) update(db *pgxpool.Pool, dbErr error) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.db = db
+	s.dbErr = dbErr
 }
 
 func buildSetupPreflightResponse(ctx context.Context, cfg *config.Config, configPath, envFilePath, mode string, db *pgxpool.Pool, dbErr error) setupPreflightResponse {
@@ -275,16 +310,13 @@ func (a *App) handleSetupPreflight(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func runSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath string, db *pgxpool.Pool, dbErr error) {
-	addr := strings.TrimSpace(cfg.NopsaiListenAddress)
-	if addr == "" {
-		addr = "0.0.0.0:8080"
-	}
+func setupPreflightHandler(cfg *config.Config, configPath, envFilePath, mode string, dbState *setupPreflightDatabaseState) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /version", handleVersion)
 	mux.HandleFunc("GET /livez", handleLivez)
 	mux.HandleFunc("GET /v1/setup/preflight", func(w http.ResponseWriter, r *http.Request) {
-		resp := buildSetupPreflightResponse(r.Context(), cfg, configPath, envFilePath, "preflight_only", db, dbErr)
+		db, dbErr := dbState.snapshot()
+		resp := buildSetupPreflightResponse(r.Context(), cfg, configPath, envFilePath, mode, db, dbErr)
 		status := http.StatusOK
 		if !resp.Ready {
 			status = http.StatusServiceUnavailable
@@ -292,7 +324,8 @@ func runSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath str
 		writeJSON(w, status, resp)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		resp := buildSetupPreflightResponse(r.Context(), cfg, configPath, envFilePath, "preflight_only", db, dbErr)
+		db, dbErr := dbState.snapshot()
+		resp := buildSetupPreflightResponse(r.Context(), cfg, configPath, envFilePath, mode, db, dbErr)
 		if !resp.Ready {
 			writeJSON(w, http.StatusServiceUnavailable, resp)
 			return
@@ -305,8 +338,15 @@ func runSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath str
 	handler = loggingMiddleware(handler)
 	handler = requestIDMiddleware(handler)
 	handler = corsMiddleware(handler)
+	return handler
+}
 
-	server := httpapi.NewServer(addr, handler)
+func runSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath string, db *pgxpool.Pool, dbErr error) {
+	addr := strings.TrimSpace(cfg.NopsaiListenAddress)
+	if addr == "" {
+		addr = "0.0.0.0:8080"
+	}
+	server := httpapi.NewServer(addr, setupPreflightHandler(cfg, configPath, envFilePath, "preflight_only", newSetupPreflightDatabaseState(db, dbErr)))
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -319,6 +359,97 @@ func runSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath str
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = server.Shutdown(ctx)
+}
+
+func runSetupPreflightUntilDatabaseReadyServer(cfg *config.Config, configPath, envFilePath string, dbErr error, retryDelay time.Duration) (*pgxpool.Pool, bool) {
+	addr := strings.TrimSpace(cfg.NopsaiListenAddress)
+	if addr == "" {
+		addr = "0.0.0.0:8080"
+	}
+	if retryDelay <= 0 {
+		retryDelay = 3 * time.Second
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	dbState := newSetupPreflightDatabaseState(nil, dbErr)
+	server := httpapi.NewServer(addr, setupPreflightHandler(cfg, configPath, envFilePath, "preflight_only", dbState))
+	ready := make(chan *pgxpool.Pool, 1)
+	serverErr := make(chan error, 1)
+
+	go func() {
+		log.Warn().Err(dbErr).Str("addr", addr).Msg("NopsAI API started in setup preflight mode while waiting for database")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErr <- err
+		}
+	}()
+
+	go func() {
+		result := retrySetupDatabaseConnection(ctx, retryDelay, func(ctx context.Context) setupDatabaseConnectionResult {
+			db, err := connectDatabaseWithRetries(ctx, cfg.DatabaseURL, 1, retryDelay)
+			return setupDatabaseConnectionResult{db: db, dbErr: err}
+		}, func(result setupDatabaseConnectionResult) {
+			dbState.update(result.db, result.dbErr)
+		})
+		if result.dbErr != nil || result.db == nil {
+			return
+		}
+		select {
+		case ready <- result.db:
+		case <-ctx.Done():
+			result.db.Close()
+		}
+	}()
+
+	var readyDB *pgxpool.Pool
+	select {
+	case readyDB = <-ready:
+		log.Info().Msg("Database became reachable; leaving setup preflight mode")
+	case err := <-serverErr:
+		log.Fatal().Err(err).Msg("Failed to start setup preflight server")
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+		return nil, false
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = server.Shutdown(shutdownCtx)
+	return readyDB, true
+}
+
+func retrySetupDatabaseConnection(ctx context.Context, delay time.Duration, connect func(context.Context) setupDatabaseConnectionResult, update func(setupDatabaseConnectionResult)) setupDatabaseConnectionResult {
+	if delay <= 0 {
+		delay = 3 * time.Second
+	}
+	for {
+		result := connect(ctx)
+		if update != nil {
+			update(result)
+		}
+		if result.dbErr == nil {
+			return result
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			if result.db != nil {
+				result.db.Close()
+			}
+			return setupDatabaseConnectionResult{dbErr: ctx.Err()}
+		case <-timer.C:
+		}
+	}
 }
 
 func connectDatabaseWithRetries(ctx context.Context, databaseURL string, attempts int, delay time.Duration) (*pgxpool.Pool, error) {

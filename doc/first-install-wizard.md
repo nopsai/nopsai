@@ -51,7 +51,10 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 ## Wizard Flow
 
 1. Open the UI. The login page checks preflight readiness for the database,
-   master encryption key, and JWT signing key.
+   master encryption key, and JWT signing key. During Kubernetes or Compose
+   cold starts, the API can serve preflight responses while it keeps retrying a
+   database that is still starting; readiness becomes healthy after Postgres is
+   reachable and normal startup resumes.
 2. Resolve any required preflight items in `docker-compose.yaml`, exported
    environment, or `config.yml`, then restart affected services.
 3. Sign in as an administrator. On an incomplete installation the UI locks

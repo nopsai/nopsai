@@ -709,11 +709,16 @@ shared run workspaces.
 | --- | --- | --- | --- |
 | Docker Compose | Development, demos, evaluation, and small single-host installs | Docker runner | Included PostgreSQL 15 |
 | Release bundle | Version-pinned single-host deployment | Docker runner | Deployment-managed PostgreSQL |
-| Helm/Kubernetes | Cluster-based production deployment | Kubernetes runner | External PostgreSQL |
+| Helm/Kubernetes | Cluster-based production deployment | Kubernetes runner | Bundled PostgreSQL or external PostgreSQL |
 | Hybrid runners | Central control plane with remote Docker or Kubernetes runners | Docker and Kubernetes runners | Control-plane PostgreSQL |
 
-The Helm chart deploys API, AAA, dispatcher, git-bot, UI, Gotenberg, and the
-Kubernetes runner. PostgreSQL and bootstrap secrets are intentionally external.
+The Helm chart deploys PostgreSQL, API, AAA, dispatcher, git-bot, UI,
+Gotenberg, and the Kubernetes runner. `nopsai install kubernetes` generates
+non-secret Helm values, `installation.md`, and a separate Secret manifest for
+new installations. Values and locks are GitOps-friendly; the generated Secret
+manifest should be applied directly for a first install or encrypted/sealed
+before entering GitOps. Managed PostgreSQL remains supported by disabling the
+bundled StatefulSet and replacing the generated database URL.
 `topology.dispatcherGRPCAddress` defaults to `dispatcher:9090` and controls the
 dispatcher endpoint injected into API and Kubernetes runner pods. The same
 topology block also carries the internal NopsAI, AAA, git-bot, and Gotenberg
@@ -749,6 +754,10 @@ Required bootstrap values:
 
 Production mode should also keep dispatcher transport security enabled through
 `DISPATCHER_TLS_MODE=mtls` or `DISPATCHER_TLS_MODE=tls`.
+During cold starts, `nopsai` can serve setup preflight responses while Postgres
+is still starting. `/livez` stays process-alive, `/healthz` remains unready with
+the current preflight JSON, and the API keeps retrying the database until it is
+reachable and normal startup can continue.
 
 ## GitOps Authority
 

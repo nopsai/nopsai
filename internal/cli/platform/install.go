@@ -43,6 +43,7 @@ const (
 	DefaultInstallBootstrapAdminEmail                = "admin@example.com"
 	DefaultInstallChartReference                     = "oci://ghcr.io/nopsai/charts/nopsai"
 	DefaultKubernetesValuesFile                      = "values.yaml"
+	DefaultKubernetesSecretFile                      = "nopsai-secrets.yaml"
 	DefaultKubernetesExistingSecret                  = "nopsai-secrets"
 	DefaultKubernetesBootstrapAdminPasswordSecretKey = "bootstrap-admin-password"
 	installSchemaVersion                             = "v1"
@@ -82,6 +83,7 @@ type KubernetesValuesOptions struct {
 	Version                         string
 	OutputDir                       string
 	ValuesFile                      string
+	SecretFile                      string
 	ReleaseName                     string
 	Namespace                       string
 	ExistingSecret                  string
@@ -92,7 +94,13 @@ type KubernetesValuesOptions struct {
 	GitBotAPIURL                    string
 	GotenbergURL                    string
 	BootstrapAdminEmail             string
+	BootstrapAdminPassword          string
 	BootstrapAdminPasswordSecretKey string
+	PostgresDatabase                string
+	PostgresUser                    string
+	PostgresPassword                string
+	DatabaseURL                     string
+	MasterKey                       string
 	Wait                            bool
 }
 
@@ -174,6 +182,26 @@ type composeSecrets struct {
 	AAASharedInternalToken string
 	DispatcherTLSSecret    string
 	MasterKey              string
+	BootstrapAdminPassword string
+}
+
+type kubernetesSecretInputs struct {
+	PostgresDatabase       string
+	PostgresUser           string
+	PostgresPassword       string
+	DatabaseURL            string
+	MasterKey              string
+	BootstrapAdminPassword string
+}
+
+type kubernetesSecrets struct {
+	DatabaseURL            string
+	PostgresPassword       string
+	MasterKey              string
+	JWTSigningKey          string
+	ServiceJWTSigningKey   string
+	AAASharedInternalToken string
+	DispatcherTLSSecret    string
 	BootstrapAdminPassword string
 }
 
@@ -302,6 +330,14 @@ func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesVal
 	if err := validateInstallRelativePath(valuesFile); err != nil {
 		return InstallPlan{}, fmt.Errorf("values file: %w", err)
 	}
+	secretFile := strings.TrimSpace(options.SecretFile)
+	if secretFile == "" {
+		secretFile = DefaultKubernetesSecretFile
+	}
+	secretFile = filepath.ToSlash(filepath.Clean(secretFile))
+	if err := validateInstallRelativePath(secretFile); err != nil {
+		return InstallPlan{}, fmt.Errorf("secret file: %w", err)
+	}
 	releaseName := strings.TrimSpace(options.ReleaseName)
 	if releaseName == "" {
 		releaseName = DefaultReleaseName
@@ -344,13 +380,45 @@ func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesVal
 	if err := validateKubernetesSecretKey("bootstrap admin password secret key", bootstrapAdminPasswordSecretKey); err != nil {
 		return InstallPlan{}, err
 	}
-	values, err := renderKubernetesValues(version, images, existingSecret, options.IngressHost, topology, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey)
+	postgresDatabase := strings.TrimSpace(options.PostgresDatabase)
+	if postgresDatabase == "" {
+		postgresDatabase = DefaultInstallPostgresDB
+	}
+	if err := validateInstallToken("PostgreSQL database", postgresDatabase); err != nil {
+		return InstallPlan{}, err
+	}
+	postgresUser := strings.TrimSpace(options.PostgresUser)
+	if postgresUser == "" {
+		postgresUser = DefaultInstallPostgresUser
+	}
+	if err := validateInstallToken("PostgreSQL user", postgresUser); err != nil {
+		return InstallPlan{}, err
+	}
+	if strings.TrimSpace(options.BootstrapAdminPassword) != "" {
+		if err := validateInstallBootstrapAdminPassword(options.BootstrapAdminPassword); err != nil {
+			return InstallPlan{}, err
+		}
+	}
+	secrets, err := i.generateKubernetesSecrets(kubernetesSecretInputs{
+		PostgresDatabase:       postgresDatabase,
+		PostgresUser:           postgresUser,
+		PostgresPassword:       options.PostgresPassword,
+		DatabaseURL:            options.DatabaseURL,
+		MasterKey:              options.MasterKey,
+		BootstrapAdminPassword: options.BootstrapAdminPassword,
+	})
 	if err != nil {
 		return InstallPlan{}, err
 	}
-	readme := renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, existingSecret, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey, options.Wait)
+	values, err := renderKubernetesValues(version, images, existingSecret, options.IngressHost, topology, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey, postgresDatabase, postgresUser)
+	if err != nil {
+		return InstallPlan{}, err
+	}
+	secretManifest := renderKubernetesSecretManifest(existingSecret, namespace, bootstrapAdminPasswordSecretKey, secrets)
+	readme := renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, secretFile, existingSecret, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey, postgresDatabase, postgresUser, options.Wait)
 	baseFiles := []InstallFile{
 		{RelativePath: valuesFile, Mode: 0o644, Contents: values},
+		{RelativePath: secretFile, Mode: 0o600, Sensitive: true, Contents: secretManifest},
 		{RelativePath: installKubernetesReadmeFile, Mode: 0o644, Contents: readme},
 	}
 	files, err := appendInstallLock(baseFiles, installLock("kubernetes", version, cli, images, baseFiles, i.now(), DefaultInstallChartReference, version))
@@ -363,10 +431,10 @@ func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesVal
 		CLI:       cli.Version,
 		OutputDir: outputDir,
 		Files:     files,
-		Command:   kubernetesCommandText(outputDir, releaseName, namespace, valuesFile, options.Wait),
+		Command:   kubernetesCommandText(outputDir, releaseName, namespace, valuesFile, secretFile, options.Wait),
 		Warnings: []string{
-			"values.yaml references an existing Kubernetes Secret; create it with your cluster secret manager before deploying, including the bootstrap admin password key.",
-			"Do not commit raw database URLs, signing keys, or master keys to GitOps repositories.",
+			"Review installation.md before applying secrets or deploying Helm.",
+			secretFile + " contains generated database, signing, master, dispatcher, and bootstrap admin secrets; keep it private or encrypt it before GitOps.",
 		},
 	}, nil
 }
@@ -593,6 +661,80 @@ func (i Installer) generateComposeSecrets(bootstrapAdminPassword string) (compos
 	}, nil
 }
 
+func (i Installer) generateKubernetesSecrets(input kubernetesSecretInputs) (kubernetesSecrets, error) {
+	reader := i.randomReader()
+	postgresPassword := strings.TrimSpace(input.PostgresPassword)
+	if postgresPassword == "" {
+		generated, err := generateInstallSecret(reader, 32)
+		if err != nil {
+			return kubernetesSecrets{}, err
+		}
+		postgresPassword = generated
+	}
+	if err := validateInstallSecretValue("PostgreSQL password", postgresPassword, installBootstrapAdminMinPasswordLength); err != nil {
+		return kubernetesSecrets{}, err
+	}
+
+	masterKey := strings.TrimSpace(input.MasterKey)
+	if masterKey == "" {
+		generated, err := generateInstallSecret(reader, 32)
+		if err != nil {
+			return kubernetesSecrets{}, err
+		}
+		masterKey = generated
+	}
+	if err := validateInstallSecretValue("master key", masterKey, 32); err != nil {
+		return kubernetesSecrets{}, err
+	}
+
+	jwtSigningKey, err := generateInstallSecret(reader, 48)
+	if err != nil {
+		return kubernetesSecrets{}, err
+	}
+	serviceJWTSigningKey, err := generateInstallSecret(reader, 48)
+	if err != nil {
+		return kubernetesSecrets{}, err
+	}
+	aaaSharedInternalToken, err := generateInstallSecret(reader, 32)
+	if err != nil {
+		return kubernetesSecrets{}, err
+	}
+	dispatcherTLSSecret, err := generateInstallSecret(reader, 48)
+	if err != nil {
+		return kubernetesSecrets{}, err
+	}
+
+	bootstrapAdminPassword := strings.TrimSpace(input.BootstrapAdminPassword)
+	if bootstrapAdminPassword == "" {
+		generated, err := generateInstallSecret(reader, 24)
+		if err != nil {
+			return kubernetesSecrets{}, err
+		}
+		bootstrapAdminPassword = generated
+	}
+	if err := validateInstallBootstrapAdminPassword(bootstrapAdminPassword); err != nil {
+		return kubernetesSecrets{}, err
+	}
+
+	databaseURL := strings.TrimSpace(input.DatabaseURL)
+	if databaseURL == "" {
+		databaseURL = bundledPostgresDatabaseURL(input.PostgresUser, postgresPassword, input.PostgresDatabase)
+	} else if err := validateInstallDatabaseURL(databaseURL); err != nil {
+		return kubernetesSecrets{}, err
+	}
+
+	return kubernetesSecrets{
+		DatabaseURL:            databaseURL,
+		PostgresPassword:       postgresPassword,
+		MasterKey:              masterKey,
+		JWTSigningKey:          jwtSigningKey,
+		ServiceJWTSigningKey:   serviceJWTSigningKey,
+		AAASharedInternalToken: aaaSharedInternalToken,
+		DispatcherTLSSecret:    dispatcherTLSSecret,
+		BootstrapAdminPassword: bootstrapAdminPassword,
+	}, nil
+}
+
 func generateInstallSecret(reader io.Reader, size int) (string, error) {
 	buf := make([]byte, size)
 	if _, err := io.ReadFull(reader, buf); err != nil {
@@ -801,7 +943,7 @@ func renderComposeEnv(version string, images map[string]string, secrets composeS
 	return []byte(builder.String())
 }
 
-func renderKubernetesValues(version string, images map[string]string, existingSecret, ingressHost string, topology installTopology, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey string) ([]byte, error) {
+func renderKubernetesValues(version string, images map[string]string, existingSecret, ingressHost string, topology installTopology, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey, postgresDatabase, postgresUser string) ([]byte, error) {
 	var builder strings.Builder
 	builder.WriteString("# Generated by nopsai install kubernetes. Edit non-secret values, then deploy with the command printed by the CLI.\n")
 	builder.WriteString("global:\n")
@@ -836,7 +978,11 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString("    bootstrapAdminPassword: ")
 	builder.WriteString(strconv.Quote(bootstrapAdminPasswordSecretKey))
 	builder.WriteString("\n\n")
-	builder.WriteString("postgres:\n  enabled: true\n  database: nopsai_db\n  username: nopsai_user\n  image:\n    repository: postgres\n    tag: \"15\"\n    digest: \"\"\n  auth:\n    passwordKey: postgres-password\n  service:\n    name: postgres\n    port: 5432\n  persistence:\n    enabled: true\n    storageClass: \"\"\n    size: 20Gi\n\n")
+	builder.WriteString("postgres:\n  enabled: true\n  database: ")
+	builder.WriteString(strconv.Quote(postgresDatabase))
+	builder.WriteString("\n  username: ")
+	builder.WriteString(strconv.Quote(postgresUser))
+	builder.WriteString("\n  image:\n    repository: postgres\n    tag: \"15\"\n    digest: \"\"\n  auth:\n    passwordKey: postgres-password\n  service:\n    name: postgres\n    port: 5432\n  persistence:\n    enabled: true\n    storageClass: \"\"\n    size: 20Gi\n\n")
 	builder.WriteString("api:\n  replicaCount: 1\n  metricsRequireAuth: true\n  runtimeOutputMaxBytes: 65536\n")
 	if err := writeKubernetesImage(&builder, images, "api"); err != nil {
 		return nil, err
@@ -881,6 +1027,33 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 		builder.WriteString("\n      paths:\n        - path: /\n          pathType: Prefix\n  tls: []\n")
 	}
 	return []byte(builder.String()), nil
+}
+
+func renderKubernetesSecretManifest(existingSecret, namespace, bootstrapAdminPasswordSecretKey string, secrets kubernetesSecrets) []byte {
+	var builder strings.Builder
+	builder.WriteString("# Generated by nopsai install kubernetes. Keep this file private or encrypt it before GitOps.\n")
+	builder.WriteString("apiVersion: v1\nkind: Secret\nmetadata:\n  name: ")
+	builder.WriteString(strconv.Quote(existingSecret))
+	builder.WriteString("\n  namespace: ")
+	builder.WriteString(strconv.Quote(namespace))
+	builder.WriteString("\ntype: Opaque\nstringData:\n")
+	writeKubernetesSecretString(&builder, "database-url", secrets.DatabaseURL)
+	writeKubernetesSecretString(&builder, "postgres-password", secrets.PostgresPassword)
+	writeKubernetesSecretString(&builder, "master-key", secrets.MasterKey)
+	writeKubernetesSecretString(&builder, "jwt-signing-key", secrets.JWTSigningKey)
+	writeKubernetesSecretString(&builder, "service-jwt-signing-key", secrets.ServiceJWTSigningKey)
+	writeKubernetesSecretString(&builder, "aaa-shared-internal-token", secrets.AAASharedInternalToken)
+	writeKubernetesSecretString(&builder, "dispatcher-tls-secret", secrets.DispatcherTLSSecret)
+	writeKubernetesSecretString(&builder, bootstrapAdminPasswordSecretKey, secrets.BootstrapAdminPassword)
+	return []byte(builder.String())
+}
+
+func writeKubernetesSecretString(builder *strings.Builder, key, value string) {
+	builder.WriteString("  ")
+	builder.WriteString(key)
+	builder.WriteString(": ")
+	builder.WriteString(strconv.Quote(value))
+	builder.WriteString("\n")
 }
 
 func writeKubernetesImage(builder *strings.Builder, images map[string]string, imageKey string) error {
@@ -1174,6 +1347,37 @@ func validateInstallToken(label, raw string) error {
 	return nil
 }
 
+func validateInstallSecretValue(label, raw string, minRunes int) error {
+	if raw != strings.TrimSpace(raw) {
+		return fmt.Errorf("%s cannot start or end with whitespace", label)
+	}
+	if err := validateInstallToken(label, raw); err != nil {
+		return err
+	}
+	if len([]rune(raw)) < minRunes {
+		return fmt.Errorf("%s must be at least %d characters", label, minRunes)
+	}
+	return nil
+}
+
+func validateInstallDatabaseURL(raw string) error {
+	value := strings.TrimSpace(raw)
+	if strings.ContainsAny(value, "\r\n\t ") {
+		return errors.New("database URL cannot contain whitespace")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("database URL: %w", err)
+	}
+	if parsed.Scheme != "postgres" && parsed.Scheme != "postgresql" {
+		return errors.New("database URL must use postgres or postgresql")
+	}
+	if parsed.Host == "" {
+		return errors.New("database URL must include host")
+	}
+	return nil
+}
+
 func validateKubernetesSecretKey(label, raw string) error {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -1192,6 +1396,17 @@ func validateKubernetesSecretKey(label, raw string) error {
 		}
 	}
 	return nil
+}
+
+func bundledPostgresDatabaseURL(user, password, database string) string {
+	parsed := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(strings.TrimSpace(user), password),
+		Host:     "postgres:5432",
+		Path:     "/" + strings.Trim(strings.TrimSpace(database), "/"),
+		RawQuery: "sslmode=disable",
+	}
+	return parsed.String()
 }
 
 func normalizeInstallBootstrapAdminEmail(raw string) (string, error) {
@@ -1226,8 +1441,13 @@ func composeCommandText(outputDir string) string {
 	return "cd " + shellQuote(outputDir) + " && docker compose --env-file .env -f docker-compose.yaml up -d"
 }
 
-func kubernetesCommandText(outputDir, releaseName, namespace, valuesFile string, wait bool) string {
-	return "cd " + shellQuote(outputDir) + " && " + shellJoin(kubernetesDeployArgs(releaseName, namespace, valuesFile, wait))
+func kubernetesCommandText(outputDir, releaseName, namespace, valuesFile, secretFile string, wait bool) string {
+	return "cd " + shellQuote(outputDir) + " && " +
+		shellJoin([]string{"kubectl", "create", "namespace", namespace, "--dry-run=client", "-o", "yaml"}) +
+		" | kubectl apply -f - && " +
+		shellJoin([]string{"kubectl", "apply", "-f", secretFile}) +
+		" && " +
+		shellJoin(kubernetesDeployArgs(releaseName, namespace, valuesFile, wait))
 }
 
 func kubernetesDeployArgs(releaseName, namespace, valuesFile string, wait bool) []string {

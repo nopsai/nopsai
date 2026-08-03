@@ -86,12 +86,13 @@ Use the first-install wizard for local or cluster setup:
 Noninteractive shortcuts stay available for GitOps and CI:
 
   nopsai install docker-compose --run
-  nopsai install kubernetes --output-dir ./nopsai-prod --values-file values.yaml
+  nopsai install kubernetes --output-dir ./nopsai-prod --values-file values.yaml --secret-file nopsai-secrets.yaml
 
 Docker Compose generation writes .env with local generated secrets and editable
-service addresses. Kubernetes generation writes values.yaml and expects an
-external Secret for database URL, master key, JWT keys, service JWT key, and the
-AAA shared internal token.`),
+service addresses. Kubernetes generation writes values.yaml, nopsai-secrets.yaml,
+installation.md, and install lock metadata. Review installation.md, keep values
+and locks GitOps tracked, and apply or encrypt the generated Secret manifest
+before deploying.`),
 		},
 		"gitops": {
 			Name:    "gitops",
@@ -99,17 +100,18 @@ AAA shared internal token.`),
 			Body: strings.TrimSpace(`
 Keep environment state reviewable:
 
-  nopsai install kubernetes --output-dir ./env/prod --values-file values.yaml
-  git add env/prod/values.yaml env/prod/.nopsai/install.lock
+  nopsai install kubernetes --output-dir ./env/prod --values-file values.yaml --secret-file nopsai-secrets.yaml
+  git add env/prod/values.yaml env/prod/installation.md env/prod/.nopsai/install.lock
 
 Deploy from stored files after review:
 
   cd env/prod
+  kubectl apply -f nopsai-secrets.yaml
   nopsai install kubernetes --output-dir . --values-file values.yaml --deploy --wait
 
 Release locks are non-secret and should travel with environment state. Secrets
 belong in the platform secret manager, SOPS, Sealed Secrets, External Secrets,
-or equivalent enterprise secret workflow.`),
+or equivalent enterprise secret workflow before they travel through GitOps.`),
 		},
 		"monitoring": {
 			Name:    "monitoring",

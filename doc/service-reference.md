@@ -337,6 +337,11 @@ Notable behavior:
 
 - `GET /healthz` is public for readiness checks.
 - `GET /livez` is public for lightweight liveness checks.
+- When required startup configuration is missing, production gates fail, or the
+  database is not reachable, `nopsai` serves setup preflight endpoints instead
+  of normal authenticated API routes. Database timing failures keep retrying in
+  the background; once Postgres is reachable the process leaves preflight mode
+  and continues normal startup without requiring a pod restart.
 - All `/v1/authn/*`, `/v1/authz/*`, and `/v1/audit/*` endpoints require the shared internal token.
 - `nopsai` keeps an in-process evaluator fallback behind its `AAAClient`
   boundary using the same store, so short AAA service outages do not have to
