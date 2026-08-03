@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -228,6 +229,60 @@ func TestRunPipelineResolvesRuntimeOutputVariablesForDependentTask(t *testing.T)
 	}
 	if !runtimeVarsContain(runtime.runtimeVars[1], "IMAGE_TAG=v1.2.3") {
 		t.Fatalf("consumer runtime vars missing resolved output: %s", strings.Join(runtime.runtimeVars[1], "\n"))
+	}
+}
+
+func TestRunPipelineLogsNonSensitiveRuntimeValuesButMasksSensitiveValues(t *testing.T) {
+	runtime := &fakeStepRuntime{
+		stdout: `{"change_id":"Nothing-so-far","application":"dont ask me","image_reference":"not me","environment":"production","strategy":"rolling-update","api_token":"super-secret-token"}`,
+	}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+	var logOutput bytes.Buffer
+	logger := zerolog.New(&logOutput)
+
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name: "prepare",
+					Variables: map[string]string{
+						"ENVIRONMENT":      "production",
+						"CHANGE_ID":        "Nothing-so-far",
+						"APPLICATION_NAME": "dont ask me",
+						"IMAGE_REFERENCE":  "not me",
+						"API_TOKEN":        "super-secret-token",
+					},
+				},
+				Script: "cat /nopsai/outputs/production_request_json",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.Logger = func(_, _ string) *zerolog.Logger {
+		return &logger
+	}
+	req.StepLogger = func(_, _, _, _ string) *zerolog.Logger {
+		return &logger
+	}
+
+	result := RunPipeline(req)
+	if result.ExitCode != 0 || result.FinalStatus != "success" {
+		t.Fatalf("result = %#v, want successful pipeline", result)
+	}
+
+	logs := logOutput.String()
+	for _, want := range []string{"Nothing-so-far", "dont ask me", "not me", "production", "rolling-update"} {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("expected run logs to include non-sensitive value %q, got %s", want, logs)
+		}
+	}
+	if strings.Contains(logs, "super-secret-token") {
+		t.Fatalf("run logs leaked sensitive value: %s", logs)
+	}
+	if !strings.Contains(logs, "*****") {
+		t.Fatalf("run logs did not include masking marker for sensitive value: %s", logs)
 	}
 }
 

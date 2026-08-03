@@ -65,6 +65,15 @@ Defaults are 10,000 entries or 15 minutes per source, a 2,000-line maximum tail,
 
 Redaction masks common authorization headers, tokens, passwords, API keys, client secrets, and credential-bearing database URLs before buffering or returning data. Redaction is best effort, so operators must still avoid logging sensitive values and keep `system_log.read` narrowly assigned.
 
+Pipeline run logs have a separate agent-owned masking pass before ingestion.
+That pass hides declared secrets, sensitive-looking variable names, and runtime
+outputs marked `sensitive`, but leaves non-sensitive operational evidence such
+as environment names, versions, image references, change IDs, and declared
+non-sensitive output JSON visible for troubleshooting and release review.
+Durable pipeline run-log ingestion also applies best-effort credential-pattern
+redaction before writing `pipeline_run_logs`, including escaped JSON inside
+agent log messages.
+
 ## GitOps and deployment configuration
 
 Compose declares the socket proxy, allow-lists the persistent platform containers, and sets `SYSTEM_LOGS_DOCKER_HOST=tcp://docker-socket-proxy:2375`. Other Docker deployments can configure the feature declaratively in the mounted NopsAI YAML:

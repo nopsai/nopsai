@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"nopsai/pkg/correlation"
@@ -105,5 +106,24 @@ func TestFilterRunLogIngestLinesKeepsNonAgentGRPCTelemetry(t *testing.T) {
 	got := filterRunLogIngestLines(payload)
 	if len(got) != 1 {
 		t.Fatalf("filtered lines = %#v, want runner telemetry retained", got)
+	}
+}
+
+func TestRedactRunLogLineMasksCredentialsWithoutHidingOperationalEvidence(t *testing.T) {
+	line := `{"message":"{\"environment\":\"production\",\"image_reference\":\"ghcr.io/acme/api:2026.08.03-rc1\",\"api_token\":\"secret-token\"}","authorization":"Bearer abc.def","database":"postgres://user:pass@db/app"}`
+
+	got := redactRunLogLine(line)
+	for _, want := range []string{"production", "ghcr.io/acme/api:2026.08.03-rc1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("redacted log lost operational evidence %q: %s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"secret-token", "abc.def", "user:pass"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("redacted log leaked %q: %s", forbidden, got)
+		}
+	}
+	if strings.Count(got, runLogRedactionMarker) < 3 {
+		t.Fatalf("redacted log = %s, want credential redaction markers", got)
 	}
 }

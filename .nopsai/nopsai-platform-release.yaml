@@ -867,10 +867,80 @@ steps:
       echo "release_phase=package-release-assets complete"
       BASH
 
+  - name: publish-cli-package
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - package-release-assets
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash curl tar gzip
+      bash <<'BASH'
+      set -euo pipefail
+      RELEASE_PHASE=publish-cli-package
+      trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
+
+      . dist/release/env
+      . dist/release/install-release-tools.sh
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping CLI package publication"
+        exit 0
+      fi
+      if [[ -z "${NOPSAI_RELEASE_GHCR_TOKEN:-}" ]]; then
+        echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish CLI package artifacts" >&2
+        exit 1
+      fi
+
+      install_oras
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io \
+        --username "$GHCR_USERNAME" \
+        --password-stdin
+      cli_package_reference="${NOPSAI_RELEASE_CLI_PACKAGE:-$REGISTRY/nopsai-cli}"
+      shopt -s nullglob
+      cli_assets=(dist/cli/*)
+      if (( ${#cli_assets[@]} == 0 )); then
+        echo "No CLI release artifacts were built into dist/cli" >&2
+        exit 1
+      fi
+      rm -rf dist/cli-package
+      mkdir -p dist/cli-package
+      cp dist/assets/SHA256SUMS dist/cli-package/SHA256SUMS
+      cp "${cli_assets[@]}" dist/cli-package/
+      oras_args=(
+        --artifact-type application/vnd.nopsai.cli.release.v1
+        --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+        --annotation "org.opencontainers.image.version=$VERSION"
+        "SHA256SUMS:text/plain"
+      )
+      (
+        cd dist/cli-package
+        for cli_asset in nopsai-cli_*; do
+          case "$cli_asset" in
+            *.zip) media_type=application/zip ;;
+            *.tar.gz) media_type=application/gzip ;;
+            *) media_type=application/octet-stream ;;
+          esac
+          oras_args+=("$cli_asset:$media_type")
+        done
+        oras push "$cli_package_reference:$VERSION" "${oras_args[@]}"
+      )
+      while IFS= read -r release_tag; do
+        if [[ "$release_tag" == "$VERSION" ]]; then
+          continue
+        fi
+        oras copy "$cli_package_reference:$VERSION" "$cli_package_reference:$release_tag"
+        echo "published_cli_package_alias=$cli_package_reference:$release_tag"
+      done < <(scripts/release-tags.sh "$VERSION")
+      echo "published_cli_package=$cli_package_reference:$VERSION"
+      echo "release_phase=publish-cli-package complete"
+      BASH
+
   - name: publish-release
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - package-release-assets
+      - publish-cli-package
     secrets:
       - NOPSAI_RELEASE_GITHUB_TOKEN
     script: |

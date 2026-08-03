@@ -351,6 +351,7 @@ func (a *App) handleIngestLogs(w http.ResponseWriter, r *http.Request) {
 
 	batch := &pgx.Batch{}
 	for _, line := range payload.Lines {
+		line = redactRunLogLine(line)
 		lineFields := runLogFieldsForLine(payload, line)
 		batch.Queue(`
 			INSERT INTO pipeline_run_logs (

@@ -37,10 +37,13 @@ The GitOps-managed `.nopsai/nopsai-platform-release.yaml` pipeline publishes
   `<major>.<minor>` tags
 - the NopsAI Helm chart to `oci://<release-registry>/charts/nopsai` with the
   same exact, `latest`, major, and major.minor OCI tags
+- the NopsAI CLI archives and `SHA256SUMS` to the OCI package
+  `oci://<release-registry>/nopsai-cli`, intended to be public so `nopsai
+  update` works without repository release access
 - GitHub Release asset `nopsai-helm-chart-<version>.tgz`
-- standalone `nopsai-cli_<version>_<os>_<arch>` archives for Linux, macOS, and
-  Windows on the exact GitHub Release, with moving major and major.minor GitHub
-  release aliases carrying the same assets
+- compatibility copies of standalone `nopsai-cli_<version>_<os>_<arch>`
+  archives for Linux, macOS, and Windows on the exact GitHub Release, with
+  moving major and major.minor GitHub release aliases carrying the same assets
 - `nopsai-changelog-<version>.md`
 - `SHA256SUMS` for the uploaded GitHub Release assets
 
@@ -50,8 +53,10 @@ The release pipeline intentionally does not upload `release-index.json`,
 from the CLI for the exact version they want to install.
 
 `scripts/release-tags.sh` is the single release-tag source of truth. For a release version, it emits the exact version plus `latest`, `<major>`, and `<major>.<minor>`; the release pipeline
-uses that list for container images and Helm OCI aliases. `NOPSAI_RELEASE_REGISTRY`
-is the shared GHCR package root for both container images and the Helm chart.
+uses that list for container images, the Helm OCI package, and the CLI OCI
+package aliases. `NOPSAI_RELEASE_REGISTRY`
+is the shared GHCR package root for container images, the Helm chart, and the
+default CLI package.
 When it is omitted, the release pipeline defaults to `ghcr.io/<owner>`,
 publishes the chart under `charts/nopsai`, and labels every container image with
 `org.opencontainers.image.source=https://github.com/<owner>/<repo>`. Multi-arch
@@ -64,6 +69,8 @@ For packages that were already created in GHCR without a linked repository,
 GitHub may keep them unlinked until an organization owner connects each package
 to `nopsai/nopsai` once from the package settings page, or deletes and republishes
 the package. Future releases carry the source label and OCI annotations.
+The `nopsai-cli` package must have public package visibility for anonymous
+self-update; this is separate from repository release visibility.
 
 ## Release Pipeline Supply Chain
 
@@ -83,36 +90,40 @@ by digest.
 
 ## CLI Self-Update
 
-Released CLIs can replace themselves from the GitHub Release asset for an exact
-version:
+Released CLIs can replace themselves from the public CLI OCI package for an
+exact version:
 
 ```bash
 nopsai update --version <version>
 ```
 
 The updater resolves the asset name for the local OS/architecture, downloads the
-archive and `SHA256SUMS` from `v<version>`, verifies the archive checksum,
+archive and `SHA256SUMS` from
+`oci://ghcr.io/nopsai/nopsai-cli:<version>`, verifies the archive checksum,
 extracts `nopsai` or `nopsai.exe`, and atomically replaces the current binary.
-Use `--repository owner/repo` or `NOPSAI_UPDATE_GITHUB_REPOSITORY` when the
-release lives in another GitHub repository. Use `--asset-base-url` or
+Use `--package registry/repository` or `NOPSAI_UPDATE_PACKAGE` when the OCI
+package lives somewhere else. Use `--asset-base-url` or
 `NOPSAI_UPDATE_ASSET_BASE_URL` for an enterprise HTTPS mirror containing the
-same archive names and `SHA256SUMS`. `NOPSAI_UPDATE_TOKEN` is sent as a bearer
-token for private release mirrors.
+same archive names and `SHA256SUMS`. Use legacy `--repository owner/repo` or
+`NOPSAI_UPDATE_GITHUB_REPOSITORY` only when the release assets live in another
+GitHub repository. `NOPSAI_UPDATE_TOKEN` is sent as a bearer token for protected
+mirrors.
 
 Self-update downloads default to a 5 minute timeout, which is longer than the
-normal API timeout. If GitHub or a private mirror is slow to return release
+normal API timeout. If the package registry or a private mirror is slow to return
 headers, retry with a larger explicit timeout such as
 `nopsai --timeout 10m update --version <version>`.
 
 Update downloads stay bounded to protect operator machines. An `exceeds` error
 means the resolved URL or enterprise mirror returned an object larger than the
-CLI archive limit; confirm the version, repository, asset base URL, and asset
-name before retrying.
+CLI archive limit; confirm the version, package, repository, asset base URL, and
+asset name before retrying.
 
-The exact GitHub Release is marked as GitHub's latest release. The release
-pipeline also moves `v<major>` and `v<major>.<minor>` GitHub release aliases to
-the same commit and replaces their assets, so CLI download channels do not keep
-stale archives.
+The exact GitHub Release is marked as GitHub's latest release for compatibility
+and changelog discovery. The release pipeline also moves `v<major>` and
+`v<major>.<minor>` GitHub release aliases to the same commit and replaces their
+assets, while OCI package aliases move with the same `scripts/release-tags.sh`
+contract.
 
 ## CLI-Generated Installs
 

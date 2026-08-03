@@ -84,29 +84,91 @@ func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T
 	}
 }
 
-func TestMaskRuntimeTextMasksRuntimeValuesWithoutCorruptingOperationalWords(t *testing.T) {
+func TestMaskRuntimeTextMasksSensitiveValuesOnly(t *testing.T) {
 	context := NewExecutionContext()
 	context.SetValue("VISIBLE_VAR", "plain-runtime-value", false)
-	context.SetValue("SCOPE", "prod", false)
-	context.SetValue("ENVIRONMENT", "dashboard", false)
+	context.SetValue("ENVIRONMENT", "production", false)
+	context.SetValue("CHANGE_ID", "Nothing-so-far", false)
+	context.SetValue("APPLICATION_NAME", "dont ask me", false)
+	context.SetValue("IMAGE_REFERENCE", "not me", false)
+	context.SetValue("SERVICE", `{"change_id":"Nothing-so-far","application":"dont ask me","image_reference":"not me","environment":"production","strategy":"rolling-update"}`, false)
 	context.SetValue("STEP_SECRET", "super-secret-value", true)
+	context.SetValue("API_TOKEN", "token-by-name", false)
 
 	if got := context.MaskText("value=plain-runtime-value secret=super-secret-value", nil); !strings.Contains(got, "plain-runtime-value") {
 		t.Fatalf("MaskText should leave non-sensitive prompt values visible, got %q", got)
 	}
 
-	masked := context.MaskRuntimeText("value=plain-runtime-value secret=super-secret-value SCOPE=prod ENVIRONMENT=dashboard production_ready app-finance:prod nopsai-dashboard", nil)
-	if strings.Contains(masked, "plain-runtime-value") || strings.Contains(masked, "super-secret-value") {
-		t.Fatalf("expected sensitive and high-signal runtime values to be masked, got %q", masked)
-	}
-	for _, want := range []string{"SCOPE=*****", "ENVIRONMENT=*****"} {
+	output := `value=plain-runtime-value {"change_id":"Nothing-so-far","application":"dont ask me","image_reference":"not me","environment":"production","strategy":"rolling-update"} secret=super-secret-value API_TOKEN=token-by-name external=external-secret`
+	masked := context.MaskRuntimeText(output, map[string]string{"EXTERNAL_SECRET": "external-secret"})
+	for _, want := range []string{
+		"plain-runtime-value",
+		`"change_id":"Nothing-so-far"`,
+		`"application":"dont ask me"`,
+		`"image_reference":"not me"`,
+		`"environment":"production"`,
+		`"strategy":"rolling-update"`,
+	} {
 		if !strings.Contains(masked, want) {
-			t.Fatalf("expected explicit assignment %q to be masked, got %q", want, masked)
+			t.Fatalf("expected non-sensitive runtime value %q to remain visible, got %q", want, masked)
 		}
 	}
-	for _, want := range []string{"production_ready", "app-finance:prod", "nopsai-dashboard"} {
+	for _, forbidden := range []string{"super-secret-value", "token-by-name", "external-secret"} {
+		if strings.Contains(masked, forbidden) {
+			t.Fatalf("expected sensitive value %q to be masked, got %q", forbidden, masked)
+		}
+	}
+	if strings.Count(masked, "*****") != 3 {
+		t.Fatalf("masked output = %q, want exactly three sensitive markers", masked)
+	}
+}
+
+func TestMaskRuntimeTextMasksFlattenedMultilineSecrets(t *testing.T) {
+	context := NewExecutionContext()
+	context.SetValue("PRIVATE_KEY", "line-one\nline-two", true)
+
+	masked := context.MaskRuntimeText("pem=line-one line-two", nil)
+	if strings.Contains(masked, "line-one") || strings.Contains(masked, "line-two") {
+		t.Fatalf("expected flattened multiline secret to be masked, got %q", masked)
+	}
+	if !strings.Contains(masked, "*****") {
+		t.Fatalf("expected masking marker, got %q", masked)
+	}
+}
+
+func TestMaskRuntimeTextKeepsNonSensitiveRuntimeOutputValueVisible(t *testing.T) {
+	context := NewExecutionContext()
+	output := `{"change_id":"Nothing-so-far","application":"dont ask me","image_reference":"not me","environment":"production","namespace":"","strategy":"rolling-update"}`
+	context.SetValue("SERVICE", output, false)
+
+	if got := context.MaskRuntimeText(output, nil); got != output {
+		t.Fatalf("MaskRuntimeText() = %q, want non-sensitive runtime output unchanged", got)
+	}
+}
+
+func TestMaskRuntimeTextMasksSensitiveRuntimeOutputValue(t *testing.T) {
+	context := NewExecutionContext()
+	output := `{"token":"runtime-output-secret"}`
+	context.SetValue("SERVICE_TOKEN", output, true)
+
+	masked := context.MaskRuntimeText(output, nil)
+	if strings.Contains(masked, output) || strings.Contains(masked, "runtime-output-secret") {
+		t.Fatalf("expected sensitive runtime output to be masked, got %q", masked)
+	}
+	if masked != "*****" {
+		t.Fatalf("masked output = %q, want full sensitive output marker", masked)
+	}
+}
+
+func TestMaskRuntimeTextDoesNotMaskShortNonSensitiveValues(t *testing.T) {
+	context := NewExecutionContext()
+	context.SetValue("ENVIRONMENT", "prod", false)
+	context.SetValue("FLAG", "true", false)
+
+	masked := context.MaskRuntimeText("ENVIRONMENT=prod FLAG=true production_ready", nil)
+	for _, want := range []string{"ENVIRONMENT=prod", "FLAG=true", "production_ready"} {
 		if !strings.Contains(masked, want) {
-			t.Fatalf("expected operational word %q to remain intact, got %q", want, masked)
+			t.Fatalf("expected %q to remain visible, got %q", want, masked)
 		}
 	}
 }

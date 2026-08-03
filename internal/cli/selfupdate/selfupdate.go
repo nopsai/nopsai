@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,11 +26,21 @@ import (
 
 const (
 	DefaultGitHubRepository = "nopsai/nopsai"
+	DefaultOCIPackage       = "ghcr.io/nopsai/nopsai-cli"
 	checksumAssetName       = "SHA256SUMS"
 	maxArchiveBytes         = 512 << 20
 	maxBinaryBytes          = 512 << 20
 	maxChecksumBytes        = 2 << 20
 	defaultDownloadTimeout  = 5 * time.Minute
+)
+
+const (
+	ociImageManifestMediaType    = "application/vnd.oci.image.manifest.v1+json"
+	ociDockerManifestMediaType   = "application/vnd.docker.distribution.manifest.v2+json"
+	ociArtifactManifestMediaType = "application/vnd.oci.artifact.manifest.v1+json"
+	ociLayerTitleAnnotation      = "org.opencontainers.image.title"
+	ociAssetURLScheme            = "oci"
+	ociPackageReferenceURLScheme = "oci://"
 )
 
 type Updater struct {
@@ -43,6 +54,7 @@ type Updater struct {
 type Options struct {
 	Version      string
 	Repository   string
+	PackageRef   string
 	AssetBaseURL string
 	InstallPath  string
 	DryRun       bool
@@ -51,6 +63,7 @@ type Options struct {
 type Plan struct {
 	Version     string
 	Repository  string
+	PackageRef  string
 	GOOS        string
 	GOARCH      string
 	AssetName   string
@@ -78,10 +91,7 @@ func (u Updater) Plan(options Options) (Plan, error) {
 		return Plan{}, err
 	}
 	repository := valueOrDefault(options.Repository, DefaultGitHubRepository)
-	if err := validateRepository(repository); err != nil {
-		return Plan{}, err
-	}
-	assetURL, checksumURL, err := releaseAssetURLs(version, repository, options.AssetBaseURL, assetName)
+	assetURL, checksumURL, packageRef, err := updateAssetURLs(version, options.Repository, options.PackageRef, options.AssetBaseURL, assetName)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -92,6 +102,7 @@ func (u Updater) Plan(options Options) (Plan, error) {
 	return Plan{
 		Version:     version,
 		Repository:  repository,
+		PackageRef:  packageRef,
 		GOOS:        goos,
 		GOARCH:      goarch,
 		AssetName:   assetName,
@@ -169,6 +180,9 @@ func archiveName(version, goos, goarch string) (string, error) {
 
 func releaseAssetURLs(version, repository, baseURL, assetName string) (string, string, error) {
 	if strings.TrimSpace(baseURL) == "" {
+		if err := validateRepository(repository); err != nil {
+			return "", "", err
+		}
 		baseURL = fmt.Sprintf("https://github.com/%s/releases/download/v%s", repository, version)
 	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
@@ -180,6 +194,57 @@ func releaseAssetURLs(version, repository, baseURL, assetName string) (string, s
 		return "", "", errors.New("update asset base URL must be an absolute https URL without query or fragment")
 	}
 	return baseURL + "/" + url.PathEscape(assetName), baseURL + "/" + checksumAssetName, nil
+}
+
+func updateAssetURLs(version, repository, packageRef, baseURL, assetName string) (string, string, string, error) {
+	repository = strings.TrimSpace(repository)
+	if strings.TrimSpace(baseURL) != "" {
+		assetURL, checksumURL, err := releaseAssetURLs(version, valueOrDefault(repository, DefaultGitHubRepository), baseURL, assetName)
+		return assetURL, checksumURL, "", err
+	}
+	if strings.TrimSpace(packageRef) == "" && repository != "" {
+		assetURL, checksumURL, err := releaseAssetURLs(version, repository, "", assetName)
+		return assetURL, checksumURL, "", err
+	}
+	normalizedPackage, err := normalizeOCIPackageRef(valueOrDefault(packageRef, DefaultOCIPackage))
+	if err != nil {
+		return "", "", "", err
+	}
+	base := fmt.Sprintf("%s%s:%s", ociPackageReferenceURLScheme, normalizedPackage, version)
+	return base + "#" + assetName, base + "#" + checksumAssetName, normalizedPackage, nil
+}
+
+func normalizeOCIPackageRef(raw string) (string, error) {
+	ref := strings.TrimSpace(raw)
+	ref = strings.TrimPrefix(ref, ociPackageReferenceURLScheme)
+	ref = strings.TrimRight(ref, "/")
+	if ref == "" {
+		return "", errors.New("update package must be an OCI package reference")
+	}
+	if strings.ContainsAny(ref, "?#") {
+		return "", errors.New("update package reference cannot include query or fragment")
+	}
+	if strings.Contains(ref, "@") {
+		return "", errors.New("update package reference must not include a digest")
+	}
+	firstSlash := strings.Index(ref, "/")
+	if firstSlash <= 0 || firstSlash == len(ref)-1 {
+		return "", errors.New("update package must use registry/repository")
+	}
+	host := ref[:firstSlash]
+	repository := ref[firstSlash+1:]
+	if strings.Contains(host, "://") || strings.Contains(host, "..") || strings.ContainsAny(host, " \t\r\n") {
+		return "", errors.New("update package registry is invalid")
+	}
+	for _, part := range strings.Split(repository, "/") {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, " \t\r\n") {
+			return "", errors.New("update package repository is invalid")
+		}
+		if strings.Contains(part, ":") {
+			return "", errors.New("update package reference must not include a tag")
+		}
+	}
+	return ref, nil
 }
 
 func validateRepository(repository string) error {
@@ -205,6 +270,9 @@ func validateRepository(repository string) error {
 }
 
 func (u Updater) download(ctx context.Context, source string, limit int64) ([]byte, error) {
+	if isOCIAssetURL(source) {
+		return u.downloadOCIAsset(ctx, source, limit)
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build update download request: %w", err)
@@ -239,6 +307,264 @@ func (u Updater) download(ctx context.Context, source string, limit int64) ([]by
 		return nil, fmt.Errorf("update asset %s exceeds %s", source, formatByteLimit(limit))
 	}
 	return contents, nil
+}
+
+func isOCIAssetURL(source string) bool {
+	parsed, err := url.Parse(source)
+	return err == nil && parsed.Scheme == ociAssetURLScheme
+}
+
+type ociAssetRef struct {
+	Registry   string
+	Repository string
+	Tag        string
+	AssetName  string
+}
+
+type ociManifest struct {
+	Layers []ociDescriptor `json:"layers"`
+	Blobs  []ociDescriptor `json:"blobs"`
+}
+
+type ociDescriptor struct {
+	MediaType   string            `json:"mediaType"`
+	Digest      string            `json:"digest"`
+	Size        int64             `json:"size"`
+	Annotations map[string]string `json:"annotations"`
+}
+
+type registryAuthChallenge struct {
+	Realm   string
+	Service string
+	Scope   string
+}
+
+func (u Updater) downloadOCIAsset(ctx context.Context, source string, limit int64) ([]byte, error) {
+	ref, err := parseOCIAssetURL(source)
+	if err != nil {
+		return nil, err
+	}
+	manifestBytes, _, err := u.ociRequest(ctx, ref.Registry, "/v2/"+ref.Repository+"/manifests/"+url.PathEscape(ref.Tag), limit, true)
+	if err != nil {
+		return nil, fmt.Errorf("download OCI update manifest %s: %w", source, err)
+	}
+	var manifest ociManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return nil, fmt.Errorf("decode OCI update manifest %s: %w", source, err)
+	}
+	descriptor, ok := ociFindAsset(manifest, ref.AssetName)
+	if !ok {
+		return nil, fmt.Errorf("OCI update package %s:%s is missing %s", ref.Registry+"/"+ref.Repository, ref.Tag, ref.AssetName)
+	}
+	if descriptor.Size > limit {
+		return nil, fmt.Errorf("update asset %s exceeds %s: manifest size is %s", source, formatByteLimit(limit), formatByteLimit(descriptor.Size))
+	}
+	blobPath := "/v2/" + ref.Repository + "/blobs/" + descriptor.Digest
+	blobBytes, _, err := u.ociRequest(ctx, ref.Registry, blobPath, limit, false)
+	if err != nil {
+		return nil, fmt.Errorf("download OCI update asset %s: %w", source, err)
+	}
+	return blobBytes, nil
+}
+
+func parseOCIAssetURL(source string) (ociAssetRef, error) {
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return ociAssetRef{}, fmt.Errorf("parse OCI update asset URL: %w", err)
+	}
+	if parsed.Scheme != ociAssetURLScheme || parsed.Host == "" || parsed.RawQuery != "" {
+		return ociAssetRef{}, errors.New("OCI update asset URL must use oci://registry/repository:tag#asset without query")
+	}
+	assetName := strings.TrimSpace(parsed.Fragment)
+	if assetName == "" || strings.Contains(assetName, "/") || strings.Contains(assetName, "..") {
+		return ociAssetRef{}, errors.New("OCI update asset URL must include a file asset fragment")
+	}
+	repositoryWithTag := strings.Trim(strings.TrimSpace(parsed.Path), "/")
+	lastSlash := strings.LastIndex(repositoryWithTag, "/")
+	lastColon := strings.LastIndex(repositoryWithTag, ":")
+	if repositoryWithTag == "" || lastColon <= lastSlash || lastColon == len(repositoryWithTag)-1 {
+		return ociAssetRef{}, errors.New("OCI update asset URL must include an exact tag")
+	}
+	repository := repositoryWithTag[:lastColon]
+	tag := repositoryWithTag[lastColon+1:]
+	if repository == "" || tag == "" || strings.Contains(tag, "/") {
+		return ociAssetRef{}, errors.New("OCI update asset URL has an invalid repository or tag")
+	}
+	return ociAssetRef{
+		Registry:   parsed.Host,
+		Repository: repository,
+		Tag:        tag,
+		AssetName:  assetName,
+	}, nil
+}
+
+func ociFindAsset(manifest ociManifest, assetName string) (ociDescriptor, bool) {
+	descriptors := manifest.Layers
+	if len(descriptors) == 0 {
+		descriptors = manifest.Blobs
+	}
+	for _, descriptor := range descriptors {
+		if descriptor.Annotations[ociLayerTitleAnnotation] == assetName {
+			return descriptor, true
+		}
+	}
+	return ociDescriptor{}, false
+}
+
+func (u Updater) ociRequest(ctx context.Context, registry, path string, limit int64, manifest bool) ([]byte, http.Header, error) {
+	headers := http.Header{}
+	if manifest {
+		headers.Set("Accept", strings.Join([]string{
+			ociImageManifestMediaType,
+			ociDockerManifestMediaType,
+			ociArtifactManifestMediaType,
+		}, ", "))
+	} else {
+		headers.Set("Accept", "application/octet-stream")
+	}
+	if token := strings.TrimSpace(u.Token); token != "" {
+		headers.Set("Authorization", "Bearer "+token)
+	}
+	body, responseHeaders, statusCode, challenge, err := u.doOCIRequest(ctx, registry, path, headers, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	if statusCode != http.StatusUnauthorized || challenge.Realm == "" || headers.Get("Authorization") != "" {
+		if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+			return nil, nil, fmt.Errorf("HTTP %d", statusCode)
+		}
+		return body, responseHeaders, nil
+	}
+	token, err := u.fetchRegistryBearerToken(ctx, challenge)
+	if err != nil {
+		return nil, nil, err
+	}
+	headers.Set("Authorization", "Bearer "+token)
+	body, responseHeaders, statusCode, _, err = u.doOCIRequest(ctx, registry, path, headers, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		return nil, nil, fmt.Errorf("HTTP %d", statusCode)
+	}
+	return body, responseHeaders, nil
+}
+
+func (u Updater) doOCIRequest(ctx context.Context, registry, path string, headers http.Header, limit int64) ([]byte, http.Header, int, registryAuthChallenge, error) {
+	source := "https://" + registry + path
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return nil, nil, 0, registryAuthChallenge{}, fmt.Errorf("build OCI update request: %w", err)
+	}
+	for key, values := range headers {
+		for _, value := range values {
+			request.Header.Add(key, value)
+		}
+	}
+	client := u.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: defaultDownloadTimeout}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, nil, 0, registryAuthChallenge{}, fmt.Errorf("download OCI update asset %s timed out before response headers; retry or pass a larger --timeout: %w", source, err)
+		}
+		return nil, nil, 0, registryAuthChallenge{}, fmt.Errorf("download OCI update asset %s: %w", source, err)
+	}
+	defer response.Body.Close()
+	challenge := parseRegistryAuthChallenge(response.Header.Get("WWW-Authenticate"))
+	if response.StatusCode == http.StatusUnauthorized {
+		return nil, response.Header.Clone(), response.StatusCode, challenge, nil
+	}
+	if response.ContentLength > limit {
+		return nil, response.Header.Clone(), response.StatusCode, challenge, fmt.Errorf("update asset %s exceeds %s: content length is %s", source, formatByteLimit(limit), formatByteLimit(response.ContentLength))
+	}
+	contents, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, response.Header.Clone(), response.StatusCode, challenge, fmt.Errorf("read OCI update asset %s: %w", source, err)
+	}
+	if int64(len(contents)) > limit {
+		return nil, response.Header.Clone(), response.StatusCode, challenge, fmt.Errorf("update asset %s exceeds %s", source, formatByteLimit(limit))
+	}
+	return contents, response.Header.Clone(), response.StatusCode, challenge, nil
+}
+
+func (u Updater) fetchRegistryBearerToken(ctx context.Context, challenge registryAuthChallenge) (string, error) {
+	realm, err := url.Parse(challenge.Realm)
+	if err != nil {
+		return "", fmt.Errorf("parse OCI auth challenge: %w", err)
+	}
+	if realm.Scheme != "https" || realm.Host == "" {
+		return "", errors.New("OCI auth challenge realm must be an absolute https URL")
+	}
+	query := realm.Query()
+	if challenge.Service != "" {
+		query.Set("service", challenge.Service)
+	}
+	if challenge.Scope != "" {
+		query.Set("scope", challenge.Scope)
+	}
+	realm.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, realm.String(), nil)
+	if err != nil {
+		return "", fmt.Errorf("build OCI auth token request: %w", err)
+	}
+	client := u.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: defaultDownloadTimeout}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("request OCI auth token: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("request OCI auth token: HTTP %d", response.StatusCode)
+	}
+	contents, err := io.ReadAll(io.LimitReader(response.Body, maxChecksumBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read OCI auth token: %w", err)
+	}
+	var payload struct {
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(contents, &payload); err != nil {
+		return "", fmt.Errorf("decode OCI auth token: %w", err)
+	}
+	token := strings.TrimSpace(payload.Token)
+	if token == "" {
+		token = strings.TrimSpace(payload.AccessToken)
+	}
+	if token == "" {
+		return "", errors.New("OCI auth token response did not include a bearer token")
+	}
+	return token, nil
+}
+
+func parseRegistryAuthChallenge(header string) registryAuthChallenge {
+	header = strings.TrimSpace(header)
+	if header == "" || !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return registryAuthChallenge{}
+	}
+	values := map[string]string{}
+	for _, part := range strings.Split(header[len("Bearer "):], ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.Trim(strings.TrimSpace(value), `"`)
+		if key != "" {
+			values[key] = value
+		}
+	}
+	return registryAuthChallenge{
+		Realm:   values["realm"],
+		Service: values["service"],
+		Scope:   values["scope"],
+	}
 }
 
 func checksumForAsset(contents []byte, assetName string) (string, error) {

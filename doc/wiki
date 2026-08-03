@@ -158,7 +158,15 @@ let unmodified wheel input scroll the page outside expanded graph mode, close th
 outside clicks, expose a compact draggable graph navigator while zoomed or
 panned, keep graph-opened step, task, log, and definition modals in front of the expanded graph, keep drag panning frame-batched and free of browser text selection, and
 preserve existing log, search, filter, zoom, pan, copy-link, AAA, monitoring,
-MCP, and GitOps contracts. Pipeline detail must embed the shared graph canvas in
+MCP, and GitOps contracts. Pipeline log documentation must distinguish
+agent-side run-log masking from System Logs redaction: declared secrets,
+sensitive variable names, and outputs marked `sensitive` are masked, while
+non-sensitive operational evidence such as environment names, versions, image
+references, change IDs, and declared non-sensitive output JSON remains visible
+for troubleshooting and release review. It must also state that durable
+pipeline run-log ingestion applies best-effort credential-pattern redaction,
+including escaped JSON inside agent log messages, before writing
+`pipeline_run_logs`. Pipeline detail must embed the shared graph canvas in
 its Pipeline graph card without a nested graph-window frame, and that embedded
 overview must fill the visible graph frame so steps are not clipped by an
 internal SVG viewport. The Flow graph card must end at the graph canvas, with
@@ -186,20 +194,23 @@ loop.
 Release publication uses `scripts/release-tags.sh` for the stable package tag
 set: exact version, `latest`, major, and major.minor. Container images and the
 Helm OCI chart publish all four aliases while installers keep exact versions in
-generated Docker Compose, Helm values, and locks. Multi-arch container builds
-carry `org.opencontainers.image.source` as both Dockerfile labels and OCI
+generated Docker Compose, Helm values, and locks. The CLI archives and
+`SHA256SUMS` publish to the `nopsai-cli` GHCR OCI package with the same aliases;
+that package must be public so `nopsai update --version <major.minor.patch>`
+does not need repository release access. Multi-arch container builds carry
+`org.opencontainers.image.source` as both Dockerfile labels and OCI
 index/manifest annotations so GHCR can associate packages with the source repo.
 Already-created unlinked GHCR packages may still need a one-time package settings
 connection or delete/republish. The exact GitHub Release is marked latest, and
-moving `v<major>` / `v<major>.<minor>` GitHub release aliases carry the same CLI
-assets. The release pipeline reads `release/compatibility.yaml` into buildinfo
-linker flags and Docker build args so CLI archives and image-built binaries
-advertise the current platform, runner, API, and capability contract
-instead of a stale major line. Released CLIs support
-`nopsai update --version <major.minor.patch>`; the updater downloads the exact
-GitHub Release archive and `SHA256SUMS`, verifies the checksum, then replaces
-the local binary. Enterprise mirrors can override the repository or asset base
-URL without changing the archive naming contract.
+moving `v<major>` / `v<major>.<minor>` GitHub release aliases carry
+compatibility copies of the same CLI assets. The release pipeline reads
+`release/compatibility.yaml` into buildinfo linker flags and Docker build args
+so CLI archives and image-built binaries advertise the current platform,
+runner, API, and capability contract instead of a stale major line. Released
+CLIs support `nopsai update --version <major.minor.patch>`; the updater
+downloads the exact OCI package archive and `SHA256SUMS`, verifies the checksum,
+then replaces the local binary. Enterprise mirrors can override the package,
+repository, or asset base URL without changing the archive naming contract.
 
 The live terminal layout uses centered Contextual Zen screens
 with fixed home-style header/footer chrome, breadcrumb text above nested menus,
