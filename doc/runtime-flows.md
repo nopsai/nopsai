@@ -158,9 +158,13 @@ directory.
 6. It creates a Docker client for Docker runtime, or a Kubernetes client for Kubernetes runtime.
 7. It starts background cancellation and signal handlers.
 8. Docker runtime optionally starts asynchronous image pre-pulling for pipeline step images.
-9. Docker step containers default to `network_mode=none` and do not inherit the
-   runner Docker network. Runner networking is selected at deployment time
-   through bridge/host mode and dispatcher address configuration.
+9. Docker step containers default to Docker bridge networking for package
+   installs, source fetches, and registry access. Set `DOCKER_NETWORK_NAME=none`
+   on a runner only when step workloads must be fully isolated from network
+   egress, or set it to a dedicated Docker network when workloads need a
+   controlled egress path. Runner networking is selected separately at
+   deployment time through bridge/host mode and dispatcher address
+   configuration.
 10. It initializes execution history, including inherited parent history for child pipelines when the run is not resuming from an approval checkpoint.
 
 ## 6. Agent Execution Loop
@@ -188,44 +192,46 @@ The agent runs tasks in dependency order, not strictly line order.
 14. Kubernetes runtime resolves `step.runtime_pool` or the pipeline default `runtime_pool` and applies the matching runtime pool to the step pod. Docker runtime ignores this directive.
 15. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
 16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus run-owned declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to run-owned PVCs in the runner namespace. Existing unowned Docker volumes or Kubernetes PVCs are refused.
-17. If the task declares `outputs`, Docker mounts an isolated writable `tmpfs`
+17. Docker leaves image-provided temporary directories such as `/tmp` and
+    `/var/tmp` unchanged.
+18. If the task declares `outputs`, Docker mounts an isolated writable `tmpfs`
     at `/nopsai/outputs`; Kubernetes mounts an isolated writable `emptyDir`.
     The agent clears the directory and verifies it is writable before running
     the task. User volumes cannot mount this reserved path.
-18. It decides the action:
+19. It decides the action:
    - `script` task: execute the script directly, unless effective guardrail or
      policy context exists; in that case the LLM validates the exact script
      before execution and the task fails closed if validation is unavailable or
      returns a conflict
    - `goal` task: ask the LLM to return a structured action
-19. For goal tasks, the LLM prompt includes the resolved Agent Profile role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
-20. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
-21. It executes the chosen action inside the step container or pod.
-22. After a successful output-producing task, the agent collects declared files
+20. For goal tasks, the LLM prompt includes the resolved Agent Profile role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
+21. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
+22. It executes the chosen action inside the step container or pod.
+23. After a successful output-producing task, the agent collects declared files
     from `/nopsai/outputs`, enforces the configured size limit, stores produced
     values in run state, reports metadata and encrypted sensitive values to
     `nopsai`, and ignores undeclared files. A referenced declared output that
     was not produced fails the task.
-23. Dependent task variables whose entire value is
+24. Dependent task variables whose entire value is
     `$steps.<step>.<task>.outputs.<name>` are resolved from stored run output
     state after dependency validation. Runtime outputs are not expanded inside
     dependency declarations or other pre-scheduling fields.
-24. It masks known secret values, sensitive-looking runtime variables such as
+25. It masks known secret values, sensitive-looking runtime variables such as
     tokens/passwords, and outputs explicitly marked `sensitive` from action
     summaries and output before logging or saving history. Non-sensitive
     runtime evidence such as environment names, versions, image references,
     change IDs, and declared non-sensitive output JSON remains visible so later
     operators and LLM review tasks can reason from the run.
-25. It updates task status through the dispatcher.
-26. It appends a normalized history entry that later tasks and child pipelines can use.
-27. Effective failure tolerance is true when either the runnable task or its
+26. It updates task status through the dispatcher.
+27. It appends a normalized history entry that later tasks and child pipelines can use.
+28. Effective failure tolerance is true when either the runnable task or its
     parent step sets `ignore_failure: true`.
-28. If a task fails and effective failure tolerance is false, the pipeline stops
+29. If a task fails and effective failure tolerance is false, the pipeline stops
     with failure.
-29. If a task fails and effective failure tolerance is true, the task becomes
+30. If a task fails and effective failure tolerance is true, the task becomes
     `failure (ignored)` and the pipeline continues. Approval and blocking
     policy/guardrail failures still fail closed.
-30. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
+31. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
 
 ## 7. How Goal-Based Tasks Work
 

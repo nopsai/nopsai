@@ -747,7 +747,7 @@ Required bootstrap values:
 | `DISPATCHER_GRPC_ADDRESS` | runners and agents | Dispatcher gRPC address, typically `dispatcher:9090`. |
 | `DISPATCHER_TLS_MODE` | dispatcher, runners, agents | Dispatcher transport mode: `mtls`, `tls`, or `disabled`. Production should not use `disabled`. |
 | `DISPATCHER_TLS_SECRET` | dispatcher, runners, agents | Shared high-entropy TLS or mTLS bootstrap secret. |
-| `DOCKER_NETWORK_NAME` | Docker runner | Optional Docker network used for per-run agent containers when bridge networking is selected. |
+| `DOCKER_NETWORK_NAME` | Docker runner | Optional Docker network for step containers; `bridge`/blank/default keeps egress, `none` disables step networking, and a custom value joins that network. |
 | `SYSTEM_LOGS_DOCKER_HOST` | API | Restricted Docker socket proxy endpoint for System Logs. |
 | `FINAL_OUTPUT_PDF_RENDERER_URL` | API | Gotenberg URL for PDF final outputs. |
 | `FINAL_OUTPUT_PDF_TIMEOUT_SECONDS` | API | PDF rendering timeout. |
@@ -867,9 +867,12 @@ enabled provider. Malformed `email_verified` claims continue login as unknown
 email assurance and produce auth audit metadata.
 
 Docker runner networking is selected at deployment time through bridge/host mode
-and dispatcher address configuration. Runner network selection is not forwarded
-to agent runtime variables for step containers; Docker step containers default
-to no network.
+and dispatcher address configuration. Docker step containers default to Docker
+bridge networking for package installs, source fetches, and registry access.
+Set `DOCKER_NETWORK_NAME=none` only when step workloads must run without network
+egress, or set it to a dedicated Docker network when workloads need controlled
+egress. Docker step containers leave image-provided temporary directories such
+as `/tmp` and `/var/tmp` unchanged.
 
 Product backups are gzip-compressed JSON Lines files under `/data/backups` by
 default. The default Compose topology does not mount that path as durable

@@ -57,9 +57,9 @@ step volumes with NopsAI ownership labels tied to the run shared volume and
 refuses to attach existing unowned volumes.
 
 Kubernetes runner-generated pods and agent-created step pods set
-`RuntimeDefault` seccomp, disable privilege escalation, and drop Linux
-capabilities by default. Pipeline-declared PVCs are run-owned; existing unowned
-PVCs in the runner namespace are refused.
+`RuntimeDefault` seccomp and disable privilege escalation by default, but they
+do not drop workload container capabilities. Pipeline-declared PVCs are
+run-owned; existing unowned PVCs in the runner namespace are refused.
 
 ## HTTP Server Hardening
 
@@ -142,11 +142,11 @@ beyond the current baseline. It also prints a report-only summary of large route
 and feature-shell files plus browser `window.*` usage so release reviews can
 track extraction debt before a branch is cut.
 
-The release pipeline `ui-gates` step prints UTC start, finish, and duration
-lines for `npm ci`, lint, UI boundary checks, tests, and build. Platform log
-timestamps may be rendered in the operator's local timezone while Vitest reports
-the Node container timezone, so compare the explicit `duration_seconds` fields
-when checking whether the UI gate is slow or looping.
+The release pipeline `ui-gates` step prints Node/npm versions plus UTC start,
+finish, and duration lines for `npm ci`, lint, UI boundary checks, tests, and
+build. Platform log timestamps may be rendered in the operator's local timezone
+while Vitest reports the Node container timezone, so compare the explicit
+`duration_seconds` fields when checking whether the UI gate is slow or looping.
 
 For workflow UI changes that introduce dialogs, empty states, alerts, icon-only
 commands, toast/live-region feedback, editor autocomplete, graph controls, or

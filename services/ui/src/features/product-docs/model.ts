@@ -1342,11 +1342,11 @@ const requiredEnvironmentRows: WikiConfigRow[] = [
   {
     key: 'DOCKER_NETWORK_NAME',
     area: 'Docker runner',
-    description: 'Optional Docker network used when the Docker runner starts per-run agent containers with bridge networking.',
-    example: 'nopsai-net',
+    description: 'Optional Docker network for Docker step containers; blank, default, bridge, and nopsai-net use Docker bridge egress, none disables step networking, and a custom value joins that Docker network.',
+    example: 'bridge',
     type: 'string',
     required: true,
-    defaultValue: 'nopsai-net',
+    defaultValue: 'bridge',
     scope: 'Docker runner',
   },
   {
@@ -2280,6 +2280,14 @@ const baseWikiSections: WikiSectionInput[] = [
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
+          {
+            title: 'Helm bootstrap Secret keys',
+            language: 'yaml',
+            code:
+              'apiVersion: v1\nkind: Secret\nmetadata:\n  name: nopsai-secrets\ntype: Opaque\nstringData:\n  database-url: postgres://nopsai:change-me@postgres:5432/nopsai?sslmode=disable\n  postgres-password: change-me\n  master-key: change-me\n  jwt-signing-key: change-me\n  service-jwt-signing-key: change-me\n  aaa-shared-internal-token: change-me\n  dispatcher-tls-secret: change-me\n  bootstrap-admin-password: change-me',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
         ],
         relatedDocs: ['doc/cli.md', 'deploy/helm/nopsai/values.yaml', 'doc/enterprise-gates.md'],
         runbooks: ['Verify bootstrap secret separation', 'Fix service callback URL mismatch', 'Rotate dispatcher TLS trust seed'],
@@ -2327,8 +2335,8 @@ const baseWikiSections: WikiSectionInput[] = [
           {
             key: 'DOCKER_NETWORK_NAME',
             area: 'Docker runner',
-            description: 'Optional network used for agent containers in local Docker execution; step containers default to no network.',
-            example: 'nopsai-net',
+            description: 'Optional network used for Docker step containers; bridge/default keeps egress for package installs and none disables step networking.',
+            example: 'bridge',
           },
         ],
         examples: [
@@ -2341,7 +2349,7 @@ const baseWikiSections: WikiSectionInput[] = [
         relatedDocs: ['docker-compose.yaml', 'doc/cli.md', 'doc/enterprise-gates.md'],
         runbooks: ['Start local stack', 'Check runner registration', 'Persist /data/backups for non-local Compose'],
         caveats: [
-          'Docker step containers drop Linux capabilities, use no-new-privileges, a read-only root filesystem, writable tmpfs for temporary paths, and a PID limit.',
+          'Docker step containers keep runtime/image default capabilities, use no-new-privileges, keep writable root filesystems for package-installing images, leave image-provided temporary directories unchanged, and enforce a PID limit.',
           'The Docker runner socket mount is a privileged operational boundary and should be isolated to trusted runner hosts.',
         ],
       },

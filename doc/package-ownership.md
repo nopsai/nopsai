@@ -108,8 +108,10 @@ release model logic.
 - `scripts/generate-changelog.sh` owns deterministic history-to-Markdown
   rendering.
 - `scripts/install-release-tools.sh` owns verified release-tool downloads for
-  Helm, ORAS, and GitHub CLI; pipeline YAML should copy/source it instead of
-  embedding duplicate installer bodies.
+  Helm, ORAS, and GitHub CLI. It extracts downloaded archives without preserving
+  archive owners so it remains compatible with restricted runner or deployment
+  policies. Pipeline YAML should copy/source it instead of embedding duplicate
+  installer bodies.
 - `internal/cli/selfupdate` owns CLI OCI package and legacy release asset
   resolution, checksum verification, archive extraction, and local binary
   replacement.

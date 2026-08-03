@@ -58,6 +58,13 @@ verify_release_download() {
   printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c -
 }
 
+extract_release_archive() {
+  local archive="$1"
+  local destination="$2"
+  shift 2
+  tar --no-same-owner -C "$destination" -xzf "$archive" "$@"
+}
+
 install_helm() {
   if command -v helm >/dev/null 2>&1; then
     return
@@ -69,7 +76,7 @@ install_helm() {
   rm -rf "/tmp/linux-${arch}" "$archive"
   curl --proto '=https' --tlsv1.2 --retry 3 -fsSL "https://get.helm.sh/helm-v${version}-linux-${arch}.tar.gz" -o "$archive"
   verify_release_download helm "$version" "$arch" "$archive"
-  tar -C /tmp -xzf "$archive"
+  extract_release_archive "$archive" /tmp
   mv "/tmp/linux-${arch}/helm" /usr/local/bin/helm
   chmod +x /usr/local/bin/helm
 }
@@ -85,7 +92,7 @@ install_oras() {
   rm -f /tmp/oras "$archive"
   curl --proto '=https' --tlsv1.2 --retry 3 -fsSL "https://github.com/oras-project/oras/releases/download/v${version}/oras_${version}_linux_${arch}.tar.gz" -o "$archive"
   verify_release_download oras "$version" "$arch" "$archive"
-  tar -C /tmp -xzf "$archive" oras
+  extract_release_archive "$archive" /tmp oras
   mv /tmp/oras /usr/local/bin/oras
   chmod +x /usr/local/bin/oras
 }
@@ -101,7 +108,7 @@ install_gh() {
   rm -rf "/tmp/gh_${version}_linux_${arch}" "$archive"
   curl --proto '=https' --tlsv1.2 --retry 3 -fsSL "https://github.com/cli/cli/releases/download/v${version}/gh_${version}_linux_${arch}.tar.gz" -o "$archive"
   verify_release_download gh "$version" "$arch" "$archive"
-  tar -C /tmp -xzf "$archive"
+  extract_release_archive "$archive" /tmp
   mv "/tmp/gh_${version}_linux_${arch}/bin/gh" /usr/local/bin/gh
   chmod +x /usr/local/bin/gh
 }
