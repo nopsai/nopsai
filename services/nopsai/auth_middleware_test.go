@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -250,6 +251,37 @@ func TestCorsMiddlewareAllowsConfiguredOriginsOnly(t *testing.T) {
 	handler.ServeHTTP(blockedRec, blockedReq)
 	if got := blockedRec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("blocked origin header = %q, want empty", got)
+	}
+}
+
+func TestCorsMiddlewareDoesNotAllowWildcardWhenOriginsAreUnset(t *testing.T) {
+	app := &App{cfg: &config.Config{}}
+	handler := app.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty without an allow-list", got)
+	}
+}
+
+func TestLocalLoginFailureReasonClassifiesDetailedErrorsForAudit(t *testing.T) {
+	tests := map[string]string{
+		"account disabled": "account_disabled",
+		"password login is unavailable for this account":        "non_local_account",
+		"account lookup is ambiguous; contact an administrator": "ambiguous_identifier",
+		"too many login attempts, slow down":                    "rate_limited",
+		"invalid credentials":                                   "invalid_credentials",
+	}
+	for message, want := range tests {
+		if got := localLoginFailureReason(errors.New(message)); got != want {
+			t.Fatalf("localLoginFailureReason(%q) = %q, want %q", message, got, want)
+		}
 	}
 }
 

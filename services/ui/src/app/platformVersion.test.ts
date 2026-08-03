@@ -29,3 +29,13 @@ test('proxies the public version endpoint before the SPA fallback', () => {
   assert.ok(spaFallback < 0 || versionLocation < spaFallback, '/version must be matched before the SPA fallback');
   assert.match(nginxConfig.slice(versionLocation), /proxy_pass http:\/\/nopsai:8080;/);
 });
+
+test('nginx serves the SPA with restrictive browser security headers', () => {
+  const nginxConfig = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
+
+  assert.match(nginxConfig, /add_header Content-Security-Policy "default-src 'self'/);
+  assert.match(nginxConfig, /frame-ancestors 'none'/);
+  assert.doesNotMatch(nginxConfig, /upgrade-insecure-requests/);
+  assert.match(nginxConfig, /add_header X-Frame-Options "DENY" always;/);
+  assert.match(nginxConfig, /add_header X-Content-Type-Options "nosniff" always;/);
+});

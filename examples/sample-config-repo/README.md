@@ -42,6 +42,16 @@ business-facing workflows (`customer-onboarding-pulse`,
 `dashboard_evidence=<json>` and publishes one dashboard final output to
 `team-1/ops-dashboard`.
 
+`pipelines/team-1/prompt-injection-guardrail-probe.yaml` is a governed LLM
+pipeline for red-team testing. Its first step prepares a report directory and
+then presents an admin-tagged prompt-injection payload as untrusted data; a
+later script step verifies the generated probe artifact before normal
+release-readiness LLM work continues. The pipeline attaches the managed
+`guardrail/team-1/prompt-injection-safety` and
+`policy/team-1/llm-task-integrity` Knowledge Context documents and uses no
+external MCP profile, so it stays GitOps-compatible with the standard LLM and
+Agent Profile registry.
+
 ## Global repo binding
 
 ```json
@@ -174,6 +184,9 @@ global-repo/pipelines/platform/prod/platform-maintenance.yaml
 global-repo/pipelines/knowledge-kind-comparison.yaml
   -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior
 
+team-1-repo/pipelines/team-1/prompt-injection-guardrail-probe.yaml
+  -> pipeline team-1/prompt-injection-guardrail-probe, running a controlled prompt-injection guardrail probe before LLM release-readiness work
+
 team-1-repo/pipelines/team-1/dashboard-sample.yaml
   -> pipeline team-1/dashboard-sample, publishing prompt-generated service metrics into team-1/ops-dashboard
 
@@ -233,8 +246,14 @@ global-repo/knowledge/guardrail/security/repo-check.md
 global-repo/knowledge/guardrail/team-1/runtime-output-safety.md
   -> knowledge context guardrail/team-1/runtime-output-safety
 
+global-repo/knowledge/guardrail/team-1/prompt-injection-safety.md
+  -> knowledge context guardrail/team-1/prompt-injection-safety
+
 global-repo/knowledge/policy/team-1/release-evidence.md
   -> knowledge context policy/team-1/release-evidence
+
+global-repo/knowledge/policy/team-1/llm-task-integrity.md
+  -> knowledge context policy/team-1/llm-task-integrity
 
 global-repo/knowledge/guideline/team-1/pipeline-report-style.md
   -> knowledge context guideline/team-1/pipeline-report-style

@@ -33,16 +33,14 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 		strings.TrimSpace(oidc.DefaultRole) != "" ||
 		len(oidc.DomainMapping) > 0 ||
 		len(oidc.Providers) > 0
+	settings := oidcSettings{}
 	if hasConfigAuth {
-		settings := oidcSettings{
-			LocalEnabled:      true,
+		settings = oidcSettings{
+			LocalEnabled:      cfg.EffectiveAuthProviderLocalEnabled(),
 			OIDCEnabled:       oidc.Enabled,
 			AutoCreateUsers:   oidc.AutoCreateUsers,
 			DefaultRole:       strings.TrimSpace(oidc.DefaultRole),
 			AllowEmailLinking: oidc.AllowEmailLinking,
-		}
-		if err := upsertOIDCSettings(ctx, db, settings); err != nil {
-			return err
 		}
 	}
 	providerIDs := make([]string, 0, len(oidc.Providers))
@@ -91,6 +89,16 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 			return err
 		}
 	}
+	if hasConfigAuth && !settings.LocalEnabled {
+		if err := validateLocalAuthAvailability(ctx, db, settings); err != nil {
+			return err
+		}
+	}
+	if hasConfigAuth {
+		if err := upsertOIDCSettings(ctx, db, settings); err != nil {
+			return err
+		}
+	}
 	if len(oidc.DomainMapping) > 0 {
 		if err := replaceOIDCDomainMappings(ctx, db, oidc.DomainMapping, authProviderSourceConfig); err != nil {
 			return err
@@ -109,7 +117,7 @@ func getOIDCSettings(ctx context.Context, db *pgxpool.Pool, cfg *config.Config) 
 	}
 	if cfg != nil {
 		oidc := cfg.EffectiveOIDCAuth()
-		defaults.LocalEnabled = true
+		defaults.LocalEnabled = cfg.EffectiveAuthProviderLocalEnabled()
 		defaults.OIDCEnabled = oidc.Enabled
 		defaults.AutoCreateUsers = oidc.AutoCreateUsers
 		defaults.DefaultRole = strings.TrimSpace(oidc.DefaultRole)
@@ -133,7 +141,6 @@ func getOIDCSettings(ctx context.Context, db *pgxpool.Pool, cfg *config.Config) 
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		return defaults, err
 	}
-	stored.LocalEnabled = true
 	stored.DefaultRole = strings.TrimSpace(stored.DefaultRole)
 	return stored, nil
 }
@@ -142,7 +149,6 @@ func upsertOIDCSettings(ctx context.Context, db *pgxpool.Pool, settings oidcSett
 	if db == nil {
 		return nil
 	}
-	settings.LocalEnabled = true
 	settings.DefaultRole = strings.TrimSpace(settings.DefaultRole)
 	raw, err := json.Marshal(settings)
 	if err != nil {
@@ -156,6 +162,33 @@ func upsertOIDCSettings(ctx context.Context, db *pgxpool.Pool, settings oidcSett
 		    updated_at = NOW()
 	`, authSettingsKeyOIDC, raw)
 	return err
+}
+
+func validateLocalAuthAvailability(ctx context.Context, db *pgxpool.Pool, settings oidcSettings) error {
+	if settings.LocalEnabled {
+		return nil
+	}
+	if !settings.OIDCEnabled {
+		return fmt.Errorf("local authentication can be disabled only when external authentication is enabled")
+	}
+	providers, err := listOIDCProviders(ctx, db, true)
+	if err != nil {
+		return fmt.Errorf("validate enabled identity providers: %w", err)
+	}
+	return validateLocalAuthEnabledProviderCount(settings, len(providers))
+}
+
+func validateLocalAuthEnabledProviderCount(settings oidcSettings, enabledProviderCount int) error {
+	if settings.LocalEnabled {
+		return nil
+	}
+	if !settings.OIDCEnabled {
+		return fmt.Errorf("local authentication can be disabled only when external authentication is enabled")
+	}
+	if enabledProviderCount == 0 {
+		return fmt.Errorf("local authentication can be disabled only when at least one identity provider is enabled")
+	}
+	return nil
 }
 
 func basicRoleMappingFromConfig(mapping map[string]config.OIDCBasicRoleGrantConfig) map[string]oidcBasicRoleGrantMapping {
@@ -706,29 +739,19 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 	if !autoCreate {
 		return result, fmt.Errorf("no linked Nopsai user exists for this identity")
 	}
-	if identity.Email == "" {
-		return result, fmt.Errorf("identity email is required for automatic user creation")
-	}
-	var duplicate uuid.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE LOWER(email) = LOWER($1) ORDER BY id ASC LIMIT 1`, identity.Email).Scan(&duplicate)
-	if err == nil {
-		return result, fmt.Errorf("email is already owned by an existing account")
-	}
-	if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
-		return result, err
-	}
 
 	userID := uuid.New()
 	providerPrefix := "oidc"
 	if providerUsesOAuth2(provider) {
 		providerPrefix = "oauth2"
 	}
-	sub := fmt.Sprintf("%s:%s:%s", providerPrefix, provider.ID, identity.Subject)
+	sub := externalOIDCUserSub(providerPrefix, provider.ID, identity.Issuer, identity.Subject)
 	userProvider := providerPrefix + ":" + provider.ID
+	userEmail := sql.NullString{String: strings.TrimSpace(identity.Email), Valid: strings.TrimSpace(identity.Email) != ""}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO users (id, sub, email, provider, password_hash, status, must_change_password)
 		VALUES ($1, $2, $3, $4, NULL, 'active', FALSE)
-	`, userID, sub, identity.Email, userProvider)
+	`, userID, sub, userEmail, userProvider)
 	if err != nil {
 		return result, err
 	}
@@ -750,27 +773,41 @@ type oidcTx interface {
 }
 
 func touchExternalIdentity(ctx context.Context, tx oidcTx, userID uuid.UUID, provider oidcProviderRecord, identity oidcVerifiedIdentity) error {
+	emailVerificationStatus := identity.normalizedEmailVerificationStatus()
 	_, err := tx.Exec(ctx, `
 		UPDATE auth_external_identities
 		SET email = $4,
 		    email_verified = $5,
+		    email_verification_status = $6,
 		    last_login_at = NOW()
 		WHERE user_id = $1 AND provider_id = $2 AND subject = $3
-	`, userID, provider.ID, identity.Subject, identity.Email, identity.EmailVerified)
+	`, userID, provider.ID, identity.Subject, identity.Email, identity.EmailVerified, emailVerificationStatus)
 	return err
 }
 
 func insertExternalIdentity(ctx context.Context, tx oidcTx, userID uuid.UUID, provider oidcProviderRecord, identity oidcVerifiedIdentity) error {
+	emailVerificationStatus := identity.normalizedEmailVerificationStatus()
 	_, err := tx.Exec(ctx, `
-		INSERT INTO auth_external_identities (id, user_id, provider_id, issuer, subject, email, email_verified, last_login_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		INSERT INTO auth_external_identities (id, user_id, provider_id, issuer, subject, email, email_verified, email_verification_status, last_login_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
 		ON CONFLICT (provider_id, issuer, subject) DO UPDATE
 		SET user_id = EXCLUDED.user_id,
 		    email = EXCLUDED.email,
 		    email_verified = EXCLUDED.email_verified,
+		    email_verification_status = EXCLUDED.email_verification_status,
 		    last_login_at = NOW()
-	`, uuid.New(), userID, provider.ID, identity.Issuer, identity.Subject, identity.Email, identity.EmailVerified)
+	`, uuid.New(), userID, provider.ID, identity.Issuer, identity.Subject, identity.Email, identity.EmailVerified, emailVerificationStatus)
 	return err
+}
+
+func externalOIDCUserSub(providerPrefix, providerID, issuer, subject string) string {
+	return fmt.Sprintf(
+		"%s:%s:%s:%s",
+		strings.TrimSpace(providerPrefix),
+		normalizeOIDCProviderID(providerID),
+		auth.HashToken(strings.TrimRight(strings.TrimSpace(issuer), "/"))[:16],
+		strings.TrimSpace(subject),
+	)
 }
 
 func pruneSupersededExternalIdentities(ctx context.Context, tx oidcTx, userID uuid.UUID, provider oidcProviderRecord, identity oidcVerifiedIdentity) error {

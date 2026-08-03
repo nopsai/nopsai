@@ -105,9 +105,9 @@ advanced role binding, and product access grant can record:
 
 Login-time claims sync and periodic directory/entitlement sync may insert,
 update, or prune only IdP-owned rows for their provider. They must not remove
-local grants. Local auth and the break-glass administrator remain available even
-when an external provider is configured, and only one external provider can be
-enabled per installation.
+local grants. Local auth defaults on, but can be disabled only while external
+authentication is enabled with at least one enabled provider, and only one
+external provider can be enabled per installation.
 
 ## Subjects And Resources
 

@@ -134,7 +134,8 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -d '{"oidc_enabled":true,"local_enabled":true,"auto_create_users":true,"default_role":"","domain_mappings":{"company.com":"corporate"}}' \
   http://localhost:8080/v1/admin/identity-providers
 
-# local_enabled=false is rejected; local sign-in and the break-glass admin stay enabled.
+# local_enabled=false is accepted only when external auth is enabled and at
+# least one identity provider remains enabled.
 
 curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \

@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"nopsai/config"
 )
 
 func TestSafeReturnToRejectsUnsafeRedirects(t *testing.T) {
@@ -124,5 +126,70 @@ func TestEmailDomainAllowedDefaultsToAllowProviderWithoutDomainList(t *testing.T
 	}
 	if emailDomainAllowed("other.com", []string{"company.com"}) {
 		t.Fatal("emailDomainAllowed() = true, want false for non-allowlisted domain")
+	}
+}
+
+func TestOIDCEmailVerificationStatusFromClaim(t *testing.T) {
+	tests := []struct {
+		name          string
+		email         string
+		claim         any
+		wantStatus    string
+		wantTrust     bool
+		wantMalformed bool
+	}{
+		{name: "verified boolean", email: "alice@example.com", claim: true, wantStatus: oidcEmailVerificationVerified, wantTrust: true},
+		{name: "verified string", email: "alice@example.com", claim: "true", wantStatus: oidcEmailVerificationVerified, wantTrust: true},
+		{name: "unverified boolean", email: "alice@example.com", claim: false, wantStatus: oidcEmailVerificationUnverified},
+		{name: "unverified string", email: "alice@example.com", claim: "false", wantStatus: oidcEmailVerificationUnverified},
+		{name: "missing claim", email: "alice@example.com", wantStatus: oidcEmailVerificationUnknown},
+		{name: "malformed claim", email: "alice@example.com", claim: "yes", wantStatus: oidcEmailVerificationUnknown, wantMalformed: true},
+		{name: "missing email", claim: true, wantStatus: oidcEmailVerificationNotProvided},
+		{name: "missing email with malformed claim", claim: "yes", wantStatus: oidcEmailVerificationNotProvided, wantMalformed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotStatus, gotTrust, gotMalformed := oidcEmailVerificationStatusFromClaim(tt.email, tt.claim)
+			if gotStatus != tt.wantStatus || gotTrust != tt.wantTrust || gotMalformed != tt.wantMalformed {
+				t.Fatalf("oidcEmailVerificationStatusFromClaim() = (%q, %v, %v), want (%q, %v, %v)", gotStatus, gotTrust, gotMalformed, tt.wantStatus, tt.wantTrust, tt.wantMalformed)
+			}
+		})
+	}
+}
+
+func TestExternalAuthCallbackBaseURLUsesConfiguredPublicURL(t *testing.T) {
+	app := &App{cfg: &config.Config{PublicURL: "https://nopsai.example.com/app/"}}
+	req := httptest.NewRequest(http.MethodGet, "http://attacker.example/v1/auth/oidc/nopsai/start", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	got, err := app.oidcCallbackURL(req, "nopsai")
+	if err != nil {
+		t.Fatalf("oidcCallbackURL() error = %v", err)
+	}
+	want := "https://nopsai.example.com/app/v1/auth/oidc/nopsai/callback"
+	if got != want {
+		t.Fatalf("oidcCallbackURL() = %q, want %q", got, want)
+	}
+}
+
+func TestExternalAuthCallbackBaseURLRequiresPublicURLInProduction(t *testing.T) {
+	app := &App{cfg: &config.Config{Environment: "production"}}
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/auth/oidc/nopsai/start", nil)
+
+	if _, err := app.oidcCallbackURL(req, "nopsai"); err == nil {
+		t.Fatal("oidcCallbackURL() error = nil, want production public_url requirement")
+	}
+}
+
+func TestOIDCIdentityAuditMetadataFlagsMalformedEmailVerificationClaim(t *testing.T) {
+	metadata := oidcIdentityAuditMetadata(oidcVerifiedIdentity{EmailVerificationClaimMalformed: true}, map[string]any{
+		"reason": "user_resolution_failed",
+	})
+
+	if metadata["email_verification_claim_malformed"] != true {
+		t.Fatalf("metadata = %#v, want malformed email verification flag", metadata)
+	}
+	if metadata["reason"] != "user_resolution_failed" {
+		t.Fatalf("metadata reason = %#v", metadata["reason"])
 	}
 }

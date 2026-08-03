@@ -160,11 +160,13 @@ Leave `default_role` empty for this fixture so Keycloak remains the source of
 truth for global access roles. Set it only when a provider should intentionally
 grant every auto-created SSO user the same baseline global role.
 
-The local fixture enables provider-scoped `allow_email_linking` so a verified
-Keycloak email can attach to an existing NopsAI user. This keeps local testing
-usable when the Keycloak realm is recreated and user subject IDs change. For
-production, enable this only for trusted providers that assert verified email
-ownership.
+The local fixture enables provider-scoped `allow_email_linking` so a Keycloak
+email with `email_verified=true` can attach to an existing NopsAI user. This
+keeps local testing usable when the Keycloak realm is recreated and user subject
+IDs change. For production, prefer issuer/subject pre-mapping or an
+authenticated account-linking flow; enable email linking only for trusted
+providers that assert verified email ownership. Missing, unknown, or unverified
+email status never participates in automatic linking.
 
 For production Keycloak, prefer a dedicated confidential admin client with
 service-account permissions to read users, teams, clients, and role mappings.

@@ -270,9 +270,6 @@ func (r *dockerRunner) handleJob(ctx context.Context, dispatcher proto.Dispatche
 	if strings.TrimSpace(r.dispatcherAddr) != "" {
 		runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_GRPC_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
 	}
-	if r.networkSet {
-		runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", strings.TrimSpace(job.DockerNetwork))
-	}
 	if strings.TrimSpace(r.registryAuthConfigBase64) != "" {
 		runtimeVars = upsertRuntimeVar(runtimeVars, registryauth.DockerConfigBase64Env, r.registryAuthConfigBase64)
 	}

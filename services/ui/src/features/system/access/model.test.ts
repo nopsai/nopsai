@@ -11,6 +11,7 @@ import {
   normalizeBasicGrantInputs,
   normalizeIdentityProvidersState,
   userDisplayName,
+  userEmailVerificationLabel,
   userProviderLabel,
   userSubjectLabel,
 } from "./model.js";
@@ -82,6 +83,35 @@ test("formats externally authenticated users without exposing raw subject first"
   assert.equal(userDisplayName(user), "sso-admin@example.com");
   assert.equal(userProviderLabel(user), "Local Keycloak");
   assert.equal(userSubjectLabel(user), "7e9b8422-a701-4b4a-bf36-60b973fa98c6");
+  assert.equal(
+    userEmailVerificationLabel({
+      ...user,
+      external_email_verification_status: "unknown",
+    }),
+    "Email verification unknown",
+  );
+  assert.equal(
+    userEmailVerificationLabel({
+      ...user,
+      external_email_verification_status: "unverified",
+    }),
+    "Email unverified",
+  );
+  assert.equal(
+    userEmailVerificationLabel({
+      ...user,
+      email: "",
+      external_email_verification_status: "not_provided",
+    }),
+    "Email not provided",
+  );
+  assert.equal(
+    userEmailVerificationLabel({
+      ...user,
+      external_email_verification_status: "verified",
+    }),
+    "",
+  );
 });
 
 test("normalizes identity provider state and builds save payloads", () => {
@@ -117,7 +147,7 @@ test("normalizes identity provider state and builds save payloads", () => {
     ],
   });
 
-  assert.equal(state.settings.local_enabled, true);
+  assert.equal(state.settings.local_enabled, false);
   assert.equal(state.settings.default_role, "viewer");
   assert.equal(state.providers[0].display_name, "Company SSO");
   assert.deepEqual(state.providers[0].team_mapping, { "nopsai-admins": "sso-admins" });

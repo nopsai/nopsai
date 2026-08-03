@@ -204,12 +204,12 @@ For local development from this checkout:
    The checked-in `config.yml` and `.env` files are bootstrap placeholders.
    Product/runtime settings are managed from the UI and GitOps; `config.yml`
    keeps only local defaults needed before GitOps is loaded, including the
-   Nopsai AI Assistant being enabled. Override local placeholder secrets from
-   your shell or deployment secret manager before production use. Published
-   ports bind to `127.0.0.1` by default through `NOPSAI_BIND_ADDRESS`; if you
-   bind them to a non-loopback address, the Compose safety check fails until
-   the local default database password, JWT keys, master key, bootstrap
-   password, and internal AAA token are changed.
+   Nopsai AI Assistant being enabled. The checked-in Compose file does not ship
+   fallback credentials; set `POSTGRES_PASSWORD`, `DATABASE_URL`,
+   `SERVICE_JWT_SIGNING_KEY`, `NOPSAI_MASTER_KEY`, `JWT_SIGNING_KEY`,
+   `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD`, and `AAA_SHARED_INTERNAL_TOKEN` from your
+   shell or deployment secret manager before startup. Published ports bind to
+   `127.0.0.1` by default through `NOPSAI_BIND_ADDRESS`.
 
 2. Start the stack.
 

@@ -14,6 +14,11 @@ const (
 	authProviderSourceGitOps   = "gitops"
 	oidcStateTTL               = 10 * time.Minute
 	oidcLoginCodeTTL           = 2 * time.Minute
+
+	oidcEmailVerificationNotProvided = "not_provided"
+	oidcEmailVerificationUnknown     = "unknown"
+	oidcEmailVerificationUnverified  = "unverified"
+	oidcEmailVerificationVerified    = "verified"
 )
 
 type oidcSettings struct {
@@ -141,14 +146,16 @@ type oidcStateRecord struct {
 }
 
 type oidcVerifiedIdentity struct {
-	ProviderID    string
-	Issuer        string
-	Subject       string
-	Email         string
-	EmailVerified bool
-	Teams         []string
-	AccessRoles   []string
-	BasicRoles    []oidcDesiredBasicRoleGrant
+	ProviderID              string
+	Issuer                  string
+	Subject                 string
+	Email                   string
+	EmailVerified           bool
+	EmailVerificationStatus string
+	EmailVerificationClaimMalformed bool
+	Teams                   []string
+	AccessRoles             []string
+	BasicRoles              []oidcDesiredBasicRoleGrant
 }
 
 type oidcBasicRoleGrantMapping struct {
@@ -176,6 +183,30 @@ type oidcUserResolution struct {
 	UserID  uuid.UUID
 	Linked  bool
 	Created bool
+}
+
+func normalizeOIDCEmailVerificationStatus(status, email string, emailVerified bool) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case oidcEmailVerificationNotProvided:
+		return oidcEmailVerificationNotProvided
+	case oidcEmailVerificationUnknown:
+		return oidcEmailVerificationUnknown
+	case oidcEmailVerificationUnverified:
+		return oidcEmailVerificationUnverified
+	case oidcEmailVerificationVerified:
+		return oidcEmailVerificationVerified
+	}
+	if strings.TrimSpace(email) == "" {
+		return oidcEmailVerificationNotProvided
+	}
+	if emailVerified {
+		return oidcEmailVerificationVerified
+	}
+	return oidcEmailVerificationUnknown
+}
+
+func (identity oidcVerifiedIdentity) normalizedEmailVerificationStatus() string {
+	return normalizeOIDCEmailVerificationStatus(identity.EmailVerificationStatus, identity.Email, identity.EmailVerified)
 }
 
 func publicProviderFromRecord(provider oidcProviderRecord) oidcPublicProvider {

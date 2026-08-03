@@ -2,8 +2,10 @@ package nopsai
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"nopsai/config"
 	"nopsai/pkg/models"
 )
 
@@ -38,6 +40,22 @@ func TestAgentRunLauncherUsesInjectedLauncher(t *testing.T) {
 	}
 	if call.GitContext["trigger_event_id"] != "trigger-1" || call.ResumeVariables["ENV"] != "prod" {
 		t.Fatalf("launcher runtime context = %#v", call)
+	}
+}
+
+func TestBuildAgentEnvironmentDoesNotExposeDockerNetworkName(t *testing.T) {
+	env := buildAgentEnvironment(config.Config{}, agentEnvironmentInput{
+		RunID:            "run-1",
+		Pipeline:         models.Pipeline{Name: "deploy", Version: "v1"},
+		SharedVolumeName: "vol-run-1",
+		SecretsJSON:      []byte("{}"),
+		VariablesJSON:    []byte("{}"),
+	})
+
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "DOCKER_NETWORK_NAME=") {
+			t.Fatalf("agent environment leaked Docker network: %v", env)
+		}
 	}
 }
 

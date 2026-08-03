@@ -67,3 +67,19 @@ func TestLocalJWTRejectsWrongIssuerAudience(t *testing.T) {
 		t.Fatal("ParseAndValidate() error = nil, want issuer/audience validation failure")
 	}
 }
+
+func TestSetLocalEnabledCanDisableLocalLogin(t *testing.T) {
+	service := &Service{cfg: Config{LocalEnabled: true}}
+
+	service.SetLocalEnabled(false)
+
+	if service.localEnabled() {
+		t.Fatal("localEnabled() = true, want disabled")
+	}
+}
+
+func TestCanonicalLoginKeyNormalizesCaseAndWhitespace(t *testing.T) {
+	if got := canonicalLoginKey("  Alice@Example.COM  "); got != "alice@example.com" {
+		t.Fatalf("canonicalLoginKey() = %q, want lowercase trimmed identifier", got)
+	}
+}

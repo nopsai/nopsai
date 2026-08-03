@@ -46,6 +46,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			COALESCE(ext.provider_id, '') AS external_provider_id,
 				COALESCE(ext.provider_name, '') AS external_provider_name,
 				COALESCE(ext.subject, '') AS external_subject,
+				COALESCE(ext.email_verification_status, '') AS external_email_verification_status,
 				COALESCE(ext.external_teams, '[]'::json) AS external_teams,
 				COALESCE(ext.external_auth_teams, '[]'::json) AS external_auth_teams,
 				COALESCE(ext.external_roles, '[]'::json) AS external_roles
@@ -56,6 +57,11 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 				ei.provider_id,
 				COALESCE(NULLIF(ip.display_name, ''), ei.provider_id) AS provider_name,
 				ei.subject,
+					COALESCE(NULLIF(ei.email_verification_status, ''), CASE
+						WHEN COALESCE(ei.email, '') = '' THEN 'not_provided'
+						WHEN ei.email_verified = TRUE THEN 'verified'
+						ELSE 'unknown'
+					END) AS email_verification_status,
 					COALESCE((
 						SELECT json_agg(teams.team_name ORDER BY teams.team_name)
 					FROM (
@@ -117,6 +123,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			&u.ExternalProviderID,
 			&u.ExternalProviderName,
 			&u.ExternalSubject,
+			&u.ExternalEmailStatus,
 			&externalTeamsJSON,
 			&externalAuthTeamsJSON,
 			&externalRolesJSON,
@@ -594,6 +601,7 @@ func normalizeUserSummaryIdentity(user *userSummary) {
 	user.ExternalProviderID = strings.TrimSpace(user.ExternalProviderID)
 	user.ExternalProviderName = strings.TrimSpace(user.ExternalProviderName)
 	user.ExternalSubject = strings.TrimSpace(user.ExternalSubject)
+	user.ExternalEmailStatus = strings.TrimSpace(user.ExternalEmailStatus)
 
 	providerLower := strings.ToLower(user.Provider)
 	if strings.HasPrefix(providerLower, "oidc:") || strings.HasPrefix(providerLower, "oauth2:") {
@@ -604,6 +612,7 @@ func normalizeUserSummaryIdentity(user *userSummary) {
 		}
 	}
 	if user.ExternalManaged {
+		user.ExternalEmailStatus = normalizeOIDCEmailVerificationStatus(user.ExternalEmailStatus, user.Email, false)
 		user.AuthenticationSource = grantSourceIDP
 		if strings.HasPrefix(providerLower, "oidc:") || strings.HasPrefix(providerLower, "oauth2:") {
 			user.ProvisioningSource = grantSourceIDP
@@ -628,6 +637,7 @@ func normalizeUserSummaryIdentity(user *userSummary) {
 		user.DisplayName = firstNonEmptyString(user.DisplayName, user.Email, user.Sub, user.ID)
 		return
 	}
+	user.ExternalEmailStatus = ""
 	user.AuthenticationSource = grantSourceLocal
 	user.ProvisioningSource = grantSourceLocal
 	user.AuthorizationSources = appendOwnershipSource(user.AuthorizationSources, grantSourceLocal)
