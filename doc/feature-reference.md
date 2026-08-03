@@ -166,7 +166,9 @@ The runtime supports:
 - approval checkpoints that pause a run without holding an agent or runner
 - approval resume from stored variables, execution history, completed task keys, and compressed workspace archive
 - pipeline-level timeout handling
-- task-level secret masking in output/history
+- task-level masking for declared secrets, sensitive variable names, and
+  outputs marked `sensitive`; non-sensitive operational evidence remains
+  visible in logs/history
 - pre-dispatch knowledge context resolution and run snapshots
 - post-finalization output generation that stores polished run-owned
   deliverables separately from step logs and task internals

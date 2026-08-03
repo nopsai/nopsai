@@ -15,10 +15,11 @@ go build -o nopsai-api ./services/nopsai/cmd/nopsai
 The base container image also publishes `/nopsai` and `/nopsai-api`. The API
 service image copies and starts only `nopsai-api`, as a non-root user.
 
-Released CLI builds are standalone GitHub Release assets, not container-only
-tools. Linux and macOS archives contain `nopsai`; Windows archives contain
-`nopsai.exe`. Asset names include the exact platform version, operating system,
-and architecture, and `SHA256SUMS` covers every published archive.
+Released CLI builds are standalone archives published into the public GHCR OCI
+package `ghcr.io/nopsai/nopsai-cli`, not container-only tools. Linux and macOS
+archives contain `nopsai`; Windows archives contain `nopsai.exe`. Asset names
+include the exact platform version, operating system, and architecture, and
+`SHA256SUMS` covers every published archive.
 
 Operators can update a released CLI by exact version:
 
@@ -26,21 +27,25 @@ Operators can update a released CLI by exact version:
 nopsai update --version <version>
 ```
 
-The command downloads the matching archive and `SHA256SUMS`, verifies the
-checksum, extracts the binary, and replaces the current executable. Enterprise
-mirrors can override the source with `--repository`, `--asset-base-url`,
-`NOPSAI_UPDATE_GITHUB_REPOSITORY`, `NOPSAI_UPDATE_ASSET_BASE_URL`, and
-`NOPSAI_UPDATE_TOKEN`.
+The command downloads the matching archive and `SHA256SUMS` from
+`oci://ghcr.io/nopsai/nopsai-cli:<version>`, verifies the checksum, extracts
+the binary, and replaces the current executable. The package can be public even
+when repository releases are private, so normal users do not need a GitHub
+release token. Enterprise mirrors can override the source with `--package` or
+`NOPSAI_UPDATE_PACKAGE` for another OCI package, `--asset-base-url` or
+`NOPSAI_UPDATE_ASSET_BASE_URL` for an HTTPS mirror, and legacy `--repository` or
+`NOPSAI_UPDATE_GITHUB_REPOSITORY` for GitHub Release assets. `NOPSAI_UPDATE_TOKEN`
+is sent as a bearer token for protected mirrors.
 
 Self-update downloads default to a 5 minute timeout, which is longer than the
-normal API timeout. If GitHub or a private mirror is slow to return release
-headers, retry with a larger explicit timeout such as
+normal API timeout. If the package registry or a private mirror is slow to
+return headers, retry with a larger explicit timeout such as
 `nopsai --timeout 10m update --version <version>`.
 
 Update downloads stay bounded to protect operator machines. An `exceeds` error
 means the resolved URL or enterprise mirror returned an object larger than the
-CLI archive limit; confirm the version, repository, asset base URL, and asset
-name before retrying.
+CLI archive limit; confirm the version, package, repository, asset base URL,
+and asset name before retrying.
 
 macOS CLI binaries are built on a macOS runner and published as standalone
 archives. The repository includes `scripts/sign-notarize-macos-cli.sh` for a

@@ -2910,7 +2910,8 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'Goal steps and goal tasks ask the selected LLM profile for structured actions. Those actions can execute commands, replace files under the working directory, return an answer, or call an approved MCP tool.',
           'Script steps and script tasks run the provided shell script directly. When guardrail or policy Knowledge Context is active, the script is first validated as the exact proposed command and fails closed if validation is unavailable or reports a conflict.',
-          'llm_output_sharing is about history, not logs. Logs still record masked task output; the setting controls whether output is fed into later LLM task history.',
+          'llm_output_sharing is about history, not logs. Logs still record task output with declared secrets, sensitive variable names, and outputs marked sensitive masked; non-sensitive evidence such as versions, environments, image references, and declared output JSON remains visible.',
+          'Durable run-log ingestion adds best-effort credential-pattern redaction before persistence, including escaped JSON values inside agent log messages.',
           'variables are layered in this order: pipeline/runtime values, inherited system values such as GIT_* and SCOPE, step variables, then task variables.',
         ],
         configRows: stepTaskRows,
@@ -3715,12 +3716,14 @@ const baseWikiSections: WikiSectionInput[] = [
           'Generated Docker Compose installs reject the built-in development admin password, include dispatcher TLS in .env, and create bootstrap local admin credentials that are temporary by default and require first-login rotation.',
           'Generated Kubernetes installs include README.md with prerequisites, expected Secret keys, registry pull Secret setup, Secret creation examples, CLI deploy commands, direct Helm commands, and verification commands.',
           'Released CLIs check GET /version before mutating API requests. Development builds keep a deliberate bypass until release metadata is injected.',
+          'nopsai update downloads exact-version CLI archives from the public ghcr.io/nopsai/nopsai-cli OCI package by default, so users do not need private repository release access.',
         ],
         details: [
           'Optional missing local tools and missing dispatcher-read permission are warnings. API readiness, connectivity, malformed responses, metrics failures, and rejected tokens are errors.',
           'The CLI preserves binary downloads, streaming responses, YAML, JSON, and raw response bytes without implementing a separate API behavior layer.',
           'Interactive API workflows cover catalog calls, raw concrete-path requests, route filters, and route descriptions while reusing the same transport, AAA, compatibility, and output-file behavior as noninteractive commands.',
           'Shell completion is generated explicitly and does not silently modify shell startup files.',
+          'Self-update mirrors can use --package or NOPSAI_UPDATE_PACKAGE for another OCI package, --asset-base-url or NOPSAI_UPDATE_ASSET_BASE_URL for an HTTPS mirror, or legacy --repository/NOPSAI_UPDATE_GITHUB_REPOSITORY for GitHub Release assets.',
         ],
         configRows: [
           {
