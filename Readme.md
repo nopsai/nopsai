@@ -611,9 +611,24 @@ Before production use:
 - Restrict runner scopes and capacity according to environment.
 - Review Scope and Team runner assignment panels after registering or moving a
   scoped runner.
-- Eject stale runner registrations from **System > Dispatcher** to clean
-  dispatcher routing and block the runner ID, and remove the underlying Docker
-  process or Kubernetes Deployment when retiring a runner.
+- Remove stale runner registrations from **System > Dispatcher** to clear
+  dispatcher status. Stop the underlying Docker process or scale down the
+  Kubernetes Deployment before replacing a live runner with the same name; use
+  `ejected_runner_ids` only when a runner ID must stay revoked. Existing
+  revocations can be cleared from **System > Config > Revoked runner IDs**,
+  and runner install generation clears a stale revocation for the requested
+  replacement runner ID.
+- Open runner process logs from **System > Dispatcher** when the runner
+  advertises a `runner:<runner-id>` source. Registered runners appear in
+  System Logs and are marked unavailable until the configured provider can
+  access that Docker host or Kubernetes namespace. Kubernetes runner logs use
+  the registered runner's `kubernetes_namespace` and
+  `kubernetes_label_selector` dispatcher metadata, so the NopsAI API service
+  account needs read-only `pods` and `pods/log` RBAC in that namespace. Removed
+  runner registrations are hidden from System Logs even if their old containers
+  or pods still exist. For Docker runners installed against a port-forwarded
+  Kubernetes control plane, forward `service/dispatcher` on `9090` as well as
+  the UI.
 - Check dispatcher, runner, git-bot, LLM, and config sync health checks.
 - Back up Postgres and protect access to the Docker socket on runner hosts.
 - Review audit logs for sensitive operations.

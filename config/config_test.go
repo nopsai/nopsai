@@ -339,6 +339,38 @@ func TestLoadConfigMapsLegacyLocalAuthEnvToExplicitSetting(t *testing.T) {
 	}
 }
 
+func TestLoadConfigHonorsEmptyRunnerScopesEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(path, []byte("runner_scopes: dev,prod\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("RUNNER_SCOPES", "")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.RunnerScopes != "" {
+		t.Fatalf("RunnerScopes = %q, want explicit empty all-scopes override", cfg.RunnerScopes)
+	}
+}
+
+func TestLoadConfigIgnoresOtherEmptyTopLevelStringEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(path, []byte("dispatcher_grpc_address: dispatcher:9090\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("DISPATCHER_GRPC_ADDRESS", "")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.DispatcherAddress != "dispatcher:9090" {
+		t.Fatalf("DispatcherAddress = %q, want file value preserved", cfg.DispatcherAddress)
+	}
+}
+
 func TestEffectiveOIDCAuthDoesNotInventDefaultRole(t *testing.T) {
 	cfg := Config{
 		Auth: AuthConfig{
@@ -685,6 +717,18 @@ func TestSystemLogsConfigurationSupportsKubernetesProvider(t *testing.T) {
 	}
 }
 
+func TestSystemLogsConfigurationSupportsHybridProviderList(t *testing.T) {
+	cfg := Config{SystemLogs: NormalizeSystemLogsConfig(SystemLogsConfig{
+		Provider: "k8s, docker, docker",
+	})}
+	if got := cfg.EffectiveSystemLogsProvider(); got != "kubernetes,docker" {
+		t.Fatalf("EffectiveSystemLogsProvider() = %q, want kubernetes,docker", got)
+	}
+	if !cfg.SystemLogsEnabled() {
+		t.Fatal("SystemLogsEnabled() = false, want true for hybrid provider")
+	}
+}
+
 func TestLoadConfigAppliesSystemLogsDockerHostEnvironment(t *testing.T) {
 	t.Setenv("SYSTEM_LOGS_DOCKER_HOST", "tcp://proxy.internal:2375")
 	cfg, err := LoadConfig("../config.yml")
@@ -698,6 +742,7 @@ func TestLoadConfigAppliesSystemLogsDockerHostEnvironment(t *testing.T) {
 
 func TestLoadConfigAppliesCanonicalServiceEndpoints(t *testing.T) {
 	t.Setenv("NOPSAI_API_URL", " http://nopsai-api.nopsai:8080 ")
+	t.Setenv("NOPSAI_PLATFORM_ID", " platform-prod ")
 	t.Setenv("DISPATCHER_GRPC_ADDRESS", " dispatcher.nopsai:9090 ")
 	t.Setenv("AAA_LISTEN_ADDRESS", " 0.0.0.0:8082 ")
 	t.Setenv("GIT_BOT_API_URL", " http://git-bot.nopsai:8081 ")
@@ -714,6 +759,9 @@ func TestLoadConfigAppliesCanonicalServiceEndpoints(t *testing.T) {
 	}
 	if cfg.DispatcherAddress != "dispatcher.nopsai:9090" || cfg.AAAAddr != "0.0.0.0:8082" || cfg.NopsaiGitBotAPIURL != "http://git-bot.nopsai:8081" {
 		t.Fatalf("service endpoints not applied: dispatcher=%q aaa=%q git-bot=%q", cfg.DispatcherAddress, cfg.AAAAddr, cfg.NopsaiGitBotAPIURL)
+	}
+	if cfg.PlatformID != "platform-prod" {
+		t.Fatalf("PlatformID = %q, want platform-prod", cfg.PlatformID)
 	}
 	if cfg.EffectiveSystemLogsProvider() != "kubernetes" || cfg.SystemLogs.Kubernetes.Namespace != "nopsai" {
 		t.Fatalf("system log Kubernetes env aliases not applied: %#v", cfg.SystemLogs)

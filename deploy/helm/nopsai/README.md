@@ -110,8 +110,11 @@ values.
 
 `topology.dispatcherGRPCAddress` controls the internal dispatcher gRPC endpoint
 in the API and Kubernetes runner Deployments. It defaults to `dispatcher:9090`
-and can be overridden when the dispatcher Service name, namespace, or port is
-customized. `topology.nopsaiAPIURL`, `topology.aaaAPIURL`,
+for chart-managed pods in the same namespace and can be overridden when the
+dispatcher Service name, namespace, or port is customized. Cross-namespace
+runners should use a fully-qualified Service DNS name such as
+`dispatcher.<platform-namespace>.svc.cluster.local:9090`.
+`topology.nopsaiAPIURL`, `topology.aaaAPIURL`,
 `topology.gitBotAPIURL`, and `topology.gotenbergURL` expose the matching
 service URLs for split-service or custom-DNS deployments.
 
@@ -125,4 +128,26 @@ read-only namespace Role permissions for `pods` and `pods/log` when
 `systemLogs.enabled=true`, `systemLogs.provider=kubernetes`, and
 `systemLogs.kubernetes.rbac.create=true`. Set
 `systemLogs.kubernetes.labelSelector` to override the default release-scoped
-selector.
+selector. The API and bundled k8s runner share `NOPSAI_PLATFORM_ID` from
+`global.platformID`, and runner installs generated from **System > Dispatcher**
+are labeled with `nopsai.io/runner-id` and `nopsai.io/platform-id`; when the API
+service account can list pods and read logs in that namespace, the UI exposes
+owned pods as `runner:<runner-id>` system log sources from the runner detail
+view. Set `global.platformID` only when an external GitOps convention needs a
+stable value different from the Helm release name. Hybrid deployments may set
+`systemLogs.provider` to `kubernetes,docker` when both Kubernetes RBAC and a
+Docker API endpoint are intentionally available to the API. Set
+`systemLogs.dockerHost` to the Docker API or socket-proxy endpoint when the
+provider list includes Docker.
+
+When installing a Docker runner against a Helm-installed control plane reached
+through local port-forwarding, forward the dispatcher Service as well as the UI:
+
+```bash
+kubectl -n nopsai port-forward service/dispatcher 9090:9090
+```
+
+Docker runner install commands generated from a local UI URL rewrite the
+dispatcher endpoint to `host.docker.internal:9090` and add a Docker
+`host-gateway` mapping. For production runners, prefer private DNS, a VPN, or a
+load-balanced gRPC endpoint over a long-lived local port-forward.

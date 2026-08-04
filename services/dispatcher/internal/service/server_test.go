@@ -165,30 +165,75 @@ func TestEjectRunnerDeletesRegistrationAndCancelsConnection(t *testing.T) {
 	}
 }
 
-func TestEjectRunnerBlocksSameRunnerIDReconnect(t *testing.T) {
+func TestEjectRunnerAllowsSameRunnerIDReconnect(t *testing.T) {
 	d := newDispatcherServer(nil, "http://example")
-	rc := newTestRunnerConn("runner-eject-blocked", "prod")
+	rc := newTestRunnerConn("runner-eject-reusable", "prod")
 	d.addRunner(rc)
 
 	if _, err := d.UpdateRunnerDispatch(context.Background(), &proto.UpdateRunnerDispatchRequest{
-		RunnerId:     "runner-eject-blocked",
+		RunnerId:     "runner-eject-reusable",
 		ConnectionId: proto.RunnerControlConnectionIDEject,
 	}); err != nil {
 		t.Fatalf("eject runner: %v", err)
 	}
 
-	replacement := newTestRunnerConn("runner-eject-blocked", "prod")
+	replacement := newTestRunnerConn("runner-eject-reusable", "prod")
 	replacement.connectionID = "conn-replacement"
-	if d.addRunner(replacement) {
-		t.Fatal("addRunner() accepted a runner ID that had been ejected")
+	if !d.addRunner(replacement) {
+		t.Fatal("addRunner() rejected a runner ID after its stale registration was removed")
 	}
 
 	status, err := d.GetStatus(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("GetStatus() error = %v", err)
 	}
-	if len(status.GetRunners()) != 0 {
-		t.Fatalf("runners len = %d, want ejected runner ID blocked", len(status.GetRunners()))
+	if len(status.GetRunners()) != 1 || status.GetRunners()[0].GetRunnerId() != "runner-eject-reusable" {
+		t.Fatalf("runners = %#v, want replacement runner registered", status.GetRunners())
+	}
+}
+
+func TestRegisterRefreshesStaleEjectedRunnerIDsBeforeRejecting(t *testing.T) {
+	configFetched := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/internal/dispatcher/routing" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		configFetched = true
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"dispatcher_routing": map[string][]string{},
+			"ejected_runner_ids": []string{},
+		})
+	}))
+	defer server.Close()
+
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
+	d.applyEjectedRunners([]string{"runner-reuse"})
+	stream := &fakeRegisterStream{
+		recv: []*proto.RunnerMessage{{
+			Message: &proto.RunnerMessage_Register{
+				Register: &proto.RunnerRegistration{
+					RunnerId: "runner-reuse",
+					Capacity: 1,
+				},
+			},
+		}},
+	}
+
+	err := d.Register(stream)
+
+	if err != io.EOF {
+		t.Fatalf("Register() error = %v, want EOF after stale ejected_runner_ids refresh", err)
+	}
+	if !configFetched {
+		t.Fatal("dispatcher did not refresh control config before allowing registration")
+	}
+	d.mu.Lock()
+	_, blocked := d.ejectedRunners["runner-reuse"]
+	d.mu.Unlock()
+	if blocked {
+		t.Fatal("stale ejected_runner_ids entry remained after control refresh")
 	}
 }
 
@@ -330,6 +375,42 @@ func TestRunnerDispatchFlagPersistsAcrossReconnect(t *testing.T) {
 	d.addRunner(second)
 	if second.allowDispatch {
 		t.Fatal("reconnected runner allowDispatch = true, want persisted pause")
+	}
+}
+
+func TestRunnerReconnectPreservesLastDisconnectedAt(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	first := newTestRunnerConn("runner-flaky", "prod")
+	d.addRunner(first)
+	disconnectedAt := time.Unix(1_783_000_000, 0).UTC()
+	d.removeRunner(first.connectionID)
+
+	d.mu.Lock()
+	record := d.registeredRunners["runner-flaky"]
+	if record == nil {
+		d.mu.Unlock()
+		t.Fatal("runner-flaky registration was not retained after disconnect")
+	}
+	record.disconnectedAt = disconnectedAt
+	d.mu.Unlock()
+
+	second := newTestRunnerConn("runner-flaky", "prod")
+	second.connectionID = "conn-runner-flaky-2"
+	d.addRunner(second)
+
+	status, err := d.GetStatus(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if len(status.GetRunners()) != 1 {
+		t.Fatalf("runners len = %d, want 1", len(status.GetRunners()))
+	}
+	metadata := status.GetRunners()[0].GetMetadata()
+	if metadata["reachable"] != "true" || metadata["connection_status"] != "online" {
+		t.Fatalf("metadata = %#v, want online reconnected runner", metadata)
+	}
+	if metadata["last_disconnected_at"] != disconnectedAt.Format(time.RFC3339) {
+		t.Fatalf("last_disconnected_at = %q, want %q", metadata["last_disconnected_at"], disconnectedAt.Format(time.RFC3339))
 	}
 }
 

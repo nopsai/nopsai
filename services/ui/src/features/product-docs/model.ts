@@ -565,7 +565,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'steps[].volumes',
     area: 'Step YAML',
-    description: 'Run-owned Docker volume or Kubernetes PVC mounts using volume:mount-path syntax. Direct reuse of unowned runner-local volumes is rejected.',
+    description: 'Named Docker volume or Kubernetes PVC mounts using volume:mount-path syntax. Existing storage is reused; missing storage is created with NopsAI labels.',
     example: '[cache:/cache]',
   },
   {
@@ -1536,7 +1536,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         details: [
           'The API submits jobs to the dispatcher. Runners maintain long-lived outbound connections to the dispatcher, which keeps runner registration and capacity visible to the control plane.',
-          'Docker runners create containers and run-owned Docker volumes. Kubernetes runners create an agent pod, PVC-backed workspace, and step pods in their namespace.',
+          'Docker runners create containers and named Docker volumes. Kubernetes runners create an agent pod, PVC-backed workspace, and step pods in their namespace.',
           'Gotenberg is used for PDF rendering. The Docker socket proxy is restricted to allow-listed Compose System Logs reads; Kubernetes System Logs use pod/log RBAC instead.',
           'UI and CLI are entry points only. They call authenticated REST routes and do not talk directly to AAA, dispatcher, PostgreSQL, or runners.',
           'services/nopsai owns auth, config sync, Git event ingress, run creation, setup preflight, logs, outputs, metrics, and hosted MCP; it calls Postgres, AAA, git-bot, dispatcher, Gotenberg, and log providers.',
@@ -2434,15 +2434,15 @@ const baseWikiSections: WikiSectionInput[] = [
           'Each runner should have a unique ID, capacity, allowed scope list, and network path to the dispatcher.',
           'Separate runners are the natural boundary for production versus non-production, region, team, security zone, or workload class.',
           'The Dispatcher workspace separates compact overview metrics, runtime-filtered table-first runner fleet operations, route editing/effective-routing tables, and install command generation so operators can validate changes before they affect scheduling.',
-          'Ejecting a runner removes its dispatcher registration, cleans configured dispatcher routing references for that runner ID, blocks the same runner ID from registering again, and disconnects any live runner stream.',
+          'Removing a runner clears its dispatcher registration, disconnects any live runner stream, and leaves the runner ID reusable after the old process or Deployment is stopped.',
         ],
         details: [
           'The dispatcher checks runner availability, scope compatibility, routing, affinity, and load before assignment.',
-          'The routing tables read the same effective routing status shown to the dispatcher UI. Runner detail sits below the fleet table only after selection, and paused, stale, or unreachable runners stay visible in route pools for operator diagnosis but are excluded from the dispatchable target set.',
+          'The routing tables read the same effective routing status shown to the dispatcher UI. Runner detail sits below the fleet table only after selection, and paused, stale, unreachable, or recently reconnected runners stay visible in route pools for operator diagnosis; unreachable and stale runners are excluded from dispatchable targets, while recovered runners remain dispatchable but degrade route health during the recent recovery window.',
           'For Kubernetes, runner manifests include namespace, ServiceAccount, namespace-scoped Role, RoleBinding, dispatcher auth Secret, runtime ConfigMap, and Deployment.',
           'Runner defaults and hard routing can live in setting/system/runner.yaml. Dispatcher routing updates are exposed through internal runtime config and do not require a dispatcher container restart.',
-          'The ejected runner ID blocklist wins over GitOps routing at runtime. Remove ejected runner IDs from setting/system/runner.yaml to keep declarative routing clean.',
-          'Use runner ejection to clear stale registrations from dispatcher status, clean configured routing, and block that runner ID from future registration. Delete or scale down the underlying Docker runner or Kubernetes Deployment when retiring capacity permanently.',
+          'The ejected runner ID blocklist wins over GitOps routing at runtime. Remove ejected runner IDs from setting/system/runner.yaml or System > Config > Revoked runner IDs before reusing a revoked runner ID; replacement install generation clears stale revocations for the requested runner ID.',
+          'Use runner removal to clear stale registrations from dispatcher status. Delete or scale down the underlying Docker runner or Kubernetes Deployment when retiring capacity permanently, and add ejected_runner_ids only when a runner ID must stay revoked.',
         ],
         configRows: [
           {
@@ -2618,7 +2618,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Compose mounts PostgreSQL at /var/lib/postgresql/data in the `db` named volume.',
           'Docker workspaces are run-owned named volumes, normally `vol-<run-id>`, labelled with the run ID before containers mount them.',
           'Kubernetes workspaces are PVC-backed so agent and step pods can share files; default runner workspaces use pod-owned ephemeral PVCs.',
-          'Reusable data should be copied into a per-run or per-step volume before mutation. Treat the source volume or PVC as read-only baseline data.',
+          'Pipeline-declared step volumes bind named Docker volumes or PVCs, so steps and runs using the same name share writable storage within the runner host or namespace.',
           'Approval checkpoints store compressed workspace archives in PostgreSQL so a run can resume on a new agent.',
         ],
         details: [
@@ -3338,14 +3338,17 @@ const baseWikiSections: WikiSectionInput[] = [
         summary:
           'Pipeline logs are durable run records in PostgreSQL; System Logs are live allow-listed platform container or pod logs streamed through authenticated SSE.',
         keyFacts: [
-          'System Logs allow-listed sources are nopsai, aaa, dispatcher, git-bot, ui, docker-runner, and k8s-runner.',
+          'System Logs allow-listed platform sources are nopsai, aaa, dispatcher, git-bot, ui, docker-runner, and k8s-runner; installed runners appear as runner:<runner-id> while they remain in dispatcher status and are marked unavailable until provider access can reach their logs.',
           'Docker deployments read through a least-privilege socket proxy.',
-          'Kubernetes deployments read label-selected pods through read-only pods and pods/log RBAC.',
+          'Kubernetes deployments read label-selected pods through read-only pods and pods/log RBAC; registered Kubernetes runners advertise their namespace and label selector through dispatcher metadata.',
           'System Logs redaction is best effort and system_log.read should be narrowly assigned.',
         ],
         details: [
           'System Logs apply line and stream limits, buffer recent sanitized entries in memory, and do not copy platform logs into pipeline_run_logs.',
           'Build-only base, agent, and pipeline images are not exposed as System Logs sources.',
+          'Runner detail links open the advertised runner log source. Kubernetes runner log discovery follows the registered runner metadata keys kubernetes_namespace and kubernetes_label_selector. Removed runner registrations hide their runner logs even if old containers or pods still exist, and cross-substrate runner log streaming requires Docker provider access to that host or Kubernetes RBAC in that namespace.',
+          'Runner source labels overlay dispatcher connection health, so a ready pod or running container can still show dispatcher unreachable or recently reconnected when the gRPC registration stream has been failing or just recovered.',
+          'Hybrid deployments can configure a comma-separated provider list such as docker,kubernetes when both provider credentials are available.',
           'Source-level system_log.read permissions control who can list or stream each platform source.',
           'Docker health `none` means no container healthcheck exists; System Logs falls back to the container state, such as `running`, instead of showing `none` as a service status.',
         ],

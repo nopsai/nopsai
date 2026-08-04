@@ -53,3 +53,10 @@ func TestEffectiveSystemLogsKubernetesNamespace(t *testing.T) {
 		t.Fatalf("effective namespace = %q, want configured namespace", got)
 	}
 }
+
+func TestSystemLogProviderNamesSplitsAndDeduplicates(t *testing.T) {
+	got := systemLogProviderNames("kubernetes,docker,kubernetes")
+	if len(got) != 2 || got[0] != "kubernetes" || got[1] != "docker" {
+		t.Fatalf("provider names = %#v, want kubernetes,docker", got)
+	}
+}

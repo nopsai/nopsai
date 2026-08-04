@@ -97,6 +97,7 @@ spec:
       labels:
         {{- include "nopsai.selectorLabels" (dict "root" . "component" "k8s-runner") | nindent 8 }}
         nopsai.io/runner-id: {{ .Values.k8sRunner.runnerID | quote }}
+        nopsai.io/platform-id: {{ include "nopsai.platformID" . | quote }}
     spec:
       serviceAccountName: {{ include "nopsai.runnerServiceAccountName" . }}
       securityContext:
@@ -124,6 +125,8 @@ spec:
             - {name: RUNNER_ID, value: {{ .Values.k8sRunner.runnerID | quote }}}
             - {name: RUNNER_SCOPES, value: {{ .Values.k8sRunner.scopes | quote }}}
             - {name: RUNNER_CAPACITY, value: {{ .Values.k8sRunner.capacity | quote }}}
+            - {name: NOPSAI_PLATFORM_ID, value: {{ include "nopsai.platformID" . | quote }}}
+            - {name: KUBERNETES_RUNNER_LABEL_SELECTOR, value: {{ printf "app.kubernetes.io/name=nopsai,app.kubernetes.io/instance=%s,app.kubernetes.io/component=k8s-runner,nopsai.io/runner-id=%s,nopsai.io/platform-id=%s" .Release.Name .Values.k8sRunner.runnerID (include "nopsai.platformID" .) | quote }}}
             - {name: RUNNER_SERVICE_ID, value: {{ include "nopsai.runnerServiceID" . | quote }}}
             - {name: AGENT_IMAGE, value: {{ include "nopsai.image" .Values.agent.image | quote }}}
             - {name: DISPATCHER_GRPC_ADDRESS, value: {{ include "nopsai.topology.dispatcherGRPCAddress" . | quote }}}

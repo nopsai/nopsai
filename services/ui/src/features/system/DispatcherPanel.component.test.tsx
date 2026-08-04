@@ -197,6 +197,68 @@ test('shows previously registered unreachable runners with a warning', () => {
   expect(screen.getByText(/Last heartbeat was 1m ago/)).toBeVisible();
 });
 
+test('shows recently reconnected runners as recovered and degrades their routes', async () => {
+  const user = userEvent.setup();
+  const fetchedAt = Date.parse('2026-08-04T06:27:00Z');
+  render(
+    <MemoryRouter>
+      <DispatcherPanel
+        loading={false}
+        error={null}
+        status={{
+          queuedJobs: 0,
+          runners: [
+            {
+              runnerId: 'runner-k8s',
+              scopes: ['prod'],
+              capacity: 2,
+              activeJobs: 0,
+              inflightJobs: 0,
+              lastHeartbeatUnix: Date.parse('2026-08-04T06:26:55Z') / 1000,
+              allowDispatch: true,
+              reachable: true,
+              connectionStatus: 'online',
+              metadata: {
+                runtime: 'kubernetes',
+                connection_status: 'online',
+                reachable: 'true',
+                last_disconnected_at: '2026-08-04T06:25:42Z',
+              },
+            },
+          ],
+          routing: { prod: ['runner-k8s'] },
+          effectiveRouting: { prod: ['runner-k8s'] },
+          fetchedAt,
+        }}
+        pendingActions={new Set()}
+        pendingEjections={new Set()}
+        onRefresh={() => undefined}
+        onToggleRunnerDispatch={async () => undefined}
+        onEjectRunner={async () => undefined}
+        canManageDispatcher
+        canViewRuntimeConfig
+        canManageRuntimeConfig
+        runnerDefaults={{ runner_id: 'runner-k8s', runner_scopes: 'prod', runner_capacity: '2' } as ConfigFormState}
+        config={{ dispatcher_routing: { prod: ['runner-k8s'] } } as ConfigFormState}
+        fieldMetadata={{}}
+        configLoading={false}
+        saving={false}
+        onConfigChange={() => undefined}
+        onSaveConfig={async () => undefined}
+      />
+    </MemoryRouter>
+  );
+
+  expect(screen.getByText('runner-k8s recently reconnected')).toBeVisible();
+
+  await user.click(screen.getByRole('tab', { name: /runners/i }));
+  await user.click(screen.getByRole('button', { name: 'Kubernetes' }));
+  expect(screen.getByText('Recovered')).toBeVisible();
+
+  await user.click(screen.getByRole('tab', { name: /routing/i }));
+  expect(screen.getByText('Degraded')).toBeVisible();
+});
+
 test('filters the runner fleet by runtime and shows detail only after selection', async () => {
   const user = userEvent.setup();
 
@@ -265,6 +327,8 @@ test('filters the runner fleet by runtime and shows detail only after selection'
   expect(screen.queryByText('runner-prod')).not.toBeInTheDocument();
   await user.click(screen.getByText('runner-k8s'));
   expect(screen.getByText('node-a / Kubernetes')).toBeVisible();
+  await user.click(screen.getByRole('tab', { name: 'Logs' }));
+  expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/system/logs?source=runner%3Arunner-k8s');
 });
 
 test('shows routing tables with healthy and unavailable route targets', async () => {
@@ -441,6 +505,6 @@ test('offers a permanent runner eject action from runner cards', async () => {
   );
 
   await user.click(screen.getByRole('tab', { name: /runners/i }));
-  await user.click(screen.getByRole('button', { name: 'Eject runner-prod-5' }));
+  await user.click(screen.getByRole('button', { name: 'Remove runner-prod-5' }));
   expect(onEjectRunner).toHaveBeenCalledWith(expect.objectContaining({ runnerId: 'runner-prod-5' }));
 });

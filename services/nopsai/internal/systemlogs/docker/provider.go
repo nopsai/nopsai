@@ -24,6 +24,7 @@ type ContainerSummary struct {
 	State  string
 	Status string
 	Health string
+	Labels map[string]string
 }
 
 type DockerAPI interface {
@@ -32,21 +33,30 @@ type DockerAPI interface {
 	ContainerLogs(ctx context.Context, containerID string, options client.ContainerLogsOptions) (io.ReadCloser, error)
 }
 
-type Provider struct {
-	docker   DockerAPI
-	registry *systemlogs.Registry
-	now      func() time.Time
+type Options struct {
+	PlatformID string
 }
 
-func NewProvider(api DockerAPI, registry *systemlogs.Registry) *Provider {
+type Provider struct {
+	docker     DockerAPI
+	registry   *systemlogs.Registry
+	platformID string
+	now        func() time.Time
+}
+
+func NewProvider(api DockerAPI, registry *systemlogs.Registry, options ...Options) *Provider {
 	if registry == nil {
 		registry = systemlogs.DefaultRegistry()
 	}
-	return &Provider{docker: api, registry: registry, now: time.Now}
+	config := Options{}
+	if len(options) > 0 {
+		config = options[0]
+	}
+	return &Provider{docker: api, registry: registry, platformID: strings.TrimSpace(config.PlatformID), now: time.Now}
 }
 
-func NewMobyProvider(dockerClient *client.Client, registry *systemlogs.Registry) *Provider {
-	return NewProvider(&mobyAPI{client: dockerClient}, registry)
+func NewMobyProvider(dockerClient *client.Client, registry *systemlogs.Registry, options ...Options) *Provider {
+	return NewProvider(&mobyAPI{client: dockerClient}, registry, options...)
 }
 
 func (p *Provider) ListSources(ctx context.Context) ([]systemlogs.SourceStatus, error) {
@@ -67,7 +77,7 @@ func (p *Provider) ListSources(ctx context.Context) ([]systemlogs.SourceStatus, 
 			ID: source.ID, DisplayName: source.DisplayName, ContainerName: source.ContainerName,
 			State: "unavailable",
 		}
-		if candidate, ok := byName[source.ContainerName]; ok {
+		if candidate, ok := byName[source.ContainerName]; ok && systemLogSourceEnabled(candidate.Labels) {
 			status.ContainerInstance = candidate.ID
 			status.Available = true
 			status.State = candidate.State
@@ -76,6 +86,7 @@ func (p *Provider) ListSources(ctx context.Context) ([]systemlogs.SourceStatus, 
 		}
 		out = append(out, status)
 	}
+	out = append(out, p.runnerSourceStatuses(containers)...)
 	return out, nil
 }
 
@@ -130,12 +141,26 @@ func (p *Provider) Follow(ctx context.Context, sourceID string, after systemlogs
 
 func (p *Provider) resolve(ctx context.Context, sourceID string) (systemlogs.Source, ContainerSummary, error) {
 	source, ok := p.registry.Resolve(sourceID)
-	if !ok {
-		return systemlogs.Source{}, ContainerSummary{}, systemlogs.ErrSourceNotFound
-	}
 	containers, err := p.docker.ListContainers(ctx)
 	if err != nil {
 		return systemlogs.Source{}, ContainerSummary{}, err
+	}
+	if !ok {
+		runnerID, ok := systemlogs.ParseRunnerSourceID(sourceID)
+		if !ok {
+			return systemlogs.Source{}, ContainerSummary{}, systemlogs.ErrSourceNotFound
+		}
+		for _, candidate := range containers {
+			if runnerIDFromLabels(candidate.Labels) != runnerID {
+				continue
+			}
+			source, ok := p.runnerSourceFromContainer(candidate)
+			if !ok {
+				continue
+			}
+			return source, candidate, nil
+		}
+		return systemlogs.Source{}, ContainerSummary{}, systemlogs.ErrSourceNotFound
 	}
 	for _, candidate := range containers {
 		for _, name := range candidate.Names {
@@ -145,6 +170,85 @@ func (p *Provider) resolve(ctx context.Context, sourceID string) (systemlogs.Sou
 		}
 	}
 	return systemlogs.Source{}, ContainerSummary{}, systemlogs.ErrSourceNotFound
+}
+
+func (p *Provider) runnerSourceStatuses(containers []ContainerSummary) []systemlogs.SourceStatus {
+	seen := map[string]struct{}{}
+	out := make([]systemlogs.SourceStatus, 0)
+	for _, container := range containers {
+		source, ok := p.runnerSourceFromContainer(container)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[source.ID]; exists {
+			continue
+		}
+		seen[source.ID] = struct{}{}
+		out = append(out, systemlogs.SourceStatus{
+			ID:                source.ID,
+			DisplayName:       source.DisplayName,
+			ContainerName:     source.ContainerName,
+			ContainerInstance: container.ID,
+			Available:         true,
+			State:             container.State,
+			Health:            normalizeDockerHealth(container.Health),
+			Status:            container.Status,
+		})
+	}
+	return out
+}
+
+func (p *Provider) runnerSourceFromContainer(container ContainerSummary) (systemlogs.Source, bool) {
+	runnerID := runnerIDFromLabels(container.Labels)
+	if runnerID == "" || !isNopsaiDockerRunner(container.Labels) || !containerMatchesPlatform(container.Labels, p.platformID) {
+		return systemlogs.Source{}, false
+	}
+	for _, name := range container.Names {
+		containerName := strings.TrimPrefix(strings.TrimSpace(name), "/")
+		if containerName == "" {
+			continue
+		}
+		return systemlogs.NewRunnerSource(runnerID, containerName)
+	}
+	return systemlogs.Source{}, false
+}
+
+func runnerIDFromLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(labels["nopsai.io/runner-id"])
+}
+
+func runnerPlatformIDFromLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(labels["nopsai.io/platform-id"])
+}
+
+func containerMatchesPlatform(labels map[string]string, platformID string) bool {
+	platformID = strings.TrimSpace(platformID)
+	if platformID == "" {
+		return true
+	}
+	return runnerPlatformIDFromLabels(labels) == platformID
+}
+
+func isNopsaiDockerRunner(labels map[string]string) bool {
+	if len(labels) == 0 {
+		return false
+	}
+	name := strings.TrimSpace(labels["app.kubernetes.io/name"])
+	component := strings.TrimSpace(labels["app.kubernetes.io/component"])
+	return name == "nopsai-docker-runner" && component == "runner"
+}
+
+func systemLogSourceEnabled(labels map[string]string) bool {
+	if len(labels) == 0 {
+		return true
+	}
+	return !strings.EqualFold(strings.TrimSpace(labels["nopsai.io/system-log-source"]), "false")
 }
 
 func (p *Provider) logs(ctx context.Context, containerID string, options client.ContainerLogsOptions) (io.ReadCloser, bool, error) {
@@ -253,7 +357,7 @@ func (m *mobyAPI) ListContainers(ctx context.Context) ([]ContainerSummary, error
 		if item.Health != nil {
 			health = string(item.Health.Status)
 		}
-		out = append(out, ContainerSummary{ID: item.ID, Names: item.Names, State: string(item.State), Status: item.Status, Health: health})
+		out = append(out, ContainerSummary{ID: item.ID, Names: item.Names, State: string(item.State), Status: item.Status, Health: health, Labels: copyStringMap(item.Labels)})
 	}
 	return out, nil
 }
@@ -268,4 +372,15 @@ func (m *mobyAPI) ContainerTTY(ctx context.Context, containerID string) (bool, e
 
 func (m *mobyAPI) ContainerLogs(ctx context.Context, containerID string, options client.ContainerLogsOptions) (io.ReadCloser, error) {
 	return m.client.ContainerLogs(ctx, containerID, options)
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }

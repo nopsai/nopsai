@@ -178,7 +178,14 @@ func (a *App) setupHealthChecks(ctx context.Context, counts setupCounts, globalR
 		} else if len(status.GetRunners()) == 0 {
 			add("runner", "Runner health", "warning", "No runners have checked in.", false)
 		} else if unreachable := runnerUnreachableCount(status); unreachable > 0 {
-			add("runner", "Runner health", "warning", fmt.Sprintf("%d runner(s) have checked in, %d unreachable.", len(status.GetRunners()), unreachable), false)
+			recovered := runnerRecoveredCount(status, time.Now())
+			message := fmt.Sprintf("%d runner(s) have checked in, %d unreachable.", len(status.GetRunners()), unreachable)
+			if recovered > 0 {
+				message = fmt.Sprintf("%d runner(s) have checked in, %d unreachable, %d recently reconnected.", len(status.GetRunners()), unreachable, recovered)
+			}
+			add("runner", "Runner health", "warning", message, false)
+		} else if recovered := runnerRecoveredCount(status, time.Now()); recovered > 0 {
+			add("runner", "Runner health", "warning", fmt.Sprintf("%d runner(s) have checked in, %d recently reconnected.", len(status.GetRunners()), recovered), false)
 		} else {
 			add("runner", "Runner health", "success", fmt.Sprintf("%d runner(s) are connected.", len(status.GetRunners())), false)
 		}

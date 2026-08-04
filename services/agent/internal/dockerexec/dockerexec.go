@@ -35,7 +35,7 @@ var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 const (
 	dockerStepVolumeManagedLabel = "nopsai.io/managed"
 	dockerStepVolumePurposeLabel = "nopsai.io/volume-purpose"
-	dockerStepVolumeOwnerLabel   = "nopsai.io/shared-volume"
+	dockerStepVolumeLogicalLabel = "nopsai.io/logical-volume"
 	dockerStepVolumePurpose      = "pipeline-step"
 	dockerStepOutputsTmpfs       = "rw,nosuid,nodev,size=64m"
 )
@@ -72,7 +72,7 @@ func CreateStepContainer(ctx context.Context, logger *zerolog.Logger, cli *clien
 		if err != nil {
 			return "", err
 		}
-		if err := ensureManagedDockerStepVolume(ctx, logger, cli, volumeName, req.SharedVolumeName); err != nil {
+		if err := ensureDockerStepVolume(ctx, logger, cli, volumeName); err != nil {
 			return "", err
 		}
 		binds = append(binds, fmt.Sprintf("%s:%s", volumeName, mountPath))
@@ -114,20 +114,17 @@ func parseDockerStepVolumeSpec(spec string) (string, string, error) {
 	return volumeName, mountPath, nil
 }
 
-func ensureManagedDockerStepVolume(ctx context.Context, logger *zerolog.Logger, cli *client.Client, volumeName, owner string) error {
-	owner = strings.TrimSpace(owner)
-	if owner == "" {
-		return fmt.Errorf("step volume owner is required")
+func ensureDockerStepVolume(ctx context.Context, logger *zerolog.Logger, cli *client.Client, volumeName string) error {
+	volumeName = strings.TrimSpace(volumeName)
+	if volumeName == "" {
+		return fmt.Errorf("step volume name is required")
 	}
 	if logger != nil {
-		logger.Debug().Str("volume", volumeName).Msg("Ensuring NopsAI-managed step volume")
+		logger.Debug().
+			Str("volume", volumeName).
+			Msg("Ensuring Docker step volume")
 	}
-	return dockervolume.EnsureManaged(ctx, cli, dockervolume.ManagedSpec{
-		Name:              volumeName,
-		Labels:            dockerStepVolumeLabels(owner),
-		ValidateOwnership: func(labels map[string]string) bool { return dockerStepVolumeOwnedBy(labels, owner) },
-		OwnerDescription:  "run",
-	})
+	return dockervolume.EnsureExists(ctx, cli, volumeName, dockerStepVolumeLabels(volumeName))
 }
 
 func dockerStepTmpfs(outputsEnabled bool) map[string]string {
@@ -166,18 +163,12 @@ func dockerStepNetworkMode(networkName string) container.NetworkMode {
 	}
 }
 
-func dockerStepVolumeLabels(owner string) map[string]string {
+func dockerStepVolumeLabels(volumeName string) map[string]string {
 	return map[string]string{
 		dockerStepVolumeManagedLabel: "true",
 		dockerStepVolumePurposeLabel: dockerStepVolumePurpose,
-		dockerStepVolumeOwnerLabel:   strings.TrimSpace(owner),
+		dockerStepVolumeLogicalLabel: strings.TrimSpace(volumeName),
 	}
-}
-
-func dockerStepVolumeOwnedBy(labels map[string]string, owner string) bool {
-	return strings.EqualFold(strings.TrimSpace(labels[dockerStepVolumeManagedLabel]), "true") &&
-		strings.TrimSpace(labels[dockerStepVolumePurposeLabel]) == dockerStepVolumePurpose &&
-		strings.TrimSpace(labels[dockerStepVolumeOwnerLabel]) == strings.TrimSpace(owner)
 }
 
 func Cleanup(ctx context.Context, logger *zerolog.Logger, cli *client.Client, containerID string) {

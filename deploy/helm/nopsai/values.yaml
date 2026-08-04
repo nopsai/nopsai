@@ -1,6 +1,7 @@
 global:
   releaseVersion: dev
   sourceCommit: unknown
+  platformID: ""
   environment: production
   logLevel: info
   logFormat: json
@@ -141,6 +142,7 @@ k8sRunner:
 systemLogs:
   enabled: true
   provider: kubernetes
+  dockerHost: ""
   kubernetes:
     labelSelector: ""
     container: ""

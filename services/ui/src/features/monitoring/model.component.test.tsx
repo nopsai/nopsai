@@ -116,8 +116,9 @@ describe('Monitoring model', () => {
     expect(normalizeMonitoringActiveRuns([{ pipeline: 'missing-id' }, null])).toEqual([]);
     expect(normalizeRunnerStatusValue('paused')).toBe('disabled');
     expect(normalizeRunnerStatusValue('disconnected')).toBe('unreachable');
+    expect(normalizeRunnerStatusValue('recently reconnected')).toBe('recovered');
     expect(normalizeRunnerSummary(null, [runner])).toMatchObject({ total: 1, online: 1, kubernetes: 1, capacity: 4 });
-    expect(normalizeRunnerSummary({ total: '2', unreachable: 1, queued_jobs: 3 }, [])).toMatchObject({ total: 2, unreachable: 1, queuedJobs: 3 });
+    expect(normalizeRunnerSummary({ total: '2', recovered: 1, unreachable: 1, queued_jobs: 3 }, [])).toMatchObject({ total: 2, recovered: 1, unreachable: 1, queuedJobs: 3 });
   });
 
   it('parses statuses, dates, durations, and primitive values', () => {

@@ -19,6 +19,7 @@ var (
 	containerList    = regexp.MustCompile(`^` + dockerAPIPrefix + `containers/json$`)
 	containerInspect = regexp.MustCompile(`^` + dockerAPIPrefix + `containers/[^/]+/json$`)
 	containerLogs    = regexp.MustCompile(`^` + dockerAPIPrefix + `containers/[^/]+/logs$`)
+	runnerContainer  = regexp.MustCompile(`^runner(?:[-_.][A-Za-z0-9][A-Za-z0-9_.-]*)?$`)
 )
 
 type Handler struct {
@@ -111,7 +112,9 @@ func validateContainerName(path string, allowed map[string]struct{}) error {
 			return errors.New("Docker container name is invalid")
 		}
 		if _, ok := allowed[name]; !ok {
-			return errors.New("Docker container is not allow-listed")
+			if !runnerContainer.MatchString(name) {
+				return errors.New("Docker container is not allow-listed")
+			}
 		}
 		return nil
 	}

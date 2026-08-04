@@ -21,6 +21,7 @@ func TestValidateRequestAllowsOnlyRequiredReadEndpoints(t *testing.T) {
 		"GET /v1.51/containers/json?all=1&filters=%7B%7D",
 		"GET /containers/nopsai-dispatcher/json",
 		"GET /v1.51/containers/nopsai-dispatcher/logs?follow=1&stdout=1&stderr=1&tail=500&timestamps=1",
+		"GET /v1.51/containers/runner-prod-1/logs?follow=1&stdout=1&stderr=1&tail=500&timestamps=1",
 	}
 	for _, raw := range allowed {
 		method, target, _ := strings.Cut(raw, " ")
@@ -37,6 +38,7 @@ func TestValidateRequestAllowsOnlyRequiredReadEndpoints(t *testing.T) {
 		"GET /containers/abc/stats",
 		"GET /containers/untrusted/json",
 		"GET /containers/untrusted/logs?stdout=1",
+		"GET /containers/runnerprod/logs?stdout=1",
 		"GET /events",
 		"GET /containers/json?unknown=1",
 		"GET /containers/abc/logs?follow=1&evil=1",

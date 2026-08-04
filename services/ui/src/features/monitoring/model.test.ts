@@ -92,6 +92,18 @@ test('normalizes unreachable runner status and summary counts', () => {
   assert.equal(normalizeRunnerSummary(null, [runner]).unreachable, 1);
 });
 
+test('normalizes recovered runner status and summary counts', () => {
+  const runner = normalizeMonitoringRunner({
+    runner_id: 'runner-recovered',
+    status: 'recovered',
+    runtime: 'kubernetes',
+    capacity: 2,
+  });
+
+  assert.equal(runner.status, 'recovered');
+  assert.equal(normalizeRunnerSummary(null, [runner]).recovered, 1);
+});
+
 test('keeps monitoring team selectors free of applications', () => {
   const teams: Team[] = [
     { id: 1, name: 'Platform', kind: 'team' },

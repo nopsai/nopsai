@@ -47,16 +47,16 @@ func TestParseDockerStepVolumeSpecRequiresAbsoluteMount(t *testing.T) {
 	}
 }
 
-func TestDockerStepVolumeOwnershipLabelsAreRunScoped(t *testing.T) {
-	labels := dockerStepVolumeLabels("vol-run-123")
-	if !dockerStepVolumeOwnedBy(labels, "vol-run-123") {
-		t.Fatalf("dockerStepVolumeOwnedBy() = false for matching labels %#v", labels)
+func TestDockerStepVolumeLabelsDescribePipelineVolume(t *testing.T) {
+	labels := dockerStepVolumeLabels("cache")
+	if labels[dockerStepVolumeManagedLabel] != "true" {
+		t.Fatalf("managed label = %q, want true", labels[dockerStepVolumeManagedLabel])
 	}
-	if dockerStepVolumeOwnedBy(labels, "vol-run-456") {
-		t.Fatal("dockerStepVolumeOwnedBy() accepted labels from another run")
+	if labels[dockerStepVolumePurposeLabel] != dockerStepVolumePurpose {
+		t.Fatalf("purpose label = %q, want %q", labels[dockerStepVolumePurposeLabel], dockerStepVolumePurpose)
 	}
-	if dockerStepVolumeOwnedBy(map[string]string{dockerStepVolumeManagedLabel: "true"}, "vol-run-123") {
-		t.Fatal("dockerStepVolumeOwnedBy() accepted incomplete labels")
+	if labels[dockerStepVolumeLogicalLabel] != "cache" {
+		t.Fatalf("logical label = %q, want cache", labels[dockerStepVolumeLogicalLabel])
 	}
 }
 

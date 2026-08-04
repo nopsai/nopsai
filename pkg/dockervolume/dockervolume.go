@@ -59,6 +59,34 @@ func EnsureManaged(ctx context.Context, cli *client.Client, spec ManagedSpec) er
 	return nil
 }
 
+func EnsureExists(ctx context.Context, cli *client.Client, name string, labels map[string]string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("volume name is required")
+	}
+	if cli == nil {
+		return fmt.Errorf("docker client is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if _, err := cli.VolumeInspect(ctx, name, client.VolumeInspectOptions{}); err == nil {
+		return nil
+	} else if !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("inspect docker volume %q: %w", name, err)
+	}
+
+	_, err := cli.VolumeCreate(ctx, client.VolumeCreateOptions{
+		Name:   name,
+		Labels: cloneLabels(labels),
+	})
+	if err != nil {
+		return fmt.Errorf("create docker volume %q: %w", name, err)
+	}
+	return nil
+}
+
 func cloneLabels(labels map[string]string) map[string]string {
 	if labels == nil {
 		return nil

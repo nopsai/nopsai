@@ -90,6 +90,10 @@ func TestBuildResponseFiltersEjectedRunnerIDsFromDispatcherRouting(t *testing.T)
 	if got := routing["prod"]; len(got) != 1 || got[0] != "runner-prod-1" {
 		t.Fatalf("prod runners = %#v, want runner-prod-1 only", got)
 	}
+	ejected, ok := resp["ejected_runner_ids"].([]string)
+	if !ok || len(ejected) != 1 || ejected[0] != "runner-prod-5" {
+		t.Fatalf("ejected_runner_ids = %#v, want runner-prod-5", resp["ejected_runner_ids"])
+	}
 }
 
 func TestBuildResponseIncludesRuntimeOutputMaxBytesMetadata(t *testing.T) {

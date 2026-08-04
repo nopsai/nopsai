@@ -24,6 +24,7 @@ export type ConfigFormState = {
   github_webhook_credential_ref: string;
   dispatcher_grpc_address: string;
   dispatcher_routing: Record<string, string[]>;
+  ejected_runner_ids: string;
   runner_id: string;
   runner_scopes: string;
   runner_capacity: string;
@@ -131,6 +132,7 @@ export const initialConfig: ConfigFormState = {
   github_webhook_credential_ref: '',
   dispatcher_grpc_address: '',
   dispatcher_routing: {},
+  ejected_runner_ids: '',
   runner_id: '',
   runner_scopes: '',
   runner_capacity: '1',
@@ -187,6 +189,7 @@ export function normalizeSystemConfigPayload(payload: unknown): { config: Config
       github_webhook_credential_ref: readString(record.github_webhook_credential_ref),
       dispatcher_grpc_address: readString(record.dispatcher_grpc_address),
       dispatcher_routing: normalizeRouting(record.dispatcher_routing),
+      ejected_runner_ids: normalizeStringList(record.ejected_runner_ids).join(', '),
       runner_id: readString(record.runner_id),
       runner_scopes: readString(record.runner_scopes),
       runner_capacity: String(record.runner_capacity ?? '1'),
@@ -217,6 +220,7 @@ export function systemConfigPayloadFromForm(config: ConfigFormState) {
     git_bot_api_url: config.git_bot_api_url.trim(),
     dispatcher_grpc_address: config.dispatcher_grpc_address.trim(),
     dispatcher_routing: config.dispatcher_routing,
+    ejected_runner_ids: splitConfigList(config.ejected_runner_ids),
     runner_id: config.runner_id.trim(),
     runner_scopes: config.runner_scopes.trim(),
     runner_capacity: Number.parseInt(config.runner_capacity, 10) || 1,
@@ -392,4 +396,17 @@ export function normalizeRouting(value: unknown): Record<string, string[]> {
     }
   });
   return normalized;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean);
+  if (typeof value === 'string') return splitConfigList(value);
+  return [];
+}
+
+function splitConfigList(value: string): string[] {
+  return value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
 }

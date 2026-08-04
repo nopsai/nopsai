@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { fetchSystemLogSources, streamSystemLogs } from './api.js';
 import type { SystemLogConnectionState, SystemLogEntry, SystemLogSource } from './types.js';
 
@@ -8,7 +9,12 @@ const DEFAULT_TAIL_LINES = 500;
 const appendBounded = (current: SystemLogEntry[], incoming: SystemLogEntry[]) =>
   [...current, ...incoming].slice(-MAX_CLIENT_ENTRIES);
 
+function requestedSourceID(locationSearch: string) {
+  return new URLSearchParams(locationSearch).get('source')?.trim() || '';
+}
+
 export function useSystemLogs() {
+  const location = useLocation();
   const [sources, setSources] = useState<SystemLogSource[]>([]);
   const [selectedSourceID, setSelectedSourceIDState] = useState('');
   const [entries, setEntries] = useState<SystemLogEntry[]>([]);
@@ -31,13 +37,15 @@ export function useSystemLogs() {
       setRedactionWarning(payload.redaction_warning);
       setError(null);
       setSelectedSourceIDState(current => {
+        const requested = requestedSourceID(location.search);
+        if (requested && payload.sources.some(source => source.id === requested)) return requested;
         if (payload.sources.some(source => source.id === current)) return current;
         return payload.sources.find(source => source.available)?.id || payload.sources[0]?.id || '';
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to load system log sources');
     }
-  }, []);
+  }, [location.search]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { void loadSources(); }, 0);

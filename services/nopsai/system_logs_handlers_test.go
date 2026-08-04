@@ -8,12 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"nopsai/config"
+	"nopsai/pkg/proto"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/systemlogs"
 )
 
 type systemLogTestProvider struct {
-	tail []systemlogs.Entry
+	sources []systemlogs.SourceStatus
+	tail    []systemlogs.Entry
 }
 
 type systemLogFlushRecorder struct {
@@ -30,6 +33,9 @@ func (r *systemLogFlushRecorder) Flush() {
 }
 
 func (p *systemLogTestProvider) ListSources(context.Context) ([]systemlogs.SourceStatus, error) {
+	if len(p.sources) > 0 {
+		return append([]systemlogs.SourceStatus(nil), p.sources...), nil
+	}
 	return []systemlogs.SourceStatus{{ID: "dispatcher", Available: true, State: "running"}}, nil
 }
 func (p *systemLogTestProvider) Tail(context.Context, string, int) ([]systemlogs.Entry, error) {
@@ -82,6 +88,141 @@ func TestHandleListSystemLogSourcesFiltersWithAAA(t *testing.T) {
 	}
 }
 
+func TestHandleListSystemLogSourcesHidesUnregisteredRunnerSources(t *testing.T) {
+	app := newSystemLogHandlerTestApp(&systemLogTestProvider{sources: []systemlogs.SourceStatus{
+		{ID: "dispatcher", Available: true, State: "running"},
+		{ID: systemlogs.RunnerSourceID("runner-ejected"), Available: true, State: "running"},
+		{ID: systemlogs.RunnerSourceID("runner-active"), Available: true, State: "running"},
+	}})
+	app.dispatcher = &fakeDispatcherClient{status: &proto.DispatcherStatus{Runners: []*proto.RunnerInfo{{
+		RunnerId: "runner-active",
+		Metadata: map[string]string{"log_source_id": systemlogs.RunnerSourceID("runner-active")},
+	}}}}
+	app.aaaLocal = stubAAAAuthorizer{filterFn: func(_ context.Context, _ model.Subject, _ string, resources []model.ResourceRef, _ map[string]any) ([]model.ResourceRef, error) {
+		return resources, nil
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/logs/sources", nil)
+	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, Sub: "operator"}))
+	recorder := httptest.NewRecorder()
+	app.handleListSystemLogSources(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "runner-ejected") {
+		t.Fatalf("body = %s, want unregistered runner hidden", body)
+	}
+	if !strings.Contains(body, "runner-active") {
+		t.Fatalf("body = %s, want registered runner visible", body)
+	}
+}
+
+func TestHandleListSystemLogSourcesIncludesRegisteredRunnerWithoutProviderSource(t *testing.T) {
+	sourceID := systemlogs.RunnerSourceID("runner-k8s")
+	app := newSystemLogHandlerTestApp(&systemLogTestProvider{sources: []systemlogs.SourceStatus{
+		{ID: "dispatcher", Available: true, State: "running"},
+	}})
+	app.dispatcher = &fakeDispatcherClient{status: &proto.DispatcherStatus{Runners: []*proto.RunnerInfo{{
+		RunnerId: "runner-k8s",
+		Metadata: map[string]string{
+			"runtime":                   "kubernetes",
+			"kubernetes_namespace":      "runner-ns",
+			"kubernetes_label_selector": "app.kubernetes.io/name=nopsai-k8s-runner,nopsai.io/runner-id=runner-k8s",
+			"log_source_id":             sourceID,
+		},
+	}}}}
+	app.aaaLocal = stubAAAAuthorizer{filterFn: func(_ context.Context, _ model.Subject, _ string, resources []model.ResourceRef, _ map[string]any) ([]model.ResourceRef, error) {
+		return resources, nil
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/logs/sources", nil)
+	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, Sub: "operator"}))
+	recorder := httptest.NewRecorder()
+
+	app.handleListSystemLogSources(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{`"id":"` + sourceID + `"`, `"display_name":"Runner runner-k8s"`, `"state":"unavailable"`, "Kubernetes pod not discovered"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body = %s, want %q", body, want)
+		}
+	}
+}
+
+func TestHandleListSystemLogSourcesAnnotatesRecentlyReconnectedRunner(t *testing.T) {
+	sourceID := systemlogs.RunnerSourceID("runner-k8s")
+	disconnectedAt := time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339)
+	app := newSystemLogHandlerTestApp(&systemLogTestProvider{sources: []systemlogs.SourceStatus{
+		{ID: sourceID, DisplayName: "Runner runner-k8s", ContainerName: "runner", Available: true, State: "running", Health: "ready"},
+	}})
+	app.dispatcher = &fakeDispatcherClient{status: &proto.DispatcherStatus{Runners: []*proto.RunnerInfo{{
+		RunnerId: "runner-k8s",
+		Metadata: map[string]string{
+			"runtime":              "kubernetes",
+			"log_source_id":        sourceID,
+			"reachable":            "true",
+			"connection_status":    "online",
+			"last_disconnected_at": disconnectedAt,
+		},
+	}}}}
+	app.aaaLocal = stubAAAAuthorizer{filterFn: func(_ context.Context, _ model.Subject, _ string, resources []model.ResourceRef, _ map[string]any) ([]model.ResourceRef, error) {
+		return resources, nil
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/logs/sources", nil)
+	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, Sub: "operator"}))
+	recorder := httptest.NewRecorder()
+
+	app.handleListSystemLogSources(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{`"id":"` + sourceID + `"`, `"health":"recently reconnected"`, "dispatcher stream reconnected after disconnect"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body = %s, want %q", body, want)
+		}
+	}
+}
+
+func TestHandleListSystemLogSourcesAnnotatesUnreachableRegisteredRunner(t *testing.T) {
+	sourceID := systemlogs.RunnerSourceID("runner-k8s")
+	disconnectedAt := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
+	app := newSystemLogHandlerTestApp(&systemLogTestProvider{sources: []systemlogs.SourceStatus{
+		{ID: sourceID, DisplayName: "Runner runner-k8s", ContainerName: "runner", Available: true, State: "running", Health: "ready"},
+	}})
+	app.dispatcher = &fakeDispatcherClient{status: &proto.DispatcherStatus{Runners: []*proto.RunnerInfo{{
+		RunnerId: "runner-k8s",
+		Metadata: map[string]string{
+			"runtime":              "kubernetes",
+			"log_source_id":        sourceID,
+			"reachable":            "false",
+			"connection_status":    "unreachable",
+			"last_disconnected_at": disconnectedAt,
+		},
+	}}}}
+	app.aaaLocal = stubAAAAuthorizer{filterFn: func(_ context.Context, _ model.Subject, _ string, resources []model.ResourceRef, _ map[string]any) ([]model.ResourceRef, error) {
+		return resources, nil
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/logs/sources", nil)
+	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, Sub: "operator"}))
+	recorder := httptest.NewRecorder()
+
+	app.handleListSystemLogSources(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{`"id":"` + sourceID + `"`, `"health":"dispatcher unreachable"`, "dispatcher connection unreachable"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body = %s, want %q", body, want)
+		}
+	}
+}
+
 func TestHandleTailSystemLogsValidatesLineCountAndSource(t *testing.T) {
 	app := newSystemLogHandlerTestApp(&systemLogTestProvider{})
 	for _, tt := range []struct {
@@ -128,6 +269,99 @@ func TestHandleStreamSystemLogsWritesAuthenticatedFetchSSEContract(t *testing.T)
 		if !strings.Contains(body, value) {
 			t.Fatalf("SSE body = %q, want %q", body, value)
 		}
+	}
+}
+
+func TestHandleStreamSystemLogsAcceptsEncodedDynamicRunnerSource(t *testing.T) {
+	sourceID := systemlogs.RunnerSourceID("runner-general2")
+	app := newSystemLogHandlerTestApp(&systemLogTestProvider{tail: []systemlogs.Entry{{ContainerInstance: "runner-general2", Stream: systemlogs.StreamStdout, Line: "runner ready"}}})
+	app.dispatcher = &fakeDispatcherClient{status: &proto.DispatcherStatus{Runners: []*proto.RunnerInfo{{
+		RunnerId: "runner-general2",
+		Metadata: map[string]string{"log_source_id": sourceID},
+	}}}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/system/logs/sources/{sourceID}/stream", app.handleStreamSystemLogs)
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/logs/sources/runner%3Arunner-general2/stream?tail=1", nil).WithContext(ctx)
+	recorder := &systemLogFlushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}, 1)}
+	done := make(chan struct{})
+	go func() { defer close(done); mux.ServeHTTP(recorder, req) }()
+	select {
+	case <-recorder.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not flush initial events")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not close after cancellation")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, value := range []string{"event: status", `"source_id":"` + sourceID + `"`, "event: log", `"runner ready"`} {
+		if !strings.Contains(body, value) {
+			t.Fatalf("SSE body = %q, want %q", body, value)
+		}
+	}
+}
+
+func TestHandleTailSystemLogsRejectsUnregisteredRunnerSource(t *testing.T) {
+	sourceID := systemlogs.RunnerSourceID("runner-ejected")
+	app := newSystemLogHandlerTestApp(&systemLogTestProvider{tail: []systemlogs.Entry{{ContainerInstance: "runner-ejected", Stream: systemlogs.StreamStdout, Line: "still running"}}})
+	app.dispatcher = &fakeDispatcherClient{status: &proto.DispatcherStatus{}}
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/logs/sources/runner%3Arunner-ejected/tail?lines=20", nil)
+	req.SetPathValue("sourceID", sourceID)
+	recorder := httptest.NewRecorder()
+
+	app.handleTailSystemLogs(recorder, req)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusNotFound, recorder.Body.String())
+	}
+}
+
+func TestRunnerSourceHintsUseRegisteredKubernetesRunnerMetadata(t *testing.T) {
+	app := &App{
+		cfg: &config.Config{EjectedRunnerIDs: []string{"runner-revoked"}},
+		dispatcher: &fakeDispatcherClient{status: &proto.DispatcherStatus{Runners: []*proto.RunnerInfo{
+			{
+				RunnerId: "runner-k8s",
+				Metadata: map[string]string{
+					"runtime":                   "kubernetes",
+					"kubernetes_namespace":      "runner-ns",
+					"kubernetes_label_selector": "app.kubernetes.io/name=nopsai-k8s-runner,nopsai.io/runner-id=runner-k8s",
+					"log_source_id":             systemlogs.RunnerSourceID("runner-k8s"),
+					"nopsai_platform_id":        "platform-a",
+				},
+			},
+			{
+				RunnerId: "runner-revoked",
+				Metadata: map[string]string{
+					"runtime":                   "kubernetes",
+					"kubernetes_namespace":      "runner-ns",
+					"kubernetes_label_selector": "nopsai.io/runner-id=runner-revoked",
+				},
+			},
+			{
+				RunnerId: "runner-docker",
+				Metadata: map[string]string{"runtime": "docker"},
+			},
+		}}},
+	}
+
+	hints, err := app.RunnerSourceHints(context.Background())
+	if err != nil {
+		t.Fatalf("RunnerSourceHints() error = %v", err)
+	}
+	if len(hints) != 1 {
+		t.Fatalf("hints = %#v, want one Kubernetes runner hint", hints)
+	}
+	hint := hints[0]
+	if hint.RunnerID != "runner-k8s" || hint.SourceID != systemlogs.RunnerSourceID("runner-k8s") || hint.PlatformID != "platform-a" || hint.Namespace != "runner-ns" || hint.ContainerName != "runner" {
+		t.Fatalf("hint = %#v", hint)
 	}
 }
 

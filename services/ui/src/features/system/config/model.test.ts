@@ -22,6 +22,7 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
     git_bot_api_url: 'http://git-bot:8081',
     dispatcher_grpc_address: 'dispatcher:9090',
     dispatcher_routing: { prod: ['runner-prod'], '*': ['runner-general'] },
+    ejected_runner_ids: ['runner-old', ' runner-z '],
     runner_id: 'runner-general',
     runner_scopes: 'dev,prod',
     runner_capacity: 2,
@@ -68,6 +69,7 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
     },
   });
   assert.deepEqual(config.dispatcher_routing, { '*': ['runner-general'], prod: ['runner-prod'] });
+  assert.equal(config.ejected_runner_ids, 'runner-old, runner-z');
   assert.equal(fieldMetadata.log_level.apply, 'Applied immediately');
 
   const payload = systemConfigPayloadFromForm({
@@ -78,6 +80,7 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
     github_installation_id: ' 456789 ',
     github_private_key_credential_ref: ' credential://system/github/prod-private-key ',
     github_webhook_credential_ref: ' credential://system/github/prod-webhook-secret ',
+    ejected_runner_ids: ' runner-old, runner-retired ',
     runner_capacity: '3',
   });
 
@@ -89,6 +92,7 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
   assert.equal(Object.hasOwn(payload, 'github_private_key_credential_ref'), false);
   assert.equal(Object.hasOwn(payload, 'github_webhook_credential_ref'), false);
   assert.equal(payload.runner_capacity, 3);
+  assert.deepEqual(payload.ejected_runner_ids, ['runner-old', 'runner-retired']);
   assert.deepEqual(payload.runtime_pools, config.runtime_pools);
 });
 

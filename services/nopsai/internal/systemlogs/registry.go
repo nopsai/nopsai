@@ -1,9 +1,12 @@
 package systemlogs
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
+
+const RunnerSourcePrefix = "runner:"
 
 type Source struct {
 	ID            string
@@ -14,6 +17,38 @@ type Source struct {
 
 type Registry struct {
 	byID map[string]Source
+}
+
+func RunnerSourceID(runnerID string) string {
+	runnerID = strings.TrimSpace(runnerID)
+	if runnerID == "" {
+		return ""
+	}
+	return RunnerSourcePrefix + runnerID
+}
+
+func ParseRunnerSourceID(sourceID string) (string, bool) {
+	sourceID = strings.TrimSpace(sourceID)
+	if !strings.HasPrefix(sourceID, RunnerSourcePrefix) {
+		return "", false
+	}
+	runnerID := strings.TrimSpace(strings.TrimPrefix(sourceID, RunnerSourcePrefix))
+	return runnerID, runnerID != ""
+}
+
+func NewRunnerSource(runnerID, containerName string) (Source, bool) {
+	runnerID = strings.TrimSpace(runnerID)
+	containerName = strings.TrimSpace(containerName)
+	sourceID := RunnerSourceID(runnerID)
+	if sourceID == "" || containerName == "" {
+		return Source{}, false
+	}
+	return Source{
+		ID:            sourceID,
+		DisplayName:   fmt.Sprintf("Runner %s", runnerID),
+		ContainerName: containerName,
+		Optional:      true,
+	}, true
 }
 
 func NewRegistry(sources []Source) *Registry {

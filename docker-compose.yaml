@@ -309,6 +309,8 @@ services:
     container_name: nopsai-docker-runner
     hostname: docker-runner
     image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/nopsai}/nopsai-docker-runner:${NOPSAI_VERSION:-dev}
+    labels:
+      nopsai.io/system-log-source: "false"
     build:
       context: .
       dockerfile: container/Dockerfile.docker-runner

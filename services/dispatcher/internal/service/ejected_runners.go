@@ -7,6 +7,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const runnerBlockedByEjectedRunnerIDs = "runner ID is blocked by ejected_runner_ids"
+
 func normalizeEjectedRunnerIDs(ids []string) []string {
 	if len(ids) == 0 {
 		return nil

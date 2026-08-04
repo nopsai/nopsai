@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -67,6 +68,155 @@ func TestProviderDoesNotExposeDockerHealthNone(t *testing.T) {
 	}
 	if sources[0].Health != "" {
 		t.Fatalf("source health = %q, want empty health when Docker reports none", sources[0].Health)
+	}
+}
+
+func TestProviderTreatsHiddenSystemLogSourceAsUnavailable(t *testing.T) {
+	fake := &fakeDocker{containers: []ContainerSummary{{
+		ID:     "runner-build-target",
+		Names:  []string{"/nopsai-docker-runner"},
+		State:  "exited",
+		Labels: map[string]string{"nopsai.io/system-log-source": "false"},
+	}}}
+	provider := NewProvider(fake, systemlogs.NewRegistry([]systemlogs.Source{{ID: "docker-runner", DisplayName: "Docker runner", ContainerName: "nopsai-docker-runner", Optional: true}}))
+
+	sources, err := provider.ListSources(context.Background())
+	if err != nil {
+		t.Fatalf("ListSources() error = %v", err)
+	}
+	if len(sources) != 1 || sources[0].Available || sources[0].State != "unavailable" {
+		t.Fatalf("ListSources() = %#v, want hidden source unavailable", sources)
+	}
+}
+
+func TestProviderListsAndTailsLabeledRunnerSource(t *testing.T) {
+	fake := &fakeDocker{
+		containers: []ContainerSummary{{
+			ID:     "runner-id",
+			Names:  []string{"/runner-prod-1"},
+			State:  "running",
+			Status: "Up 3 minutes",
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "nopsai-docker-runner",
+				"app.kubernetes.io/component": "runner",
+				"nopsai.io/runner-id":         "runner-prod-1",
+			},
+		}},
+		logs: dockerFrame(1, "2026-06-21T12:00:00Z runner ready\n"),
+	}
+	provider := NewProvider(fake, systemlogs.DefaultRegistry())
+
+	sources, err := provider.ListSources(context.Background())
+	if err != nil {
+		t.Fatalf("ListSources() error = %v", err)
+	}
+	found := false
+	for _, source := range sources {
+		if source.ID != "runner:runner-prod-1" {
+			continue
+		}
+		found = source.Available && source.DisplayName == "Runner runner-prod-1" && source.ContainerName == "runner-prod-1"
+	}
+	if !found {
+		t.Fatalf("runner source not found in %#v", sources)
+	}
+
+	entries, err := provider.Tail(context.Background(), "runner:runner-prod-1", 10)
+	if err != nil {
+		t.Fatalf("Tail(runner) error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Line != "runner ready" || entries[0].SourceID != "runner:runner-prod-1" {
+		t.Fatalf("runner entries = %#v", entries)
+	}
+	if fake.logTarget != "runner-prod-1" {
+		t.Fatalf("log target = %q, want generated runner container name", fake.logTarget)
+	}
+}
+
+func TestProviderResolvesRunnerSourceByPlatformID(t *testing.T) {
+	fake := &fakeDocker{
+		containers: []ContainerSummary{
+			{
+				ID:     "other-platform-runner",
+				Names:  []string{"/runner-prod-other"},
+				State:  "running",
+				Status: "Up 5 minutes",
+				Labels: map[string]string{
+					"app.kubernetes.io/name":      "nopsai-docker-runner",
+					"app.kubernetes.io/component": "runner",
+					"nopsai.io/runner-id":         "runner-prod",
+					"nopsai.io/platform-id":       "platform-b",
+				},
+			},
+			{
+				ID:     "owned-runner",
+				Names:  []string{"/runner-prod-owned"},
+				State:  "running",
+				Status: "Up 3 minutes",
+				Labels: map[string]string{
+					"app.kubernetes.io/name":      "nopsai-docker-runner",
+					"app.kubernetes.io/component": "runner",
+					"nopsai.io/runner-id":         "runner-prod",
+					"nopsai.io/platform-id":       "platform-a",
+				},
+			},
+		},
+		logs: dockerFrame(1, "2026-06-21T12:00:00Z owned runner ready\n"),
+	}
+	provider := NewProvider(fake, systemlogs.DefaultRegistry(), Options{PlatformID: "platform-a"})
+
+	sources, err := provider.ListSources(context.Background())
+	if err != nil {
+		t.Fatalf("ListSources() error = %v", err)
+	}
+	var found systemlogs.SourceStatus
+	for _, source := range sources {
+		if source.ID == "runner:runner-prod" {
+			found = source
+			break
+		}
+	}
+	if !found.Available || found.ContainerName != "runner-prod-owned" || found.ContainerInstance != "owned-runner" {
+		t.Fatalf("runner source = %#v, want owned runner", found)
+	}
+
+	entries, err := provider.Tail(context.Background(), "runner:runner-prod", 10)
+	if err != nil {
+		t.Fatalf("Tail(runner) error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Line != "owned runner ready" || fake.logTarget != "runner-prod-owned" {
+		t.Fatalf("entries/log target = %#v/%q", entries, fake.logTarget)
+	}
+}
+
+func TestProviderDoesNotResolveOtherPlatformRunnerContainer(t *testing.T) {
+	fake := &fakeDocker{
+		containers: []ContainerSummary{{
+			ID:     "other-platform-runner",
+			Names:  []string{"/runner-prod-other"},
+			State:  "running",
+			Status: "Up 5 minutes",
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "nopsai-docker-runner",
+				"app.kubernetes.io/component": "runner",
+				"nopsai.io/runner-id":         "runner-prod",
+				"nopsai.io/platform-id":       "platform-b",
+			},
+		}},
+	}
+	provider := NewProvider(fake, systemlogs.DefaultRegistry(), Options{PlatformID: "platform-a"})
+
+	sources, err := provider.ListSources(context.Background())
+	if err != nil {
+		t.Fatalf("ListSources() error = %v", err)
+	}
+	for _, source := range sources {
+		if source.ID == "runner:runner-prod" && source.Available {
+			t.Fatalf("runner source = %#v, want other platform hidden", source)
+		}
+	}
+	if _, err := provider.Tail(context.Background(), "runner:runner-prod", 10); !errors.Is(err, systemlogs.ErrSourceNotFound) {
+		t.Fatalf("Tail() error = %v, want ErrSourceNotFound", err)
 	}
 }
 

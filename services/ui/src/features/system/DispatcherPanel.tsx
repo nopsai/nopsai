@@ -17,6 +17,7 @@ import {
   type DispatcherStatusState,
   type Runner,
 } from './dispatcher/model';
+import { isRunnerRecentlyDisconnected } from './dispatcher/presentation';
 
 const RUNNER_DEPLOYMENT_GUIDE_QUERY = 'guide';
 const RUNNER_DEPLOYMENT_GUIDE_VALUE = 'runner';
@@ -147,7 +148,7 @@ function DispatcherPanel({
                 Runtime config access is required to edit routing.
               </div>
             )}
-            <RoutingMap routing={status?.routing ?? {}} effectiveRouting={status?.effectiveRouting ?? {}} runners={runners} />
+            <RoutingMap routing={status?.routing ?? {}} effectiveRouting={status?.effectiveRouting ?? {}} runners={runners} nowMs={nowMs} />
           </section>
         </div>
       )}
@@ -336,10 +337,12 @@ function RoutingMap({
   routing,
   effectiveRouting,
   runners,
+  nowMs,
 }: {
   routing: Record<string, string[]>;
   effectiveRouting: Record<string, string[]>;
   runners: Runner[];
+  nowMs: number;
 }) {
   const routeMap = Object.keys(effectiveRouting || {}).length > 0 ? effectiveRouting : routing;
   const rows = Object.entries(routeMap || {})
@@ -350,6 +353,10 @@ function RoutingMap({
     .sort((a, b) => a.scope.localeCompare(b.scope));
   const liveRows = buildLiveRunnerRoutingRows(runners);
   const reachableRunnerIds = new Set(runners.filter(runner => getRunnerMeta(runner).reachable).map(runner => runner.runnerId).filter(Boolean));
+  const degradedRunnerIds = new Set(runners.filter(runner => {
+    const meta = getRunnerMeta(runner);
+    return meta.reachable && isRunnerRecentlyDisconnected(nowMs, meta.disconnectedAt);
+  }).map(runner => runner.runnerId).filter(Boolean));
 
   if (rows.length === 0 && liveRows.length === 0) {
     return (
@@ -366,6 +373,7 @@ function RoutingMap({
           title="Effective routing"
           rows={rows}
           reachableRunnerIds={reachableRunnerIds}
+          degradedRunnerIds={degradedRunnerIds}
           targetTone="availability"
         />
       ) : null}
@@ -374,6 +382,7 @@ function RoutingMap({
           title="Live runner scopes"
           rows={liveRows}
           reachableRunnerIds={reachableRunnerIds}
+          degradedRunnerIds={degradedRunnerIds}
           targetTone="muted"
         />
       ) : (
@@ -389,11 +398,13 @@ function RoutingMapTable({
   title,
   rows,
   reachableRunnerIds,
+  degradedRunnerIds,
   targetTone,
 }: {
   title: string;
   rows: Array<{ scope: string; runners: string[] }>;
   reachableRunnerIds: Set<string>;
+  degradedRunnerIds: Set<string>;
   targetTone: 'availability' | 'muted';
 }) {
   return (
@@ -410,7 +421,7 @@ function RoutingMapTable({
           </thead>
           <tbody>
             {rows.map(row => {
-              const health = routeHealth(row.runners, reachableRunnerIds);
+              const health = routeHealth(row.runners, reachableRunnerIds, degradedRunnerIds);
               return (
                 <tr key={`${title}-${row.scope}`}>
                   <td>
@@ -423,10 +434,11 @@ function RoutingMapTable({
                     <div className="dispatcher-route-targets">
                       {row.runners.map(runnerId => {
                         const reachable = runnerId === '*' || reachableRunnerIds.has(runnerId);
+                        const degraded = runnerId !== '*' && degradedRunnerIds.has(runnerId);
                         return (
                           <span
                             key={`${title}-${row.scope}-${runnerId}`}
-                            className={`dispatcher-route-target ${targetTone === 'muted' ? 'dispatcher-route-target--muted' : reachable ? 'dispatcher-route-target--ok' : 'dispatcher-route-target--warning'}`}
+                            className={`dispatcher-route-target ${targetTone === 'muted' ? 'dispatcher-route-target--muted' : reachable && !degraded ? 'dispatcher-route-target--ok' : 'dispatcher-route-target--warning'}`}
                           >
                             <span aria-hidden="true"></span>
                             {runnerId}
@@ -448,9 +460,10 @@ function RoutingMapTable({
   );
 }
 
-function routeHealth(runnerIds: string[], reachableRunnerIds: Set<string>) {
+function routeHealth(runnerIds: string[], reachableRunnerIds: Set<string>, degradedRunnerIds: Set<string>) {
   const reachableCount = runnerIds.filter(runnerId => runnerId === '*' || reachableRunnerIds.has(runnerId)).length;
-  if (reachableCount === runnerIds.length) return { label: 'Healthy', tone: 'runner-pill--ok' };
+  const degradedCount = runnerIds.filter(runnerId => runnerId !== '*' && degradedRunnerIds.has(runnerId)).length;
+  if (reachableCount === runnerIds.length && degradedCount === 0) return { label: 'Healthy', tone: 'runner-pill--ok' };
   if (reachableCount > 0) return { label: 'Degraded', tone: 'runner-pill--warning' };
   return { label: 'Unavailable', tone: 'runner-pill--error' };
 }
