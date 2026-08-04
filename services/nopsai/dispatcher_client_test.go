@@ -77,7 +77,7 @@ func (f *fakeDispatcherClient) UpdateRunnerDispatch(ctx context.Context, req *pr
 	return &proto.UpdateRunnerDispatchResponse{}, nil
 }
 
-func TestHandleEjectRunnerUsesDispatcherControlDelete(t *testing.T) {
+func TestHandleEjectRunnerRemovesDispatcherRegistrationOnly(t *testing.T) {
 	dispatcher := &fakeDispatcherClient{}
 	app := &App{
 		dispatcher: dispatcher,
@@ -85,7 +85,7 @@ func TestHandleEjectRunnerUsesDispatcherControlDelete(t *testing.T) {
 			"*":    {"runner-general", "runner-prod-5"},
 			"prod": {"runner-prod-5"},
 			"dev":  {"runner-dev"},
-		}},
+		}, EjectedRunnerIDs: []string{"runner-other", "runner-prod-5"}},
 	}
 	req := httptest.NewRequest(http.MethodDelete, "/v1/system/dispatcher/runners/runner-prod-5", nil)
 	req.SetPathValue("runnerID", "runner-prod-5")
@@ -108,17 +108,44 @@ func TestHandleEjectRunnerUsesDispatcherControlDelete(t *testing.T) {
 	if dispatcher.updateRunnerReq.GetAllowDispatch() {
 		t.Fatal("allow_dispatch = true, want false for eject control")
 	}
-	if got := app.getConfigSnapshot().EjectedRunnerIDs; len(got) != 1 || got[0] != "runner-prod-5" {
-		t.Fatalf("ejected runner ids = %#v, want runner-prod-5", got)
+	if got := app.getConfigSnapshot().EjectedRunnerIDs; len(got) != 1 || got[0] != "runner-other" {
+		t.Fatalf("ejected runner ids = %#v, want only unrelated revocation", got)
 	}
 	cfg := app.getConfigSnapshot()
-	if got := cfg.DispatcherRouting["*"]; len(got) != 1 || got[0] != "runner-general" {
-		t.Fatalf("default routing = %#v, want runner-general only", got)
+	if got := cfg.DispatcherRouting["*"]; len(got) != 2 || got[0] != "runner-general" || got[1] != "runner-prod-5" {
+		t.Fatalf("default routing = %#v, want unchanged route", got)
 	}
-	if _, exists := cfg.DispatcherRouting["prod"]; exists {
-		t.Fatalf("prod route remained after ejecting its only runner: %#v", cfg.DispatcherRouting)
+	if got := cfg.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod-5" {
+		t.Fatalf("prod route = %#v, want unchanged route", got)
 	}
 	if got := cfg.DispatcherRouting["dev"]; len(got) != 1 || got[0] != "runner-dev" {
 		t.Fatalf("dev routing = %#v, want runner-dev unchanged", got)
+	}
+}
+
+func TestGenerateRunnerBootstrapCommandClearsStaleRunnerRevocation(t *testing.T) {
+	app := &App{cfg: &config.Config{
+		NopsaiAPIURL:            "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+		DispatcherTLSMode:       "mtls",
+		DispatcherTLSSecret:     "tls-secret",
+		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
+		EjectedRunnerIDs:        []string{"runner-general", "runner-other"},
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-general&runner_capacity=2", nil)
+	rec := httptest.NewRecorder()
+
+	app.handleGenerateRunnerBootstrapCommand(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := app.getConfigSnapshot().EjectedRunnerIDs; len(got) != 1 || got[0] != "runner-other" {
+		t.Fatalf("ejected runner ids = %#v, want stale requested runner cleared", got)
 	}
 }

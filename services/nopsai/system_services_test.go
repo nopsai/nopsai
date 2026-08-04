@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/proto"
@@ -130,6 +131,25 @@ func TestBuildSystemServiceStatusesWarnsOnUnreachableRegisteredRunner(t *testing
 
 	byID := systemServiceStatusesByID(statuses)
 	assertServiceStatus(t, byID, "runners", "warning", "2 runner(s) registered, 1 unreachable.")
+}
+
+func TestBuildSystemServiceStatusesWarnsOnRecentlyReconnectedRunner(t *testing.T) {
+	app := App{cfg: &config.Config{}}
+	statuses := app.buildSystemServiceStatuses(context.Background(), &proto.DispatcherStatus{
+		Runners: []*proto.RunnerInfo{
+			{
+				RunnerId: "runner-recovered",
+				Metadata: map[string]string{
+					"connection_status":    "online",
+					"reachable":            "true",
+					"last_disconnected_at": time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+				},
+			},
+		},
+	}, nil)
+
+	byID := systemServiceStatusesByID(statuses)
+	assertServiceStatus(t, byID, "runners", "warning", "1 runner(s) registered, 1 recently reconnected.")
 }
 
 func systemServiceStatusesByID(statuses []systemServiceStatus) map[string]systemServiceStatus {

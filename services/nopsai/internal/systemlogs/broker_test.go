@@ -86,6 +86,29 @@ func TestBrokerRedactsBeforeReplayAndFansOut(t *testing.T) {
 	}
 }
 
+func TestBrokerAcceptsDynamicRunnerSources(t *testing.T) {
+	sourceID := RunnerSourceID("runner-general2")
+	provider := &fakeProvider{tail: []Entry{{ContainerName: "runner-general2", ContainerInstance: "runner-general2", Stream: StreamStdout, Line: "runner booted"}}}
+	broker := newTestBroker(provider, 10, 2)
+
+	entries, err := broker.Tail(context.Background(), sourceID, 10)
+	if err != nil {
+		t.Fatalf("Tail(dynamic runner) error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].SourceID != sourceID || entries[0].Line != "runner booted" {
+		t.Fatalf("Tail(dynamic runner) entries = %#v", entries)
+	}
+
+	sub, err := broker.Subscribe(context.Background(), sourceID, "", 10)
+	if err != nil {
+		t.Fatalf("Subscribe(dynamic runner) error = %v", err)
+	}
+	defer sub.Close()
+	if len(sub.Replay) != 1 || sub.Replay[0].SourceID != sourceID {
+		t.Fatalf("Subscribe(dynamic runner) replay = %#v", sub.Replay)
+	}
+}
+
 func TestBrokerReplaysAfterCursorAndSignalsExpiredCursor(t *testing.T) {
 	provider := &fakeProvider{tail: []Entry{
 		{ContainerInstance: "one", Line: "one"}, {ContainerInstance: "one", Line: "two"}, {ContainerInstance: "one", Line: "three"},

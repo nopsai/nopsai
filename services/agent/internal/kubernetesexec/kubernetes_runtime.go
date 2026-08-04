@@ -45,7 +45,7 @@ const (
 	kubernetesDefaultRuntimePool      = "default"
 	kubernetesServiceAccountNamespace = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 	kubernetesManagedLabel            = "nopsai.io/managed"
-	kubernetesStepVolumeOwnerLabel    = "nopsai.io/run-id"
+	kubernetesStepVolumeLogicalLabel  = "nopsai.io/logical-volume"
 	kubernetesStepVolumeComponent     = "pipeline-step-volume"
 )
 
@@ -368,27 +368,32 @@ func (r *Runtime) kubernetesStepVolumes(ctx context.Context, volumeSpecs []strin
 	}
 	mounts := make([]corev1.VolumeMount, 0, len(volumeSpecs))
 	volumes := make([]corev1.Volume, 0, len(volumeSpecs))
+	seenVolumes := map[string]bool{}
 	for _, spec := range volumeSpecs {
 		parts := strings.Split(spec, ":")
 		if len(parts) != 2 {
 			return nil, nil, fmt.Errorf("invalid volume format %q; must be 'pvc-name:mount-path'", spec)
 		}
-		claimName := kubernetesPVCName(parts[0])
+		logicalName := strings.TrimSpace(parts[0])
+		claimName := kubernetesPVCName(logicalName)
 		mountPath := strings.TrimSpace(parts[1])
-		if claimName == "" || mountPath == "" || !strings.HasPrefix(mountPath, "/") {
+		if logicalName == "" || claimName == "" || mountPath == "" || !strings.HasPrefix(mountPath, "/") {
 			return nil, nil, fmt.Errorf("invalid kubernetes volume %q", spec)
 		}
-		if err := r.ensureStepPVC(ctx, claimName, r.workspaceSize, r.accessMode, runID); err != nil {
+		if err := r.ensureStepPVC(ctx, claimName, r.workspaceSize, r.accessMode, logicalName); err != nil {
 			return nil, nil, fmt.Errorf("ensure pvc %s: %w", claimName, err)
 		}
 		volumeName := kubernetesObjectName("vol", claimName)
 		mounts = append(mounts, corev1.VolumeMount{Name: volumeName, MountPath: mountPath})
-		volumes = append(volumes, corev1.Volume{
-			Name: volumeName,
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claimName},
-			},
-		})
+		if !seenVolumes[volumeName] {
+			seenVolumes[volumeName] = true
+			volumes = append(volumes, corev1.Volume{
+				Name: volumeName,
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: claimName},
+				},
+			})
+		}
 	}
 	return mounts, volumes, nil
 }
@@ -403,7 +408,7 @@ func defaultKubernetesContainerSecurityContext() *corev1.SecurityContext {
 	allowPrivilegeEscalation := false
 	return &corev1.SecurityContext{
 		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
-		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
 }
 
@@ -466,17 +471,14 @@ func (r *Runtime) ensurePVC(ctx context.Context, name, size string, accessMode c
 	return nil
 }
 
-func (r *Runtime) ensureStepPVC(ctx context.Context, name, size string, accessMode corev1.PersistentVolumeAccessMode, runID string) error {
+func (r *Runtime) ensureStepPVC(ctx context.Context, name, size string, accessMode corev1.PersistentVolumeAccessMode, logicalName string) error {
 	name = kubernetesPVCName(name)
-	runID = strings.TrimSpace(runID)
-	if name == "" || runID == "" {
-		return fmt.Errorf("pvc name and run id are required")
+	logicalName = strings.TrimSpace(logicalName)
+	if name == "" || logicalName == "" {
+		return fmt.Errorf("pvc name and logical name are required")
 	}
-	if existing, err := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
-		if kubernetesStepPVCOwnedBy(existing.Labels, runID) {
-			return nil
-		}
-		return fmt.Errorf("pvc %s is not owned by this NopsAI run", name)
+	if _, err := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		return nil
 	} else if !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -490,10 +492,10 @@ func (r *Runtime) ensureStepPVC(ctx context.Context, name, size string, accessMo
 			Name:      name,
 			Namespace: r.namespace,
 			Labels: mergeKubernetesStringMaps(r.podLabels, map[string]string{
-				"app.kubernetes.io/name":       "nopsai",
-				"app.kubernetes.io/component":  kubernetesStepVolumeComponent,
-				kubernetesManagedLabel:         "true",
-				kubernetesStepVolumeOwnerLabel: kubernetesLabelValue(runID),
+				"app.kubernetes.io/name":         "nopsai",
+				"app.kubernetes.io/component":    kubernetesStepVolumeComponent,
+				kubernetesManagedLabel:           "true",
+				kubernetesStepVolumeLogicalLabel: kubernetesLabelValue(logicalName),
 			}),
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -510,22 +512,8 @@ func (r *Runtime) ensureStepPVC(ctx context.Context, name, size string, accessMo
 		if !apierrors.IsAlreadyExists(err) {
 			return err
 		}
-		existing, getErr := r.client.CoreV1().PersistentVolumeClaims(r.namespace).Get(ctx, name, metav1.GetOptions{})
-		if getErr != nil {
-			return fmt.Errorf("inspect existing pvc %s after create collision: %w", name, getErr)
-		}
-		if !kubernetesStepPVCOwnedBy(existing.Labels, runID) {
-			return fmt.Errorf("pvc %s is not owned by this NopsAI run", name)
-		}
 	}
 	return nil
-}
-
-func kubernetesStepPVCOwnedBy(labels map[string]string, runID string) bool {
-	return strings.EqualFold(strings.TrimSpace(labels[kubernetesManagedLabel]), "true") &&
-		strings.TrimSpace(labels["app.kubernetes.io/name"]) == "nopsai" &&
-		strings.TrimSpace(labels["app.kubernetes.io/component"]) == kubernetesStepVolumeComponent &&
-		strings.TrimSpace(labels[kubernetesStepVolumeOwnerLabel]) == kubernetesLabelValue(runID)
 }
 
 func (r *Runtime) waitForPodRunning(ctx context.Context, podName string) error {

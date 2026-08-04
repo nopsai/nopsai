@@ -67,11 +67,6 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize credential service: %w", err)
 	}
-	systemLogBroker, err := newSystemLogBroker(options.Config, options.SystemLogProvider)
-	if err != nil {
-		return nil, fmt.Errorf("initialize system logs: %w", err)
-	}
-
 	app := &App{
 		db:                 options.Database,
 		cfg:                options.Config,
@@ -95,7 +90,6 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 		aaaLocal:           security.localAAA,
 		authz:              security.authz,
 		auditLogger:        security.auditLogger,
-		systemLogs:         systemLogBroker,
 		systemLogLimiter:   newSystemLogRateLimiter(30, time.Minute),
 		configSyncStatus: ConfigSyncStatus{
 			Status:  "idle",
@@ -115,6 +109,11 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 	if options.CredentialResolver != nil {
 		app.credentialResolver = options.CredentialResolver
 	}
+	systemLogBroker, err := newSystemLogBrokerWithRunnerSourceResolver(options.Config, options.SystemLogProvider, app)
+	if err != nil {
+		return nil, fmt.Errorf("initialize system logs: %w", err)
+	}
+	app.systemLogs = systemLogBroker
 	if err := app.loadOrSeedLLMProfilesConfig(ctx); err != nil {
 		return nil, fmt.Errorf("load LLM profiles: %w", err)
 	}

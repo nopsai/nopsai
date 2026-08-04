@@ -44,6 +44,7 @@ type monitoringRunnerStatus struct {
 type monitoringRunnerSummary struct {
 	Total        int   `json:"total"`
 	Online       int   `json:"online"`
+	Recovered    int   `json:"recovered"`
 	Stale        int   `json:"stale"`
 	Unreachable  int   `json:"unreachable"`
 	Disabled     int   `json:"disabled"`
@@ -285,6 +286,8 @@ func monitoringRunnersFromDispatcherStatus(status *proto.DispatcherStatus, allow
 		switch item.Status {
 		case "online":
 			summary.Online++
+		case "recovered":
+			summary.Recovered++
 		case "stale":
 			summary.Stale++
 		case "unreachable":
@@ -392,6 +395,9 @@ func monitoringRunnerState(runner *proto.RunnerInfo, now time.Time) string {
 	}
 	if now.Sub(time.Unix(lastHeartbeat, 0)) > monitoringRunnerStaleAfter {
 		return "stale"
+	}
+	if runnerRecentlyDisconnected(runner.GetMetadata(), now) {
+		return "recovered"
 	}
 	return "online"
 }

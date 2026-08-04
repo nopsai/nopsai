@@ -312,6 +312,7 @@ func TestHelmChartConfiguresKubernetesSystemLogs(t *testing.T) {
 	for _, required := range []string{
 		"systemLogs:",
 		"provider: kubernetes",
+		"dockerHost: \"\"",
 		"serviceAccount:",
 		"name: nopsai-api",
 	} {
@@ -325,6 +326,7 @@ func TestHelmChartConfiguresKubernetesSystemLogs(t *testing.T) {
 		"resources: [pods/log]",
 		"verbs: [get]",
 		"SYSTEM_LOGS_PROVIDER",
+		"SYSTEM_LOGS_DOCKER_HOST",
 		"SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR",
 	} {
 		if !strings.Contains(apiTemplate, required) {

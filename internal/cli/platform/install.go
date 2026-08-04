@@ -929,6 +929,8 @@ func renderComposeEnv(version string, images map[string]string, secrets composeS
 	builder.WriteString(secrets.DispatcherTLSSecret)
 	builder.WriteString("\nNOPSAI_MASTER_KEY=")
 	builder.WriteString(secrets.MasterKey)
+	builder.WriteString("\nNOPSAI_PLATFORM_ID=")
+	builder.WriteString(installPlatformID(secrets.MasterKey))
 	builder.WriteString("\nNOPSAI_BOOTSTRAP_ADMIN_EMAIL=")
 	builder.WriteString(bootstrapAdminEmail)
 	builder.WriteString("\nNOPSAI_BOOTSTRAP_ADMIN_PASSWORD=")
@@ -941,6 +943,11 @@ func renderComposeEnv(version string, images map[string]string, secrets composeS
 		builder.WriteString("\n")
 	}
 	return []byte(builder.String())
+}
+
+func installPlatformID(masterKey string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(masterKey)))
+	return "p-" + fmt.Sprintf("%x", sum[:8])
 }
 
 func renderKubernetesValues(version string, images map[string]string, existingSecret, ingressHost string, topology installTopology, bootstrapAdminEmail, bootstrapAdminPasswordSecretKey, postgresDatabase, postgresUser string) ([]byte, error) {
@@ -1498,6 +1505,7 @@ volumes:
 x-service-auth-env: &service-auth-env
   SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:?SERVICE_JWT_SIGNING_KEY is required}
   DISPATCHER_TLS_SECRET: ${DISPATCHER_TLS_SECRET:-}
+  NOPSAI_PLATFORM_ID: ${NOPSAI_PLATFORM_ID:?NOPSAI_PLATFORM_ID is required}
 
 x-local-topology-env: &local-topology-env
   NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}
@@ -1655,12 +1663,19 @@ services:
     hostname: docker-runner
     image: ${NOPSAI_DOCKER_RUNNER_IMAGE:?NOPSAI_DOCKER_RUNNER_IMAGE is required}
     restart: unless-stopped
+    labels:
+      app.kubernetes.io/name: nopsai-docker-runner
+      app.kubernetes.io/component: runner
+      nopsai.io/runner-id: ${RUNNER_ID:-runner-general}
+      nopsai.io/platform-id: ${NOPSAI_PLATFORM_ID:?NOPSAI_PLATFORM_ID is required}
     depends_on:
       dispatcher:
         condition: service_started
     environment:
       <<: [*service-auth-env, *observability-env]
       NOPSAI_SERVICE_NAME: docker-runner
+      RUNNER_ID: ${RUNNER_ID:-runner-general}
+      RUNNER_CONTAINER_NAME: nopsai-docker-runner
       DISPATCHER_GRPC_ADDRESS: ${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}
       DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-nopsai-net}
     volumes:

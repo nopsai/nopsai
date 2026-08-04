@@ -109,7 +109,8 @@ func (b *Broker) ListSources(ctx context.Context) ([]SourceStatus, error) {
 }
 
 func (b *Broker) Tail(ctx context.Context, sourceID string, lines int) ([]Entry, error) {
-	if _, ok := b.registry.Resolve(sourceID); !ok {
+	sourceID = strings.TrimSpace(sourceID)
+	if !b.sourceKnown(sourceID) {
 		return nil, ErrSourceNotFound
 	}
 	lines = b.clampTail(lines)
@@ -128,7 +129,8 @@ func (b *Broker) Tail(ctx context.Context, sourceID string, lines int) ([]Entry,
 }
 
 func (b *Broker) Subscribe(ctx context.Context, sourceID, token string, tail int) (*Subscription, error) {
-	if _, ok := b.registry.Resolve(sourceID); !ok {
+	sourceID = strings.TrimSpace(sourceID)
+	if !b.sourceKnown(sourceID) {
 		return nil, ErrSourceNotFound
 	}
 	state := b.source(sourceID)
@@ -175,6 +177,17 @@ func (b *Broker) Subscribe(ctx context.Context, sourceID, token string, tail int
 	subscription := &Subscription{Entries: channel, Replay: replay, Reset: reset}
 	subscription.close = func() { b.unsubscribe(sourceID, id) }
 	return subscription, nil
+}
+
+func (b *Broker) sourceKnown(sourceID string) bool {
+	if sourceID == "" {
+		return false
+	}
+	if _, ok := b.registry.Resolve(sourceID); ok {
+		return true
+	}
+	_, ok := ParseRunnerSourceID(sourceID)
+	return ok
 }
 
 func (b *Broker) replayLocked(state *sourceBroker, sourceID, token string, tail int) ([]Entry, bool, error) {

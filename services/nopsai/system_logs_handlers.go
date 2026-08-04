@@ -11,14 +11,19 @@ import (
 	"sync"
 	"time"
 
+	"nopsai/config"
 	"nopsai/pkg/correlation"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/systemlogs"
 	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
+
+	"github.com/rs/zerolog/log"
 )
 
 const systemLogRedactionWarning = "Secret redaction is best effort. Avoid emitting sensitive values and restrict access to operational logs."
+
+const runnerRecentDisconnectWindow = 15 * time.Minute
 
 type systemLogRateLimiter struct {
 	mu      sync.Mutex
@@ -63,6 +68,8 @@ func (a *App) handleListSystemLogSources(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "failed to list system log sources", http.StatusBadGateway)
 		return
 	}
+	sources = a.mergeRegisteredRunnerSystemLogSources(r.Context(), sources)
+	sources = a.filterVisibleSystemLogSources(r.Context(), sources)
 	resources := make([]model.ResourceRef, 0, len(sources))
 	for _, source := range sources {
 		resources = append(resources, model.ResourceRef{Type: "system_log", ID: source.ID})
@@ -95,7 +102,12 @@ func (a *App) handleTailSystemLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	entries, err := a.systemLogs.Tail(r.Context(), r.PathValue("sourceID"), lines)
+	sourceID := r.PathValue("sourceID")
+	if err := a.ensureSystemLogSourceVisible(r.Context(), sourceID); err != nil {
+		writeSystemLogError(w, err)
+		return
+	}
+	entries, err := a.systemLogs.Tail(r.Context(), sourceID, lines)
 	if err != nil {
 		writeSystemLogError(w, err)
 		return
@@ -125,6 +137,10 @@ func (a *App) handleStreamSystemLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceID := r.PathValue("sourceID")
+	if err := a.ensureSystemLogSourceVisible(r.Context(), sourceID); err != nil {
+		writeSystemLogError(w, err)
+		return
+	}
 	subscription, err := a.systemLogs.Subscribe(r.Context(), sourceID, r.URL.Query().Get("cursor"), lines)
 	if err != nil {
 		writeSystemLogError(w, err)
@@ -184,6 +200,248 @@ func (a *App) handleStreamSystemLogs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (a *App) filterVisibleSystemLogSources(ctx context.Context, sources []systemlogs.SourceStatus) []systemlogs.SourceStatus {
+	needsRunnerVisibility := false
+	for _, source := range sources {
+		if _, ok := systemlogs.ParseRunnerSourceID(source.ID); ok {
+			needsRunnerVisibility = true
+			break
+		}
+	}
+	if !needsRunnerVisibility {
+		return sources
+	}
+	visible, err := a.visibleRunnerLogSourceIDs(ctx)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to resolve dispatcher runner visibility for system logs")
+	}
+	out := sources[:0]
+	for _, source := range sources {
+		if _, ok := systemlogs.ParseRunnerSourceID(source.ID); !ok {
+			out = append(out, source)
+			continue
+		}
+		if _, ok := visible[source.ID]; ok {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+
+func (a *App) mergeRegisteredRunnerSystemLogSources(ctx context.Context, sources []systemlogs.SourceStatus) []systemlogs.SourceStatus {
+	if a == nil {
+		return sources
+	}
+	status, err := a.fetchDispatcherStatus(ctx)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to resolve dispatcher runner sources for system logs")
+		return sources
+	}
+	revoked := a.revokedRunnerIDSet()
+	runnerMetadataBySourceID := make(map[string]map[string]string, len(status.GetRunners()))
+	for _, runner := range status.GetRunners() {
+		runnerID := strings.TrimSpace(runner.GetRunnerId())
+		if runnerID == "" {
+			continue
+		}
+		if _, blocked := revoked[runnerID]; blocked {
+			continue
+		}
+		sourceID := runnerLogSourceID(runnerID, runner.GetMetadata())
+		if sourceID == "" {
+			continue
+		}
+		runnerMetadataBySourceID[sourceID] = runner.GetMetadata()
+	}
+
+	seen := make(map[string]struct{}, len(sources)+len(status.GetRunners()))
+	out := make([]systemlogs.SourceStatus, 0, len(sources)+len(status.GetRunners()))
+	now := time.Now()
+	for _, source := range sources {
+		if source.ID == "" {
+			continue
+		}
+		if metadata, ok := runnerMetadataBySourceID[source.ID]; ok {
+			source = annotateRegisteredRunnerSystemLogSource(source, metadata, now)
+		}
+		seen[source.ID] = struct{}{}
+		out = append(out, source)
+	}
+	for _, runner := range status.GetRunners() {
+		runnerID := strings.TrimSpace(runner.GetRunnerId())
+		if runnerID == "" {
+			continue
+		}
+		if _, blocked := revoked[runnerID]; blocked {
+			continue
+		}
+		sourceID := runnerLogSourceID(runnerID, runner.GetMetadata())
+		if sourceID == "" {
+			continue
+		}
+		if _, exists := seen[sourceID]; exists {
+			continue
+		}
+		source, ok := systemlogs.NewRunnerSource(runnerID, "runner")
+		if !ok {
+			continue
+		}
+		seen[sourceID] = struct{}{}
+		sourceStatus := systemlogs.SourceStatus{
+			ID:            source.ID,
+			DisplayName:   source.DisplayName,
+			ContainerName: source.ContainerName,
+			Available:     false,
+			State:         "unavailable",
+			Status:        registeredRunnerLogStatus(runner.GetMetadata()),
+		}
+		out = append(out, annotateRegisteredRunnerSystemLogSource(sourceStatus, runner.GetMetadata(), now))
+	}
+	return out
+}
+
+func (a *App) ensureSystemLogSourceVisible(ctx context.Context, sourceID string) error {
+	if _, ok := systemlogs.ParseRunnerSourceID(sourceID); !ok {
+		return nil
+	}
+	visible, err := a.visibleRunnerLogSourceIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("dispatcher runner visibility unavailable: %w", err)
+	}
+	if _, ok := visible[strings.TrimSpace(sourceID)]; !ok {
+		return systemlogs.ErrSourceNotFound
+	}
+	return nil
+}
+
+func (a *App) visibleRunnerLogSourceIDs(ctx context.Context) (map[string]struct{}, error) {
+	status, err := a.fetchDispatcherStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	revoked := a.revokedRunnerIDSet()
+	visible := make(map[string]struct{}, len(status.GetRunners()))
+	for _, runner := range status.GetRunners() {
+		runnerID := strings.TrimSpace(runner.GetRunnerId())
+		if runnerID == "" {
+			continue
+		}
+		if _, blocked := revoked[runnerID]; blocked {
+			continue
+		}
+		sourceID := runnerLogSourceID(runnerID, runner.GetMetadata())
+		if sourceID != "" {
+			visible[sourceID] = struct{}{}
+		}
+	}
+	return visible, nil
+}
+
+func (a *App) revokedRunnerIDSet() map[string]struct{} {
+	if a == nil {
+		return nil
+	}
+	a.cfgMu.RLock()
+	var ids []string
+	if a.cfg != nil {
+		ids = append([]string(nil), a.cfg.EjectedRunnerIDs...)
+	}
+	a.cfgMu.RUnlock()
+	normalized := config.NormalizeRunnerIDs(ids)
+	if len(normalized) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(normalized))
+	for _, id := range normalized {
+		out[id] = struct{}{}
+	}
+	return out
+}
+
+func runnerLogSourceID(runnerID string, metadata map[string]string) string {
+	runnerID = strings.TrimSpace(runnerID)
+	if runnerID == "" {
+		return ""
+	}
+	sourceID := strings.TrimSpace(metadata["log_source_id"])
+	if sourceID == "" {
+		return systemlogs.RunnerSourceID(runnerID)
+	}
+	if sourceRunnerID, ok := systemlogs.ParseRunnerSourceID(sourceID); !ok || sourceRunnerID != runnerID {
+		return systemlogs.RunnerSourceID(runnerID)
+	}
+	return sourceID
+}
+
+func registeredRunnerLogStatus(metadata map[string]string) string {
+	switch strings.ToLower(strings.TrimSpace(metadata["runtime"])) {
+	case "kubernetes":
+		return "registered runner; Kubernetes pod not discovered by System Logs provider"
+	case "docker":
+		return "registered runner; Docker container not discovered by System Logs provider"
+	default:
+		return "registered runner; log source not discovered by System Logs provider"
+	}
+}
+
+func annotateRegisteredRunnerSystemLogSource(source systemlogs.SourceStatus, metadata map[string]string, now time.Time) systemlogs.SourceStatus {
+	if _, ok := systemlogs.ParseRunnerSourceID(source.ID); !ok {
+		return source
+	}
+	if !runnerReachable(metadata) {
+		source.Health = "dispatcher unreachable"
+		source.Status = appendSystemLogSourceStatus(source.Status, runnerDispatcherLogStatusMessage("dispatcher connection unreachable", metadata))
+		return source
+	}
+	if runnerRecentlyDisconnected(metadata, now) {
+		source.Health = "recently reconnected"
+		source.Status = appendSystemLogSourceStatus(source.Status, runnerDispatcherLogStatusMessage("dispatcher stream reconnected after disconnect", metadata))
+	}
+	return source
+}
+
+func runnerRecentlyDisconnected(metadata map[string]string, now time.Time) bool {
+	disconnectedAt := strings.TrimSpace(metadata["last_disconnected_at"])
+	if disconnectedAt == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339, disconnectedAt)
+	if err != nil {
+		return false
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	age := now.Sub(parsed)
+	return age >= 0 && age <= runnerRecentDisconnectWindow
+}
+
+func runnerDispatcherLogStatusMessage(prefix string, metadata map[string]string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "dispatcher connection status changed"
+	}
+	if disconnectedAt := strings.TrimSpace(metadata["last_disconnected_at"]); disconnectedAt != "" {
+		return prefix + " at " + disconnectedAt
+	}
+	return prefix
+}
+
+func appendSystemLogSourceStatus(current, addition string) string {
+	current = strings.TrimSpace(current)
+	addition = strings.TrimSpace(addition)
+	if addition == "" {
+		return current
+	}
+	if current == "" {
+		return addition
+	}
+	if strings.Contains(current, addition) {
+		return current
+	}
+	return current + "; " + addition
 }
 
 func systemLogTailLines(r *http.Request, fallback int) (int, error) {

@@ -21,15 +21,21 @@ test('normalizes dispatcher install templates', () => {
   assert.deepEqual(
     normalizeRunnerComposeTemplate({
       runner_id: 'runner-1',
+      runner_name: 'prod',
       runner_capacity: 3,
+      platform_id: 'platform-a',
+      resource_name: 'runner-1-platform-a',
       dispatcher_grpc_address: 'dispatcher:9090',
       bootstrap_command: 'docker compose up',
       warnings: ['rotate token'],
     }),
     {
       runnerId: 'runner-1',
+      runnerName: 'prod',
       runnerScopes: '',
       runnerCapacity: 3,
+      platformId: 'platform-a',
+      resourceName: 'runner-1-platform-a',
       dispatcherAddress: 'dispatcher:9090',
       networkMode: '',
       runnerImage: '',
@@ -45,11 +51,17 @@ test('normalizes dispatcher install templates', () => {
 
   const kubernetes = normalizeKubernetesRunnerManifestTemplate({
     runnerId: 'k8s-1',
+    runner_name: 'k8s-prod',
     runnerCapacity: '2',
+    platform_id: 'platform-a',
+    resource_name: 'nopsai-k8s-runner-k8s-1-platform-a',
     service_account: 'runner-sa',
     bootstrapCommand: 'kubectl apply -f -',
   });
   assert.equal(kubernetes.runnerCapacity, 2);
+  assert.equal(kubernetes.runnerName, 'k8s-prod');
+  assert.equal(kubernetes.platformId, 'platform-a');
+  assert.equal(kubernetes.resourceName, 'nopsai-k8s-runner-k8s-1-platform-a');
   assert.equal(kubernetes.serviceAccount, 'runner-sa');
   assert.equal(kubernetes.bootstrapCommand, 'kubectl apply -f -');
 });
@@ -82,6 +94,7 @@ test('normalizes registered runner reachability metadata', () => {
   assert.equal(status.runners[0].reachable, false);
   assert.equal(status.runners[0].connectionStatus, 'unreachable');
   assert.deepEqual(getRunnerMeta(status.runners[0]), {
+    runnerName: '',
     connectionId: '',
     hostname: '',
     network: '',
@@ -89,6 +102,7 @@ test('normalizes registered runner reachability metadata', () => {
     namespace: '',
     node: '',
     serviceAccount: '',
+    logSourceId: 'runner:runner-offline',
     disconnectedAt: '2026-07-14T10:00:00Z',
     reachable: false,
     connectionStatus: 'unreachable',

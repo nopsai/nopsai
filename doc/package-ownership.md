@@ -181,6 +181,13 @@ Enterprise authentication follows the same split:
   `services/nopsai/internal/systemlogs/docker`.
 - Kubernetes pod discovery, label-to-source mapping, and `pods/log` streaming
   live in `services/nopsai/internal/systemlogs/kubernetes`.
+- Runner install labels, platform ownership IDs, Docker container names, and
+  Kubernetes runner selectors live in
+  `services/nopsai/internal/runnerinstall`; `config.Config.PlatformID` is the
+  platform-level override consumed by those helpers. Runner processes advertise
+  the resulting unique `runner:<runner-id>` source, friendly `runner_name`,
+  Docker container name, platform ID, and Kubernetes namespace/selector hints
+  through dispatcher registration metadata.
 - API, SSE heartbeat/reset composition, and content-free stream audit events
   live in `services/nopsai/system_logs_handlers.go`; route composition remains
   in `services/nopsai/routes.go` and route authorization in `pkg/routeauthz`.

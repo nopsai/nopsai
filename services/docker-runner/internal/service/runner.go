@@ -32,10 +32,12 @@ const (
 	defaultDispatcherAddr       = "localhost:9090"
 	defaultRunnerID             = "runner"
 	dockerRuntimeName           = "docker"
+	runnerNameEnv               = "RUNNER_NAME"
 	dockerRunVolumeManagedLabel = "nopsai.io/managed"
 	dockerRunVolumePurposeLabel = "nopsai.io/volume-purpose"
 	dockerRunVolumeOwnerLabel   = "nopsai.io/run-id"
 	dockerRunVolumePurpose      = "pipeline-workspace"
+	platformIDEnv               = "NOPSAI_PLATFORM_ID"
 )
 
 type Runner interface {
@@ -52,6 +54,7 @@ type RunnerOptions struct {
 	Docker                   *client.Client
 	DockerNetwork            string
 	DockerNetworkSet         bool
+	ContainerName            string
 	RegistryAuth             RegistryAuthResolver
 	RegistryAuthConfigBase64 string
 }
@@ -69,6 +72,7 @@ type dockerRunner struct {
 	active                   atomic.Int32
 	dockerNetwork            string
 	networkSet               bool
+	containerName            string
 	registryAuth             RegistryAuthResolver
 	registryAuthConfigBase64 string
 	stopMu                   sync.Mutex
@@ -99,6 +103,7 @@ func NewDockerRunner(options RunnerOptions) Runner {
 		docker:                   options.Docker,
 		dockerNetwork:            strings.TrimSpace(options.DockerNetwork),
 		networkSet:               options.DockerNetworkSet,
+		containerName:            strings.TrimSpace(options.ContainerName),
 		registryAuth:             options.RegistryAuth,
 		registryAuthConfigBase64: strings.TrimSpace(options.RegistryAuthConfigBase64),
 		stoppedRuns:              make(map[string]struct{}),
@@ -213,6 +218,7 @@ func (r *dockerRunner) registrationMetadata() map[string]string {
 		"version":         "v1",
 		"runtime":         dockerRuntimeName,
 		"dispatcher_addr": r.dispatcherAddr,
+		"log_source_id":   "runner:" + r.id,
 	}
 	if host, err := os.Hostname(); err == nil {
 		if trimmed := strings.TrimSpace(host); trimmed != "" {
@@ -221,6 +227,15 @@ func (r *dockerRunner) registrationMetadata() map[string]string {
 	}
 	if r.networkSet {
 		metadata["docker_network"] = r.dockerNetwork
+	}
+	if r.containerName != "" {
+		metadata["docker_container_name"] = r.containerName
+	}
+	if runnerName := strings.TrimSpace(os.Getenv(runnerNameEnv)); runnerName != "" && runnerName != r.id {
+		metadata["runner_name"] = runnerName
+	}
+	if platformID := strings.TrimSpace(os.Getenv(platformIDEnv)); platformID != "" {
+		metadata["nopsai_platform_id"] = platformID
 	}
 	return metadata
 }

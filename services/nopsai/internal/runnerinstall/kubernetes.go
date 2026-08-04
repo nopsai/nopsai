@@ -26,8 +26,14 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 	if runnerID == "" {
 		runnerID = firstNonEmptyString(strings.TrimSpace(cfg.RunnerID), "k8s-runner-1")
 	}
+	identity, err := runnerIdentityForInstall(runnerID, query)
+	if err != nil {
+		return KubernetesManifestResponse{}, err
+	}
+	runnerName := identity.Name
+	runnerID = identity.ID
 	runnerScopes := strings.TrimSpace(query.Get("runner_scopes"))
-	if runnerScopes == "" {
+	if _, provided := query["runner_scopes"]; !provided && runnerScopes == "" {
 		runnerScopes = strings.TrimSpace(cfg.RunnerScopes)
 	}
 	runnerCapacity := cfg.RunnerCapacity
@@ -75,8 +81,9 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 	if repeated := query["image_pull_secret"]; len(repeated) > 0 {
 		imagePullSecrets = appendSecretNameList(imagePullSecrets, repeated...)
 	}
+	platformID := KubernetesPlatformID(cfg)
+	appName := kubernetesRunnerAppName(runnerID, platformID)
 	if len(options.RegistryAuth.DockerConfigJSON) > 0 {
-		appName := kubernetesManifestName("nopsai-k8s-runner", runnerID)
 		imagePullSecrets = appendSecretNameList(imagePullSecrets, kubernetesManifestName(appName, "registry-auth"))
 	}
 
@@ -94,6 +101,7 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 	}
 	if adapted {
 		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this manifest uses an external dispatcher host derived from the current request host and dispatcher port. Confirm that endpoint is reachable from the Kubernetes cluster.")
+		warnings = append(warnings, "If this runner is deployed in the same cluster but a different namespace from the dispatcher, prefer the fully-qualified Service DNS name, for example dispatcher.<platform-namespace>.svc.cluster.local:9090.")
 	}
 	tlsSecret := cfg.EffectiveDispatcherTLSSecret()
 	tlsMode := cfg.EffectiveDispatcherTLSMode()
@@ -108,8 +116,11 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 	env := map[string]string{
 		"RUNTIME":                             "kubernetes",
 		"RUNNER_ID":                           runnerID,
+		RunnerNameEnv:                         runnerName,
 		"RUNNER_SCOPES":                       runnerScopes,
 		"RUNNER_CAPACITY":                     strconv.Itoa(runnerCapacity),
+		KubernetesPlatformIDEnv:               platformID,
+		"KUBERNETES_RUNNER_LABEL_SELECTOR":    kubernetesRunnerLabelSelector(appName, runnerID, platformID),
 		"RUNNER_SERVICE_ID":                   runnerServiceIDForInstall(cfg, runnerID),
 		"AGENT_IMAGE":                         agentImage,
 		"DISPATCHER_GRPC_ADDRESS":             dispatcherAddress,
@@ -159,11 +170,14 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 		serviceauth.EnvSigningKey: serviceJWTSigningKey,
 		servicetls.EnvSecret:      tlsSecret,
 	}
-	manifest := buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, runnerID, runnerImage, &workloadAutomountSAToken, imagePullSecrets, env, secretEnv, options.RegistryAuth.DockerConfigJSON)
+	manifest := buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, runnerID, runnerImage, platformID, &workloadAutomountSAToken, imagePullSecrets, env, secretEnv, options.RegistryAuth.DockerConfigJSON)
 	return KubernetesManifestResponse{
 		RunnerID:               runnerID,
+		RunnerName:             runnerName,
 		RunnerScopes:           runnerScopes,
 		RunnerCapacity:         runnerCapacity,
+		PlatformID:             platformID,
+		ResourceName:           appName,
 		Namespace:              namespace,
 		ServiceAccount:         serviceAccount,
 		WorkloadServiceAccount: workloadServiceAccount,
@@ -175,6 +189,22 @@ func BuildKubernetesManifestResponseWithOptions(cfg config.Config, r *http.Reque
 		Command:                "kubectl apply -f nopsai-k8s-runner.yaml",
 		Warnings:               warnings,
 	}, nil
+}
+
+func kubernetesRunnerAppName(runnerID, platformID string) string {
+	return kubernetesManifestName("nopsai-k8s-runner", runnerID, platformID)
+}
+
+func kubernetesRunnerLabelSelector(appName, runnerID, platformID string) string {
+	parts := []string{
+		"app.kubernetes.io/name=nopsai-k8s-runner",
+		"app.kubernetes.io/instance=" + appName,
+		"nopsai.io/runner-id=" + kubernetesManifestLabelValue(runnerID),
+	}
+	if platformID = strings.TrimSpace(platformID); platformID != "" {
+		parts = append(parts, KubernetesPlatformIDLabel+"="+kubernetesManifestLabelValue(platformID))
+	}
+	return strings.Join(parts, ",")
 }
 
 func BuildKubernetesBootstrapCommandResponse(cfg config.Config, r *http.Request, issueToken TokenIssuer) (KubernetesBootstrapCommandResponse, error) {
@@ -196,8 +226,11 @@ func BuildKubernetesBootstrapCommandResponseWithOptions(cfg config.Config, r *ht
 	bootstrapURL := strings.TrimRight(RequestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap"
 	return KubernetesBootstrapCommandResponse{
 		RunnerID:               manifestResp.RunnerID,
+		RunnerName:             manifestResp.RunnerName,
 		RunnerScopes:           manifestResp.RunnerScopes,
 		RunnerCapacity:         manifestResp.RunnerCapacity,
+		PlatformID:             manifestResp.PlatformID,
+		ResourceName:           manifestResp.ResourceName,
 		Namespace:              manifestResp.Namespace,
 		ServiceAccount:         manifestResp.ServiceAccount,
 		WorkloadServiceAccount: manifestResp.WorkloadServiceAccount,
@@ -219,7 +252,10 @@ func BuildKubernetesBootstrapScript(cfg config.Config, r *http.Request, options 
 	if err != nil {
 		return "", KubernetesManifestResponse{}, err
 	}
-	appName := kubernetesManifestName("nopsai-k8s-runner", manifestResp.RunnerID)
+	appName := manifestResp.ResourceName
+	if appName == "" {
+		appName = kubernetesRunnerAppName(manifestResp.RunnerID, manifestResp.PlatformID)
+	}
 	return buildKubernetesBootstrapScript(manifestResp.Manifest, manifestResp.Namespace, appName), manifestResp, nil
 }
 
@@ -267,8 +303,8 @@ func buildKubernetesBootstrapScript(manifest, namespace, appName string) string 
 	return builder.String()
 }
 
-func buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, runnerID, runnerImage string, workloadSAToken *bool, imagePullSecrets []string, env, secretEnv map[string]string, dockerConfigJSON []byte) string {
-	appName := kubernetesManifestName("nopsai-k8s-runner", runnerID)
+func buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, runnerID, runnerImage, platformID string, workloadSAToken *bool, imagePullSecrets []string, env, secretEnv map[string]string, dockerConfigJSON []byte) string {
+	appName := kubernetesRunnerAppName(runnerID, platformID)
 	configMapName := kubernetesManifestName(appName, "config")
 	secretName := kubernetesManifestName(appName, "secret")
 	registrySecretName := kubernetesManifestName(appName, "registry-auth")
@@ -280,6 +316,9 @@ func buildKubernetesManifest(namespace, serviceAccount, workloadServiceAccount, 
 		"app.kubernetes.io/name":      "nopsai-k8s-runner",
 		"app.kubernetes.io/component": "runner",
 		"nopsai.io/runner-id":         kubernetesManifestLabelValue(runnerID),
+	}
+	if platformID = strings.TrimSpace(platformID); platformID != "" {
+		labels[KubernetesPlatformIDLabel] = kubernetesManifestLabelValue(platformID)
 	}
 	podLabels := cloneStringMap(labels)
 	podLabels["app.kubernetes.io/instance"] = appName

@@ -89,3 +89,30 @@ func TestMonitoringRunnerSummaryCountsUnreachableRunners(t *testing.T) {
 		t.Fatalf("summary = %#v, want one unreachable runner only", summary)
 	}
 }
+
+func TestMonitoringRunnerSummaryCountsRecentlyReconnectedRunners(t *testing.T) {
+	now := time.Now()
+	status := &proto.DispatcherStatus{
+		Runners: []*proto.RunnerInfo{
+			{
+				RunnerId:          "runner-recovered",
+				Capacity:          2,
+				LastHeartbeatUnix: now.Unix(),
+				AllowDispatch:     true,
+				Metadata: map[string]string{
+					"connection_status":    "online",
+					"reachable":            "true",
+					"last_disconnected_at": now.Add(-time.Minute).UTC().Format(time.RFC3339),
+				},
+			},
+		},
+	}
+
+	runners, summary := monitoringRunnersFromDispatcherStatus(status, nil)
+	if len(runners) != 1 || runners[0].Status != "recovered" {
+		t.Fatalf("runners = %#v, want recovered runner", runners)
+	}
+	if summary.Recovered != 1 || summary.Online != 0 || summary.Unknown != 0 {
+		t.Fatalf("summary = %#v, want one recovered runner only", summary)
+	}
+}

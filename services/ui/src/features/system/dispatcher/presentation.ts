@@ -1,4 +1,5 @@
 export const DISPATCHER_STALE_THRESHOLD_MS = 30_000;
+export const DISPATCHER_RECENT_DISCONNECT_THRESHOLD_MS = 15 * 60_000;
 
 export function formatConnection(connection: string) {
   const trimmed = connection.trim();
@@ -35,6 +36,14 @@ export function formatSince(nowMs: number, unixSeconds: number) {
 export function isRunnerHeartbeatStale(nowMs: number, lastHeartbeatUnix: number) {
   if (!lastHeartbeatUnix) return true;
   return nowMs - lastHeartbeatUnix * 1000 > DISPATCHER_STALE_THRESHOLD_MS;
+}
+
+export function isRunnerRecentlyDisconnected(nowMs: number, disconnectedAt?: string) {
+  if (!nowMs || !disconnectedAt) return false;
+  const disconnectedMs = Date.parse(disconnectedAt);
+  if (!Number.isFinite(disconnectedMs)) return false;
+  const ageMs = nowMs - disconnectedMs;
+  return ageMs >= 0 && ageMs <= DISPATCHER_RECENT_DISCONNECT_THRESHOLD_MS;
 }
 
 export function clampPercent(value: number) {

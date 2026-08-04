@@ -103,9 +103,15 @@ directory.
 7. Among eligible runners, it chooses the least-loaded runner.
 8. If no eligible runner is available, the job stays queued.
 9. If a runner disconnects with inflight jobs, those jobs are requeued.
+   Dispatcher status keeps the runner registration as unreachable and records
+   `last_disconnected_at`.
 10. A duplicate live connection for an already connected runner ID is rejected;
-    operators should eject or stop the old runner before reusing its ID.
-11. A newly installed control plane trusts any old runner definition that still
+    operators should stop the old runner, or remove its dispatcher registration
+    when it is stale, before reusing its ID.
+11. When the same runner reconnects, dispatcher status marks it reachable again
+    but preserves `last_disconnected_at`; the UI and monitoring report it as
+    recovered/degraded for the recent recovery window.
+12. A newly installed control plane trusts any old runner definition that still
     has valid service JWT/TLS trust material. Rotate `SERVICE_JWT_SIGNING_KEY`
     and `DISPATCHER_TLS_SECRET`, or preserve `ejected_runner_ids`, when old
     runners must not join the replacement dispatcher.
@@ -191,7 +197,7 @@ The agent runs tasks in dependency order, not strictly line order.
 13. It picks the execution image from `step.image` or the pipeline default `container_image`.
 14. Kubernetes runtime resolves `step.runtime_pool` or the pipeline default `runtime_pool` and applies the matching runtime pool to the step pod. Docker runtime ignores this directive.
 15. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
-16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus run-owned declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to run-owned PVCs in the runner namespace. Existing unowned Docker volumes or Kubernetes PVCs are refused.
+16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus declared named Docker volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to PVCs in the runner namespace. Existing named Docker volumes or PVCs are reused; missing ones are created with NopsAI labels. Steps and runs that declare the same volume name share the same writable storage within that runner host or namespace.
 17. Docker leaves image-provided temporary directories such as `/tmp` and
     `/var/tmp` unchanged.
 18. If the task declares `outputs`, Docker mounts an isolated writable `tmpfs`

@@ -29,6 +29,7 @@ export type RunnerActiveRun = {
 };
 
 export type RunnerMeta = {
+  runnerName: string;
   connectionId: string;
   hostname: string;
   network: string;
@@ -36,6 +37,7 @@ export type RunnerMeta = {
   namespace: string;
   node: string;
   serviceAccount: string;
+  logSourceId: string;
   disconnectedAt?: string;
   reachable: boolean;
   connectionStatus: string;
@@ -63,8 +65,11 @@ export type RunnerRouteAssignment = {
 
 export type RunnerComposeTemplate = {
   runnerId: string;
+  runnerName: string;
   runnerScopes: string;
   runnerCapacity: number;
+  platformId: string;
+  resourceName: string;
   dispatcherAddress: string;
   networkMode: string;
   runnerImage: string;
@@ -79,8 +84,11 @@ export type RunnerComposeTemplate = {
 
 export type KubernetesRunnerManifestTemplate = {
   runnerId: string;
+  runnerName: string;
   runnerScopes: string;
   runnerCapacity: number;
+  platformId: string;
+  resourceName: string;
   namespace: string;
   serviceAccount: string;
   dispatcherAddress: string;
@@ -139,6 +147,7 @@ export function getRunnerMeta(runner: Runner): RunnerMeta {
   const runtime = readString(meta.runtime || meta.runner_runtime).toLowerCase();
   const connectionStatus = normalizeRunnerConnectionStatus(runner.connectionStatus || meta.connection_status, runner.reachable);
   return {
+    runnerName: readString(meta.runner_name || meta.runnerName),
     connectionId: readString(meta.connection_id || meta.instance_id),
     hostname: readString(meta.hostname || meta.host || meta.runner_host),
     network: readString(meta.docker_network || meta.docker_network_name || meta.docker_networkname),
@@ -146,6 +155,7 @@ export function getRunnerMeta(runner: Runner): RunnerMeta {
     namespace: readString(meta.kubernetes_namespace || meta.namespace),
     node: readString(meta.kubernetes_node || meta.node),
     serviceAccount: readString(meta.kubernetes_service_account || meta.service_account),
+    logSourceId: readString(meta.log_source_id || (runner.runnerId ? `runner:${runner.runnerId}` : '')),
     disconnectedAt: readOptionalString(meta.last_disconnected_at),
     reachable: runner.reachable,
     connectionStatus,
@@ -164,8 +174,11 @@ export function normalizeRunnerComposeTemplate(value: unknown): RunnerComposeTem
   const record = asRecord(value) || {};
   return {
     runnerId: readString(record.runner_id ?? record.runnerId),
+    runnerName: readString(record.runner_name ?? record.runnerName),
     runnerScopes: readString(record.runner_scopes ?? record.runnerScopes),
     runnerCapacity: normalizeNumber(record.runner_capacity ?? record.runnerCapacity),
+    platformId: readString(record.platform_id ?? record.platformId),
+    resourceName: readString(record.resource_name ?? record.resourceName),
     dispatcherAddress: readString(record.dispatcher_grpc_address ?? record.dispatcherAddress),
     networkMode: readString(record.network_mode ?? record.networkMode),
     runnerImage: readString(record.runner_image ?? record.runnerImage),
@@ -183,8 +196,11 @@ export function normalizeKubernetesRunnerManifestTemplate(value: unknown): Kuber
   const record = asRecord(value) || {};
   return {
     runnerId: readString(record.runner_id ?? record.runnerId),
+    runnerName: readString(record.runner_name ?? record.runnerName),
     runnerScopes: readString(record.runner_scopes ?? record.runnerScopes),
     runnerCapacity: normalizeNumber(record.runner_capacity ?? record.runnerCapacity),
+    platformId: readString(record.platform_id ?? record.platformId),
+    resourceName: readString(record.resource_name ?? record.resourceName),
     namespace: readString(record.namespace),
     serviceAccount: readString(record.service_account ?? record.serviceAccount),
     dispatcherAddress: readString(record.dispatcher_grpc_address ?? record.dispatcherAddress),

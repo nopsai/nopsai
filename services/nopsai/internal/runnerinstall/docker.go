@@ -25,8 +25,11 @@ func BuildComposeResponse(cfg config.Config, r *http.Request) (ComposeResponse, 
 	compose := buildCompose(spec)
 	return ComposeResponse{
 		RunnerID:          spec.RunnerID,
+		RunnerName:        spec.RunnerName,
 		RunnerScopes:      spec.RunnerScopes,
 		RunnerCapacity:    spec.RunnerCapacity,
+		PlatformID:        spec.PlatformID,
+		ResourceName:      spec.ServiceName,
 		DispatcherAddress: spec.DispatcherAddress,
 		NetworkMode:       spec.NetworkMode,
 		RunnerImage:       spec.RunnerImage,
@@ -55,8 +58,11 @@ func BuildBootstrapCommandResponseWithOptions(cfg config.Config, r *http.Request
 	bootstrapURL := strings.TrimRight(RequestExternalBaseURL(r), "/") + "/v1/system/dispatcher/runner-bootstrap"
 	return BootstrapCommandResponse{
 		RunnerID:            spec.RunnerID,
+		RunnerName:          spec.RunnerName,
 		RunnerScopes:        spec.RunnerScopes,
 		RunnerCapacity:      spec.RunnerCapacity,
+		PlatformID:          spec.PlatformID,
+		ResourceName:        spec.ServiceName,
 		DispatcherAddress:   spec.DispatcherAddress,
 		NetworkMode:         spec.NetworkMode,
 		RunnerImage:         spec.RunnerImage,
@@ -90,6 +96,12 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 	if runnerID == "" {
 		runnerID = "runner-prod-1"
 	}
+	identity, err := runnerIdentityForInstall(runnerID, query)
+	if err != nil {
+		return installSpec{}, err
+	}
+	runnerName := identity.Name
+	runnerID = identity.ID
 	runnerScopes := strings.TrimSpace(query.Get("runner_scopes"))
 	if _, provided := query["runner_scopes"]; !provided && runnerScopes == "" {
 		runnerScopes = strings.TrimSpace(cfg.RunnerScopes)
@@ -115,6 +127,12 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 	}
 
 	dispatcherAddress, adapted, warnings := ExternalDispatcherAddress(cfg, r)
+	dockerHostGateway := false
+	if rewritten, ok := DockerReachableDispatcherAddress(dispatcherAddress); ok {
+		dispatcherAddress = rewritten
+		dockerHostGateway = true
+		warnings = append(warnings, "The dispatcher address resolves to the machine running this install command, so Docker runner containers will use host.docker.internal with a host-gateway mapping. Keep the dispatcher gRPC port reachable from that host, for example with kubectl port-forward service/dispatcher 9090:9090.")
+	}
 	nopsaiAPIURL := strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/")
 	if nopsaiAPIURL == "" || LooksInternalAddress(nopsaiAPIURL) {
 		if externalBase := strings.TrimRight(RequestExternalBaseURL(r), "/"); externalBase != "" {
@@ -136,7 +154,7 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 	networkMode := strings.ToLower(strings.TrimSpace(query.Get("runner_network_mode")))
 	switch networkMode {
 	case "", "auto":
-		if adapted {
+		if adapted && !dockerHostGateway {
 			networkMode = NetworkModeHost
 		} else {
 			networkMode = NetworkModeBridge
@@ -155,11 +173,15 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 		runnerImage = DefaultRunnerImage()
 	}
 
-	serviceName := composeServiceName(runnerID)
+	platformID := PlatformID(cfg)
+	serviceName := composeServiceNameForPlatform(runnerID, platformID)
 	env := []installEnv{
 		{"RUNNER_ID", runnerID},
+		{RunnerNameEnv, runnerName},
 		{"RUNNER_SCOPES", runnerScopes},
 		{"RUNNER_CAPACITY", strconv.Itoa(runnerCapacity)},
+		{PlatformIDEnv, platformID},
+		{"RUNNER_CONTAINER_NAME", serviceName},
 		{"DISPATCHER_GRPC_ADDRESS", dispatcherAddress},
 		{"NOPSAI_API_URL", nopsaiAPIURL},
 		{serviceauth.EnvSigningKey, serviceJWTSigningKey},
@@ -180,14 +202,17 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 
 	return installSpec{
 		RunnerID:          runnerID,
+		RunnerName:        runnerName,
 		RunnerScopes:      runnerScopes,
 		RunnerCapacity:    runnerCapacity,
+		PlatformID:        platformID,
 		DispatcherAddress: dispatcherAddress,
 		ServiceName:       serviceName,
 		DockerNetwork:     dockerNetwork,
 		NetworkMode:       networkMode,
 		RunnerImage:       runnerImage,
 		IncludeNetwork:    networkMode == NetworkModeBridge && !adapted && dockerNetwork != "",
+		AddHostGateway:    dockerHostGateway || strings.EqualFold(addressHost(dispatcherAddress), "host.docker.internal"),
 		Env:               env,
 		Warnings:          warnings,
 	}, nil
@@ -204,6 +229,12 @@ func buildCompose(spec installSpec) string {
 	if spec.NetworkMode == NetworkModeHost {
 		builder.WriteString("  network_mode: \"host\"\n")
 	}
+	if spec.AddHostGateway {
+		builder.WriteString("  extra_hosts:\n")
+		builder.WriteString("    - \"host.docker.internal:host-gateway\"\n")
+	}
+	builder.WriteString("  labels:\n")
+	writeRunnerLabels(&builder, spec.RunnerID, spec.PlatformID, "    ")
 	builder.WriteString("  environment:\n")
 	for _, item := range spec.Env {
 		builder.WriteString("    ")
@@ -296,9 +327,17 @@ func buildDockerRunScript(spec installSpec) string {
 	if spec.NetworkMode == NetworkModeHost {
 		builder.WriteString("  --network host \\\n")
 	}
+	if spec.AddHostGateway {
+		builder.WriteString("  --add-host host.docker.internal:host-gateway \\\n")
+	}
 	if spec.IncludeNetwork {
 		builder.WriteString("  --network ")
 		builder.WriteString(ShellQuote(spec.DockerNetwork))
+		builder.WriteString(" \\\n")
+	}
+	for _, label := range runnerLabels(spec.RunnerID, spec.PlatformID) {
+		builder.WriteString("  --label ")
+		builder.WriteString(ShellQuote(label.key + "=" + label.value))
 		builder.WriteString(" \\\n")
 	}
 	if len(spec.RegistryAuth.DockerConfigJSON) > 0 {
@@ -333,6 +372,29 @@ func buildDockerRunScript(spec installSpec) string {
 	builder.WriteString(shellDoubleQuote(spec.ServiceName))
 	builder.WriteString("\"\n")
 	return builder.String()
+}
+
+func writeRunnerLabels(builder *strings.Builder, runnerID, platformID, indent string) {
+	for _, label := range runnerLabels(runnerID, platformID) {
+		builder.WriteString(indent)
+		builder.WriteString(label.key)
+		builder.WriteString(": ")
+		builder.WriteString(strconv.Quote(label.value))
+		builder.WriteString("\n")
+	}
+}
+
+func runnerLabels(runnerID, platformID string) []installEnv {
+	return []installEnv{
+		{"app.kubernetes.io/name", "nopsai-docker-runner"},
+		{"app.kubernetes.io/component", "runner"},
+		{"nopsai.io/runner-id", strings.TrimSpace(runnerID)},
+		{PlatformIDLabel, strings.TrimSpace(platformID)},
+	}
+}
+
+func composeServiceNameForPlatform(runnerID, platformID string) string {
+	return composeServiceName(strings.TrimSpace(runnerID) + "-" + strings.TrimSpace(platformID))
 }
 
 func composeServiceName(runnerID string) string {

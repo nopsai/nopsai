@@ -6,7 +6,7 @@ import {
   runnerActionKey,
   type Runner,
 } from './model';
-import { clampPercent, formatConnection, formatSince, formatTimestamp, isRunnerHeartbeatStale, truncateId } from './presentation';
+import { clampPercent, formatConnection, formatSince, formatTimestamp, isRunnerHeartbeatStale, isRunnerRecentlyDisconnected, truncateId } from './presentation';
 
 type RunnerFleetWorkspaceProps = {
   runners: Runner[];
@@ -18,7 +18,7 @@ type RunnerFleetWorkspaceProps = {
   onEjectRunner: (runner: Runner) => Promise<void>;
 };
 
-type RunnerFleetStatus = 'online' | 'busy' | 'paused' | 'offline';
+type RunnerFleetStatus = 'online' | 'busy' | 'paused' | 'offline' | 'recovered';
 type RunnerRuntimeFilter = 'docker' | 'kubernetes';
 type RunnerDetailTab = 'workloads' | 'metadata' | 'logs';
 
@@ -163,8 +163,8 @@ export function RunnerFleetWorkspace({
                       <button
                         className="compact-resource-card__action compact-resource-card__action--danger"
                         type="button"
-                        title="Eject runner"
-                        aria-label={`Eject ${row.runner.runnerId}`}
+                        title="Remove runner registration"
+                        aria-label={`Remove ${row.runner.runnerId}`}
                         disabled={!canManageDispatcher || row.pending}
                         onClick={event => {
                           event.stopPropagation();
@@ -215,12 +215,13 @@ function RunnerDetailPanel({
   const connectionLabel = formatConnection(meta.connectionId);
   const activeRuns = meta.activeRuns;
 
-  return (
-    <aside className="dispatcher-section-card dispatcher-runner-detail">
-      <div className="dispatcher-detail-headline">
-        <div>
-          <div className="dispatcher-detail-name">{row.runner.runnerId}</div>
-          <div className="dispatcher-detail-host">{row.hostLabel || 'Host metadata pending'} / {row.runtime === 'kubernetes' ? 'Kubernetes' : 'Docker'}</div>
+	  return (
+	    <aside className="dispatcher-section-card dispatcher-runner-detail">
+	      <div className="dispatcher-detail-headline">
+	        <div>
+	          <div className="dispatcher-detail-name">{meta.runnerName || row.runner.runnerId}</div>
+	          {meta.runnerName && meta.runnerName !== row.runner.runnerId && <div className="dispatcher-detail-host font-mono">{row.runner.runnerId}</div>}
+	          <div className="dispatcher-detail-host">{row.hostLabel || 'Host metadata pending'} / {row.runtime === 'kubernetes' ? 'Kubernetes' : 'Docker'}</div>
         </div>
         <span className={`runner-pill ${row.statusTone}`}>
           <span className={`runner-dot ${row.dotClass}`} aria-hidden="true"></span>
@@ -298,6 +299,19 @@ function RunnerDetailPanel({
         <div className="dispatcher-detail-list">
           <div className="dispatcher-work-item">
             <div>
+              <strong>Live system logs</strong>
+              <small>{meta.logSourceId || 'Runner log source is not advertised yet'}</small>
+            </div>
+            {meta.logSourceId ? (
+              <Link className="runner-pill runner-pill--link" to={`/system/logs?source=${encodeURIComponent(meta.logSourceId)}`}>
+                Open
+              </Link>
+            ) : (
+              <span className="runner-pill runner-pill--muted">Pending</span>
+            )}
+          </div>
+          <div className="dispatcher-work-item">
+            <div>
               <strong>Heartbeat {row.status === 'offline' ? 'missing' : 'accepted'}</strong>
               <small>Last observed {row.heartbeatLabel}</small>
             </div>
@@ -347,7 +361,8 @@ function buildRunnerFleetRow(
   const meta = getRunnerMeta(runner);
   const key = runnerActionKey(runner.runnerId, meta.connectionId) || runner.runnerId;
   const stale = meta.reachable && runner.allowDispatch && isRunnerHeartbeatStale(nowMs, runner.lastHeartbeatUnix);
-  const status = !meta.reachable || stale ? 'offline' : !runner.allowDispatch ? 'paused' : runner.activeJobs > 0 ? 'busy' : 'online';
+  const recentlyDisconnected = meta.reachable && isRunnerRecentlyDisconnected(nowMs, meta.disconnectedAt);
+  const status = !meta.reachable || stale ? 'offline' : !runner.allowDispatch ? 'paused' : recentlyDisconnected ? 'recovered' : runner.activeJobs > 0 ? 'busy' : 'online';
   const runtime = meta.runtime === 'kubernetes' ? 'kubernetes' : 'docker';
   const pendingDispatch = Boolean(key && pendingActions.has(key));
   const pendingEject = Boolean(key && pendingEjections.has(key));
@@ -380,6 +395,9 @@ function statusPresentation(status: RunnerFleetStatus, stale: boolean) {
   }
   if (status === 'paused') {
     return { statusLabel: 'Paused', statusTone: 'runner-pill--warning', dotClass: 'runner-dot--warning' };
+  }
+  if (status === 'recovered') {
+    return { statusLabel: 'Recovered', statusTone: 'runner-pill--warning', dotClass: 'runner-dot--warning' };
   }
   return {
     statusLabel: stale ? 'Heartbeat stale' : 'Offline',

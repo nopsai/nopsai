@@ -65,6 +65,7 @@ func (d *dispatcherServer) recordRunnerSnapshotLocked(r *runnerConn, reachable b
 		record = &runnerRecord{id: r.id}
 		d.registeredRunners[r.id] = record
 	}
+	lastDisconnectedAt := record.disconnectedAt
 
 	record.id = r.id
 	record.connectionID = r.connectionID
@@ -77,7 +78,7 @@ func (d *dispatcherServer) recordRunnerSnapshotLocked(r *runnerConn, reachable b
 	record.allowDispatch = r.allowDispatch
 	record.reachable = reachable
 	if reachable {
-		record.disconnectedAt = time.Time{}
+		record.disconnectedAt = lastDisconnectedAt
 	} else if !disconnectedAt.IsZero() {
 		record.disconnectedAt = disconnectedAt
 	}
@@ -140,7 +141,11 @@ func runnerStatusMetadata(record *runnerRecord) map[string]string {
 	if record.reachable {
 		meta[runnerMetadataConnectionStatus] = runnerConnectionStatusOnline
 		meta[runnerMetadataReachable] = runnerMetadataReachableTrue
-		delete(meta, runnerMetadataDisconnectedAt)
+		if !record.disconnectedAt.IsZero() {
+			meta[runnerMetadataDisconnectedAt] = record.disconnectedAt.UTC().Format(time.RFC3339)
+		} else {
+			delete(meta, runnerMetadataDisconnectedAt)
+		}
 		if activeRuns := activeRunsMetadata(record.inflight); activeRuns != "" {
 			meta[runnerMetadataActiveRuns] = activeRuns
 		} else {

@@ -301,7 +301,7 @@ func (d *dispatcherServer) Register(stream proto.DispatcherService_RegisterServe
 		cancel:        cancel,
 	}
 
-	if rejection := d.addRunnerWithRejection(rc); rejection != "" {
+	if rejection := d.addRunnerWithControlRefresh(stream.Context(), rc); rejection != "" {
 		cancel()
 		log.Warn().
 			Str("runner_id", runnerID).
@@ -493,7 +493,7 @@ func (d *dispatcherServer) ejectRunner(runnerID string) (*proto.UpdateRunnerDisp
 		Str("runner_id", runnerID).
 		Int("connections", len(targets)).
 		Int("requeued_jobs", requeuedJobs).
-		Msg("runner ejected")
+		Msg("runner registration removed")
 	if requeuedJobs > 0 {
 		go d.pumpQueue()
 	}
@@ -506,18 +506,7 @@ func (d *dispatcherServer) ejectRunnerLocked(runnerID string) ([]*runnerConn, in
 	if runnerID == "" {
 		return nil, 0, false
 	}
-
-	if d.ejectedRunners == nil {
-		d.ejectedRunners = make(map[string]struct{})
-	}
-	_, alreadyEjected := d.ejectedRunners[runnerID]
-	d.ejectedRunners[runnerID] = struct{}{}
-
-	targets, requeuedJobs, removed := d.removeRunnerRegistrationLocked(runnerID, "eject")
-	if !removed && alreadyEjected {
-		return targets, requeuedJobs, true
-	}
-	return targets, requeuedJobs, true
+	return d.removeRunnerRegistrationLocked(runnerID, "eject")
 }
 
 func (d *dispatcherServer) removeRunnerRegistrationLocked(runnerID, reason string) ([]*runnerConn, int, bool) {
@@ -711,7 +700,7 @@ func (d *dispatcherServer) addRunnerWithRejection(rc *runnerConn) string {
 	defer d.mu.Unlock()
 
 	if d.runnerEjectedLocked(rc.id) {
-		return "runner has been ejected"
+		return runnerBlockedByEjectedRunnerIDs
 	}
 	if existing := d.runnerByIDLocked(rc.id); existing != nil {
 		return "runner ID is already connected"
@@ -729,6 +718,24 @@ func (d *dispatcherServer) addRunnerWithRejection(rc *runnerConn) string {
 		Msg("runner connected")
 
 	return ""
+}
+
+func (d *dispatcherServer) addRunnerWithControlRefresh(ctx context.Context, rc *runnerConn) string {
+	rejection := d.addRunnerWithRejection(rc)
+	if rejection != runnerBlockedByEjectedRunnerIDs {
+		return rejection
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := d.syncRoutingFromNopsai(refreshCtx); err != nil {
+		log.Debug().
+			Err(err).
+			Str("runner_id", rc.id).
+			Msg("dispatcher runner revocation refresh skipped")
+		return rejection
+	}
+	return d.addRunnerWithRejection(rc)
 }
 
 func (d *dispatcherServer) removeRunner(connectionID string) {

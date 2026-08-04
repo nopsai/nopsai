@@ -151,9 +151,20 @@ func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleGenerateRunnerCompose(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
-	resp, err := runnerinstall.BuildComposeResponse(cfg, r)
+	req, err := cloneRunnerInstallRequest(r)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to generate runner UID before compose generation")
+		http.Error(w, "failed to generate runner identity", http.StatusInternalServerError)
+		return
+	}
+	resp, err := runnerinstall.BuildComposeResponse(cfg, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.allowRunnerInstallIdentityReuse(r.Context(), resp.RunnerID, resp.RunnerName); err != nil {
+		log.Error().Err(err).Str("runner_id", resp.RunnerID).Msg("Failed to clear runner revocation before compose generation")
+		http.Error(w, "failed to allow runner ID reuse", http.StatusInternalServerError)
 		return
 	}
 
@@ -247,6 +258,12 @@ func (a *App) listRuntimeScopes(ctx context.Context) ([]string, error) {
 
 func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
+	req, err := cloneRunnerInstallRequest(r)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to generate runner UID before bootstrap command generation")
+		http.Error(w, "failed to generate runner identity", http.StatusInternalServerError)
+		return
+	}
 	options, assignments, refs, refsProvided, err := a.runnerRegistryBootstrapOptions(r)
 	if err != nil {
 		if errors.Is(err, errRegistryCredentialForbidden) {
@@ -258,7 +275,6 @@ func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *htt
 	}
 	issueToken := runnerinstall.TokenIssuer(a.createRunnerBootstrapToken)
 	if len(refs) > 0 {
-		req := cloneBootstrapRequest(r)
 		actor := credentialActor(r)
 		issueToken = func(content string, ttl time.Duration, contentType string) (string, time.Time, error) {
 			return a.createRunnerBootstrapTokenWithBuilder(content, ttl, contentType, func(ctx context.Context) (string, string, error) {
@@ -271,9 +287,14 @@ func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *htt
 			})
 		}
 	}
-	resp, err := runnerinstall.BuildBootstrapCommandResponseWithOptions(cfg, r, issueToken, options)
+	resp, err := runnerinstall.BuildBootstrapCommandResponseWithOptions(cfg, req, issueToken, options)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.allowRunnerInstallIdentityReuse(r.Context(), resp.RunnerID, resp.RunnerName); err != nil {
+		log.Error().Err(err).Str("runner_id", resp.RunnerID).Msg("Failed to clear runner revocation before bootstrap command generation")
+		http.Error(w, "failed to allow runner ID reuse", http.StatusInternalServerError)
 		return
 	}
 	if refsProvided {
@@ -293,9 +314,20 @@ func (a *App) handleGenerateRunnerBootstrapCommand(w http.ResponseWriter, r *htt
 
 func (a *App) handleGenerateKubernetesRunnerManifest(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
-	resp, err := runnerinstall.BuildKubernetesManifestResponse(cfg, r)
+	req, err := cloneRunnerInstallRequest(r)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to generate runner UID before Kubernetes manifest generation")
+		http.Error(w, "failed to generate runner identity", http.StatusInternalServerError)
+		return
+	}
+	resp, err := runnerinstall.BuildKubernetesManifestResponse(cfg, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.allowRunnerInstallIdentityReuse(r.Context(), resp.RunnerID, resp.RunnerName); err != nil {
+		log.Error().Err(err).Str("runner_id", resp.RunnerID).Msg("Failed to clear runner revocation before Kubernetes manifest generation")
+		http.Error(w, "failed to allow runner ID reuse", http.StatusInternalServerError)
 		return
 	}
 
@@ -308,6 +340,12 @@ func (a *App) handleGenerateKubernetesRunnerManifest(w http.ResponseWriter, r *h
 
 func (a *App) handleGenerateKubernetesRunnerBootstrapCommand(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
+	req, err := cloneRunnerInstallRequest(r)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to generate runner UID before Kubernetes bootstrap command generation")
+		http.Error(w, "failed to generate runner identity", http.StatusInternalServerError)
+		return
+	}
 	options, assignments, refs, refsProvided, err := a.runnerRegistryBootstrapOptions(r)
 	if err != nil {
 		if errors.Is(err, errRegistryCredentialForbidden) {
@@ -319,7 +357,6 @@ func (a *App) handleGenerateKubernetesRunnerBootstrapCommand(w http.ResponseWrit
 	}
 	issueToken := runnerinstall.TokenIssuer(a.createRunnerBootstrapToken)
 	if len(refs) > 0 {
-		req := cloneBootstrapRequest(r)
 		actor := credentialActor(r)
 		issueToken = func(content string, ttl time.Duration, contentType string) (string, time.Time, error) {
 			return a.createRunnerBootstrapTokenWithBuilder(content, ttl, contentType, func(ctx context.Context) (string, string, error) {
@@ -332,9 +369,14 @@ func (a *App) handleGenerateKubernetesRunnerBootstrapCommand(w http.ResponseWrit
 			})
 		}
 	}
-	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponseWithOptions(cfg, r, issueToken, options)
+	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponseWithOptions(cfg, req, issueToken, options)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.allowRunnerInstallIdentityReuse(r.Context(), resp.RunnerID, resp.RunnerName); err != nil {
+		log.Error().Err(err).Str("runner_id", resp.RunnerID).Msg("Failed to clear runner revocation before Kubernetes bootstrap command generation")
+		http.Error(w, "failed to allow runner ID reuse", http.StatusInternalServerError)
 		return
 	}
 	if refsProvided {
@@ -472,7 +514,15 @@ func cloneBootstrapRequest(r *http.Request) *http.Request {
 	if r == nil {
 		return nil
 	}
-	return r.Clone(context.Background())
+	return r.Clone(r.Context())
+}
+
+func cloneRunnerInstallRequest(r *http.Request) (*http.Request, error) {
+	req := cloneBootstrapRequest(r)
+	if err := runnerinstall.EnsureRunnerUID(req); err != nil {
+		return nil, err
+	}
+	return req, nil
 }
 
 func (a *App) replaceRunnerRegistryCredentials(ctx context.Context, runnerID string, assignments []store.RunnerRegistryCredentialInput) error {
@@ -789,9 +839,9 @@ func (a *App) handleEjectRunner(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "runner_id is required", http.StatusBadRequest)
 		return
 	}
-	if err := a.recordRunnerEjection(r.Context(), runnerID); err != nil {
-		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to persist runner ejection")
-		http.Error(w, "Failed to persist runner ejection", http.StatusInternalServerError)
+	if err := a.allowRunnerIDReuse(r.Context(), runnerID); err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to clear runner revocation before removal")
+		http.Error(w, "failed to allow runner ID reuse", http.StatusInternalServerError)
 		return
 	}
 
@@ -805,7 +855,7 @@ func (a *App) handleEjectRunner(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		writeDispatcherRunnerControlError(w, err, runnerID, "Failed to eject runner", "Failed to eject runner")
+		writeDispatcherRunnerControlError(w, err, runnerID, "Failed to remove runner registration", "Failed to remove runner registration")
 		return
 	}
 

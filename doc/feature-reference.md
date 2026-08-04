@@ -129,9 +129,12 @@ Sensitive output values are encrypted when persisted, masked after collection,
 excluded from normal run-detail/API responses, and passed only as authorized
 runtime variables to dependent consumers.
 
-Pipeline-declared Docker volumes and Kubernetes PVCs are run-owned by NopsAI.
-The agent creates missing storage with ownership labels and refuses to attach
-pre-existing unowned storage from the Docker host or runner namespace.
+Pipeline-declared Docker volumes and Kubernetes PVCs are named storage
+bindings, similar to Tekton workspaces bound to a PVC. The agent mounts an
+existing Docker volume or Kubernetes PVC with the declared name, or creates it
+with NopsAI labels when it is missing. Steps that declare the same volume name
+share the same writable storage, including across pipeline runs on the same
+runner host or Kubernetes namespace.
 
 Approval step example:
 

@@ -7,7 +7,7 @@ import {
   type DispatcherStatusState,
   type Runner,
 } from './model';
-import { clampPercent, formatSince, isRunnerHeartbeatStale, truncateId } from './presentation';
+import { clampPercent, formatSince, formatTimestamp, isRunnerHeartbeatStale, isRunnerRecentlyDisconnected, truncateId } from './presentation';
 
 type DispatcherOverviewProps = {
   loading: boolean;
@@ -239,6 +239,14 @@ function buildAttentionItems(runners: Runner[], nowMs: number): AttentionItem[] 
         tone: 'error' as const,
         title: `${runner.runnerId} heartbeat is stale`,
         detail: `Last heartbeat was ${formatSince(nowMs, runner.lastHeartbeatUnix)}.`,
+      }];
+    }
+    if (isRunnerRecentlyDisconnected(nowMs, meta.disconnectedAt)) {
+      return [{
+        key: `${runner.runnerId}-recovered`,
+        tone: 'warning' as const,
+        title: `${runner.runnerId} recently reconnected`,
+        detail: `Last dispatcher disconnect was recorded at ${formatTimestamp(meta.disconnectedAt)}.`,
       }];
     }
     return [];

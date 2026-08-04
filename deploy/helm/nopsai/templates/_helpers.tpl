@@ -5,12 +5,25 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 nopsai.io/release-version: {{ .Values.global.releaseVersion | quote }}
+nopsai.io/platform-id: {{ include "nopsai.platformID" . | quote }}
 {{- end }}
 
 {{- define "nopsai.selectorLabels" -}}
 app.kubernetes.io/name: nopsai
 app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
+{{- define "nopsai.platformID" -}}
+{{- $raw := default .Release.Name .Values.global.platformID | lower -}}
+{{- $normalized := regexReplaceAll "[^a-z0-9-]+" $raw "-" | trimAll "-" -}}
+{{- if eq $normalized "" -}}
+nopsai
+{{- else if le (len $normalized) 63 -}}
+{{- $normalized -}}
+{{- else -}}
+{{- printf "%s-%s" (trunc 52 $normalized | trimAll "-") (sha256sum $normalized | trunc 10) -}}
+{{- end -}}
 {{- end }}
 
 {{- define "nopsai.image" -}}
@@ -86,7 +99,8 @@ app.kubernetes.io/component: {{ .component }}
 {{- end }}
 
 {{- define "nopsai.systemLogsKubernetesEnabled" -}}
-{{- if and .Values.systemLogs.enabled (or (eq .Values.systemLogs.provider "kubernetes") (eq .Values.systemLogs.provider "k8s")) -}}true{{- else -}}false{{- end -}}
+{{- $provider := lower (default "" .Values.systemLogs.provider) -}}
+{{- if and .Values.systemLogs.enabled (regexMatch "(^|[,;[:space:]])(kubernetes|k8s)([,;[:space:]]|$)" $provider) -}}true{{- else -}}false{{- end -}}
 {{- end }}
 
 {{- define "nopsai.systemLogsKubernetesLabelSelector" -}}

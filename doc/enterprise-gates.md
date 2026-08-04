@@ -52,14 +52,16 @@ socket/proxy policy where host constraints allow it. Mounting a shared host
 Docker socket into a runner remains a compatibility path and should be treated
 as host-admin equivalent access.
 
-Pipeline-declared Docker step volumes are run-owned. The agent creates missing
-step volumes with NopsAI ownership labels tied to the run shared volume and
-refuses to attach existing unowned volumes.
+Pipeline-declared Docker step volumes are named runner-local storage bindings.
+The agent reuses an existing Docker named volume or creates it with NopsAI
+labels when missing. Runner host isolation remains the security boundary for
+Docker named volumes.
 
 Kubernetes runner-generated pods and agent-created step pods set
 `RuntimeDefault` seccomp and disable privilege escalation by default, but they
-do not drop workload container capabilities. Pipeline-declared PVCs are
-run-owned; existing unowned PVCs in the runner namespace are refused.
+do not drop workload container capabilities. Pipeline-declared PVCs bind by
+name in the runner namespace, reusing existing PVCs or creating missing PVCs
+with NopsAI labels.
 
 ## HTTP Server Hardening
 

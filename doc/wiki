@@ -429,7 +429,7 @@ Common step directives:
 | `steps[].condition` | LLM-evaluated natural-language condition. False normally skips; false under blocking guardrail/policy context fails closed. |
 | `steps[].secrets` | Scoped secret refs injected as environment variables. |
 | `steps[].variables` | Step-wide environment overrides. |
-| `steps[].volumes` | Docker volume mounts using `volume:/mount/path`. |
+| `steps[].volumes` | Named Docker volume or Kubernetes PVC mounts using `volume:/mount/path`; existing storage is reused and missing storage is created. |
 | `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. |
 | `steps[].llm_output_sharing` | Step-level output-history sharing override. |
 | `steps[].agent_profile` | Step persona override. Valid for conditions and LLM goals in the step. |
@@ -690,7 +690,9 @@ routing tables, and install command generation. Runner detail sits below the
 fleet table only after an operator selects a runner.
 Routing tables use the effective dispatcher routing view: paused or unreachable
 runner IDs stay visible for diagnosis, while only reachable dispatch-enabled
-runners are treated as dispatchable targets.
+runners are treated as dispatchable targets. A runner that reconnects after a
+dispatcher stream loss is dispatchable again, but keeps `last_disconnected_at`
+and appears as recovered/degraded during the recent recovery window.
 Runner registration is trusted by service JWT/TLS material and the
 ejected-runner blocklist. Replacing a control plane with the old
 `SERVICE_JWT_SIGNING_KEY` and `DISPATCHER_TLS_SECRET` lets old runner
@@ -744,7 +746,7 @@ Required bootstrap values:
 | `AAA_API_URL` | API | Private URL for AAA, typically `http://aaa:8082` in Compose. |
 | `NOPSAI_API_URL` | dispatcher and git-bot | Private API callback URL, typically `http://nopsai:8080` in Compose. |
 | `GIT_BOT_API_URL` | API | Private git-bot URL for repository fetch/write and GitHub check updates. |
-| `DISPATCHER_GRPC_ADDRESS` | runners and agents | Dispatcher gRPC address, typically `dispatcher:9090`. |
+| `DISPATCHER_GRPC_ADDRESS` | runners and agents | Dispatcher gRPC address, typically `dispatcher:9090`; cross-namespace Kubernetes runners usually need `dispatcher.<platform-namespace>.svc.cluster.local:9090`. |
 | `DISPATCHER_TLS_MODE` | dispatcher, runners, agents | Dispatcher transport mode: `mtls`, `tls`, or `disabled`. Production should not use `disabled`. |
 | `DISPATCHER_TLS_SECRET` | dispatcher, runners, agents | Shared high-entropy TLS or mTLS bootstrap secret. |
 | `DOCKER_NETWORK_NAME` | Docker runner | Optional Docker network for step containers; `bridge`/blank/default keeps egress, `none` disables step networking, and a custom value joins that network. |
@@ -857,7 +859,22 @@ token errors in the console or audit logs.
 Pipeline logs are durable run records. System Logs are live allow-listed
 platform container or pod logs streamed through authenticated SSE. Docker
 deployments use the restricted socket proxy; Kubernetes deployments use
-read-only `pods` and `pods/log` RBAC.
+read-only `pods` and `pods/log` RBAC. Installed runners appear as
+`runner:<runner-id>` sources while the runner remains in dispatcher status, and
+are marked unavailable until the configured System Logs provider can access the
+Docker host or an owned Kubernetes pod in the namespace advertised by that
+runner. Generated runner installs preserve the friendly typed name as
+`runner_name`, use a unique suffixed `RUNNER_ID` for dispatcher identity, and
+treat an explicit empty `runner_scopes` value as all scopes.
+Runner discovery follows the registered `docker_container_name`,
+`kubernetes_namespace`, `kubernetes_label_selector`, and `nopsai_platform_id`
+dispatcher metadata; `NOPSAI_PLATFORM_ID` keeps bundled runners and generated
+runner installs on the same ownership boundary. Removed runner registrations
+hide old runner logs even if their containers or pods still exist. Hybrid
+deployments can configure comma-separated providers such as `docker,kubernetes`
+when both provider credentials are mounted. Runner source labels overlay
+dispatcher connection health, so an otherwise ready pod or running container
+can show as `dispatcher unreachable` or `recently reconnected`.
 
 Authentication identity is provider ID, issuer, and OIDC/OAuth subject. Email is
 nullable metadata and may be duplicated; it is used for automatic linking only

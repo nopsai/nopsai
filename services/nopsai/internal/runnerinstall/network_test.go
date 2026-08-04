@@ -41,8 +41,18 @@ func TestExternalDispatcherAddressAdaptsUIServiceHostToDispatcherServiceHost(t *
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %#v, want none", warnings)
 	}
-	if got != "nopsai-dispatcher.nopsai.orb.local:9090" {
+	if got != "dispatcher.nopsai.orb.local:9090" {
 		t.Fatalf("address = %q, want dispatcher service host", got)
+	}
+}
+
+func TestDockerReachableDispatcherAddressRewritesLocalhost(t *testing.T) {
+	got, rewritten := DockerReachableDispatcherAddress("localhost:9090")
+	if !rewritten {
+		t.Fatal("rewritten = false, want true")
+	}
+	if got != "host.docker.internal:9090" {
+		t.Fatalf("address = %q, want Docker host gateway", got)
 	}
 }
 
