@@ -414,6 +414,21 @@ function SystemConfigWorkspace({
                             disabled={runtimeDisabled}
                           />
                         </SettingField>
+                        <SettingField
+                          label={labelWithApply('Revoked runner IDs', 'ejected_runner_ids')}
+                          helper="Comma-separated IDs that must not register again."
+                          wide
+                        >
+                          <input
+                            id="system-ejected-runner-ids"
+                            type="text"
+                            className="pipelines-input"
+                            value={config.ejected_runner_ids}
+                            onChange={handleConfigChange('ejected_runner_ids')}
+                            placeholder="runner-old, runner-compromised"
+                            disabled={runtimeDisabled}
+                          />
+                        </SettingField>
                       </div>
                     </SettingsPanel>
 

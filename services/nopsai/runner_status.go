@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"strings"
+	"time"
 
 	"nopsai/pkg/proto"
 )
@@ -49,6 +50,20 @@ func runnerUnreachableCount(status *proto.DispatcherStatus) int {
 	count := 0
 	for _, runner := range status.GetRunners() {
 		if !runnerReachable(runner.GetMetadata()) {
+			count++
+		}
+	}
+	return count
+}
+
+func runnerRecoveredCount(status *proto.DispatcherStatus, now time.Time) int {
+	if status == nil {
+		return 0
+	}
+	count := 0
+	for _, runner := range status.GetRunners() {
+		metadata := runner.GetMetadata()
+		if runnerReachable(metadata) && runnerRecentlyDisconnected(metadata, now) {
 			count++
 		}
 	}

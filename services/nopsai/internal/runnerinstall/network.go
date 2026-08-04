@@ -49,6 +49,16 @@ func ExternalDispatcherAddress(cfg config.Config, r *http.Request) (string, bool
 	return net.JoinHostPort(externalDispatcherHost(requestHost), port), true, nil
 }
 
+func DockerReachableDispatcherAddress(address string) (string, bool) {
+	address = strings.TrimSpace(address)
+	host := addressHost(address)
+	if !isLocalHost(host) {
+		return address, false
+	}
+	port := addressPort(address, "9090")
+	return net.JoinHostPort("host.docker.internal", port), true
+}
+
 func requestedDispatcherAddress(r *http.Request) string {
 	if r == nil {
 		return ""
@@ -89,7 +99,7 @@ func externalDispatcherHost(requestHost string) string {
 	if len(parts) > 1 {
 		switch parts[0] {
 		case "nopsai-ui":
-			parts[0] = "nopsai-dispatcher"
+			parts[0] = "dispatcher"
 			return strings.Join(parts, ".")
 		case "ui":
 			parts[0] = "dispatcher"
@@ -168,4 +178,9 @@ func isInternalAddressHost(host string) bool {
 		return true
 	}
 	return strings.HasPrefix(host, "127.")
+}
+
+func isLocalHost(host string) bool {
+	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
+	return host == "localhost" || host == "::1" || host == "0.0.0.0" || host == "127.0.0.1" || strings.HasPrefix(host, "127.")
 }

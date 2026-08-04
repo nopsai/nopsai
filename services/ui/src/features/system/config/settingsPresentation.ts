@@ -54,10 +54,11 @@ export const SYSTEM_SETTINGS_SECTIONS: SystemSettingsSection[] = [
       'Default runner ID',
       'Default runner scopes',
       'Default runner capacity',
+      'Revoked runner IDs',
       'Auto-remove agent containers',
       'Runtime pools',
     ],
-    keywords: ['runner', 'dispatcher', 'capacity', 'kubernetes', 'scheduling', 'pool'],
+    keywords: ['runner', 'dispatcher', 'capacity', 'kubernetes', 'scheduling', 'pool', 'revoked'],
   },
   {
     id: 'networking',

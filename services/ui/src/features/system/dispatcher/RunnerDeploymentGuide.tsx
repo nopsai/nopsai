@@ -149,7 +149,7 @@ export function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: {
                   <label className="dispatcher-field">
                     <span className="dispatcher-field-label">Runner name</span>
                     <input aria-label="Runner name" className="pipelines-input w-full" value={runnerId} onChange={event => setRunnerId(event.target.value)} />
-                    <span className="dispatcher-field-hint">Unique within this dispatcher.</span>
+                    <span className="dispatcher-field-hint">Friendly name; generated installs add a unique suffix.</span>
                   </label>
                   <label className="dispatcher-field">
                     <span className="dispatcher-field-label">Capacity</span>
@@ -196,7 +196,7 @@ export function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: {
                       onChange={event => setDispatcherAddress(event.target.value)}
                       placeholder={runnerDefaults.dispatcher_grpc_address ? `auto from ${runnerDefaults.dispatcher_grpc_address}` : 'auto from system config or current host'}
                     />
-                    <span className="dispatcher-field-hint">Leave empty unless the runner reaches the dispatcher through a different hostname or port.</span>
+                    <span className="dispatcher-field-hint">Kubernetes runners in another namespace usually need a fully qualified Service DNS name.</span>
                   </label>
                 </div>
               </div>
@@ -355,11 +355,13 @@ export function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: {
             )}
           </div>
 
-          {(activeCommand && (activeDispatcherAddress || activeRunnerImage || (!isKubernetesInstall && template?.networkMode) || (isKubernetesInstall && kubernetesTemplate?.namespace) || activeRegistryHosts.length > 0)) && (
-            <div className="dispatcher-install-meta">
-              {activeDispatcherAddress && <RunnerFact label="Dispatcher" value={activeDispatcherAddress} mono />}
-              {!isKubernetesInstall && template?.networkMode && <RunnerFact label="Network mode" value={template.networkMode} />}
+          {(activeCommand && (activeDispatcherAddress || activeRunnerImage || activeTemplate?.resourceName || (!isKubernetesInstall && template?.networkMode) || (isKubernetesInstall && kubernetesTemplate?.namespace) || activeRegistryHosts.length > 0)) && (
+	          <div className="dispatcher-install-meta">
+	            {activeDispatcherAddress && <RunnerFact label="Dispatcher" value={activeDispatcherAddress} mono />}
+	            {activeTemplate?.runnerName && activeTemplate.runnerName !== activeTemplate.runnerId && <RunnerFact label="Runner name" value={activeTemplate.runnerName} mono />}
+	            {!isKubernetesInstall && template?.networkMode && <RunnerFact label="Network mode" value={template.networkMode} />}
               {isKubernetesInstall && kubernetesTemplate?.namespace && <RunnerFact label="Namespace" value={kubernetesTemplate.namespace} mono />}
+              {activeTemplate?.resourceName && <RunnerFact label="Resource" value={activeTemplate.resourceName} mono />}
               {activeRunnerImage && <RunnerFact label="Image" value={activeRunnerImage} mono />}
               {activeRegistryHosts.length > 0 && <RunnerFact label="Registries" value={activeRegistryHosts.join(', ')} mono />}
             </div>

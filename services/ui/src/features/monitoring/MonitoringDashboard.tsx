@@ -925,6 +925,7 @@ function RunnerStatusGrid({ runners, summary, unavailable, loading }: { runners:
       <div className="grid grid-cols-2 gap-3">
         <RuntimeMini label="Total" value={formatNumber(summary.total)} />
         <RuntimeMini label="Online" value={formatNumber(summary.online)} />
+        <RuntimeMini label="Recovered" value={formatNumber(summary.recovered)} />
         <RuntimeMini label="Unreachable" value={formatNumber(summary.unreachable)} />
         <RuntimeMini label="K8s" value={formatNumber(summary.kubernetes)} />
         <RuntimeMini label="Docker" value={formatNumber(summary.docker)} />
@@ -1186,6 +1187,7 @@ function formatServiceStatusLabel(status: ServiceStatusValue) {
 
 function runnerStatusPillClass(status: RunnerStatusValue) {
   if (status === 'online') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300';
+  if (status === 'recovered') return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
   if (status === 'unreachable') return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
   if (status === 'stale') return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
   if (status === 'disabled') return 'border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-300';
@@ -1194,6 +1196,7 @@ function runnerStatusPillClass(status: RunnerStatusValue) {
 
 function formatRunnerStatusLabel(status: RunnerStatusValue) {
   if (status === 'online') return 'Online';
+  if (status === 'recovered') return 'Recovered';
   if (status === 'unreachable') return 'Unreachable';
   if (status === 'stale') return 'Stale';
   if (status === 'disabled') return 'Disabled';

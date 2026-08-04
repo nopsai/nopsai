@@ -60,11 +60,18 @@ func (a *App) buildSystemServiceStatuses(ctx context.Context, dispatcherStatus *
 	} else {
 		runnerCount := len(dispatcherStatus.GetRunners())
 		unreachableCount := runnerUnreachableCount(dispatcherStatus)
+		recoveredCount := runnerRecoveredCount(dispatcherStatus, checkedAt)
 		add("dispatcher", "Dispatcher", "ok", "Connected.")
 		if runnerCount == 0 {
 			add("runners", "Runners", "warning", "No runners are registered.")
 		} else if unreachableCount > 0 {
-			add("runners", "Runners", "warning", fmt.Sprintf("%d runner(s) registered, %d unreachable.", runnerCount, unreachableCount))
+			message := fmt.Sprintf("%d runner(s) registered, %d unreachable.", runnerCount, unreachableCount)
+			if recoveredCount > 0 {
+				message = fmt.Sprintf("%d runner(s) registered, %d unreachable, %d recently reconnected.", runnerCount, unreachableCount, recoveredCount)
+			}
+			add("runners", "Runners", "warning", message)
+		} else if recoveredCount > 0 {
+			add("runners", "Runners", "warning", fmt.Sprintf("%d runner(s) registered, %d recently reconnected.", runnerCount, recoveredCount))
 		} else {
 			add("runners", "Runners", "ok", fmt.Sprintf("%d runner(s) registered.", runnerCount))
 		}

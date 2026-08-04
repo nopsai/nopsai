@@ -33,8 +33,11 @@ func versionedRunnerImage(repository string) string {
 
 type ComposeResponse struct {
 	RunnerID          string   `json:"runner_id"`
+	RunnerName        string   `json:"runner_name,omitempty"`
 	RunnerScopes      string   `json:"runner_scopes"`
 	RunnerCapacity    int      `json:"runner_capacity"`
+	PlatformID        string   `json:"platform_id,omitempty"`
+	ResourceName      string   `json:"resource_name,omitempty"`
 	DispatcherAddress string   `json:"dispatcher_grpc_address"`
 	NetworkMode       string   `json:"network_mode"`
 	RunnerImage       string   `json:"runner_image"`
@@ -45,8 +48,11 @@ type ComposeResponse struct {
 
 type BootstrapCommandResponse struct {
 	RunnerID            string    `json:"runner_id"`
+	RunnerName          string    `json:"runner_name,omitempty"`
 	RunnerScopes        string    `json:"runner_scopes"`
 	RunnerCapacity      int       `json:"runner_capacity"`
+	PlatformID          string    `json:"platform_id,omitempty"`
+	ResourceName        string    `json:"resource_name,omitempty"`
 	DispatcherAddress   string    `json:"dispatcher_grpc_address"`
 	NetworkMode         string    `json:"network_mode"`
 	RunnerImage         string    `json:"runner_image"`
@@ -59,8 +65,11 @@ type BootstrapCommandResponse struct {
 
 type KubernetesManifestResponse struct {
 	RunnerID               string   `json:"runner_id"`
+	RunnerName             string   `json:"runner_name,omitempty"`
 	RunnerScopes           string   `json:"runner_scopes"`
 	RunnerCapacity         int      `json:"runner_capacity"`
+	PlatformID             string   `json:"platform_id,omitempty"`
+	ResourceName           string   `json:"resource_name,omitempty"`
 	Namespace              string   `json:"namespace"`
 	ServiceAccount         string   `json:"service_account"`
 	WorkloadServiceAccount string   `json:"workload_service_account,omitempty"`
@@ -75,8 +84,11 @@ type KubernetesManifestResponse struct {
 
 type KubernetesBootstrapCommandResponse struct {
 	RunnerID               string    `json:"runner_id"`
+	RunnerName             string    `json:"runner_name,omitempty"`
 	RunnerScopes           string    `json:"runner_scopes"`
 	RunnerCapacity         int       `json:"runner_capacity"`
+	PlatformID             string    `json:"platform_id,omitempty"`
+	ResourceName           string    `json:"resource_name,omitempty"`
 	Namespace              string    `json:"namespace"`
 	ServiceAccount         string    `json:"service_account"`
 	WorkloadServiceAccount string    `json:"workload_service_account,omitempty"`
@@ -117,14 +129,17 @@ type installEnv struct {
 
 type installSpec struct {
 	RunnerID          string
+	RunnerName        string
 	RunnerScopes      string
 	RunnerCapacity    int
+	PlatformID        string
 	DispatcherAddress string
 	ServiceName       string
 	DockerNetwork     string
 	NetworkMode       string
 	RunnerImage       string
 	IncludeNetwork    bool
+	AddHostGateway    bool
 	Env               []installEnv
 	RegistryAuth      RegistryAuthBootstrap
 	Warnings          []string

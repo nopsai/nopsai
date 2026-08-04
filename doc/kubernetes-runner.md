@@ -16,7 +16,7 @@ The Kubernetes runner is a separate in-cluster service:
 5. The agent runs in `NOPSAI_RUNTIME=kubernetes` mode and creates one step pod
    per pipeline step image.
 6. The agent mounts the same workspace PVC into each step pod at the pipeline
-   `working_directory`, creates run-owned pipeline-declared PVCs, and execs
+   `working_directory`, binds pipeline-declared PVCs by name, and execs
    task actions through the Kubernetes API.
 
 This preserves the current pipeline behavior while moving the execution
@@ -36,6 +36,14 @@ The generated Role includes `get`, `list`, and `watch` on `pods/log`. Keep those
 permissions in custom manifests; without them the run may complete but the UI
 will not receive complete Kubernetes runner logs.
 
+Runner Deployment logs are exposed separately through System Logs when the
+NopsAI API has Kubernetes log access to the runner namespace. Generated runner
+manifests carry `nopsai.io/runner-id` and `nopsai.io/platform-id`, and advertise
+`runner:<runner-id>` in dispatcher metadata with `kubernetes_namespace`,
+`kubernetes_label_selector`, and `nopsai_platform_id`, so the Dispatcher runner
+detail can open the matching source. The source is marked unavailable until the
+configured System Logs provider can see an owned pod in that namespace.
+
 ## Runner Per Namespace
 
 Run one Kubernetes runner per namespace. Give every runner a unique
@@ -51,11 +59,21 @@ Dispatcher status exposes both configured and effective routes, and the Scope
 and Team pages show the registered runners that can receive work for the
 selected scope or team subtree.
 
-Ejecting a runner from **System > Dispatcher** removes its dispatcher
-registration, removes configured dispatcher routing references for that runner
-ID, blocks the same runner ID from registering again, and disconnects any live
-stream. To retire a Kubernetes runner at the infrastructure level, delete or
-scale down the underlying Deployment too.
+Removing a runner from **System > Dispatcher** clears its dispatcher
+registration and disconnects any live stream. It does not revoke the runner ID,
+so the same name can be reused after the old Deployment is deleted or scaled
+down. Add the ID to `ejected_runner_ids` only when it must stay revoked.
+Existing revocations can be cleared from **System > Config > Revoked runner
+IDs** before reinstalling with the same name. Generating a replacement runner
+install command also clears a stale revocation for that requested runner ID.
+
+Generated Kubernetes runner resource names include a unique runner identity plus
+a stable platform ownership ID derived from the NopsAI installation. The
+submitted `runner_id` is kept as `RUNNER_NAME`; the emitted `RUNNER_ID` appends
+a random suffix unless `runner_uid` is supplied for GitOps reproducibility.
+Reusing the same runner name from a different NopsAI platform creates a
+different Deployment, Secret, and ConfigMap instead of patching the existing
+runner owned by another platform in the same namespace.
 
 Agent pods must also receive a `NOPSAI_API_URL` that is reachable from inside
 the Kubernetes cluster. Docker Compose names such as `http://nopsai:8080` work
@@ -77,10 +95,14 @@ They download a one-time bootstrap script through the NopsAI HTTP API. When
 the configured `dispatcher_grpc_address` is an internal stack name such as
 `dispatcher:9090`, NopsAI derives an external dispatcher endpoint from the
 request host and dispatcher port and emits `DISPATCHER_GRPC_ADDRESS`. For
-Docker/OrbStack-style service hosts such as `nopsai-ui.<env>`, it uses the sibling dispatcher host
-`nopsai-dispatcher.<env>:9090` instead of the UI host. The Dispatcher runner
+Docker/OrbStack-style service hosts such as `nopsai-ui.<env>`, it uses the sibling dispatcher Service host
+`dispatcher.<env>:9090` instead of the UI host. If the generated runner lives
+in a different Kubernetes namespace from the control plane, prefer the
+fully-qualified Service DNS name, for example
+`dispatcher.<platform-namespace>.svc.cluster.local:9090`. The Dispatcher runner
 install panel also lets operators override the dispatcher address for a single
-generated command without changing the persisted runtime config.
+generated command without changing the persisted runtime config. An explicit
+empty `runner_scopes` value means the runner accepts all scopes.
 
 The visible Kubernetes install command downloads and executes that one-time
 script. The script writes the generated manifest to a temporary file, applies
@@ -103,9 +125,10 @@ the step pods for the run. The agent pod always mounts the workspace at
 `/workspace`; step pods mount the same PVC at the normalized pipeline
 `working_directory`, matching Docker runner behavior. Absolute working
 directories such as `/tmp/test` are supported. Pipeline-declared volumes are
-still handled by the agent: when a step declares `volumes`, the agent creates
-missing PVCs with NopsAI ownership labels for that run and refuses to attach an
-existing PVC that was not created for the same run.
+still handled by the agent: when a step declares `volumes`, the agent reuses an
+existing PVC with that name in the runner namespace, or creates it with NopsAI
+labels when it is missing. Steps and runs that declare the same PVC name share
+the same writable storage, subject to the PVC access mode.
 
 Runner pods, agent pods, and step pods use `RuntimeDefault` seccomp and disable
 privilege escalation by default. Step pods do not drop workload container
@@ -246,6 +269,13 @@ The generated manifest includes:
   credentials
 - ConfigMap for runner runtime settings
 - Deployment for `nopsai-k8s-runner`
+
+The API response also returns `runner_name`, `platform_id`, and `resource_name`.
+Commit the generated YAML as-is for GitOps so the runner identity, platform
+ownership label, and `KUBERNETES_RUNNER_LABEL_SELECTOR` stay aligned with the
+Deployment name. Helm installs pass `global.platformID` to the API as
+`NOPSAI_PLATFORM_ID` so bundled runners and generated runner manifests use the
+same ownership boundary.
 
 When registry credentials are selected in the install UI, the one-time
 bootstrap command resolves only those credentials, creates a

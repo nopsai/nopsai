@@ -136,7 +136,7 @@ export function useSystemDispatcher({
       if (!key || pendingActions.has(key) || pendingEjections.has(key)) return;
 
       const confirmed = window.confirm(
-        `Eject runner "${runner.runnerId}"? This removes it from dispatcher status, cleans configured routing references, blocks the same runner ID from registering again, and disconnects any live runner stream.`
+        `Remove runner "${runner.runnerId}" from dispatcher status? This disconnects any live runner stream and requeues in-flight work. Stop or scale down the old runner before replacing it with the same name.`
       );
       if (!confirmed) return;
 
@@ -146,10 +146,10 @@ export function useSystemDispatcher({
           method: 'DELETE',
         });
         await loadStatus({ quiet: true });
-        addToast('Runner ejected, routing cleaned, and blocked.', 'success');
+        addToast('Runner registration removed.', 'success');
       } catch (deleteError) {
-        console.error('Failed to eject runner', deleteError);
-        addToast('Failed to eject runner.', 'error');
+        console.error('Failed to remove runner registration', deleteError);
+        addToast('Failed to remove runner registration.', 'error');
       } finally {
         setRunnerEjectionPending(runner.runnerId, meta.connectionId, false);
       }

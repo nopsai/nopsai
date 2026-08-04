@@ -64,8 +64,10 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 		"NOPSAI_BOOTSTRAP_ADMIN_EMAIL: ${NOPSAI_BOOTSTRAP_ADMIN_EMAIL",
 		"NOPSAI_BOOTSTRAP_ADMIN_PASSWORD: ${NOPSAI_BOOTSTRAP_ADMIN_PASSWORD",
 		"DISPATCHER_TLS_SECRET: ${DISPATCHER_TLS_SECRET:-}",
+		"NOPSAI_PLATFORM_ID: ${NOPSAI_PLATFORM_ID:?NOPSAI_PLATFORM_ID is required}",
 		"SYSTEM_LOGS_PROVIDER: docker",
 		"nopsai-docker-socket-proxy",
+		"nopsai.io/platform-id: ${NOPSAI_PLATFORM_ID:?NOPSAI_PLATFORM_ID is required}",
 		"${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}",
 	} {
 		if !strings.Contains(composeText, required) {
@@ -101,6 +103,13 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	if !strings.Contains(envText, "NOPSAI_UI_PORT=18000") {
 		t.Fatalf(".env = %s", envText)
 	}
+	masterKey := envValue(envText, "NOPSAI_MASTER_KEY")
+	if masterKey == "" {
+		t.Fatalf(".env missing NOPSAI_MASTER_KEY in:\n%s", envText)
+	}
+	if want := "NOPSAI_PLATFORM_ID=" + installPlatformID(masterKey); !strings.Contains(envText, want) {
+		t.Fatalf(".env missing %q in:\n%s", want, envText)
+	}
 	if runtime.GOOS != "windows" {
 		info, _ := os.Stat(filepath.Join(outputDir, ".env"))
 		if info.Mode().Perm() != 0o600 {
@@ -124,6 +133,16 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outputDir, "db", "init.sql")); err != nil {
 		t.Fatalf("embedded db init was not written: %v", err)
 	}
+}
+
+func envValue(envText, key string) string {
+	prefix := key + "="
+	for _, line := range strings.Split(envText, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix)
+		}
+	}
+	return ""
 }
 
 func TestDockerComposeInstallRejectsDefaultBootstrapAdminPassword(t *testing.T) {

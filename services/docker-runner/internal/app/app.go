@@ -95,6 +95,7 @@ func Run() {
 		Docker:                   dockerClient,
 		DockerNetwork:            networkValue,
 		DockerNetworkSet:         networkSet,
+		ContainerName:            strings.TrimSpace(os.Getenv("RUNNER_CONTAINER_NAME")),
 		RegistryAuth:             registryAuthResolver,
 		RegistryAuthConfigBase64: strings.TrimSpace(os.Getenv(registryauth.DockerConfigBase64Env)),
 	})

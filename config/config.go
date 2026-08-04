@@ -256,6 +256,7 @@ type Config struct {
 	RequireProductionGates bool `yaml:"require_production_gates" env:"NOPSAI_REQUIRE_PRODUCTION_GATES"`
 
 	MasterKey      string               `yaml:"master_key" env:"NOPSAI_MASTER_KEY"`
+	PlatformID     string               `yaml:"platform_id" env:"NOPSAI_PLATFORM_ID"`
 	BootstrapAdmin BootstrapAdminConfig `yaml:"bootstrap_admin" env:"-"`
 
 	// Authentication and authorization
@@ -414,11 +415,8 @@ func (c *Config) EffectiveSystemLogsProvider() string {
 	if c == nil {
 		return ""
 	}
-	provider := strings.ToLower(strings.TrimSpace(c.SystemLogs.Provider))
-	switch provider {
-	case "k8s":
-		return "kubernetes"
-	case "docker", "kubernetes":
+	provider := normalizeSystemLogsProvider(c.SystemLogs.Provider)
+	if provider != "" {
 		return provider
 	}
 	if c.EffectiveSystemLogsDockerHost() != "" {
@@ -468,8 +466,8 @@ func LoadConfig(path string) (*Config, error) {
 			continue
 		}
 
-		envValue := os.Getenv(envTag)
-		if envValue != "" {
+		envValue, envSet := os.LookupEnv(envTag)
+		if envSet && (envValue != "" || topLevelEnvAllowsEmpty(envTag)) {
 			switch field.Type.Kind() {
 			case reflect.String:
 				val.Field(i).SetString(envValue)
@@ -502,6 +500,7 @@ func LoadConfig(path string) (*Config, error) {
 	config.Auth = NormalizeAuthConfig(config.Auth)
 	config.Assistant = NormalizeAssistantConfig(config.Assistant)
 	config.CORSAllowedOrigins = normalizeStringSlice(config.CORSAllowedOrigins)
+	config.PlatformID = strings.TrimSpace(config.PlatformID)
 	config.Runtime = NormalizeRuntime(config.Runtime)
 	if config.RuntimeOutputMaxBytes <= 0 {
 		config.RuntimeOutputMaxBytes = 64 * 1024
@@ -514,6 +513,15 @@ func LoadConfig(path string) (*Config, error) {
 	config.NormalizeServiceTopology()
 
 	return config, nil
+}
+
+func topLevelEnvAllowsEmpty(name string) bool {
+	switch name {
+	case "RUNNER_SCOPES":
+		return true
+	default:
+		return false
+	}
 }
 
 func applyNestedEnvOverrides(config *Config) {
@@ -979,15 +987,38 @@ func NormalizeKubernetesConfig(k KubernetesConfig) KubernetesConfig {
 }
 
 func NormalizeSystemLogsConfig(cfg SystemLogsConfig) SystemLogsConfig {
-	cfg.Provider = strings.ToLower(strings.TrimSpace(cfg.Provider))
-	if cfg.Provider == "k8s" {
-		cfg.Provider = "kubernetes"
-	}
+	cfg.Provider = normalizeSystemLogsProvider(cfg.Provider)
 	cfg.DockerHost = strings.TrimSpace(cfg.DockerHost)
 	cfg.Kubernetes.Namespace = strings.TrimSpace(cfg.Kubernetes.Namespace)
 	cfg.Kubernetes.LabelSelector = strings.TrimSpace(cfg.Kubernetes.LabelSelector)
 	cfg.Kubernetes.Container = strings.TrimSpace(cfg.Kubernetes.Container)
 	return cfg
+}
+
+func normalizeSystemLogsProvider(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return ""
+	}
+	seen := map[string]struct{}{}
+	var providers []string
+	for _, raw := range strings.FieldsFunc(provider, func(r rune) bool { return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' }) {
+		item := strings.TrimSpace(raw)
+		if item == "k8s" {
+			item = "kubernetes"
+		}
+		switch item {
+		case "docker", "kubernetes":
+		default:
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		providers = append(providers, item)
+	}
+	return strings.Join(providers, ",")
 }
 
 func NormalizeRuntimePools(pools map[string]RuntimePool) map[string]RuntimePool {

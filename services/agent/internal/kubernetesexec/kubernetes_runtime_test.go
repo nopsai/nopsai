@@ -7,11 +7,8 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
-	ktesting "k8s.io/client-go/testing"
 )
 
 func TestSameNodeAffinityTargetsAgentNodeThroughScheduler(t *testing.T) {
@@ -136,7 +133,7 @@ func TestCreateStepPodRejectsExistingPodName(t *testing.T) {
 	}
 }
 
-func TestKubernetesStepVolumesCreateRunOwnedPVCs(t *testing.T) {
+func TestKubernetesStepVolumesCreateNamedPVCs(t *testing.T) {
 	runtime := &Runtime{
 		client:        fake.NewSimpleClientset(),
 		namespace:     "runs",
@@ -152,39 +149,48 @@ func TestKubernetesStepVolumesCreateRunOwnedPVCs(t *testing.T) {
 	if len(mounts) != 1 || mounts[0].MountPath != "/cache" || len(volumes) != 1 {
 		t.Fatalf("mounts/volumes = %#v/%#v", mounts, volumes)
 	}
-	pvc, err := runtime.client.CoreV1().PersistentVolumeClaims("runs").Get(context.Background(), "cache", metav1.GetOptions{})
+	claimName := "cache"
+	if volumes[0].PersistentVolumeClaim == nil || volumes[0].PersistentVolumeClaim.ClaimName != claimName {
+		t.Fatalf("step volume claim = %#v, want %q", volumes[0].PersistentVolumeClaim, claimName)
+	}
+	pvc, err := runtime.client.CoreV1().PersistentVolumeClaims("runs").Get(context.Background(), claimName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("created pvc get error = %v", err)
 	}
-	if !kubernetesStepPVCOwnedBy(pvc.Labels, "run-123") {
-		t.Fatalf("created pvc labels = %#v, want run ownership", pvc.Labels)
+	if pvc.Labels[kubernetesManagedLabel] != "true" ||
+		pvc.Labels["app.kubernetes.io/component"] != kubernetesStepVolumeComponent ||
+		pvc.Labels[kubernetesStepVolumeLogicalLabel] != "cache" {
+		t.Fatalf("created pvc labels = %#v, want pipeline volume labels", pvc.Labels)
 	}
 }
 
-func TestEnsureStepPVCRejectsCreateCollisionWithUnownedPVC(t *testing.T) {
-	client := fake.NewSimpleClientset()
-	client.Fake.PrependReactor("create", "persistentvolumeclaims", func(action ktesting.Action) (bool, runtime.Object, error) {
-		if err := client.Tracker().Create(corev1.SchemeGroupVersion.WithResource("persistentvolumeclaims"), &corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "runs"},
-		}, "runs"); err != nil {
-			t.Fatalf("seed collision pvc: %v", err)
-		}
-		return true, nil, apierrors.NewAlreadyExists(corev1.Resource("persistentvolumeclaims"), "cache")
-	})
+func TestKubernetesStepVolumesReuseNamedPVCAcrossRuns(t *testing.T) {
 	runtime := &Runtime{
-		client:        client,
+		client:        fake.NewSimpleClientset(),
 		namespace:     "runs",
 		workspaceSize: "1Gi",
 		accessMode:    corev1.ReadWriteOnce,
 	}
 
-	err := runtime.ensureStepPVC(context.Background(), "cache", "1Gi", corev1.ReadWriteOnce, "run-123")
-	if err == nil || !strings.Contains(err.Error(), "not owned by this NopsAI run") {
-		t.Fatalf("ensureStepPVC() error = %v, want ownership error after create collision", err)
+	if _, _, err := runtime.kubernetesStepVolumes(context.Background(), []string{"cache:/cache"}, "run-123"); err != nil {
+		t.Fatalf("first kubernetesStepVolumes() error = %v", err)
+	}
+	if _, _, err := runtime.kubernetesStepVolumes(context.Background(), []string{"cache:/cache"}, "run-123"); err != nil {
+		t.Fatalf("second kubernetesStepVolumes() error = %v, want same run/logical volume to be reusable", err)
+	}
+	if _, _, err := runtime.kubernetesStepVolumes(context.Background(), []string{"cache:/cache"}, "run-456"); err != nil {
+		t.Fatalf("other run kubernetesStepVolumes() error = %v", err)
+	}
+	pvcs, err := runtime.client.CoreV1().PersistentVolumeClaims("runs").List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list pvcs error = %v", err)
+	}
+	if len(pvcs.Items) != 1 || pvcs.Items[0].Name != "cache" {
+		t.Fatalf("pvcs = %#v, want one named cache", pvcs.Items)
 	}
 }
 
-func TestKubernetesStepVolumesRejectExistingUnownedPVC(t *testing.T) {
+func TestKubernetesStepVolumesAllowExistingUnownedPVC(t *testing.T) {
 	runtime := &Runtime{
 		client: fake.NewSimpleClientset(&corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "runs"},
@@ -194,9 +200,12 @@ func TestKubernetesStepVolumesRejectExistingUnownedPVC(t *testing.T) {
 		accessMode:    corev1.ReadWriteOnce,
 	}
 
-	_, _, err := runtime.kubernetesStepVolumes(context.Background(), []string{"cache:/cache"}, "run-123")
-	if err == nil || !strings.Contains(err.Error(), "not owned by this NopsAI run") {
-		t.Fatalf("kubernetesStepVolumes() error = %v, want ownership error", err)
+	mounts, volumes, err := runtime.kubernetesStepVolumes(context.Background(), []string{"cache:/cache"}, "run-123")
+	if err != nil {
+		t.Fatalf("kubernetesStepVolumes() error = %v", err)
+	}
+	if len(mounts) != 1 || len(volumes) != 1 || volumes[0].PersistentVolumeClaim == nil || volumes[0].PersistentVolumeClaim.ClaimName != "cache" {
+		t.Fatalf("mounts/volumes = %#v/%#v, want existing cache pvc", mounts, volumes)
 	}
 }
 

@@ -43,6 +43,7 @@ const (
 	kubernetesWorkspaceVolumePVC   = "pvc"
 	kubernetesWorkspaceExistingPVC = "existing"
 	kubernetesWorkspaceEmptyDir    = "emptyDir"
+	kubernetesPlatformIDEnv        = "NOPSAI_PLATFORM_ID"
 	kubernetesPodLogDrainTimeout   = 15 * time.Second
 	kubernetesPodLogStopTimeout    = 2 * time.Second
 	kubernetesPodLogRetryDelay     = time.Second
@@ -265,9 +266,19 @@ func (r *kubernetesRunner) registrationMetadata() map[string]string {
 		"kubernetes_access_mode":     string(r.workspaceAccess),
 		"kubernetes_storage_class":   r.storageClass,
 		"dispatcher_addr":            r.dispatcherAddr,
+		"log_source_id":              "runner:" + r.id,
 	}
 	if host, err := os.Hostname(); err == nil {
 		metadata["hostname"] = strings.TrimSpace(host)
+	}
+	if selector := strings.TrimSpace(os.Getenv("KUBERNETES_RUNNER_LABEL_SELECTOR")); selector != "" {
+		metadata["kubernetes_label_selector"] = selector
+	}
+	if runnerName := strings.TrimSpace(os.Getenv("RUNNER_NAME")); runnerName != "" && runnerName != r.id {
+		metadata["runner_name"] = runnerName
+	}
+	if platformID := strings.TrimSpace(os.Getenv(kubernetesPlatformIDEnv)); platformID != "" {
+		metadata["nopsai_platform_id"] = platformID
 	}
 	if r.limits.MaxConcurrentRuns > 0 {
 		metadata["max_concurrent_runs"] = strconv.Itoa(r.limits.MaxConcurrentRuns)

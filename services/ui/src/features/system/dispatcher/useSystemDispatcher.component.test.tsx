@@ -60,5 +60,5 @@ test('ejects a runner through the dispatcher delete API after confirmation', asy
     method: 'DELETE',
   });
   expect(apiMocks.fetchDispatcherStatus).toHaveBeenCalledTimes(1);
-  expect(addToast).toHaveBeenCalledWith('Runner ejected, routing cleaned, and blocked.', 'success');
+  expect(addToast).toHaveBeenCalledWith('Runner registration removed.', 'success');
 });

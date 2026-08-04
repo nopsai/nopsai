@@ -140,8 +140,8 @@ func TestBuildSystemConfigResponseDoesNotExposeConfigRepoURL(t *testing.T) {
 }
 
 func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-compose?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
-	resp, err := runnerinstall.BuildComposeResponse(config.Config{
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-compose?runner_id=runner-cloud-1&runner_uid=test01&runner_scopes=prod&runner_capacity=3", nil)
+	cfg := config.Config{
 		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -154,9 +154,16 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
 		DockerNetworkName:       "nopsai-net",
 		RunnerCapacity:          1,
-	}, req)
+	}
+	resp, err := runnerinstall.BuildComposeResponse(cfg, req)
 	if err != nil {
 		t.Fatalf("buildRunnerComposeResponse() error = %v", err)
+	}
+	if resp.PlatformID != runnerinstall.PlatformID(cfg) || resp.ResourceName == "" {
+		t.Fatalf("platform/resource metadata = %q/%q", resp.PlatformID, resp.ResourceName)
+	}
+	if resp.RunnerID != "runner-cloud-1-test01" || resp.RunnerName != "runner-cloud-1" {
+		t.Fatalf("runner identity = %q/%q", resp.RunnerID, resp.RunnerName)
 	}
 	if resp.DispatcherAddress != "nopsai.example.com:9090" {
 		t.Fatalf("dispatcher address = %q, want adapted request host", resp.DispatcherAddress)
@@ -169,9 +176,12 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 	}
 	for _, want := range []string{
 		`image: "` + runnerinstall.DefaultRunnerImage() + `"`,
-		`RUNNER_ID: "runner-cloud-1"`,
+		`RUNNER_ID: "` + resp.RunnerID + `"`,
+		`RUNNER_NAME: "runner-cloud-1"`,
 		`RUNNER_SCOPES: "prod"`,
 		`RUNNER_CAPACITY: "3"`,
+		`NOPSAI_PLATFORM_ID: "` + resp.PlatformID + `"`,
+		`RUNNER_CONTAINER_NAME: "` + resp.ResourceName + `"`,
 		`DISPATCHER_GRPC_ADDRESS: "nopsai.example.com:9090"`,
 		`SERVICE_JWT_SIGNING_KEY: "service-secret"`,
 		`SERVICE_JWT_ISSUER: "issuer"`,
@@ -179,6 +189,10 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 		`RUNNER_SERVICE_ID: "runner-service"`,
 		`DISPATCHER_TLS_SECRET: "tls-secret"`,
 		`DISPATCHER_TLS_SERVER_NAME: "nopsai-dispatcher.example.com"`,
+		`app.kubernetes.io/name: "nopsai-docker-runner"`,
+		`app.kubernetes.io/component: "runner"`,
+		`nopsai.io/runner-id: "` + resp.RunnerID + `"`,
+		`nopsai.io/platform-id: "` + resp.PlatformID + `"`,
 		`DOCKER_NETWORK_NAME: ""`,
 		`network_mode: "host"`,
 	} {
@@ -194,10 +208,44 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 	}
 }
 
+func TestBuildRunnerComposeResponseRewritesLocalhostDispatcherForDocker(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/v1/system/dispatcher/runner-compose?runner_id=runner-local-1", nil)
+	resp, err := runnerinstall.BuildComposeResponse(config.Config{
+		NopsaiAPIURL:            "http://nopsai:8080",
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+	}, req)
+	if err != nil {
+		t.Fatalf("buildRunnerComposeResponse() error = %v", err)
+	}
+	if resp.DispatcherAddress != "host.docker.internal:9090" {
+		t.Fatalf("dispatcher address = %q, want Docker host gateway", resp.DispatcherAddress)
+	}
+	if resp.NetworkMode != runnerinstall.NetworkModeBridge {
+		t.Fatalf("network mode = %q, want bridge with host-gateway mapping", resp.NetworkMode)
+	}
+	for _, want := range []string{
+		`extra_hosts:`,
+		`"host.docker.internal:host-gateway"`,
+		`DISPATCHER_GRPC_ADDRESS: "host.docker.internal:9090"`,
+	} {
+		if !strings.Contains(resp.Compose, want) {
+			t.Fatalf("compose missing %q:\n%s", want, resp.Compose)
+		}
+	}
+	if len(resp.Warnings) == 0 || !strings.Contains(strings.Join(resp.Warnings, "\n"), "kubectl port-forward service/dispatcher 9090:9090") {
+		t.Fatalf("warnings = %#v, want dispatcher port-forward guidance", resp.Warnings)
+	}
+}
+
 func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	app := App{}
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
-	resp, err := runnerinstall.BuildBootstrapCommandResponse(config.Config{
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_uid=test01&runner_scopes=prod&runner_capacity=3", nil)
+	cfg := config.Config{
 		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -208,9 +256,16 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 		DispatcherTLSMode:       "mtls",
 		DispatcherTLSSecret:     "tls-secret",
 		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
-	}, req, app.createRunnerBootstrapToken)
+	}
+	resp, err := runnerinstall.BuildBootstrapCommandResponse(cfg, req, app.createRunnerBootstrapToken)
 	if err != nil {
 		t.Fatalf("buildRunnerBootstrapCommandResponse() error = %v", err)
+	}
+	if resp.PlatformID != runnerinstall.PlatformID(cfg) || resp.ResourceName == "" {
+		t.Fatalf("platform/resource metadata = %q/%q", resp.PlatformID, resp.ResourceName)
+	}
+	if resp.RunnerID != "runner-cloud-1-test01" || resp.RunnerName != "runner-cloud-1" {
+		t.Fatalf("runner identity = %q/%q", resp.RunnerID, resp.RunnerName)
 	}
 	if strings.Contains(resp.BootstrapCommand, "service-secret") || strings.Contains(resp.BootstrapCommand, "tls-secret") {
 		t.Fatalf("bootstrap command should not expose long-lived secrets: %s", resp.BootstrapCommand)
@@ -242,6 +297,18 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	if !strings.Contains(script, "service-secret") || !strings.Contains(script, "tls-secret") {
 		t.Fatalf("bootstrap script should include runner secrets:\n%s", script)
 	}
+	for _, want := range []string{
+		"docker rm -f '" + resp.ResourceName + "'",
+		"--name '" + resp.ResourceName + "'",
+		"--label 'nopsai.io/platform-id=" + resp.PlatformID + "'",
+		"-e 'RUNNER_ID=" + resp.RunnerID + "'",
+		"-e 'RUNNER_NAME=runner-cloud-1'",
+		"-e 'NOPSAI_PLATFORM_ID=" + resp.PlatformID + "'",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("bootstrap script missing %q:\n%s", want, script)
+		}
+	}
 	if !strings.Contains(script, "--network host") {
 		t.Fatalf("bootstrap script should use host networking for adapted remote runner:\n%s", script)
 	}
@@ -254,7 +321,7 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 }
 
 func TestBuildDockerBootstrapScriptPassesRegistryAuthConfigAsEnv(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_uid=test01&runner_scopes=prod&runner_capacity=3", nil)
 	script, err := runnerinstall.BuildDockerBootstrapScript(config.Config{
 		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
@@ -341,9 +408,9 @@ func TestRunnerBootstrapTokenBuildsSensitiveContentWhenRedeemed(t *testing.T) {
 }
 
 func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&runner_uid=test01&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
 	affinity := true
-	resp, err := runnerinstall.BuildKubernetesManifestResponse(config.Config{
+	cfg := config.Config{
 		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -371,24 +438,36 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 				NodeSelector: map[string]string{"workload": "nopsai"},
 			},
 		},
-	}, req)
+	}
+	resp, err := runnerinstall.BuildKubernetesManifestResponse(cfg, req)
 	if err != nil {
 		t.Fatalf("buildKubernetesRunnerManifestResponse() error = %v", err)
 	}
 	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" || resp.WorkloadServiceAccount != "nopsai-runner-workload" {
 		t.Fatalf("namespace/service accounts = %q/%q/%q", resp.Namespace, resp.ServiceAccount, resp.WorkloadServiceAccount)
 	}
+	if resp.PlatformID != runnerinstall.KubernetesPlatformID(cfg) || resp.ResourceName == "" {
+		t.Fatalf("platform/resource metadata = %q/%q", resp.PlatformID, resp.ResourceName)
+	}
+	if resp.RunnerID != "k8s-runner-ams-1-test01" || resp.RunnerName != "k8s-runner-ams-1" {
+		t.Fatalf("runner identity = %q/%q", resp.RunnerID, resp.RunnerName)
+	}
 	for _, want := range []string{
 		"kind: Deployment",
 		"kind: Role",
+		"name: " + resp.ResourceName,
 		"name: nopsai-runner-workload",
 		"automountServiceAccountToken: false",
 		"apiGroups:",
 		"apiGroup: rbac.authorization.k8s.io",
 		"resources:",
 		"- pods/exec",
-		"RUNNER_ID: k8s-runner-ams-1",
+		"RUNNER_ID: " + resp.RunnerID,
+		"RUNNER_NAME: k8s-runner-ams-1",
 		"RUNNER_CAPACITY: \"30\"",
+		"NOPSAI_PLATFORM_ID: " + resp.PlatformID,
+		"nopsai.io/platform-id: " + resp.PlatformID,
+		"KUBERNETES_RUNNER_LABEL_SELECTOR: app.kubernetes.io/name=nopsai-k8s-runner,app.kubernetes.io/instance=" + resp.ResourceName + ",nopsai.io/runner-id=" + resp.RunnerID + ",nopsai.io/platform-id=" + resp.PlatformID,
 		"KUBERNETES_NAMESPACE: nopsai-runs",
 		"KUBERNETES_WORKLOAD_SERVICE_ACCOUNT: nopsai-runner-workload",
 		"KUBERNETES_WORKLOAD_AUTOMOUNT_SERVICE_ACCOUNT_TOKEN: \"false\"",
@@ -409,10 +488,13 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 	if resp.DispatcherAddress != "nopsai.example.com:9090" {
 		t.Fatalf("dispatcher address = %q, want adapted host", resp.DispatcherAddress)
 	}
+	if !strings.Contains(strings.Join(resp.Warnings, "\n"), "dispatcher.<platform-namespace>.svc.cluster.local:9090") {
+		t.Fatalf("warnings should include cross-namespace dispatcher DNS guidance: %#v", resp.Warnings)
+	}
 }
 
 func TestBuildKubernetesRunnerManifestResponseUsesDispatcherAddressOverride(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&dispatcher_grpc_address=nopsai-dispatcher.nopsai.orb.local%3A9090", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&runner_uid=test01&dispatcher_grpc_address=nopsai-dispatcher.nopsai.orb.local%3A9090", nil)
 	resp, err := runnerinstall.BuildKubernetesManifestResponse(config.Config{
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -437,7 +519,7 @@ func TestBuildKubernetesRunnerManifestResponseUsesDispatcherAddressOverride(t *t
 
 func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *testing.T) {
 	app := App{}
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-ams-1&runner_uid=test01&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
 	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponse(config.Config{
 		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
@@ -465,6 +547,9 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *
 	}
 	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" {
 		t.Fatalf("namespace/service account = %q/%q", resp.Namespace, resp.ServiceAccount)
+	}
+	if resp.RunnerID != "k8s-runner-ams-1-test01" || resp.RunnerName != "k8s-runner-ams-1" {
+		t.Fatalf("runner identity = %q/%q", resp.RunnerID, resp.RunnerName)
 	}
 	const marker = "Authorization: Bearer "
 	idx := strings.Index(resp.BootstrapCommand, marker)

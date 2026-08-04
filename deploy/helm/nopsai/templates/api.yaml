@@ -97,8 +97,13 @@ spec:
             - {name: NOPSAI_API_URL, value: {{ include "nopsai.topology.nopsaiAPIURL" . | quote }}}
             - {name: DISPATCHER_GRPC_ADDRESS, value: {{ include "nopsai.topology.dispatcherGRPCAddress" . | quote }}}
             - {name: NOPSAI_BOOTSTRAP_ADMIN_EMAIL, value: {{ required "bootstrapAdmin.email is required" .Values.bootstrapAdmin.email | quote }}}
+            {{- if and .Values.systemLogs.enabled .Values.systemLogs.provider }}
+            - {name: SYSTEM_LOGS_PROVIDER, value: {{ .Values.systemLogs.provider | quote }}}
+            {{- end }}
+            {{- if and .Values.systemLogs.enabled .Values.systemLogs.dockerHost }}
+            - {name: SYSTEM_LOGS_DOCKER_HOST, value: {{ .Values.systemLogs.dockerHost | quote }}}
+            {{- end }}
             {{- if eq (include "nopsai.systemLogsKubernetesEnabled" .) "true" }}
-            - {name: SYSTEM_LOGS_PROVIDER, value: "kubernetes"}
             - {name: SYSTEM_LOGS_KUBERNETES_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
             - {name: SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR, value: {{ include "nopsai.systemLogsKubernetesLabelSelector" . | quote }}}
             {{- with .Values.systemLogs.kubernetes.container }}
@@ -115,6 +120,7 @@ spec:
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.databaseURL }}}}
             - name: NOPSAI_MASTER_KEY
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.masterKey }}}}
+            - {name: NOPSAI_PLATFORM_ID, value: {{ include "nopsai.platformID" . | quote }}}
             - name: JWT_SIGNING_KEY
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.jwtSigningKey }}}}
             - name: SERVICE_JWT_SIGNING_KEY
