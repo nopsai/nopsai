@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { isRunnerRecentlyDisconnected } from './presentation';
+import { isRunnerRecentlyDisconnected } from './presentation.js';
 
 describe('isRunnerRecentlyDisconnected', () => {
   test('returns true for a recent dispatcher disconnect', () => {
