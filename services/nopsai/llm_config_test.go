@@ -118,6 +118,107 @@ func TestBuildRuntimeLLMProfilesPreservesProviderOptions(t *testing.T) {
 	}
 }
 
+func TestBuildRuntimeLLMProfilesForPipelineTeamSkipsUnusedProfileCredentials(t *testing.T) {
+	app := &App{credentialResolver: staticCredentialResolver{
+		"credential://system/llm/standard":     "standard-secret",
+		"credential://system/llm/gemini-flash": "flash-secret",
+		"credential://system/llm/report":       "report-secret",
+	}}
+	cfg := config.Config{
+		LLMDefaultProfile: "reasoning",
+		LLMProfiles: map[string]config.LLMProfile{
+			"reasoning": {
+				Provider:      config.LLMProviderOpenAI,
+				Model:         "gpt-reasoning",
+				CredentialRef: "credential://system/llm/reasoning",
+			},
+			"gemini-flash": {
+				Provider:      config.LLMProviderGemini,
+				Model:         "gemini-flash",
+				CredentialRef: "credential://system/llm/gemini-flash",
+			},
+			"report": {
+				Provider:      config.LLMProviderOpenAI,
+				Model:         "gpt-report",
+				CredentialRef: "credential://system/llm/report",
+			},
+		},
+	}
+	pipeline := &models.Pipeline{
+		Name:       "python-quality",
+		LLMProfile: "gemini-flash",
+		Steps: []models.PipelineStep{{
+			Step: &models.GoalStep{
+				BaseStep: models.BaseStep{Name: "quality-evidence-review"},
+				Goal:     "Review pytest and SonarQube evidence.",
+			},
+		}},
+		Output: models.PipelineOutput{
+			Items: []models.PipelineOutputItem{{
+				Name:       "Python quality report",
+				Type:       "markdown",
+				Prompt:     "Create an engineering quality report.",
+				LLMProfile: "report",
+			}},
+		},
+	}
+
+	runtime, err := app.buildRuntimeLLMProfilesForPipelineTeam(context.Background(), cfg, pipeline, nil)
+	if err != nil {
+		t.Fatalf("buildRuntimeLLMProfilesForPipelineTeam() error = %v", err)
+	}
+	if runtime.DefaultProfile != "gemini-flash" {
+		t.Fatalf("runtime default profile = %q, want gemini-flash", runtime.DefaultProfile)
+	}
+	if _, ok := runtime.Profiles["reasoning"]; ok {
+		t.Fatalf("unused reasoning profile was packaged: %#v", runtime.Profiles)
+	}
+	if got := runtime.Profiles["gemini-flash"].APIKey; got != "flash-secret" {
+		t.Fatalf("gemini-flash api key = %q, want flash-secret", got)
+	}
+	if got := runtime.Profiles["report"].APIKey; got != "report-secret" {
+		t.Fatalf("report api key = %q, want report-secret", got)
+	}
+}
+
+func TestRequiredLLMProfilesForPipelineCollectsTaskOverrides(t *testing.T) {
+	pipeline := &models.Pipeline{
+		LLMProfile: "pipeline",
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "deep", LLMProfile: "step"},
+				Tasks: []models.Task{
+					{Name: "script", Script: "echo ok", LLMProfile: "unused-task"},
+					{Name: "review", Goal: "Review", LLMProfile: "task"},
+					{Name: "summarize", Goal: "Summarize"},
+				},
+			},
+		}},
+		Output: models.PipelineOutput{
+			LLMProfile: "output",
+			Items: []models.PipelineOutputItem{
+				{Name: "summary", Type: "markdown", Prompt: "Summarize"},
+				{Name: "dashboard", Type: "dashboard", Prompt: "Publish", LLMProfile: "dashboard"},
+			},
+		},
+	}
+
+	defaultProfile, required := requiredLLMProfilesForPipeline(pipeline, "reasoning")
+	if defaultProfile != "pipeline" {
+		t.Fatalf("runtime default = %q, want pipeline", defaultProfile)
+	}
+	for _, name := range []string{"pipeline", "step", "task", "output", "dashboard"} {
+		if !required[name] {
+			t.Fatalf("required profiles missing %q: %#v", name, required)
+		}
+	}
+	for _, name := range []string{"reasoning", "unused-task"} {
+		if required[name] {
+			t.Fatalf("unexpected required profile %q: %#v", name, required)
+		}
+	}
+}
+
 func float64Ptr(value float64) *float64 {
 	return &value
 }

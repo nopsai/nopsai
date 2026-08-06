@@ -192,7 +192,7 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 
 	runtimeProfilesJSON := []byte("{}")
 	if models.PipelineRequiresLLMProfiles(&req.Pipeline) {
-		runtimeProfiles, err := a.buildRuntimeLLMProfilesForTeam(ctx, cfg, teamID)
+		runtimeProfiles, err := a.buildRuntimeLLMProfilesForPipelineTeam(ctx, cfg, &req.Pipeline, teamID)
 		if err != nil {
 			reason := fmt.Sprintf("Failed to prepare LLM profiles: %v", err)
 			log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare LLM profiles")

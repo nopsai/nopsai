@@ -1079,33 +1079,127 @@ func (a *App) buildRuntimeLLMProfilesForTeam(ctx context.Context, cfg config.Con
 	}
 	profiles := make(map[string]runtimeLLMProfile, len(effectiveProfiles))
 	for name, profile := range effectiveProfiles {
-		normalized := config.NormalizeLLMProfile(profile)
-		baseURL := config.EffectiveLLMProfileBaseURL(normalized)
-		if normalized.Provider == config.LLMProviderLMStudio {
-			baseURL = containerReachableLMStudioBaseURL(baseURL)
-		}
-		apiKey, err := a.resolveLLMProfileAPIKey(ctx, name, normalized)
+		runtimeProfile, err := a.runtimeLLMProfileForConfig(ctx, name, profile)
 		if err != nil {
-			return runtimeLLMProfiles{}, fmt.Errorf("resolve credential for LLM profile %q: %w", name, err)
+			return runtimeLLMProfiles{}, err
 		}
-		profiles[name] = runtimeLLMProfile{
-			Provider:       normalized.Provider,
-			Model:          normalized.Model,
-			BaseURL:        baseURL,
-			APIKey:         apiKey,
-			CredentialRef:  normalized.CredentialRef,
-			AllowedScopes:  append([]string(nil), normalized.AllowedScopes...),
-			Reasoning:      config.EffectiveLLMProfileReasoning(normalized),
-			Thinking:       normalized.Thinking,
-			TimeoutSeconds: normalized.TimeoutSeconds,
-			MaxTokens:      normalized.MaxTokens,
-			Temperature:    normalized.Temperature,
-			PromptCache:    normalized.PromptCache,
-			ProviderState:  normalized.ProviderState,
-			Extra:          cloneStringMap(normalized.Extra),
-		}
+		profiles[name] = runtimeProfile
 	}
 	return runtimeLLMProfiles{DefaultProfile: defaultProfile, Profiles: profiles}, nil
+}
+
+func (a *App) buildRuntimeLLMProfilesForPipelineTeam(
+	ctx context.Context,
+	cfg config.Config,
+	pipeline *models.Pipeline,
+	teamID *int,
+) (runtimeLLMProfiles, error) {
+	defaultProfile, effectiveProfiles, err := a.effectiveLLMProfilesForTeam(ctx, cfg, teamID)
+	if err != nil {
+		return runtimeLLMProfiles{}, err
+	}
+	runtimeDefault, requiredProfiles := requiredLLMProfilesForPipeline(pipeline, defaultProfile)
+	if runtimeDefault == "" {
+		runtimeDefault = defaultProfile
+	}
+	profiles := make(map[string]runtimeLLMProfile, len(requiredProfiles))
+	names := make([]string, 0, len(requiredProfiles))
+	for name := range requiredProfiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		profile, ok := effectiveProfiles[name]
+		if !ok {
+			return runtimeLLMProfiles{}, fmt.Errorf("LLM profile %q is not configured", name)
+		}
+		runtimeProfile, err := a.runtimeLLMProfileForConfig(ctx, name, profile)
+		if err != nil {
+			return runtimeLLMProfiles{}, err
+		}
+		profiles[name] = runtimeProfile
+	}
+	return runtimeLLMProfiles{DefaultProfile: runtimeDefault, Profiles: profiles}, nil
+}
+
+func (a *App) runtimeLLMProfileForConfig(ctx context.Context, name string, profile config.LLMProfile) (runtimeLLMProfile, error) {
+	normalized := config.NormalizeLLMProfile(profile)
+	baseURL := config.EffectiveLLMProfileBaseURL(normalized)
+	if normalized.Provider == config.LLMProviderLMStudio {
+		baseURL = containerReachableLMStudioBaseURL(baseURL)
+	}
+	apiKey, err := a.resolveLLMProfileAPIKey(ctx, name, normalized)
+	if err != nil {
+		return runtimeLLMProfile{}, fmt.Errorf("resolve credential for LLM profile %q: %w", name, err)
+	}
+	return runtimeLLMProfile{
+		Provider:       normalized.Provider,
+		Model:          normalized.Model,
+		BaseURL:        baseURL,
+		APIKey:         apiKey,
+		CredentialRef:  normalized.CredentialRef,
+		AllowedScopes:  append([]string(nil), normalized.AllowedScopes...),
+		Reasoning:      config.EffectiveLLMProfileReasoning(normalized),
+		Thinking:       normalized.Thinking,
+		TimeoutSeconds: normalized.TimeoutSeconds,
+		MaxTokens:      normalized.MaxTokens,
+		Temperature:    normalized.Temperature,
+		PromptCache:    normalized.PromptCache,
+		ProviderState:  normalized.ProviderState,
+		Extra:          cloneStringMap(normalized.Extra),
+	}, nil
+}
+
+func requiredLLMProfilesForPipeline(pipeline *models.Pipeline, defaultProfile string) (string, map[string]bool) {
+	required := map[string]bool{}
+	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = config.DefaultLLMProfileName
+	}
+	if pipeline == nil {
+		required[defaultProfile] = true
+		return defaultProfile, required
+	}
+
+	pipelineProfile := config.NormalizeLLMProfileName(pipeline.LLMProfile)
+	if pipelineProfile == "" {
+		pipelineProfile = defaultProfile
+	}
+	runtimeDefault := pipelineProfile
+	required[runtimeDefault] = true
+
+	if len(pipeline.Output.Items) > 0 {
+		outputProfile := firstNonEmpty(pipeline.Output.LLMProfile, pipelineProfile)
+		outputProfile = config.NormalizeLLMProfileName(outputProfile)
+		for _, item := range pipeline.Output.Items {
+			itemProfile := firstNonEmpty(item.LLMProfile, outputProfile)
+			itemProfile = config.NormalizeLLMProfileName(itemProfile)
+			if itemProfile != "" {
+				required[itemProfile] = true
+			}
+		}
+	}
+
+	for _, step := range pipeline.Steps {
+		stepProfile := firstNonEmpty(step.GetLLMProfile(), pipelineProfile)
+		stepProfile = config.NormalizeLLMProfileName(stepProfile)
+		if strings.TrimSpace(step.GetCondition()) != "" || strings.TrimSpace(step.GetGoal()) != "" {
+			if stepProfile != "" {
+				required[stepProfile] = true
+			}
+		}
+		for _, task := range step.GetTasks() {
+			if strings.TrimSpace(task.Goal) == "" {
+				continue
+			}
+			taskProfile := firstNonEmpty(task.LLMProfile, stepProfile)
+			taskProfile = config.NormalizeLLMProfileName(taskProfile)
+			if taskProfile != "" {
+				required[taskProfile] = true
+			}
+		}
+	}
+	return runtimeDefault, required
 }
 
 func (a *App) handleListLLMProfiles(w http.ResponseWriter, r *http.Request) {
