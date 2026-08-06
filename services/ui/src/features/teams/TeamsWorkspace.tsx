@@ -27,6 +27,7 @@ import {
 } from '../../lib/teamModels';
 import { teamScopedRoute } from '../../lib/teamRoutes';
 import type { CurrentUser } from '../../app/types';
+import type { NewTeamItemKind } from './TeamSettingsModals';
 import {
   buildTeamScopeStats,
   buildTeamTree,
@@ -89,7 +90,7 @@ export function TeamsWorkspace({
   searchTerm: string;
   onSearchTermChange: (value: string) => void;
   onSelectTeam: (id: number | null) => void;
-  onCreate: () => void;
+  onCreate: (kind?: NewTeamItemKind) => void;
   onEditTeam: (team: Team) => void;
   onDeleteTeam: (team: Team) => void;
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
@@ -153,7 +154,7 @@ export function TeamsWorkspace({
             onChange={onSearchTermChange}
             className="teams-search"
           />
-          <button type="button" className="teams-primary-btn teams-create-btn" aria-label="New" title="New" onClick={onCreate}>
+          <button type="button" className="teams-primary-btn teams-create-btn" aria-label="New team" title="New team" onClick={() => onCreate('team')}>
             <Plus className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>

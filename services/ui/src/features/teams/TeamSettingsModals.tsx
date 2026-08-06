@@ -51,8 +51,10 @@ type ConfigRepositoryFormState = {
   write_branch: string;
 };
 
+export type NewTeamItemKind = 'team' | 'app';
+
 type NewTeamItemPayload = {
-  kind: 'team' | 'app';
+  kind: NewTeamItemKind;
   name: string;
   description: string;
   repoURL: string;
@@ -73,6 +75,7 @@ export function NewTeamItemModal({
   parentLabel,
   parentOptions,
   defaultParentID,
+  initialKind = 'team',
   error,
   pending,
   onClose,
@@ -82,12 +85,13 @@ export function NewTeamItemModal({
   parentLabel: string;
   parentOptions: TeamParentOption[];
   defaultParentID: number | null;
+  initialKind?: NewTeamItemKind;
   error: string | null;
   pending: boolean;
   onClose: () => void;
   onSubmit: (payload: NewTeamItemPayload) => Promise<void>;
 }) {
-  const [kind, setKind] = useState<'team' | 'app'>('team');
+  const [kind, setKind] = useState<NewTeamItemKind>(initialKind);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [repoURL, setRepoURL] = useState('');
@@ -98,7 +102,7 @@ export function NewTeamItemModal({
     if (open) {
       const handle = window.setTimeout(() => {
         const defaultOptionID = parentOptions.some(option => option.id === defaultParentID) ? defaultParentID : null;
-        setKind('team');
+        setKind(initialKind);
         setName('');
         setDescription('');
         setRepoURL('');
@@ -108,7 +112,7 @@ export function NewTeamItemModal({
       return () => window.clearTimeout(handle);
     }
     return undefined;
-  }, [defaultParentID, open, parentOptions]);
+  }, [defaultParentID, initialKind, open, parentOptions]);
 
   if (!open) return null;
 
@@ -117,7 +121,17 @@ export function NewTeamItemModal({
     await onSubmit({ kind, name, description, repoURL, parentID });
   };
 
+  const selectKind = (nextKind: NewTeamItemKind) => {
+    setKind(nextKind);
+    if (nextKind === 'team') {
+      setRepoURL('');
+    } else {
+      setDescription('');
+    }
+  };
+
   const selectedParentLabel = parentOptions.find(option => option.id === parentID)?.label || parentLabel || 'Global';
+  const title = kind === 'app' ? 'Create Application' : 'Create Team';
 
   return (
     <div
@@ -134,7 +148,7 @@ export function NewTeamItemModal({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
-            <h3 id="team-item-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Create Team Item</h3>
+            <h3 id="team-item-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
             <p className="text-xs text-[var(--text-secondary)]">Parent: {selectedParentLabel}</p>
           </div>
           <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
@@ -142,19 +156,20 @@ export function NewTeamItemModal({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1">
+          <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1" role="group" aria-label="Create item type">
             {(['team', 'app'] as const).map(option => (
               <button
                 key={option}
                 type="button"
-                onClick={() => setKind(option)}
+                aria-pressed={kind === option}
+                onClick={() => selectKind(option)}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                   kind === option
                     ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                  {option === 'team' ? 'Team' : 'Application'}
+                {option === 'team' ? 'Team' : 'Application'}
               </button>
             ))}
           </div>
@@ -230,7 +245,7 @@ export function NewTeamItemModal({
               Cancel
             </button>
             <button type="submit" className="glass-button-primary" disabled={pending}>
-              {pending ? 'Creating…' : 'Create'}
+              {pending ? 'Creating...' : title}
             </button>
           </div>
         </form>

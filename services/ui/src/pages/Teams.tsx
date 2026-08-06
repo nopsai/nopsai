@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import { useAuth } from '../auth/AuthContext';
 import { createTeamItem, fetchTeams, requestTeamsJson, updateTeamItem } from '../features/teams/api';
-import { EditTeamItemModal, TeamConfigRepositoryModal, NewTeamItemModal, type TeamItemEditPayload } from '../features/teams/TeamSettingsModals';
+import { EditTeamItemModal, TeamConfigRepositoryModal, NewTeamItemModal, type NewTeamItemKind, type TeamItemEditPayload } from '../features/teams/TeamSettingsModals';
 import { TeamsStatusPanel, TeamsWorkspace } from '../features/teams/TeamsWorkspace';
 import { useDispatcherStatusSnapshot } from '../features/system/dispatcher/useDispatcherStatusSnapshot';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
@@ -45,6 +45,7 @@ export default function TeamsPage() {
   const [teamsError, setTeamsError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [createKind, setCreateKind] = useState<NewTeamItemKind>('team');
   const [createError, setCreateError] = useState<string | null>(null);
   const [createPending, setCreatePending] = useState(false);
   const [editTeam, setEditTeam] = useState<Team | null>(null);
@@ -139,7 +140,8 @@ export default function TeamsPage() {
     [navigate, teams]
   );
 
-  const openCreateModal = useCallback(() => {
+  const openCreateModal = useCallback((kind: NewTeamItemKind = 'team') => {
+    setCreateKind(kind);
     setCreateError(null);
     setCreateOpen(true);
   }, []);
@@ -301,7 +303,7 @@ export default function TeamsPage() {
             title="No visible teams"
             message="Teams appear here after a team is created or when your account has access to existing teams."
             actionLabel="Create team"
-            onAction={openCreateModal}
+            onAction={() => openCreateModal('team')}
           />
         </div>
       ) : (
@@ -331,6 +333,7 @@ export default function TeamsPage() {
           parentLabel={activeTeamLabel}
           parentOptions={createParentOptions}
           defaultParentID={defaultCreateParentID}
+          initialKind={createKind}
           error={createError}
           pending={createPending}
           onClose={() => {

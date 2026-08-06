@@ -108,10 +108,14 @@ describe('TeamSettingsModals', () => {
       />
     );
 
+    expect(screen.getByRole('dialog', { name: 'Create Team' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Team' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Application' })).toHaveAttribute('aria-pressed', 'false');
+
     await user.type(screen.getByLabelText('Team Name'), 'security');
     await user.selectOptions(screen.getByLabelText('Parent team'), '2');
     await user.type(screen.getByLabelText(/Description/), 'Security engineering');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Create Team' }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
       kind: 'team',
@@ -119,6 +123,44 @@ describe('TeamSettingsModals', () => {
       description: 'Security engineering',
       repoURL: '',
       parentID: 2,
+    }));
+  });
+
+  it('submits application payloads only after the application type is selected', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <NewTeamItemModal
+        open
+        parentLabel="platform"
+        parentOptions={[
+          { id: null, label: 'Global' },
+          { id: 1, label: '/platform' },
+        ]}
+        defaultParentID={1}
+        initialKind="app"
+        error={null}
+        pending={false}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Create Application' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Team' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Application' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.type(screen.getByLabelText('Application Name'), 'worker');
+    await user.type(screen.getByLabelText('Repository URL'), 'https://github.com/acme/worker');
+    await user.click(screen.getByRole('button', { name: 'Create Application' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      kind: 'app',
+      name: 'worker',
+      description: '',
+      repoURL: 'https://github.com/acme/worker',
+      parentID: 1,
     }));
   });
 

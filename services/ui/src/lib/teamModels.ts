@@ -22,7 +22,9 @@ export function formatConfigRepoTimestamp(value?: string) {
 }
 
 export function isAppTeam(team: Pick<Team, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  return team.kind === 'app' || Boolean(team.repo_url || team.repository_full_name) || team.name.includes('/');
+  const kind = String(team.kind || '').toLowerCase();
+  if (kind === 'team') return false;
+  return kind === 'app' || kind === 'application' || Boolean(team.repo_url || team.repository_full_name);
 }
 
 export function teamDisplayName(team: Pick<Team, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
