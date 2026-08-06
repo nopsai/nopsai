@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -166,8 +167,8 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 	return resolvedAccessGrantKey{subjectType: subject.Type, subjectID: subject.ID, resourceType: resource.Type, resourceID: resource.ID}, nil
 }
 
-func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, grant storedAccessGrant, commitSHA string) (resolvedAccessGrantKey, error) {
-	subject, err := resolveResourceUseGrantSubject(ctx, tx, grant.subjectType, grant.subjectID)
+func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, plan accessSyncPlan, grant storedAccessGrant, commitSHA string) (resolvedAccessGrantKey, error) {
+	subject, err := resolveConfigSyncResourceUseGrantSubject(ctx, tx, plan, grant)
 	if err != nil {
 		return resolvedAccessGrantKey{}, fmt.Errorf("failed to resolve resource access subject %s:%s: %w", grant.subjectType, grant.subjectID, err)
 	}
@@ -274,6 +275,25 @@ func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, bind
 	}
 
 	return resolvedKey, nil
+}
+
+func resolveConfigSyncResourceUseGrantSubject(ctx context.Context, runner queryRunner, plan accessSyncPlan, grant storedAccessGrant) (accessGrantSubject, error) {
+	subject, err := resolveResourceUseGrantSubject(ctx, runner, grant.subjectType, grant.subjectID)
+	if err == nil {
+		return subject, nil
+	}
+	if strings.ToLower(strings.TrimSpace(grant.subjectType)) != grantSubjectTeam || !strings.Contains(err.Error(), "resource not found") {
+		return accessGrantSubject{}, err
+	}
+
+	teamPath := strings.Trim(strings.TrimSpace(grant.subjectID), "/")
+	if teamPath == "" {
+		return accessGrantSubject{}, err
+	}
+	if _, ok := plan.teamSubjects[teamPath]; !ok {
+		return accessGrantSubject{}, err
+	}
+	return accessGrantSubject{Type: grantSubjectTeam, ID: teamPath, Display: "/" + teamPath}, nil
 }
 
 func ensureAccessGrantConfigWritable(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, resourceScope, subjectType, subjectID, resourceType, resourceID string) (bool, error) {

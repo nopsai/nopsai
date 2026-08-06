@@ -357,9 +357,10 @@ entitlement-sync mappings, and their
 `admin_password_credential_ref` bindings. Plaintext values remain write-only in
 the API/UI; encrypted versions can be synced in
 `setting/system/credentials.yaml`.
-NopsAI team sync mirrors each runtime team path into an auth-team subject before
-GitOps resource access grants are resolved. OIDC `team_mapping` entries then
-populate membership in those auth teams from linked user entitlements.
+NopsAI team sync mirrors each runtime team path into an auth-team subject and
+GitOps resource access checks also accept team paths from the effective team
+structure being synced. OIDC `team_mapping` entries then populate membership in
+those auth teams from linked user entitlements.
 Only one external identity provider can be enabled at a time; IdP sync owns only
 IdP-sourced grants and leaves local UI/API/GitOps grants intact.
 Runnable SSO examples live under `examples/sso`: `keycloak/` for a real local

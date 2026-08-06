@@ -218,6 +218,7 @@ type accessSyncPlan struct {
 	roleBindings    map[accessRoleBindingKey]storedAccessRoleBinding
 	grants          map[accessGrantPlanKey]storedAccessGrant
 	resourceAccess  map[resourceAccessPlanKey]storedResourceAccess
+	teamSubjects    map[string]struct{}
 }
 
 type storedAccessUser struct {

@@ -450,7 +450,11 @@ to `dashboard.read`.
 The grant subjects match the Access UI. Use `repository:` with a canonical
 repository ID, `service_account:` with a service-account sub, or `team:` with a
 team path. `team: global` is the GitOps form of sharing with the global team. The
-canonical `subject_type` plus `subject_id` form is also accepted.
+canonical `subject_type` plus `subject_id` form is also accepted. During config
+sync, `team:` subjects resolve against persisted team paths and the effective
+team structure from the same GitOps sync, so a resource can grant use access to
+a team declared in the same repository update before that team has been written
+to the database.
 
 ```yaml
 access:
