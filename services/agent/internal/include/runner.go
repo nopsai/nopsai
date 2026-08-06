@@ -11,6 +11,7 @@ import (
 type DefinitionFetcher func(context.Context, string) ([]byte, error)
 type PipelineTrigger func(context.Context, string, string, string, string, []byte, string, map[string]string, []string) (string, error)
 type PipelineMonitor func(context.Context, *zerolog.Logger, string) (string, error)
+type RuntimeOutputFetcher func(context.Context, string, string, string, []string) (map[string]RuntimeOutput, error)
 type Finalizer func(stepName, taskName, status string, exitCode int, llmDurationMs int64)
 type NotFoundClassifier func(error) bool
 
@@ -18,6 +19,7 @@ type Config struct {
 	FetchDefinition DefinitionFetcher
 	TriggerPipeline PipelineTrigger
 	MonitorPipeline PipelineMonitor
+	FetchOutputs    RuntimeOutputFetcher
 	IsNotFound      NotFoundClassifier
 }
 
@@ -34,16 +36,25 @@ type Request struct {
 	History            string
 	Variables          map[string]string
 	SensitiveVariables []string
+	OutputNames        []string
 	Sync               bool
 	LLMDurationMs      int64
 	FinalizeTask       Finalizer
 	MarkPipelineFailed func(string)
 }
 
+type RuntimeOutput struct {
+	Name      string
+	Value     string
+	Sensitive bool
+	SizeBytes int64
+}
+
 type Result struct {
 	Handled bool
 	Success bool
 	Status  string
+	Outputs map[string]RuntimeOutput
 }
 
 func NewRunner(config Config) Runner {
@@ -68,6 +79,12 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 		return Result{Handled: true, Success: false, Status: "failure"}
 	}
 	childPipelineName := parts[1]
+	outputNames := normalizedOutputNames(req.OutputNames)
+	if len(outputNames) > 0 && !req.Sync {
+		r.logError(req.Logger, fmt.Errorf("parent-visible child pipeline outputs require sync: true"), "Invalid child pipeline output configuration")
+		req.finalize(req.StepName, req.StepName, "failure", 1)
+		return Result{Handled: true, Success: false, Status: "failure"}
+	}
 
 	if r.config.FetchDefinition == nil {
 		r.logError(req.Logger, fmt.Errorf("child pipeline definition fetcher is not configured"), "Failed to get child pipeline definition")
@@ -102,12 +119,30 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 	}
 
 	if req.Sync {
-		finalStatus := r.monitor(ctx, req, childRunID)
+		finalStatus := r.waitForChild(ctx, req, childRunID)
+		exitCode := 0
+		outputs := map[string]RuntimeOutput(nil)
+		if finalStatus == "success" && len(outputNames) > 0 {
+			if r.config.FetchOutputs == nil {
+				r.logError(req.Logger, fmt.Errorf("child pipeline output fetcher is not configured"), "Failed to resolve child pipeline outputs")
+				finalStatus = "failure"
+				exitCode = 1
+			} else {
+				var err error
+				outputs, err = r.config.FetchOutputs(ctx, req.ParentRunID, req.StepName, childRunID, outputNames)
+				if err != nil {
+					r.logErrorWithRunID(req.Logger, err, childRunID, "Failed to resolve child pipeline outputs")
+					finalStatus = "failure"
+					exitCode = 1
+				}
+			}
+		}
+		req.finalize(req.StepName, req.StepName, finalStatus, exitCode)
 		success := finalStatus == "success"
 		if !success && req.MarkPipelineFailed != nil {
 			req.MarkPipelineFailed(finalStatus)
 		}
-		return Result{Handled: true, Success: success, Status: finalStatus}
+		return Result{Handled: true, Success: success, Status: finalStatus, Outputs: outputs}
 	}
 
 	go r.monitor(ctx, req, childRunID)
@@ -116,6 +151,12 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 }
 
 func (r Runner) monitor(ctx context.Context, req Request, childRunID string) string {
+	finalStatus := r.waitForChild(ctx, req, childRunID)
+	req.finalize(req.StepName, req.StepName, finalStatus, 0)
+	return finalStatus
+}
+
+func (r Runner) waitForChild(ctx context.Context, req Request, childRunID string) string {
 	finalStatus := "failure"
 	var err error
 	if r.config.MonitorPipeline == nil {
@@ -130,8 +171,24 @@ func (r Runner) monitor(ctx context.Context, req Request, childRunID string) str
 	if req.Logger != nil {
 		req.Logger.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished")
 	}
-	req.finalize(req.StepName, req.StepName, finalStatus, 0)
 	return finalStatus
+}
+
+func normalizedOutputNames(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	names := make([]string, 0, len(values))
+	for _, value := range values {
+		name := strings.TrimSpace(value)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
 }
 
 func (req Request) finalize(stepName, taskName, status string, exitCode int) {

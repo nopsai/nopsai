@@ -123,6 +123,8 @@ export function validateRuntimeVariableMap(value: unknown, label: string): strin
   return null;
 }
 
+const RUNTIME_OUTPUT_REFERENCE_SYNTAX = '$steps.<step>.outputs.<name> or $steps.<step>.<task>.outputs.<name>';
+
 export function parseRuntimeOutputRef(raw: string): { found: boolean; ref?: RuntimeOutputRef; error?: string } {
   const value = raw.trim();
   if (!value.startsWith(RUNTIME_OUTPUT_REFERENCE_PREFIX)) return { found: false };
@@ -131,14 +133,27 @@ export function parseRuntimeOutputRef(raw: string): { found: boolean; ref?: Runt
   const outputMarker = '.outputs.';
   const outputIndex = body.lastIndexOf(outputMarker);
   if (outputIndex <= 0 || outputIndex + outputMarker.length >= body.length) {
-    return { found: true, error: 'runtime output reference must use $steps.<step>.<task>.outputs.<name>' };
+    return { found: true, error: `runtime output reference must use ${RUNTIME_OUTPUT_REFERENCE_SYNTAX}` };
   }
 
-  const producer = body.slice(0, outputIndex);
+  const producer = body.slice(0, outputIndex).trim();
   const outputName = body.slice(outputIndex + outputMarker.length).trim();
   const taskIndex = producer.lastIndexOf('.');
-  if (taskIndex <= 0 || taskIndex === producer.length - 1) {
-    return { found: true, error: 'runtime output reference must include a producing step and task' };
+  if (taskIndex === producer.length - 1) {
+    return { found: true, error: 'runtime output reference must include a producing task' };
+  }
+
+  if (taskIndex <= 0) {
+    if (!producer) {
+      return { found: true, error: 'runtime output reference must include a producing step' };
+    }
+    if (!outputName) {
+      return { found: true, error: 'runtime output reference must include non-empty step and output names' };
+    }
+    if (!isValidTaskOutputName(outputName)) {
+      return { found: true, error: `runtime output name '${outputName}' is invalid` };
+    }
+    return { found: true, ref: { stepName: producer, taskName: producer, outputName } };
   }
 
   const stepName = producer.slice(0, taskIndex).trim();
@@ -150,6 +165,32 @@ export function parseRuntimeOutputRef(raw: string): { found: boolean; ref?: Runt
     return { found: true, error: `runtime output name '${outputName}' is invalid` };
   }
   return { found: true, ref: { stepName, taskName, outputName } };
+}
+
+export function parseRuntimeOutputRefCandidates(raw: string): { found: boolean; refs?: RuntimeOutputRef[]; error?: string } {
+  const parsed = parseRuntimeOutputRef(raw);
+  if (parsed.error || !parsed.found || !parsed.ref) return { found: parsed.found, error: parsed.error };
+
+  const refs = [parsed.ref];
+  const value = raw.trim();
+  const body = value.slice(RUNTIME_OUTPUT_REFERENCE_PREFIX.length);
+  const outputMarker = '.outputs.';
+  const outputIndex = body.lastIndexOf(outputMarker);
+  if (outputIndex <= 0 || outputIndex + outputMarker.length >= body.length) return { found: true, refs };
+
+  const producer = body.slice(0, outputIndex).trim();
+  const outputName = body.slice(outputIndex + outputMarker.length).trim();
+  if (!producer || !outputName || !isValidTaskOutputName(outputName)) return { found: true, refs };
+
+  const stepLevel = { stepName: producer, taskName: producer, outputName };
+  if (producerTaskOutputKey(stepLevel) !== producerTaskOutputKey(parsed.ref)) {
+    refs.push(stepLevel);
+  }
+  return { found: true, refs };
+}
+
+function producerTaskOutputKey(ref: RuntimeOutputRef): string {
+  return `${ref.stepName}/${ref.taskName}/${ref.outputName}`;
 }
 
 export function parseTaskOutputDeclarations(value: unknown, label: string): { outputs: TaskOutputDeclaration[]; error?: string } {

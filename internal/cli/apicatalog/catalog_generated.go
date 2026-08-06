@@ -134,6 +134,7 @@ var generatedRoutes = []Route{
 	newRoute("GET", "/v1/internal/runs/{runID}/checkpoints/{checkpointID}"),
 	newRoute("GET", "/v1/internal/runs/{runID}/policy-revision"),
 	newRoute("POST", "/v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs"),
+	newRoute("POST", "/v1/internal/runs/{runID}/task-outputs/resolve"),
 	newRoute("GET", "/v1/knowledge-connections"),
 	newRoute("POST", "/v1/knowledge-connections"),
 	newRoute("DELETE", "/v1/knowledge-connections/{connectionID...}"),

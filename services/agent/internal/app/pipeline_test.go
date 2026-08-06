@@ -347,6 +347,68 @@ func TestRunPipelinePassesResolvedIncludeVariablesToChildPipeline(t *testing.T) 
 	}
 }
 
+func TestRunPipelineResolvesSyncChildPipelineOutputsForDependentStep(t *testing.T) {
+	runtime := &fakeStepRuntime{}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+	includeRunner := &fakeIncludeRunner{
+		status: "success",
+		result: includeflow.Result{
+			Handled: true,
+			Success: true,
+			Status:  "success",
+			Outputs: map[string]includeflow.RuntimeOutput{
+				"image_tag": {Name: "image_tag", Value: "v1.2.3"},
+			},
+		},
+	}
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.IncludeStep{
+				BaseStep: models.BaseStep{
+					Name:    "child",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}},
+				},
+				Include: "pipeline:child",
+				Sync:    true,
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "deploy",
+					DependsOn: []string{"child"},
+					Variables: map[string]string{
+						"IMAGE_TAG": "$steps.child.outputs.image_tag",
+					},
+				},
+				Script: "echo $IMAGE_TAG",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.IncludeRunner = includeRunner
+
+	result := RunPipeline(req)
+
+	if result.ExitCode != 0 || result.FinalStatus != "success" {
+		t.Fatalf("result = %#v, want successful child-output pipeline", result)
+	}
+	if len(includeRunner.requests) != 1 {
+		t.Fatalf("include requests = %d, want 1", len(includeRunner.requests))
+	}
+	if len(includeRunner.requests[0].OutputNames) != 1 || includeRunner.requests[0].OutputNames[0] != "image_tag" {
+		t.Fatalf("include output names = %#v, want image_tag", includeRunner.requests[0].OutputNames)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if len(runtime.runtimeVars) != 1 {
+		t.Fatalf("runtime vars calls = %d, want deploy execution only", len(runtime.runtimeVars))
+	}
+	if !runtimeVarsContain(runtime.runtimeVars[0], "IMAGE_TAG=v1.2.3") {
+		t.Fatalf("deploy runtime vars = %s, want IMAGE_TAG", strings.Join(runtime.runtimeVars[0], "\n"))
+	}
+}
+
 func TestRunPipelineDoesNotIgnoreBlockingConditionFailure(t *testing.T) {
 	runtime := &fakeStepRuntime{stdout: "ok"}
 	statuses := &statusRecorder{}

@@ -1,7 +1,8 @@
 import * as yaml from 'js-yaml';
 import {
   RUNTIME_OUTPUT_REFERENCE_PREFIX,
-  parseRuntimeOutputRef,
+  type RuntimeOutputRef,
+  parseRuntimeOutputRefCandidates,
   parseScopedRuntimeRef,
   parseTaskOutputDeclarations,
   validateRuntimeVariableMap,
@@ -295,25 +296,37 @@ function validateRuntimeOutputRefsInVariables(
 ): string | null {
   for (const [name, rawValue] of Object.entries(variables)) {
     if (typeof rawValue !== 'string') continue;
-    const parsed = parseRuntimeOutputRef(rawValue);
+    const parsed = parseRuntimeOutputRefCandidates(rawValue);
     if (parsed.error) {
       return `Validation Error: Variable '${name}' in step '${consumer.stepName}' references an invalid runtime output: ${parsed.error}.`;
     }
     if (!parsed.found) {
       if (rawValue.includes(RUNTIME_OUTPUT_REFERENCE_PREFIX)) {
-        return `Validation Error: Variable '${name}' in step '${consumer.stepName}' uses a runtime output in an unsupported expression; use the full value $steps.<step>.<task>.outputs.<name>.`;
+        return `Validation Error: Variable '${name}' in step '${consumer.stepName}' uses a runtime output in an unsupported expression; use the full value $steps.<step>.outputs.<name> or $steps.<step>.<task>.outputs.<name>.`;
       }
       continue;
     }
-    const ref = parsed.ref!;
+    let firstRef: RuntimeOutputRef | null = null;
+    let matched = false;
+    for (const ref of parsed.refs ?? []) {
+      if (!firstRef) firstRef = ref;
+      if (!stepToTaskNames.get(ref.stepName)?.has(ref.taskName)) continue;
+      if (!outputDeclarations.get(producerTaskKey(ref.stepName, ref.taskName))?.has(ref.outputName)) continue;
+      if (!consumerDependsOnOutputProducer(consumer, ref)) {
+        return `Validation Error: Variable '${name}' consumes output ${ref.stepName}.${ref.taskName}.outputs.${ref.outputName} without a valid dependency.`;
+      }
+      matched = true;
+      break;
+    }
+    if (matched) continue;
+
+    const ref = firstRef;
+    if (!ref) continue;
     if (!stepToTaskNames.get(ref.stepName)?.has(ref.taskName)) {
       return `Validation Error: Variable '${name}' references missing output producer task ${ref.stepName}.${ref.taskName}.`;
     }
     if (!outputDeclarations.get(producerTaskKey(ref.stepName, ref.taskName))?.has(ref.outputName)) {
       return `Validation Error: Variable '${name}' references undeclared output ${ref.stepName}.${ref.taskName}.outputs.${ref.outputName}.`;
-    }
-    if (!consumerDependsOnOutputProducer(consumer, ref)) {
-      return `Validation Error: Variable '${name}' consumes output ${ref.stepName}.${ref.taskName}.outputs.${ref.outputName} without a valid dependency.`;
     }
   }
   return null;
@@ -732,6 +745,9 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
         return { errors: [createError(`Validation Error: Step '${stepName}' has an empty 'include' value.`, [`${stepPath}.include`, stepPath])] };
       }
       const isInclude = includeValid;
+      if (isInclude) {
+        stepToTaskNames.get(stepName)?.add(stepName);
+      }
 
       const hasTasksKey = hasOwn(step, 'tasks');
       if (hasTasksKey && !Array.isArray(step.tasks)) {
@@ -787,16 +803,41 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       }
       if (stepOutputs.outputs.length > 0) {
         if (isInclude) {
-          return { errors: [createError(`Validation Error: Include step '${stepName}' cannot declare task outputs.`, [`${stepPath}.outputs`, stepPath])] };
+          const normalizedInclude = safeString(includeValue).toLowerCase();
+          if (!normalizedInclude.startsWith('pipeline:')) {
+            return {
+              errors: [
+                createError(`Validation Error: Include step '${stepName}' can declare outputs only for pipeline includes.`, [
+                  `${stepPath}.outputs`,
+                  `${stepPath}.include`,
+                  stepPath,
+                ]),
+              ],
+            };
+          }
+          if (step.sync !== true) {
+            return {
+              errors: [
+                createError(`Validation Error: Pipeline include step '${stepName}' must use sync: true to declare parent-visible outputs.`, [
+                  `${stepPath}.sync`,
+                  `${stepPath}.outputs`,
+                  stepPath,
+                ]),
+              ],
+            };
+          }
+          outputDeclarations.set(producerTaskKey(stepName, stepName), new Set(stepOutputs.outputs.map(output => output.name)));
         }
-        if (hasApprovalKey) {
+        if (!isInclude && hasApprovalKey) {
           return { errors: [createError(`Validation Error: Approval step '${stepName}' cannot declare task outputs.`, [`${stepPath}.outputs`, stepPath])] };
         }
-        if (hasTasks) {
+        if (!isInclude && hasTasks) {
           return { errors: [createError(`Validation Error: Step '${stepName}' has tasks, so outputs must be declared on individual tasks.`, [`${stepPath}.outputs`, stepPath])] };
         }
-        stepToTaskNames.get(stepName)?.add(stepName);
-        outputDeclarations.set(producerTaskKey(stepName, stepName), new Set(stepOutputs.outputs.map(output => output.name)));
+        if (!isInclude) {
+          stepToTaskNames.get(stepName)?.add(stepName);
+          outputDeclarations.set(producerTaskKey(stepName, stepName), new Set(stepOutputs.outputs.map(output => output.name)));
+        }
       }
 
       if (hasApprovalKey) {

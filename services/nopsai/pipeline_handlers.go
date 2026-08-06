@@ -531,7 +531,7 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := validatePipeline(&pipeline); err != nil {
+	if err := a.validatePipelineWithStoredStepIncludes(r.Context(), &pipeline); err != nil {
 		http.Error(w, fmt.Sprintf("Pipeline validation failed: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -611,9 +611,25 @@ func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type stepIncludeDefinitionResolver func(context.Context, string, string, string) (string, error)
+
 func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, error) {
+	return a.resolveStepIncludesWithResolver(context.Background(), pipeline, a.resolveStoredStepIncludeDefinition)
+}
+
+func (a *App) resolveStepIncludesWithResolver(ctx context.Context, pipeline *models.Pipeline, resolver stepIncludeDefinitionResolver) (*models.Pipeline, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if resolver == nil {
+		resolver = a.resolveStoredStepIncludeDefinition
+	}
+	if pipeline == nil {
+		return nil, fmt.Errorf("pipeline is required")
+	}
+	pipelineCopy := *pipeline
 	var finalSteps []models.PipelineStep
-	for _, step := range pipeline.Steps {
+	for _, step := range pipelineCopy.Steps {
 		includeValue := step.GetInclude()
 		if !strings.HasPrefix(includeValue, "step:") {
 			finalSteps = append(finalSteps, step)
@@ -627,8 +643,7 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 			return nil, fmt.Errorf("invalid reusable step identifier '%s': %w", includeIdentifier, err)
 		}
 
-		var stepDefStr string
-		err = a.db.QueryRow(context.Background(), "SELECT definition FROM steps WHERE path = $1 AND name = $2", stepPath, includeName).Scan(&stepDefStr)
+		stepDefStr, err := resolver(ctx, includeIdentifier, stepPath, includeName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch included step '%s': %w", includeIdentifier, err)
 		}
@@ -666,8 +681,22 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		finalSteps = append(finalSteps, includedStep)
 	}
 
-	pipeline.Steps = finalSteps
-	return pipeline, nil
+	pipelineCopy.Steps = finalSteps
+	return &pipelineCopy, nil
+}
+
+func (a *App) resolveStoredStepIncludeDefinition(ctx context.Context, _ string, stepPath string, includeName string) (string, error) {
+	var stepDefStr string
+	err := a.db.QueryRow(ctx, "SELECT definition FROM steps WHERE path = $1 AND name = $2", stepPath, includeName).Scan(&stepDefStr)
+	return stepDefStr, err
+}
+
+func (a *App) validatePipelineWithStoredStepIncludes(ctx context.Context, pipeline *models.Pipeline) error {
+	resolved, err := a.resolveStepIncludesWithResolver(ctx, pipeline, a.resolveStoredStepIncludeDefinition)
+	if err != nil {
+		return err
+	}
+	return validatePipeline(resolved)
 }
 
 func mergeReusableStepVariables(defaults, overrides map[string]string) map[string]string {

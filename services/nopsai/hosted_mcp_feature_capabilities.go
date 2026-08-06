@@ -239,6 +239,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"Shared workspace volume",
 				"Reusable container session",
 				"Child pipeline triggering",
+				"Sync child pipeline runtime output imports",
 				"Asynchronous child pipeline monitoring",
 				"Parent/child run status aggregation",
 				"Approval checkpoints",
