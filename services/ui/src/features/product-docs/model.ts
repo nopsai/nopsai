@@ -3148,6 +3148,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Profiles should use credential_ref for hosted provider API keys instead of plaintext secrets.',
           'allowed_scopes lets administrators restrict model use by runtime context.',
           'The selected llm_profile is validated before agent launch. A run is rejected when the default profile is missing, a referenced profile does not exist, the profile is not allowed in the requested scope, or the provider configuration is invalid.',
+          'Agent launch packages only the LLM profiles selected by the resolved pipeline, step/task overrides, and final-output overrides.',
           'Provider prompt caches and provider conversation state are transport optimizations. NopsAI still owns the logical session, scoped context, policy precedence, and cache identity used for audit and invalidation.',
           'Final outputs have their own resolution path: output.items[].llm_profile overrides output.llm_profile, which overrides the pipeline llm_profile, which finally falls back to the configured default profile.',
         ],
