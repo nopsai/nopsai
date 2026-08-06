@@ -6,6 +6,7 @@ import {
   type ConfigRepositoryDriftResponse,
 } from '../../../lib/configRepositoryDrift';
 import {
+  cancelGlobalConfigRepositorySync,
   deleteGlobalConfigRepository,
   fetchGlobalConfigRepository,
   fetchGlobalConfigRepositoryDrift,
@@ -74,6 +75,7 @@ type SystemConfigPanelProps = {
   onSaveGlobalConfigRepo: () => Promise<void>;
   onDeleteGlobalConfigRepo: () => Promise<void>;
   onSyncGlobalConfigRepo: () => Promise<void>;
+  onCancelGlobalConfigRepoSync: () => Promise<void>;
   onCheckGlobalConfigRepoDrift: () => Promise<void>;
   globalConfigRepoDriftLoading: boolean;
   globalConfigRepoPushing: boolean;
@@ -366,6 +368,40 @@ export function useSystemConfig({
     }
   }, [addToast, canManageGlobalConfigRepo, globalConfigRepo?.last_sync_status, globalConfigRepoSyncing, loadGlobalConfigRepository]);
 
+  const cancelGlobalRepoSync = useCallback(async () => {
+    if (!canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepo?.last_sync_status !== 'running') return;
+    setGlobalConfigRepoSyncing(true);
+    setGlobalConfigRepoError(null);
+    try {
+      const status = await cancelGlobalConfigRepositorySync();
+      if (!isMountedRef.current) return;
+      setGlobalConfigRepo(prev =>
+        prev
+          ? {
+              ...prev,
+              last_sync_status: status.status || 'canceled',
+              last_sync_message: status.message || 'Configuration synchronization canceled.',
+              last_sync_started_at: status.started_at || prev.last_sync_started_at,
+              last_sync_completed_at: status.completed_at || new Date().toISOString(),
+            }
+          : prev
+      );
+      window.setTimeout(() => {
+        void loadGlobalConfigRepository({ quiet: true });
+      }, 500);
+      addToast('Global config repository sync canceled.', 'success');
+    } catch (error) {
+      console.error('Failed to cancel global config repository sync', error);
+      const message = error instanceof Error ? error.message : 'Unable to cancel global config repository sync';
+      setGlobalConfigRepoError(message);
+      addToast('Failed to cancel global config repository sync.', 'error');
+    } finally {
+      if (isMountedRef.current) {
+        setGlobalConfigRepoSyncing(false);
+      }
+    }
+  }, [addToast, canManageGlobalConfigRepo, globalConfigRepo?.last_sync_status, globalConfigRepoSyncing, loadGlobalConfigRepository]);
+
   const checkGlobalRepoDrift = useCallback(async () => {
     if (!canViewGlobalConfigRepo || globalConfigRepoDriftLoading) return;
     setGlobalConfigRepoDriftOpen(true);
@@ -494,6 +530,7 @@ export function useSystemConfig({
       onSaveGlobalConfigRepo: saveGlobalRepo,
       onDeleteGlobalConfigRepo: deleteGlobalRepo,
       onSyncGlobalConfigRepo: syncGlobalRepo,
+      onCancelGlobalConfigRepoSync: cancelGlobalRepoSync,
       onCheckGlobalConfigRepoDrift: checkGlobalRepoDrift,
       globalConfigRepoDriftLoading,
       globalConfigRepoPushing,

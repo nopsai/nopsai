@@ -11,6 +11,33 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+func (a *App) addRunnerRevocation(ctx context.Context, runnerID string) (bool, error) {
+	runnerID = strings.TrimSpace(runnerID)
+	if runnerID == "" || a == nil {
+		return false, nil
+	}
+
+	a.cfgMu.Lock()
+	if a.cfg == nil {
+		a.cfg = &config.Config{}
+	}
+	current := config.NormalizeRunnerIDs(a.cfg.EjectedRunnerIDs)
+	next := config.NormalizeRunnerIDs(append(current, runnerID))
+	changed := strings.Join(current, "\x00") != strings.Join(next, "\x00")
+	a.cfg.EjectedRunnerIDs = next
+	cfg := *a.cfg
+	cfg.EjectedRunnerIDs = append([]string(nil), next...)
+	a.cfgMu.Unlock()
+
+	if !changed || a.db == nil {
+		return changed, nil
+	}
+	if err := a.persistRunnerRevocations(ctx, next, cfg); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (a *App) removeRunnerRevocation(ctx context.Context, runnerID string) (bool, error) {
 	runnerID = strings.TrimSpace(runnerID)
 	if runnerID == "" || a == nil {
@@ -39,9 +66,16 @@ func (a *App) removeRunnerRevocation(ctx context.Context, runnerID string) (bool
 	if !changed || a.db == nil {
 		return changed, nil
 	}
-	rawIDs, err := json.Marshal(next)
+	if err := a.persistRunnerRevocations(ctx, next, cfg); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (a *App) persistRunnerRevocations(ctx context.Context, runnerIDs []string, cfg config.Config) error {
+	rawIDs, err := json.Marshal(runnerIDs)
 	if err != nil {
-		return false, fmt.Errorf("marshal revoked runner ids: %w", err)
+		return fmt.Errorf("marshal revoked runner ids: %w", err)
 	}
 	tag, err := a.db.Exec(ctx, `
 		UPDATE runtime_settings
@@ -51,12 +85,23 @@ func (a *App) removeRunnerRevocation(ctx context.Context, runnerID string) (bool
 		WHERE id = TRUE
 	`, string(rawIDs))
 	if err != nil {
-		return false, fmt.Errorf("persist runner revocation removal: %w", err)
+		return fmt.Errorf("persist runner revocations: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return true, persistRuntimeSettingsSnapshotToDB(ctx, a.db, cfg, "database", nil, "", "", false)
+		return persistRuntimeSettingsSnapshotToDB(ctx, a.db, cfg, "database", nil, "", "", false)
 	}
-	return true, nil
+	return nil
+}
+
+func (a *App) revokeRunnerID(ctx context.Context, runnerID string) error {
+	added, err := a.addRunnerRevocation(ctx, runnerID)
+	if err != nil {
+		return err
+	}
+	if added {
+		log.Warn().Str("runner_id", runnerID).Msg("revoked runner ID after manual removal")
+	}
+	return nil
 }
 
 func (a *App) allowRunnerIDReuse(ctx context.Context, runnerID string) error {

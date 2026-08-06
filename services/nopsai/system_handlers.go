@@ -839,9 +839,9 @@ func (a *App) handleEjectRunner(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "runner_id is required", http.StatusBadRequest)
 		return
 	}
-	if err := a.allowRunnerIDReuse(r.Context(), runnerID); err != nil {
-		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to clear runner revocation before removal")
-		http.Error(w, "failed to allow runner ID reuse", http.StatusInternalServerError)
+	if err := a.revokeRunnerID(r.Context(), runnerID); err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to persist runner revocation before removal")
+		http.Error(w, "failed to revoke runner ID", http.StatusInternalServerError)
 		return
 	}
 

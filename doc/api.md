@@ -726,7 +726,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
 - Docker runner installs use the selected `docker_config_json` only at bootstrap time, pass the merged config to the runner as `NOPSAI_REGISTRY_DOCKER_CONFIG_B64`, and resolve per-image Docker `RegistryAuth` from that local env-carried config without calling NopsAI during image pulls. The legacy `/v1/internal/registry-auth/docker` broker route and generic `runner`/`agent` service-subject acceptance have been removed.
-- Runner install command generation, Kubernetes manifest generation, runner dispatch pause/resume, and runner removal remain under `System > Dispatcher` and require dispatcher runner management access. `DELETE /v1/system/dispatcher/runners/{runnerID}` removes the dispatcher registration and disconnects any live runner stream without adding the ID to the revocation list, so the same name can be reused after the old process or Deployment is stopped. Runner install generation also clears a stale `ejected_runner_ids` entry for the requested replacement ID. The explicit `ejected_runner_ids` blocklist wins over later GitOps routing syncs at runtime; remove the ID from `setting/system/runner.yaml` or **System > Config > Revoked runner IDs** before reusing a revoked runner ID. When replacing a control plane, rotate `SERVICE_JWT_SIGNING_KEY` and `DISPATCHER_TLS_SECRET` or carry forward `ejected_runner_ids`; a fresh dispatcher that reuses the old trust material still trusts old runner definitions.
+- Runner install command generation, Kubernetes manifest generation, runner dispatch pause/resume, and runner removal remain under `System > Dispatcher` and require dispatcher runner management access. `DELETE /v1/system/dispatcher/runners/{runnerID}` is deliberate removal: it removes the dispatcher registration, disconnects any live runner stream, requeues in-flight work, and adds the runner ID to the persisted revocation list so the same runner cannot rejoin by accident. Ordinary network disconnects keep the runner registration unreachable and allow the same runner ID to reconnect. Runner install generation clears a stale `ejected_runner_ids` entry for the requested replacement ID. The explicit `ejected_runner_ids` blocklist wins over later GitOps routing syncs at runtime; remove the ID from `setting/system/runner.yaml` or **System > Config > Revoked runner IDs** before reusing a revoked runner ID. When replacing a control plane, rotate `SERVICE_JWT_SIGNING_KEY` and `DISPATCHER_TLS_SECRET` or carry forward `ejected_runner_ids`; a fresh dispatcher that reuses the old trust material still trusts old runner definitions.
 - Docker and Kubernetes install commands use single-use download tokens. Both bootstrap-command endpoints download shell scripts; the Kubernetes script writes the generated YAML to a temporary file before `kubectl apply`.
 - Docker and Kubernetes bootstrap-command endpoints accept repeated `registry_credential_ref` or comma-separated `registry_credential_refs` query parameters. The API response contains selected references and registry hosts, but not registry secret values.
 - Runner install endpoints accept optional `dispatcher_grpc_address` to override the dispatcher endpoint for that generated command or manifest without changing persisted runtime config. The submitted `runner_id` is treated as the friendly runner name; generated installs append a random UID to produce the actual dispatcher `runner_id` and return the original value as `runner_name`. Pass `runner_uid` when GitOps automation needs reproducible IDs. An explicit empty `runner_scopes` value means all scopes. Docker and Kubernetes responses include `platform_id` and `resource_name`; generated installs use those values in labels, selectors, and container/object names so same-named runners from different NopsAI platforms or substrates do not patch each other's resources. Kubernetes runners deployed into a namespace outside the control plane should use a dispatcher address reachable from that namespace, usually `dispatcher.<platform-namespace>.svc.cluster.local:9090` or an external gRPC endpoint. Kubernetes install commands wait for rollout and print pod/deployment/log diagnostics when the runner does not become ready.
@@ -1831,8 +1831,17 @@ curl -X PUT -H "Content-Type: application/json" \
 # Sync only the global/system config repo
 curl -X POST http://localhost:8080/v1/system/config-repo/sync
 
+# Cancel the global/system config repo sync if it is stuck
+curl -X POST http://localhost:8080/v1/system/config-repo/sync/cancel
+
+# Cancel a team config repo sync if it is stuck
+curl -X POST http://localhost:8080/v1/teams/team-1/config-repository/sync/cancel
+
 # Sync all enabled config repos; system repos run first, then team repos
 curl -X POST http://localhost:8080/v1/system/config-repos/sync
+
+# Cancel an active all-repository config sync
+curl -X POST http://localhost:8080/v1/system/config-repos/sync/cancel
 
 # Compare Nopsai's current config with the sync branch before pushing
 curl http://localhost:8080/v1/system/config-repo/drift
@@ -1990,6 +1999,7 @@ curl "http://localhost:8080/v1/runs?teamId=root"
 curl http://localhost:8080/v1/runs/<run-id>
 curl http://localhost:8080/v1/runs/<run-id>/status
 curl http://localhost:8080/v1/runs/<run-id>/logs
+curl "http://localhost:8080/v1/runs/<run-id>/logs?include_children=true"
 curl -OJ http://localhost:8080/v1/runs/<run-id>/outputs/<output-id>/download
 curl http://localhost:8080/v1/runs-by-check/<check-run-id>
 
@@ -2073,6 +2083,9 @@ curl -X DELETE \
   team/application records.
 - Scheduled runs set `trigger_source: "schedule"` and include schedule metadata when the run came from a pipeline schedule.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.
+- Runs that continue past ignored failed work keep the failed step or task status
+  as `failure (ignored)`; run details surface an ignored-failure warning even
+  when the overall run status is `success`.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.
 
 ---
@@ -2135,11 +2148,15 @@ curl http://localhost:8080/v1/repositories/nopsai/test-app/branches
 # Fetch new log lines after the last line id you have seen
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   "http://localhost:8080/v1/runs/<run-id>/logs?since_line=<last-line-id>"
+
+# Include logs from child pipeline runs started by include steps
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/runs/<run-id>/logs?since_line=<last-line-id>&include_children=true"
 ```
 
 - The current UI refreshes run lists and details with REST polling.
-- The log modal polls the run logs endpoint with `since_line` to append new lines incrementally; visible tabs poll on a live cadence and hidden tabs back off.
-- Run log entries always include `id`, `timestamp`, and `line`. Entries may also include structured `source`, `stream`, `level`, `step_name`, `task_name`, `runner_id`, `request_id`, `traceparent`, and `metadata` fields. Hosted MCP `nopsai.get_pipeline_run_logs` returns the same metadata when present.
+- The log modal polls the run logs endpoint with `since_line` to append new lines incrementally; visible tabs poll on a live cadence and hidden tabs back off. Parent run log modals pass `include_children=true` when the run has included child pipelines.
+- Run log entries always include `id`, `timestamp`, and `line`. Entries may also include structured `run_id`, `pipeline_name`, `parent_run_id`, `parent_step_name`, `source`, `stream`, `level`, `step_name`, `task_name`, `runner_id`, `request_id`, `traceparent`, and `metadata` fields. Hosted MCP `nopsai.get_pipeline_run_logs` returns the same metadata when present and accepts `include_children` for parent-run investigations.
 - The ingest path derives missing `level`, `step_name`, and `task_name` from structured log fields such as `output_level`, `level`, `step`, and `task`. Levels are normalized to `info`, `warn`, `error`, or `debug` for UI filtering. The `stream` field remains independent from severity: plain stderr is not an error unless structured metadata or the line text says so.
 
 ---

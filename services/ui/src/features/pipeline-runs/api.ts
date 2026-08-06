@@ -19,11 +19,14 @@ export async function requestPipelineRunsJson<T>(path: string, options?: Request
   }
 }
 
-export async function fetchRunLogs<T>(runID: string, sinceLine: number): Promise<T[]> {
-  const response = await apiClient.fetch(
-    `/v1/runs/${encodeURIComponent(runID)}/logs?since_line=${encodeURIComponent(String(sinceLine))}`,
-    { cache: 'no-store' }
-  );
+export async function fetchRunLogs<T>(
+  runID: string,
+  sinceLine: number,
+  options: { includeChildren?: boolean } = {}
+): Promise<T[]> {
+  const query = new URLSearchParams({ since_line: String(sinceLine) });
+  if (options.includeChildren) query.set('include_children', 'true');
+  const response = await apiClient.fetch(`/v1/runs/${encodeURIComponent(runID)}/logs?${query.toString()}`, { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(await responseError(response, `Failed to load run logs (${response.status})`));
   }

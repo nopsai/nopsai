@@ -380,6 +380,7 @@ export default function TeamsPage() {
           onSave={config.saveTeamConfigRepository}
           onDelete={config.deleteTeamConfigRepository}
           onSync={config.syncTeamConfigRepository}
+          onCancelSync={config.cancelTeamConfigRepositorySync}
           onCheckDrift={config.checkTeamConfigRepositoryDrift}
           onSaveNotification={config.saveTeamNotificationRoute}
           onDeleteNotification={config.deleteTeamNotificationRoute}

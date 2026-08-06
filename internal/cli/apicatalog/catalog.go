@@ -384,6 +384,7 @@ func queryParameters(path string) []QueryParameter {
 	}
 	if strings.HasSuffix(path, "/logs") {
 		add("since_line", "Only return log lines after this line number.", "100")
+		add("include_children", "Include logs from included child pipeline runs.", "true")
 	}
 	if strings.Contains(path, "/invocations") || strings.Contains(path, "/deliveries") || strings.Contains(path, "/history") || strings.Contains(path, "/refreshes") {
 		add("limit", "Maximum records to return.", "100")

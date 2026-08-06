@@ -109,6 +109,21 @@ func TestFilterRunLogIngestLinesKeepsNonAgentGRPCTelemetry(t *testing.T) {
 	}
 }
 
+func TestIncludeChildRunLogsParsesTruthyQueryValues(t *testing.T) {
+	truthy := []string{"true", "TRUE", "1", "yes", "on"}
+	for _, value := range truthy {
+		req := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1/logs?include_children="+value, nil)
+		if !includeChildRunLogs(req) {
+			t.Fatalf("includeChildRunLogs(%q) = false, want true", value)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1/logs?include_children=false", nil)
+	if includeChildRunLogs(req) {
+		t.Fatal("includeChildRunLogs(false) = true, want false")
+	}
+}
+
 func TestRedactRunLogLineMasksCredentialsWithoutHidingOperationalEvidence(t *testing.T) {
 	line := `{"message":"{\"environment\":\"production\",\"image_reference\":\"ghcr.io/acme/api:2026.08.03-rc1\",\"api_token\":\"secret-token\"}","authorization":"Bearer abc.def","database":"postgres://user:pass@db/app"}`
 

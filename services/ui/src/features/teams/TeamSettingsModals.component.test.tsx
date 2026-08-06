@@ -29,6 +29,7 @@ function createSettingsHandlers() {
     onSave: vi.fn().mockResolvedValue(undefined),
     onDelete: vi.fn().mockResolvedValue(undefined),
     onSync: vi.fn().mockResolvedValue(undefined),
+    onCancelSync: vi.fn().mockResolvedValue(undefined),
     onCheckDrift: vi.fn().mockResolvedValue(undefined),
     onSaveNotification: vi.fn().mockResolvedValue(undefined),
     onDeleteNotification: vi.fn().mockResolvedValue(undefined),
@@ -36,23 +37,23 @@ function createSettingsHandlers() {
   };
 }
 
-function ConfigModalHarness({ handlers }: { handlers: ReturnType<typeof createSettingsHandlers> }) {
+function ConfigModalHarness({ handlers, repo = configRepo }: { handlers: ReturnType<typeof createSettingsHandlers>; repo?: typeof configRepo }) {
   const [form, setForm] = useState({
-    provider: configRepo.provider,
-    repo_url: configRepo.repo_url,
-    branch: configRepo.branch,
-    base_path: configRepo.base_path,
-    credential_ref: configRepo.credential_ref,
-    enabled: configRepo.enabled,
-    write_enabled: configRepo.write_enabled,
-    write_branch: configRepo.write_branch,
+    provider: repo.provider,
+    repo_url: repo.repo_url,
+    branch: repo.branch,
+    base_path: repo.base_path,
+    credential_ref: repo.credential_ref,
+    enabled: repo.enabled,
+    write_enabled: repo.write_enabled,
+    write_branch: repo.write_branch,
   });
   const [notificationForm, setNotificationForm] = useState(createEmptyNotificationRouteForm());
 
   return (
     <TeamConfigRepositoryModal
       teamLabel="platform"
-      repo={configRepo}
+      repo={repo}
       form={form}
       loading={false}
       saving={false}
@@ -78,6 +79,7 @@ function ConfigModalHarness({ handlers }: { handlers: ReturnType<typeof createSe
       onSave={() => handlers.onSave(form)}
       onDelete={handlers.onDelete}
       onSync={handlers.onSync}
+      onCancelSync={handlers.onCancelSync}
       onCheckDrift={handlers.onCheckDrift}
       onSaveNotification={() => handlers.onSaveNotification(notificationForm)}
       onDeleteNotification={handlers.onDeleteNotification}
@@ -232,5 +234,16 @@ describe('TeamSettingsModals', () => {
     }));
 
     expect(screen.queryByRole('tab', { name: 'AI profiles' })).not.toBeInTheDocument();
+  });
+
+  it('shows a cancel action while team GitOps sync is running', async () => {
+    const user = userEvent.setup();
+    const handlers = createSettingsHandlers();
+    render(<ConfigModalHarness handlers={handlers} repo={{ ...configRepo, last_sync_status: 'running' }} />);
+
+    expect(screen.getByRole('button', { name: 'Syncing...' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Cancel sync' }));
+
+    expect(handlers.onCancelSync).toHaveBeenCalled();
   });
 });

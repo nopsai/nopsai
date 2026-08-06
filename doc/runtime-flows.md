@@ -106,12 +106,16 @@ directory.
    Dispatcher status keeps the runner registration as unreachable and records
    `last_disconnected_at`.
 10. A duplicate live connection for an already connected runner ID is rejected;
-    operators should stop the old runner, or remove its dispatcher registration
-    when it is stale, before reusing its ID.
-11. When the same runner reconnects, dispatcher status marks it reachable again
+    operators should stop the old runner before reusing its ID.
+11. Deliberate runner removal through NopsAI removes the dispatcher registration,
+    disconnects any live stream, requeues in-flight work, and writes the runner ID
+    to `ejected_runner_ids` so that ID cannot rejoin until a replacement install
+    clears the revocation or an operator removes it from config.
+12. When the same runner reconnects after an ordinary network failure,
+    dispatcher status marks it reachable again
     but preserves `last_disconnected_at`; the UI and monitoring report it as
     recovered/degraded for the recent recovery window.
-12. A newly installed control plane trusts any old runner definition that still
+13. A newly installed control plane trusts any old runner definition that still
     has valid service JWT/TLS trust material. Rotate `SERVICE_JWT_SIGNING_KEY`
     and `DISPATCHER_TLS_SECRET`, or preserve `ejected_runner_ids`, when old
     runners must not join the replacement dispatcher.
@@ -235,10 +239,11 @@ The agent runs tasks in dependency order, not strictly line order.
 29. If a task fails and effective failure tolerance is false, the pipeline stops
     with failure.
 30. If a task fails and effective failure tolerance is true, the task becomes
-    `failure (ignored)` and the pipeline continues. Approval and blocking
-    policy/guardrail failures still fail closed. The mere presence of blocking
-    knowledge context does not make unrelated goal-resolution, LLM, MCP, or
-    runtime failures non-ignorable.
+    `failure (ignored)` and the pipeline continues. Run details show an
+    ignored-failure warning when this happens, even if the overall run succeeds.
+    Approval and blocking policy/guardrail failures still fail closed. The mere
+    presence of blocking knowledge context does not make unrelated
+    goal-resolution, LLM, MCP, or runtime failures non-ignorable.
 31. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
 
 ## 7. How Goal-Based Tasks Work
@@ -343,7 +348,7 @@ For a `step:<identifier>` include:
 11. When the agent finishes, it calls `dispatcher.FinalizeRun`. An agent that has paused for approval exits without finalizing, and late finalization attempts are ignored while the run is `waiting_approval`.
 12. The dispatcher forwards final status to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
 13. If the runner reports a job failure, including an agent container startup failure or nonzero agent exit, the dispatcher writes the runner error into the run logs and finalizes the run as `failure` with the same failure reason.
-14. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines. The response keeps the historical `id`, `timestamp`, and `line` fields and may include `source`, `stream`, `level`, `step_name`, `task_name`, `runner_id`, `request_id`, `traceparent`, and `metadata`.
+14. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines. Parent run modals add `include_children=true` when included pipeline runs exist. The response keeps the historical `id`, `timestamp`, and `line` fields and may include `run_id`, `pipeline_name`, `parent_run_id`, `parent_step_name`, `source`, `stream`, `level`, `step_name`, `task_name`, `runner_id`, `request_id`, `traceparent`, and `metadata`.
 
 ## 11. Cancellation And Reruns
 
@@ -365,6 +370,9 @@ Rerun:
 ## 12. Config Sync From Git
 
 1. A team owner calls `POST /v1/teams/{teamPath}/config-repository/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
+   If a sync stalls, the matching `.../sync/cancel` route cancels the active
+   worker; stale `running` rows with no registered worker are marked `canceled`
+   so the repository can be synced again.
 2. `nopsai` loads the scoped config repository binding and validates team ownership for team-scoped sync.
 3. It verifies repository access through the configured Git provider. GitHub
    bindings without `credential_ref` use the existing GitHub App/git-bot path;

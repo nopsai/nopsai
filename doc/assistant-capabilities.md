@@ -355,7 +355,9 @@ The assistant can investigate pipeline runs, inspect final outputs and logs,
 analyze failures, start runs, list approvals, approve/reject gates, rerun,
 cancel, and delete runs. Run investigation uses a hosted MCP chain: run
 metadata, final output summaries when available, bounded recent logs, then
-failure analysis. Mutations require confirmation.
+failure analysis. `nopsai.get_pipeline_run_logs` accepts `include_children` so
+parent-run investigations can include logs from included child pipelines.
+Mutations require confirmation.
 
 Ask:
 
@@ -467,15 +469,17 @@ Ask:
 - "Check drift for the `platform` config repository."
 - "Sync the global config repository; I confirm."
 - "Sync all config repositories; I confirm."
+- "Cancel the stuck config repository sync; I confirm."
 - "Write these proposed files to the platform config repo with commit message
   `Add release pipeline`; I confirm."
 - "List configured config repositories and their enabled state."
 
 Main MCP coverage: `nopsai.get_config_sync_status`,
-`nopsai.sync_system_config`, `nopsai.get_config_repo`,
-`nopsai.get_config_repo_drift`, `nopsai.sync_config_repo`,
+`nopsai.sync_system_config`, `nopsai.cancel_system_config_sync`,
+`nopsai.get_config_repo`, `nopsai.get_config_repo_drift`, `nopsai.sync_config_repo`,
+`nopsai.cancel_config_repo_sync`,
 `nopsai.write_config_repo`, `nopsai.list_config_repos`, and
-`nopsai.sync_all_config_repos`.
+`nopsai.sync_all_config_repos`, `nopsai.cancel_all_config_repos_sync`.
 
 ### Scopes, Secrets, And Variables
 
@@ -641,8 +645,9 @@ The assistant can inspect dispatcher/system status, generate local runner
 Docker Compose, generate Kubernetes runner manifests, generate runner bootstrap
 commands, inspect runner monitoring history, pause/resume dispatch for a
 runner, and remove a runner registration with confirmation. Removal disconnects
-live streams and clears dispatcher status; explicit `ejected_runner_ids`
-continues to revoke runner IDs when needed.
+live streams, clears dispatcher status, requeues in-flight work, and persists
+the runner ID in `ejected_runner_ids`; ordinary network disconnects still allow
+the same runner ID to reconnect.
 Dispatcher status includes previously registered runners and marks those without
 a live connection as unreachable rather than hiding them.
 

@@ -104,3 +104,22 @@ func TestCatalogDoesNotExposeRemovedRegistryAuthBroker(t *testing.T) {
 		t.Fatalf("removed registry-auth broker route is still in catalog: %#v", route)
 	}
 }
+
+func TestRunLogsCatalogIncludesChildLogQueryParameter(t *testing.T) {
+	route, ok := Find("GET", "/v1/runs/{runID}/logs")
+	if !ok {
+		t.Fatal("run logs route missing")
+	}
+	if !hasQueryParameter(route, "include_children") {
+		t.Fatalf("query parameters = %#v, want include_children", route.QueryParameters)
+	}
+}
+
+func hasQueryParameter(route Route, name string) bool {
+	for _, parameter := range route.QueryParameters {
+		if parameter.Name == name {
+			return true
+		}
+	}
+	return false
+}

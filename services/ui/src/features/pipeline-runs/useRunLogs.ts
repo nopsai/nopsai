@@ -13,6 +13,7 @@ import {
 
 type RunLogsOptions = {
   runID: string;
+  includeChildren?: boolean;
   initialStep?: string | null;
   initialTask?: string | null;
   initialSearch?: string | null;
@@ -21,7 +22,7 @@ type RunLogsOptions = {
 export const RUN_LOG_VISIBLE_POLL_MS = 1000;
 export const RUN_LOG_HIDDEN_POLL_MS = 15000;
 
-export function useRunLogs({ runID, initialStep, initialTask, initialSearch }: RunLogsOptions) {
+export function useRunLogs({ runID, includeChildren = false, initialStep, initialTask, initialSearch }: RunLogsOptions) {
   const [lines, setLines] = useState<EnrichedRunLogLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,7 +127,9 @@ export function useRunLogs({ runID, initialStep, initialTask, initialSearch }: R
       setLoading(true);
       setError(null);
       try {
-        const payload = await fetchRunLogs<RunLogLine>(runID, lastIDRef.current);
+        const payload = includeChildren
+          ? await fetchRunLogs<RunLogLine>(runID, lastIDRef.current, { includeChildren: true })
+          : await fetchRunLogs<RunLogLine>(runID, lastIDRef.current);
         if (cancelled || !payload.length) return;
         lastIDRef.current = payload[payload.length - 1].id;
         setLines(current => [...current, ...enrichRunLogLines(payload)]);
@@ -148,7 +151,7 @@ export function useRunLogs({ runID, initialStep, initialTask, initialSearch }: R
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [runID]);
+  }, [includeChildren, runID]);
 
   const presentLevels = useMemo(() => getPresentRunLogLevels(lines), [lines]);
   const visibleLines = useMemo(

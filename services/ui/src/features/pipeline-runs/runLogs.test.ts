@@ -97,3 +97,30 @@ test('preserves API log metadata when line parsing cannot provide it', () => {
     [3]
   );
 });
+
+test('matches child pipeline logs through their parent include step', () => {
+  const lines = enrichRunLogLines([
+    {
+      id: 4,
+      timestamp: '2026-06-08T12:00:03Z',
+      run_id: 'child-run',
+      pipeline_name: 'child-pipeline',
+      parent_run_id: 'parent-run',
+      parent_step_name: 'included',
+      line: '{"level":"info","step":"child-build","message":"child compiled"}',
+    },
+  ]);
+
+  assert.equal(lines[0].parentStep, 'included');
+  assert.equal(lines[0].pipelineName, 'child-pipeline');
+  assert.deepEqual(
+    filterRunLogLines(lines, {
+      selectedSteps: new Set(['included']),
+      selectedLevels: new Set(),
+      agentOnly: false,
+      searchText: 'compiled',
+    }).map(line => line.id),
+    [4]
+  );
+  assert.match(formatRunLogDownload(lines), /\[child-pipeline\] \[parent:included\] \[child-build\]/);
+});

@@ -13,6 +13,7 @@ export function RunLogsModal({
   runId,
   runName,
   onClose,
+  includeChildren = false,
   steps,
   stepNames,
   initialStep,
@@ -22,6 +23,7 @@ export function RunLogsModal({
   runId: string;
   runName?: string | null;
   onClose: () => void;
+  includeChildren?: boolean;
   steps?: RunLogStep[];
   stepNames?: string[];
   initialStep?: string | null;
@@ -57,7 +59,7 @@ export function RunLogsModal({
     setWrap,
     toggleLevel,
     toggleStep,
-  } = useRunLogs({ runID: runId, initialStep, initialTask, initialSearch });
+  } = useRunLogs({ runID: runId, includeChildren, initialStep, initialTask, initialSearch });
   const [stepSearch, setStepSearch] = useState('');
   const logContainerRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useDialogFocus(onClose);
@@ -68,10 +70,12 @@ export function RunLogsModal({
       status: step.status,
     }));
     const provided = (stepNames || []).map(name => ({ name, status: undefined }));
-    const derived = Array.from(new Set(lines.map(line => line.step).filter(Boolean) as string[])).map(name => ({
-      name,
-      status: undefined,
-    }));
+    const derivedNames = new Set<string>();
+    lines.forEach(line => {
+      if (line.parentStep) derivedNames.add(line.parentStep);
+      if (line.step) derivedNames.add(line.step);
+    });
+    const derived = Array.from(derivedNames).map(name => ({ name, status: undefined }));
     const merged = [...fromSteps, ...provided, ...derived];
     const seen = new Set<string>();
     return merged.filter(item => {
@@ -217,7 +221,9 @@ export function RunLogsModal({
             <h2 id="run-logs-title" className="text-base font-semibold text-[var(--text-primary)]">
               Run Logs for {runName || runId}
             </h2>
-            <p id="run-logs-description" className="text-xs text-[var(--text-secondary)]">Run ID: {runId}</p>
+            <p id="run-logs-description" className="text-xs text-[var(--text-secondary)]">
+              Run ID: {runId}{includeChildren ? ' · Includes included pipeline logs' : ''}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button className="runner-pill runner-pill--ghost" type="button" onClick={handleDownload}>
@@ -438,6 +444,10 @@ export function RunLogsModal({
                 const levelLabel = isAgent ? 'AGENT' : level.toUpperCase();
                 const rawLine = line.line || '';
                 const stepColor = line.step ? stepColorMap.get(line.step) : undefined;
+                const parentStepColor = line.parentStep ? stepColorMap.get(line.parentStep) : undefined;
+                const effectiveStepColor = stepColor || parentStepColor;
+                const isChildLine = Boolean(line.run_id && line.run_id !== runId);
+                const pipelineLabel = line.pipelineName || (isChildLine ? line.run_id : '');
                 const content = structured
                   ? (() => {
                       const jsonStart = rawLine.indexOf('{');
@@ -471,12 +481,17 @@ export function RunLogsModal({
                   return (
                     <div
                       key={line.id}
-                      className={`flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)] ${stepColor ? `border-l-4 ${stepColor.lineClass}` : ''}`}
+                      className={`flex items-start gap-3 rounded-lg px-2 py-1 hover:bg-[var(--bg-primary)] ${effectiveStepColor ? `border-l-4 ${effectiveStepColor.lineClass}` : ''}`}
                     >
                       <span className="text-[var(--text-secondary)] text-xs w-20 flex-shrink-0">{formatTime(line.timestamp)}</span>
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${levelTone(levelLabel)}`}>
                         {levelLabel}
                       </span>
+                      {isChildLine && pipelineLabel && (
+                        <span className="inline-flex max-w-[11rem] items-center truncate rounded-full border border-[var(--border-primary)] bg-[var(--bg-primary)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text-primary)]">
+                          {pipelineLabel}
+                        </span>
+                      )}
                       <pre
                         className={`flex-1 text-[var(--text-primary)] leading-6 ${wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre min-w-max'}`}
                       >
@@ -498,6 +513,11 @@ export function RunLogsModal({
                         }`}
                       >
                         {line.step}
+                      </span>
+                    )}
+                    {isChildLine && pipelineLabel && (
+                      <span className="inline-flex max-w-[11rem] items-center truncate rounded-full border border-[var(--border-primary)] bg-[var(--bg-primary)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text-primary)]">
+                        {pipelineLabel}
                       </span>
                     )}
                     <pre

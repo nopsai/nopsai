@@ -84,6 +84,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.read", model.ResourceRef{Type: "system", ID: "agent-profiles"}, true, nil
 	case path == "/v1/system/mcp" || strings.HasPrefix(path, "/v1/system/mcp/"):
 		return "system.read", model.ResourceRef{Type: "system", ID: "mcp"}, true, nil
+	case path == "/v1/system/config/sync/cancel":
+		return "system.update", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
 	case path == "/v1/system/config/sync":
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "config-sync"}, false, nil
@@ -93,6 +95,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 		}
+		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+	case path == "/v1/system/config-repo/sync/cancel":
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repo/sync":
 		if r.Method == http.MethodGet {
@@ -108,6 +112,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	case path == "/v1/system/config-repos":
 		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repos/sync":
+		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+	case path == "/v1/system/config-repos/sync/cancel":
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/data/"):
 		if r.Method == http.MethodGet || path == "/v1/system/data/cleanup/preview" {
@@ -137,6 +143,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/dispatcher/runners/"):
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
+	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/sync/cancel"):
+		return "config_repo.sync", model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/sync/cancel")}, false, nil
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/sync"):
 		resource = model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/sync")}
 		if r.Method == http.MethodGet {

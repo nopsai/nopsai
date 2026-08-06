@@ -389,6 +389,7 @@ DELETE /v1/teams/{teamID}/applications/{applicationID}
 GET    /v1/teams/{teamID}/config-repository
 PUT    /v1/teams/{teamID}/config-repository
 POST   /v1/teams/{teamID}/config-repository/sync
+POST   /v1/teams/{teamID}/config-repository/sync/cancel
 GET    /v1/teams/{teamID}/config-repository/drift
 POST   /v1/teams/{teamID}/config-repository/write
 

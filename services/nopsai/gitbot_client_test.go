@@ -31,6 +31,9 @@ type fakeGitProvider struct {
 	fileRef                  string
 	filePath                 string
 	fileContent              string
+	directories              map[string]map[string]string
+	directoryErr             error
+	ensureRepoAccessibleErr  error
 	repositoryInstallationID string
 	repositories             []GitHubInstalledRepository
 	repositoriesErr          error
@@ -48,7 +51,21 @@ func (f *fakeGitProvider) File(owner, repo, ref, path string, notFoundErr error)
 }
 
 func (f *fakeGitProvider) Directory(owner, repo, ref, path string) (map[string]string, error) {
-	return nil, errors.New("not implemented")
+	if f.directoryErr != nil {
+		return nil, f.directoryErr
+	}
+	if f.directories == nil {
+		return map[string]string{}, nil
+	}
+	files := f.directories[path]
+	if files == nil {
+		return map[string]string{}, nil
+	}
+	out := make(map[string]string, len(files))
+	for filePath, content := range files {
+		out[filePath] = content
+	}
+	return out, nil
 }
 
 func (f *fakeGitProvider) CommitFiles(owner, repo, baseRef, branch, message string, files []GitCommitFile) (GitCommitFilesResponse, error) {
@@ -60,7 +77,7 @@ func (f *fakeGitProvider) BranchHasOpenPullRequest(owner, repo, branch string) (
 }
 
 func (f *fakeGitProvider) EnsureRepoAccessible(owner, repo string) error {
-	return errors.New("not implemented")
+	return f.ensureRepoAccessibleErr
 }
 
 func (f *fakeGitProvider) ListInstallationRepositories(installationID string) ([]GitHubInstalledRepository, error) {

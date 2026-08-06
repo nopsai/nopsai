@@ -130,7 +130,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 			}
 			repo.LastSyncStatus = "running"
 			repo.LastSyncStartedAt = &startedAt
-			go a.syncConfigRepository(context.Background(), repo, startedAt)
+			go a.runConfigRepositorySync(context.Background(), repo, startedAt)
 			messages = append(messages, "Global config repository sync started.")
 		}
 	}

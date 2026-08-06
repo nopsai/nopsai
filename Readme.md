@@ -311,6 +311,9 @@ outputs can attach source bindings in the same sync.
 Sync and drift checks fetch remote GitOps directories and file contents with
 bounded concurrency, then parse and apply from the complete repository snapshot
 so ownership checks and dependency ordering remain deterministic.
+If a sync worker stalls or the process exits while a repository is marked
+running, admins and team owners can cancel the sync from the UI/API; stale
+running rows are marked `canceled` so the repository can be synced again.
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network

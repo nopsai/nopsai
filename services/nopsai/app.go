@@ -54,6 +54,7 @@ type App struct {
 
 	configSyncMu     sync.Mutex
 	configSyncStatus ConfigSyncStatus
+	configSyncRun    *configSyncRun
 	envFilePath      string
 
 	authService           *auth.Service
@@ -70,6 +71,7 @@ type App struct {
 	knowledgeSyncMetrics  knowledgeSyncMetrics
 	tokenActivity         sync.Map
 	finalOutputCancellers sync.Map
+	configRepoSyncs       sync.Map
 
 	runnerBootstrapMu     sync.Mutex
 	runnerBootstrapTokens map[string]runnerBootstrapToken

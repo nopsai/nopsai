@@ -85,6 +85,7 @@ vi.mock('../features/teams/hooks/useTeamConfigRepositoryController', () => ({
     saveTeamConfigRepository: async () => undefined,
     deleteTeamConfigRepository: async () => undefined,
     syncTeamConfigRepository: async () => undefined,
+    cancelTeamConfigRepositorySync: async () => undefined,
     checkTeamConfigRepositoryDrift: async () => undefined,
     pushTeamConfigRepositoryDrift: async () => undefined,
     saveTeamNotificationRoute: async () => undefined,
