@@ -386,6 +386,16 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 		return nil
 	}
 
+	authTeamNames, err := pipelineRunAuthTeamNamesForStructure(structure)
+	if err != nil {
+		return fmt.Errorf("failed to derive auth-team subjects from pipeline run teams: %w", err)
+	}
+	createdAuthTeams, err := ensureAuthTeamsForNames(ctx, tx, authTeamNames, "Created from NopsAI team sync")
+	if err != nil {
+		return err
+	}
+	details["auth_teams_seeded"] += createdAuthTeams
+
 	existingTeams, err := loadExistingTeamRecords(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("failed to load existing pipeline run teams: %w", err)
@@ -556,4 +566,45 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 	}
 
 	return nil
+}
+
+func pipelineRunAuthTeamNamesForStructure(structure map[string]*configsync.PipelineRunStructureNode) ([]string, error) {
+	if len(structure) == 0 {
+		return nil, nil
+	}
+
+	teamSet := map[string]struct{}{}
+	var walk func(name string, node *configsync.PipelineRunStructureNode, parentPath string) error
+	walk = func(name string, node *configsync.PipelineRunStructureNode, parentPath string) error {
+		normalized, err := configsync.NormalizeStructureName(name)
+		if err != nil {
+			return err
+		}
+		teamPath := normalized
+		if parentPath != "" {
+			teamPath = strings.Trim(parentPath+"/"+normalized, "/")
+		}
+		teamSet[teamPath] = struct{}{}
+		if node == nil {
+			return nil
+		}
+		for childName, childNode := range node.Children {
+			if err := walk(childName, childNode, teamPath); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for name, node := range structure {
+		if err := walk(name, node, ""); err != nil {
+			return nil, err
+		}
+	}
+
+	teamNames := make([]string, 0, len(teamSet))
+	for name := range teamSet {
+		teamNames = append(teamNames, name)
+	}
+	return teamNames, nil
 }
