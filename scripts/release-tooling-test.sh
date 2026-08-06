@@ -128,7 +128,7 @@ test ! -e "$temp_dir/compose-install/release-manifest.json"
 
 (cd "$ROOT_DIR" && go run ./cmd/nopsai-cli install kubernetes --version "$actual" --output-dir "$temp_dir/kubernetes-install" --force >/dev/null)
 require_text "releaseVersion: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values release version"
-require_text "tag: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values image tag"
+require_text "tag: \"\"" "$temp_dir/kubernetes-install/values.yaml" "the generated defaulted NopsAI image tag"
 require_text "postgres:" "$temp_dir/kubernetes-install/values.yaml" "the generated PostgreSQL values"
 require_text "kind: Secret" "$temp_dir/kubernetes-install/nopsai-secrets.yaml" "the generated Kubernetes Secret manifest"
 require_text "NopsAI Kubernetes Installation" "$temp_dir/kubernetes-install/installation.md" "the generated Kubernetes installation guide"

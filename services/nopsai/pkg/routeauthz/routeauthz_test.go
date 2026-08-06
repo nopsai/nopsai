@@ -266,6 +266,20 @@ func TestMapRequestDefersApprovalAwareRunReadsToHandler(t *testing.T) {
 	}
 }
 
+func TestMapRequestMapsFinalOutputRetryToRunRerun(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/runs/run-123/outputs/output-1/retry", nil)
+	req.SetPathValue("runID", "run-123")
+
+	action, resource, requiresFilter, err := MapRequest(req)
+
+	if err != nil {
+		t.Fatalf("MapRequest() error = %v", err)
+	}
+	if action != "pipeline_run.rerun" || resource.Type != "pipeline_run" || resource.ID != "run-123" || requiresFilter {
+		t.Fatalf("MapRequest() = action %q resource %#v filter %v, want pipeline_run.rerun on run-123", action, resource, requiresFilter)
+	}
+}
+
 func TestMapRequestTreatsPersonalTokenRoutesAsAuthenticatedOnly(t *testing.T) {
 	for _, tt := range []struct {
 		method string

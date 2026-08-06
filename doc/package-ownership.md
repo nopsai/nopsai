@@ -222,6 +222,10 @@ Enterprise authentication follows the same split:
   `services/nopsai/pipeline_final_output_contract.go`.
 - Generation orchestration, persistence transitions, and AI usage reporting
   live in `services/nopsai/pipeline_final_outputs.go`.
+- Final-output retry transitions are owned by
+  `services/nopsai/pipeline_final_outputs.go`; route composition stays in
+  `services/nopsai/routes.go`, and API handlers stay in
+  `services/nopsai/run_handlers.go`.
 - Download dispatch lives in `pipeline_final_outputs_render.go`; server HTML,
   Gotenberg PDF transport, and Excelize workbook construction live in
   `pipeline_final_outputs_document.go`, `pipeline_final_outputs_pdf.go`, and

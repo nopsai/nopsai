@@ -165,7 +165,20 @@ test('keeps pipeline detail actions and tab callbacks wired after redesign', asy
 
   await user.click(screen.getByRole('tab', { name: /Dependencies/ }));
   await user.click(screen.getByTitle('Open platform/build-base'));
-  expect(props.onOpenDependency).toHaveBeenCalledWith('platform/build-base');
-  await user.click(screen.getByTitle('Copy shared/notify'));
-  expect(props.onCopyDependency).toHaveBeenCalledWith('shared/notify');
+  expect(props.onOpenDependency).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'pipeline',
+    identifier: 'platform/build-base',
+  }));
+  await user.click(screen.getByTitle('Open shared/notify'));
+  expect(props.onOpenDependency).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'step',
+    identifier: 'shared/notify',
+  }));
+  await user.click(screen.getByTitle('Open build'));
+  expect(props.onOpenDependency).toHaveBeenCalledWith(expect.objectContaining({
+    kind: 'local-step',
+    targetStep: 'build',
+    sourceStep: 'publish',
+  }));
+  expect(screen.getByText('Graph with 2 steps')).toBeVisible();
 });

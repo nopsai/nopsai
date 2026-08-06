@@ -23,6 +23,7 @@ func hostedMCPDedicatedTools() []hostedMCPTool {
 		toolDef("nopsai.approve_run_approval", "Approve a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.reject_run_approval", "Reject a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.rerun_pipeline_run", "Rerun a completed pipeline run. Requires confirm:true.", "pipeline_run.rerun", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.retry_pipeline_run_output", "Retry one failed pipeline final output without rerunning the whole pipeline. Requires confirm:true.", "pipeline_run.rerun", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.cancel_pipeline_run", "Cancel an in-progress pipeline run. Requires confirm:true.", "pipeline_run.cancel", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.delete_pipeline_run", "Delete a pipeline run. Requires confirm:true.", "pipeline_run.delete", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
 
@@ -107,7 +108,7 @@ func (a *App) authorizeHostedMCPDedicatedToolCall(ctx context.Context, subject a
 		permission.Resource.ID = stringArg(args, "run_id")
 	case "nopsai.approve_run_approval", "nopsai.reject_run_approval":
 		return true, nil
-	case "nopsai.rerun_pipeline_run", "nopsai.cancel_pipeline_run", "nopsai.delete_pipeline_run":
+	case "nopsai.rerun_pipeline_run", "nopsai.retry_pipeline_run_output", "nopsai.cancel_pipeline_run", "nopsai.delete_pipeline_run":
 		permission.Resource.ID = stringArg(args, "run_id")
 	case "nopsai.run_schedule_now", "nopsai.propose_schedule_update", "nopsai.propose_schedule_delete", "nopsai.propose_schedule_enable", "nopsai.propose_schedule_disable":
 		permission.Resource.ID = a.hostedMCPScheduleArgID(ctx, args)
@@ -164,6 +165,8 @@ func (a *App) executeHostedMCPDedicatedTool(ctx context.Context, subject aaamode
 		return a.hostedMCPRunApprovalDecision(ctx, subject, args, "reject")
 	case "nopsai.rerun_pipeline_run":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/runs/"+hostedMCPPathTail(stringArg(args, "run_id"))+"/rerun", nil, boolArg(args, "confirm", false), false, ""), true, nil
+	case "nopsai.retry_pipeline_run_output":
+		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/runs/"+hostedMCPPathTail(stringArg(args, "run_id"))+"/outputs/"+hostedMCPPathTail(stringArg(args, "output_id"))+"/retry", nil, boolArg(args, "confirm", false), false, ""), true, nil
 	case "nopsai.cancel_pipeline_run":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/runs/"+hostedMCPPathTail(stringArg(args, "run_id"))+"/cancel", nil, boolArg(args, "confirm", false), true, "Cancelling a run can stop running work and child runs."), true, nil
 	case "nopsai.delete_pipeline_run":

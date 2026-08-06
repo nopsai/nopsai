@@ -74,6 +74,22 @@ func TestHostedMCPPipelineRunOutputKeepsReadOnlyAAABoundary(t *testing.T) {
 	t.Fatal("nopsai.get_pipeline_run_output is missing")
 }
 
+func TestHostedMCPRetryPipelineRunOutputUsesRunRerunPermission(t *testing.T) {
+	for _, tool := range allHostedMCPTools() {
+		if tool.Name != "nopsai.retry_pipeline_run_output" {
+			continue
+		}
+		if tool.Action != "pipeline_run.rerun" ||
+			tool.Resource.Type != "pipeline_run" ||
+			tool.Resource.ID != "*" ||
+			tool.AuthenticatedOnly {
+			t.Fatalf("tool = %#v", tool)
+		}
+		return
+	}
+	t.Fatal("nopsai.retry_pipeline_run_output is missing")
+}
+
 func TestHostedMCPPipelineRunOutputMapIncludesDashboardTarget(t *testing.T) {
 	startedAt := time.Date(2026, 7, 21, 8, 30, 0, 0, time.UTC)
 	mapped := hostedMCPPipelineRunOutputMap(models.PipelineRunFinalOutput{

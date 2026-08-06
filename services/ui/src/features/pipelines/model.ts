@@ -22,6 +22,7 @@ export const PIPELINE_DIRECTIVES = [
   'agent_profile',
   'llm_profile',
   'mcp_profiles',
+  'policy_merge_mode',
   'runtime_pool',
   'affinity_enabled',
   'knowledge_context',
@@ -52,6 +53,7 @@ export const STEP_DIRECTIVES = [
   'agent_profile',
   'llm_profile',
   'mcp_profiles',
+  'policy_merge_mode',
   'runtime_pool',
   'knowledge_context',
   'llm_output_sharing',
@@ -66,6 +68,7 @@ export const TASK_DIRECTIVES = [
   'ignore_failure',
   'llm_profile',
   'mcp_profiles',
+  'policy_merge_mode',
   'knowledge_context',
   'llm_output_sharing',
   'variables',
@@ -184,6 +187,9 @@ export type PipelineDependencyReference = {
   typeLabel: 'Pipeline' | 'Step' | 'Include';
   actionLabel: 'Open' | 'Copy';
   navigable: boolean;
+  kind: 'pipeline' | 'step' | 'include' | 'local-step';
+  targetStep?: string;
+  sourceStep?: string;
 };
 
 export function normalizeRootPath(path: string) {
@@ -292,9 +298,9 @@ export function formatPipelineTriggerScope(trigger: Record<string, unknown>): st
 
 export function parsePipelineDependencyReference(value: string): PipelineDependencyReference {
   const raw = value.trim();
-  const navigable = raw.startsWith('pipeline:');
+  const isPipeline = raw.startsWith('pipeline:');
   const isStep = raw.startsWith('step:');
-  const identifier = navigable
+  const identifier = isPipeline
     ? raw.slice('pipeline:'.length).trim()
     : isStep
       ? raw.slice('step:'.length).trim()
@@ -302,10 +308,51 @@ export function parsePipelineDependencyReference(value: string): PipelineDepende
   return {
     raw,
     identifier,
-    typeLabel: navigable ? 'Pipeline' : isStep ? 'Step' : 'Include',
-    actionLabel: navigable ? 'Open' : 'Copy',
-    navigable,
+    typeLabel: isPipeline ? 'Pipeline' : isStep ? 'Step' : 'Include',
+    actionLabel: isPipeline || isStep ? 'Open' : 'Copy',
+    navigable: isPipeline || isStep,
+    kind: isPipeline ? 'pipeline' : isStep ? 'step' : 'include',
   };
+}
+
+export function buildPipelineDependencyReferences(detail: PipelineDetail): PipelineDependencyReference[] {
+  const references = new Map<string, PipelineDependencyReference>();
+  detail.includedDependencies.forEach(value => {
+    const dependency = parsePipelineDependencyReference(value);
+    const key = `${dependency.kind}:${dependency.identifier || dependency.raw}`;
+    if (!references.has(key)) {
+      references.set(key, dependency);
+    }
+  });
+  detail.dependencyEdges.forEach(edge => {
+    const targetStep = edge.from.trim();
+    const sourceStep = edge.to.trim();
+    if (!targetStep || !sourceStep) return;
+    const dependency: PipelineDependencyReference = {
+      raw: `depends_on:${sourceStep}:${targetStep}`,
+      identifier: targetStep,
+      typeLabel: 'Step',
+      actionLabel: 'Open',
+      navigable: true,
+      kind: 'local-step',
+      targetStep,
+      sourceStep,
+    };
+    references.set(`local-step:${sourceStep}:${targetStep}`, dependency);
+  });
+  const order: Record<PipelineDependencyReference['kind'], number> = {
+    pipeline: 0,
+    step: 1,
+    include: 2,
+    'local-step': 3,
+  };
+  return Array.from(references.values()).sort((a, b) => {
+    const byKind = order[a.kind] - order[b.kind];
+    if (byKind !== 0) return byKind;
+    const byIdentifier = a.identifier.localeCompare(b.identifier);
+    if (byIdentifier !== 0) return byIdentifier;
+    return a.raw.localeCompare(b.raw);
+  });
 }
 
 function normalizeStringArray(value: unknown) {

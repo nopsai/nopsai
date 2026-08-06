@@ -383,11 +383,14 @@ password key named by `--bootstrap-admin-password-secret-key`. Keep
 `values.yaml` and the lock in GitOps; keep `nopsai-secrets.yaml` private, or
 encrypt/seal it with External Secrets, SOPS, Sealed Secrets, or the enterprise
 secret workflow before committing it. Kubernetes values include a bundled
-PostgreSQL StatefulSet by default; set `postgres.enabled=false` and provide a
-managed database URL with `--database-url` or by replacing the generated Secret
-when using managed PostgreSQL. With bundled PostgreSQL, the password embedded in
-`database-url` must match `postgres-password`; if a previous PostgreSQL PVC is
-reused, the database keeps the password from its first initialization and a
+PostgreSQL StatefulSet by default. NopsAI image tags are blank when they match
+the selected version, so `global.releaseVersion` remains the single GitOps
+default tag while explicit tags and digests remain supported overrides. Set
+`postgres.enabled=false` and provide a managed database URL with `--database-url`
+or by replacing the generated Secret when using managed PostgreSQL. With bundled
+PostgreSQL, the password embedded in `database-url` must match
+`postgres-password`; if a previous PostgreSQL PVC is reused, the database keeps
+the password from its first initialization and a
 Secret-only change will make API/AAA authentication fail. If the release images
 are private, create the registry pull Secret in the namespace and reference it
 from `global.imagePullSecrets`; `installation.md` documents the command but does

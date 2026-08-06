@@ -203,6 +203,18 @@ test('cancels pending final output generation', async () => {
   expect(screen.getByText('Comparison Report cancellation requested')).toBeVisible();
 });
 
+test('retries failed final output generation', async () => {
+  const user = userEvent.setup();
+  const onRetryOutput = vi.fn().mockResolvedValue(undefined);
+
+  renderFinalOutputs(<RunFinalOutputs runID="run-1" outputs={[outputs[2]]} onRetryOutput={onRetryOutput} />);
+  await user.click(screen.getByRole('button', { name: 'Actions for Data Table' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Retry' }));
+
+  await waitFor(() => expect(onRetryOutput).toHaveBeenCalledWith('output-3'));
+  expect(screen.getByText('Data Table retry queued')).toBeVisible();
+});
+
 test('shows cancelled final outputs as terminal', async () => {
   const user = userEvent.setup();
   renderFinalOutputs(
@@ -210,12 +222,14 @@ test('shows cancelled final outputs as terminal', async () => {
       runID="run-1"
       outputs={[{ ...outputs[1], status: 'cancelled', error: 'cancelled by user' }]}
       onCancelOutput={vi.fn()}
+      onRetryOutput={vi.fn()}
     />
   );
 
   expect(screen.getByText('Cancelled')).toBeVisible();
   await user.click(screen.getByRole('button', { name: 'Actions for Comparison Report' }));
   expect(screen.getByRole('menuitem', { name: 'Cancel' })).toBeDisabled();
+  expect(screen.getByRole('menuitem', { name: 'Retry' })).toBeDisabled();
 });
 
 function renderFinalOutputs(node: ReactElement) {

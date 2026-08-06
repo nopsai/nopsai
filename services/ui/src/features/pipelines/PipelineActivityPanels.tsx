@@ -6,9 +6,9 @@ import {
   formatPipelineTriggerBranchField,
   formatPipelineTriggerEvent,
   formatPipelineTriggerScope,
-  parsePipelineDependencyReference,
   pipelineRunStatusClass,
   pipelineRunStatusLabel,
+  type PipelineDependencyReference,
 } from './model';
 
 const MAX_VISIBLE_CARDS = 5;
@@ -20,12 +20,12 @@ type PipelineActivityPanelsProps = {
   triggers: PipelineTrigger[];
   triggersLoading: boolean;
   triggersError: string | null;
-  dependencies: string[];
+  dependencies: PipelineDependencyReference[];
   runs: PipelineRun[];
   runsLoading: boolean;
   runsError: string | null;
   onOpenTrigger: (repoSlug: string) => void;
-  onOpenDependency: (identifier: string) => void;
+  onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
   onOpenRun: (runID: string) => void;
   sections?: PipelineActivitySection[];
@@ -48,9 +48,7 @@ export function PipelineActivityPanels({
   sections,
   variant = 'cards',
 }: PipelineActivityPanelsProps) {
-  const normalizedDependencies = Array.from(new Set(dependencies))
-    .map(parsePipelineDependencyReference)
-    .sort((a, b) => a.raw.localeCompare(b.raw));
+  const normalizedDependencies = dependencies;
   const visibleSections = new Set(sections || ['triggers', 'dependencies', 'runs']);
   const rowMode = variant === 'rows';
 
@@ -137,12 +135,12 @@ export function PipelineActivityPanels({
       {visibleSections.has('dependencies') ? (
       <section className="glass-card overflow-hidden">
         <header className="p-4 border-b border-[var(--border-primary)]">
-          <h3 className="text-lg font-semibold text-[var(--text-primary)]">Included Dependencies</h3>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">Dependencies</h3>
         </header>
         <div className="p-4">
           {normalizedDependencies.length ? (
             rowMode ? (
-              <div className="pipeline-detail-object-table pipeline-detail-object-table--dependencies" role="table" aria-label="Included dependencies">
+              <div className="pipeline-detail-object-table pipeline-detail-object-table--dependencies" role="table" aria-label="Dependencies">
                 <div className="pipeline-detail-object-row pipeline-detail-object-row--head" role="row" aria-hidden="true">
                   <span>Identifier</span>
                   <span>Type</span>
@@ -157,7 +155,7 @@ export function PipelineActivityPanels({
                         title={`${dependency.actionLabel} ${dependency.identifier}`}
                         onClick={() =>
                           dependency.navigable
-                            ? onOpenDependency(dependency.identifier)
+                            ? onOpenDependency(dependency)
                             : void onCopyDependency(dependency.identifier || dependency.raw)
                         }
                       >
@@ -179,7 +177,7 @@ export function PipelineActivityPanels({
                     title={`${dependency.actionLabel} ${dependency.identifier}`}
                     onClick={() =>
                       dependency.navigable
-                        ? onOpenDependency(dependency.identifier)
+                        ? onOpenDependency(dependency)
                         : void onCopyDependency(dependency.identifier || dependency.raw)
                     }
                   >
@@ -196,7 +194,7 @@ export function PipelineActivityPanels({
             </ul>
             )
           ) : (
-            <p className="text-sm text-[var(--text-secondary)]">No includes detected for this pipeline.</p>
+            <p className="text-sm text-[var(--text-secondary)]">No dependencies detected for this pipeline.</p>
           )}
         </div>
       </section>

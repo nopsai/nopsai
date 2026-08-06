@@ -187,7 +187,9 @@ nopsai install kubernetes --output-dir . --values-file values.yaml --deploy --wa
 
 Stored-file deploys read `global.releaseVersion` from `values.yaml`, run
 `helm upgrade --install` against the versioned OCI chart, and write a
-GitOps-readable release lock after success.
+GitOps-readable release lock after success. Generated NopsAI image tags are
+blank by default so they inherit `global.releaseVersion`; use per-image tags or
+digests only for intentional overrides.
 
 ## Advanced Manifest Deploys
 
@@ -212,7 +214,10 @@ repository.
 
 `nopsai install` is the shortest first-install path. It opens a wizard, lets the
 operator choose Docker Compose or Kubernetes, resolves the same manifest from
-the CLI release version, and generates the required files itself.
+the CLI release version, and generates the required files itself. Kubernetes
+values emitted by `nopsai install kubernetes` keep NopsAI image tags blank when
+they match the selected version, so `global.releaseVersion` remains the single
+GitOps default tag while explicit tags and digests remain supported overrides.
 `nopsai install docker-compose` is the automation shortcut: it writes
 `docker-compose.yaml`, `.env`, `db/init.sql`, `release-manifest.json`, and
 `.nopsai/install.lock`, then starts the stack when `--run` is set. The `.env`

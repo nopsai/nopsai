@@ -96,8 +96,13 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	helpersBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/_helpers.tpl")
+	if err != nil {
+		t.Fatal(err)
+	}
 	installer := string(installerBytes)
 	values := string(valuesBytes)
+	helpers := string(helpersBytes)
 	installRepositories := []string{
 		"ghcr.io/nopsai/nopsai-aaa",
 		"ghcr.io/nopsai/nopsai-agent",
@@ -124,6 +129,16 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 	}
 	if strings.Contains(values, "ghcr.io/nopsai/nopsai-docker-socket-proxy") {
 		t.Error("Helm chart values should not include the Docker-only socket proxy image")
+	}
+	for _, required := range []string{
+		"releaseVersion: dev",
+		`tag: ""`,
+		`define "nopsai.imageWithDefaultTag"`,
+		"default .defaultTag $image.tag",
+	} {
+		if !strings.Contains(values+"\n"+helpers, required) {
+			t.Errorf("Helm chart is missing release-version image defaulting contract %q", required)
+		}
 	}
 	if !strings.Contains(installer, "DefaultInstallChartReference") || !strings.Contains(installer, "oci://ghcr.io/nopsai/charts/nopsai") {
 		t.Fatal("CLI install generator does not declare the default OCI chart reference")

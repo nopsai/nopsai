@@ -1345,7 +1345,7 @@ func assistantResourceURIsForTool(name string) []string {
 		return []string{"nopsai://pipelines"}
 	case "nopsai.get_pipeline_knowledge_context":
 		return []string{"nopsai://pipelines", "nopsai://docs"}
-	case "nopsai.run_pipeline", "nopsai.list_pipeline_runs", "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure", "nopsai.list_run_approvals", "nopsai.approve_run_approval", "nopsai.reject_run_approval", "nopsai.rerun_pipeline_run", "nopsai.cancel_pipeline_run", "nopsai.delete_pipeline_run", "nopsai.list_lab_items", "nopsai.get_lab_item", "nopsai.explain_lab_result":
+	case "nopsai.run_pipeline", "nopsai.list_pipeline_runs", "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure", "nopsai.list_run_approvals", "nopsai.approve_run_approval", "nopsai.reject_run_approval", "nopsai.rerun_pipeline_run", "nopsai.retry_pipeline_run_output", "nopsai.cancel_pipeline_run", "nopsai.delete_pipeline_run", "nopsai.list_lab_items", "nopsai.get_lab_item", "nopsai.explain_lab_result":
 		return []string{"nopsai://pipeline-runs"}
 	case "nopsai.list_triggers", "nopsai.get_trigger", "nopsai.propose_trigger_change", "nopsai.list_git_webhook_sources", "nopsai.get_git_webhook_source", "nopsai.list_git_webhook_deliveries", "nopsai.propose_git_webhook_source_create", "nopsai.propose_git_webhook_source_update", "nopsai.propose_git_webhook_source_delete", "nopsai.list_external_triggers", "nopsai.get_external_trigger", "nopsai.list_external_trigger_invocations", "nopsai.propose_external_trigger_create", "nopsai.propose_external_trigger_update", "nopsai.propose_external_trigger_delete", "nopsai.invoke_external_trigger":
 		return []string{"nopsai://triggers"}

@@ -34,9 +34,10 @@ import type { PipelineRun, PipelineTrigger } from './api';
 import { buildPipelineAnalysisPromptContext } from './pipelineAnalysisEvidence';
 import { PipelineActivityPanels } from './PipelineActivityPanels';
 import {
+  buildPipelineDependencyReferences,
   normalizePipelineSource as normalizeSource,
-  parsePipelineDependencyReference,
   type PipelineDetail,
+  type PipelineDependencyReference,
   type PipelineGraphData,
 } from './model';
 import {
@@ -92,7 +93,7 @@ type PipelineDetailViewProps = {
   onEditablePipelineTeamChange: (value: string) => void;
   onSelectGraphStep: (step: string | null) => void;
   onOpenTrigger: (repoSlug: string) => void;
-  onOpenDependency: (identifier: string) => void;
+  onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
   onOpenRun: (runID: string) => void;
   onEditorTextChange: (nextValue: string, cursor: number) => void;
@@ -222,9 +223,7 @@ export function PipelineDetailView({
         ? 'Execute in Lab'
         : 'You do not have permission to execute this pipeline';
   const latestRun = summarizePipelineLatestRun(recentRuns);
-  const dependencyRefs = Array.from(new Set(detail.includedDependencies))
-    .map(parsePipelineDependencyReference)
-    .sort((a, b) => a.raw.localeCompare(b.raw));
+  const dependencyRefs = buildPipelineDependencyReferences(detail);
   const tabs: Array<{ id: DetailTabID; label: string; count?: number }> = [
     { id: 'flow', label: 'Flow' },
     { id: 'definition', label: 'Definition' },
@@ -237,6 +236,13 @@ export function PipelineDetailView({
   const openDefinitionForEdit = () => {
     setActiveTab('definition');
     if (!isEditing) onEdit();
+  };
+
+  const handleOpenDependency = (dependency: PipelineDependencyReference) => {
+    if (dependency.kind === 'local-step') {
+      setActiveTab('flow');
+    }
+    onOpenDependency(dependency);
   };
 
   const analysePipeline = () => {
@@ -401,7 +407,7 @@ export function PipelineDetailView({
                     <span aria-hidden="true">·</span>
                     <span><b>{countPipelineGraphTasks(graphData)}</b> tasks</span>
                     <span aria-hidden="true">·</span>
-                    <span><b>{dependencyRefs.length}</b> includes</span>
+                    <span><b>{dependencyRefs.length}</b> dependencies</span>
                   </div>
                 </header>
                 <div className="pipeline-detail-graph-stage">
@@ -465,7 +471,7 @@ export function PipelineDetailView({
               onSave={onSave}
               onEditablePipelineNameChange={onEditablePipelineNameChange}
               onEditablePipelineTeamChange={onEditablePipelineTeamChange}
-              onOpenDependency={onOpenDependency}
+              onOpenDependency={handleOpenDependency}
               onCopyDependency={onCopyDependency}
               onEditorTextChange={onEditorTextChange}
               onOpenSuggestion={onOpenSuggestion}
@@ -484,14 +490,14 @@ export function PipelineDetailView({
                 triggers={triggers}
                 triggersLoading={triggersLoading}
                 triggersError={triggersError}
-                dependencies={detail.includedDependencies}
+                dependencies={dependencyRefs}
                 runs={recentRuns}
                 runsLoading={runsLoading}
                 runsError={runsError}
                 sections={['triggers']}
                 variant="rows"
                 onOpenTrigger={onOpenTrigger}
-                onOpenDependency={onOpenDependency}
+                onOpenDependency={handleOpenDependency}
                 onCopyDependency={onCopyDependency}
                 onOpenRun={onOpenRun}
               />
@@ -510,14 +516,14 @@ export function PipelineDetailView({
                 triggers={triggers}
                 triggersLoading={triggersLoading}
                 triggersError={triggersError}
-                dependencies={detail.includedDependencies}
+                dependencies={dependencyRefs}
                 runs={recentRuns}
                 runsLoading={runsLoading}
                 runsError={runsError}
                 sections={['runs']}
                 variant="rows"
                 onOpenTrigger={onOpenTrigger}
-                onOpenDependency={onOpenDependency}
+                onOpenDependency={handleOpenDependency}
                 onCopyDependency={onCopyDependency}
                 onOpenRun={onOpenRun}
               />
@@ -556,20 +562,20 @@ export function PipelineDetailView({
           ) : null}
 
           {activeTab === 'dependencies' ? (
-            <ActivityTabPanel id="dependencies" title="Included dependencies" tabLabel="Dependencies">
+            <ActivityTabPanel id="dependencies" title="Dependencies" tabLabel="Dependencies">
               <PipelineActivityPanels
                 pipelineLabel={detail.name || detail.id}
                 triggers={triggers}
                 triggersLoading={triggersLoading}
                 triggersError={triggersError}
-                dependencies={detail.includedDependencies}
+                dependencies={dependencyRefs}
                 runs={recentRuns}
                 runsLoading={runsLoading}
                 runsError={runsError}
                 sections={['dependencies']}
                 variant="rows"
                 onOpenTrigger={onOpenTrigger}
-                onOpenDependency={onOpenDependency}
+                onOpenDependency={handleOpenDependency}
                 onCopyDependency={onCopyDependency}
                 onOpenRun={onOpenRun}
               />
