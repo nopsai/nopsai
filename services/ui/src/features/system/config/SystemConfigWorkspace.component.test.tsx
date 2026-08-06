@@ -23,6 +23,7 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof SystemConfigWo
     onSaveGlobalConfigRepo: vi.fn(async () => undefined),
     onDeleteGlobalConfigRepo: vi.fn(async () => undefined),
     onSyncGlobalConfigRepo: vi.fn(async () => undefined),
+    onCancelGlobalConfigRepoSync: vi.fn(async () => undefined),
     onCheckGlobalConfigRepoDrift: vi.fn(async () => undefined),
   };
 
@@ -119,6 +120,7 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof SystemConfigWo
         onSaveGlobalConfigRepo={actions.onSaveGlobalConfigRepo}
         onDeleteGlobalConfigRepo={actions.onDeleteGlobalConfigRepo}
         onSyncGlobalConfigRepo={actions.onSyncGlobalConfigRepo}
+        onCancelGlobalConfigRepoSync={actions.onCancelGlobalConfigRepoSync}
         onCheckGlobalConfigRepoDrift={actions.onCheckGlobalConfigRepoDrift}
         globalConfigRepoDriftLoading={false}
         globalConfigRepoPushing={false}
@@ -208,6 +210,32 @@ test('keeps GitOps repository actions wired through the config repo handlers', a
   expect(actions.onSyncGlobalConfigRepo).toHaveBeenCalled();
   expect(actions.onSaveGlobalConfigRepo).toHaveBeenCalled();
   expect(actions.onDeleteGlobalConfigRepo).toHaveBeenCalled();
+});
+
+test('shows a cancel action while the global GitOps sync is running', async () => {
+  const user = userEvent.setup();
+  const runningRepo: ConfigRepository = {
+    id: 1,
+    scope_type: 'system',
+    scope_id: 'global',
+    provider: 'github',
+    repo_url: 'https://github.com/acme/nopsai-config',
+    branch: 'main',
+    base_path: '',
+    credential_ref: '',
+    enabled: true,
+    write_enabled: true,
+    write_branch: 'nopsai/ui-changes',
+    last_sync_status: 'running',
+    last_sync_message: 'Configuration synchronization started.',
+  };
+  const actions = renderWorkspace({ globalConfigRepo: runningRepo });
+
+  await user.click(screen.getByRole('tab', { name: /Config Source/ }));
+  expect(screen.getByRole('button', { name: 'Syncing...' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: 'Cancel sync' }));
+
+  expect(actions.onCancelGlobalConfigRepoSync).toHaveBeenCalled();
 });
 
 test('disables runtime edits when AAA grants read-only access', async () => {

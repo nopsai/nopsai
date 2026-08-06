@@ -136,7 +136,7 @@ export function useSystemDispatcher({
       if (!key || pendingActions.has(key) || pendingEjections.has(key)) return;
 
       const confirmed = window.confirm(
-        `Remove runner "${runner.runnerId}" from dispatcher status? This disconnects any live runner stream and requeues in-flight work. Stop or scale down the old runner before replacing it with the same name.`
+        `Remove and revoke runner "${runner.runnerId}"? This disconnects any live runner stream, requeues in-flight work, and blocks this runner ID from reconnecting until a replacement install is generated or the revoked ID is cleared.`
       );
       if (!confirmed) return;
 
@@ -146,7 +146,7 @@ export function useSystemDispatcher({
           method: 'DELETE',
         });
         await loadStatus({ quiet: true });
-        addToast('Runner registration removed.', 'success');
+        addToast('Runner registration removed and ID revoked.', 'success');
       } catch (deleteError) {
         console.error('Failed to remove runner registration', deleteError);
         addToast('Failed to remove runner registration.', 'error');

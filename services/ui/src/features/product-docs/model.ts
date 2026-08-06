@@ -571,7 +571,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'steps[].ignore_failure',
     area: 'Step YAML',
-    description: 'Marks failures in this step as ignored so downstream dependencies can continue. Approval and blocking policy or guardrail failures still fail closed.',
+    description: 'Marks failures in this step as ignored so downstream dependencies can continue. Run details warn when ignored work fails. Approval and blocking policy or guardrail failures still fail closed.',
     example: 'true',
   },
   {
@@ -660,7 +660,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'tasks[].ignore_failure',
     area: 'Task YAML',
-    description: 'Treats this task failure as ignored, allowing dependent graph progress. The parent step flag also applies when set.',
+    description: 'Treats this task failure as ignored, allowing dependent graph progress. The parent step flag also applies when set, and run details warn when ignored work fails.',
     example: 'true',
   },
   {
@@ -2434,7 +2434,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Each runner should have a unique ID, capacity, allowed scope list, and network path to the dispatcher.',
           'Separate runners are the natural boundary for production versus non-production, region, team, security zone, or workload class.',
           'The Dispatcher workspace separates compact overview metrics, runtime-filtered table-first runner fleet operations, route editing/effective-routing tables, and install command generation so operators can validate changes before they affect scheduling.',
-          'Removing a runner clears its dispatcher registration, disconnects any live runner stream, and leaves the runner ID reusable after the old process or Deployment is stopped.',
+          'Removing a runner is deliberate revocation: it clears dispatcher registration, disconnects any live runner stream, requeues in-flight work, and blocks the runner ID from reconnecting until a replacement install or config change clears the revocation.',
         ],
         details: [
           'The dispatcher checks runner availability, scope compatibility, routing, affinity, and load before assignment.',
@@ -2442,7 +2442,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'For Kubernetes, runner manifests include namespace, ServiceAccount, namespace-scoped Role, RoleBinding, dispatcher auth Secret, runtime ConfigMap, and Deployment.',
           'Runner defaults and hard routing can live in setting/system/runner.yaml. Dispatcher routing updates are exposed through internal runtime config and do not require a dispatcher container restart.',
           'The ejected runner ID blocklist wins over GitOps routing at runtime. Remove ejected runner IDs from setting/system/runner.yaml or System > Config > Revoked runner IDs before reusing a revoked runner ID; replacement install generation clears stale revocations for the requested runner ID.',
-          'Use runner removal to clear stale registrations from dispatcher status. Delete or scale down the underlying Docker runner or Kubernetes Deployment when retiring capacity permanently, and add ejected_runner_ids only when a runner ID must stay revoked.',
+          'Ordinary network disconnects keep the runner registration unreachable and allow reconnect. Use runner removal only when the ID should be retired or replaced, and delete or scale down the underlying Docker runner or Kubernetes Deployment when retiring capacity permanently.',
         ],
         configRows: [
           {
@@ -2691,7 +2691,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Global config repository binding',
             language: 'bash',
             code:
-              'curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"repo_url":"https://github.com/acme/nopsai-config","branch":"main","base_path":"","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}\' \\\n  http://localhost:8080/v1/system/config-repo\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync\n\ncurl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repo/drift',
+              'curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"repo_url":"https://github.com/acme/nopsai-config","branch":"main","base_path":"","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}\' \\\n  http://localhost:8080/v1/system/config-repo\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync/cancel\n\ncurl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repo/drift',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
             permission: 'config_repo.manage',
@@ -3696,7 +3696,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Authenticate and call',
             language: 'bash',
             code:
-              'curl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync',
+              'curl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync/cancel',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
@@ -3704,7 +3704,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Run lifecycle routes',
             language: 'bash',
             code:
-              'curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/run/team-1/services/api/deploy\n\ncurl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs/<run-id>/logs\n\ncurl -OJ -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs/<run-id>/outputs/<output-id>/download',
+              'curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/run/team-1/services/api/deploy\n\ncurl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  "http://localhost:8080/v1/runs/<run-id>/logs?include_children=true"\n\ncurl -OJ -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs/<run-id>/outputs/<output-id>/download',
             complete: true,
             testedIn: DEFAULT_VERIFIED_DATE,
           },

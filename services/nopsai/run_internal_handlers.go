@@ -380,13 +380,28 @@ func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 			lastID = parsed
 		}
 	}
+	includeChildren := includeChildRunLogs(r)
 
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id, timestamp, line, source, stream, level, step_name, task_name, runner_id, request_id, traceparent, metadata
-		FROM pipeline_run_logs
-		WHERE run_id = $1 AND id > $2
-		ORDER BY id ASC
-	`, runID, lastID)
+		WITH RECURSIVE visible_runs AS (
+			SELECT run_id, pipeline_name, parent_run_id, parent_step_name, 0 AS depth
+			FROM pipeline_runs
+			WHERE run_id::text = $1
+			UNION ALL
+			SELECT child.run_id, child.pipeline_name, child.parent_run_id, child.parent_step_name, parent.depth + 1
+			FROM pipeline_runs child
+			JOIN visible_runs parent ON child.parent_run_id = parent.run_id
+			WHERE $3::boolean AND parent.depth < 8
+		)
+		SELECT logs.id, logs.timestamp, logs.line, logs.source, logs.stream, logs.level,
+		       logs.step_name, logs.task_name, logs.runner_id, logs.request_id, logs.traceparent, logs.metadata,
+		       visible_runs.run_id::text, COALESCE(visible_runs.pipeline_name, ''),
+		       COALESCE(visible_runs.parent_run_id::text, ''), COALESCE(visible_runs.parent_step_name, '')
+		FROM pipeline_run_logs logs
+		JOIN visible_runs ON visible_runs.run_id = logs.run_id
+		WHERE logs.id > $2
+		ORDER BY logs.id ASC
+	`, runID, lastID, includeChildren)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query logs for run")
 		http.Error(w, "Failed to retrieve logs", http.StatusInternalServerError)
@@ -411,6 +426,10 @@ func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 			&logLine.RequestID,
 			&logLine.Traceparent,
 			&metadataJSON,
+			&logLine.RunID,
+			&logLine.PipelineName,
+			&logLine.ParentRunID,
+			&logLine.ParentStepName,
 		); err != nil {
 			log.Error().Err(err).Msg("Failed to scan log line")
 			continue
@@ -423,6 +442,18 @@ func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+func includeChildRunLogs(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("include_children"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 type runLogIngestPayload struct {

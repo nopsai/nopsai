@@ -51,7 +51,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.list_pipeline_runs", "List recent pipeline runs visible to the current user.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.get_pipeline_run", "Read run status, scope, trigger subject, Git data, timings, and output summaries.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
 		toolDef("nopsai.get_pipeline_run_output", "Read final output content, dashboard target metadata, timing, and generation/render audit counts.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
-		toolDef("nopsai.get_pipeline_run_logs", "Read recent pipeline run logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.get_pipeline_run_logs", "Read run logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "limit": numberSchema(), "include_children": booleanSchema()})),
 		toolDef("nopsai.analyze_pipeline_run_failure", "Analyze a failed pipeline run from status and log excerpts.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
 		toolDef("nopsai.list_triggers", "List repository triggers.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.get_trigger", "Read a trigger definition.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"repository": stringSchema()})),
@@ -957,13 +957,28 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 		return nil, fmt.Errorf("run_id is required")
 	}
 	maxBytes := a.assistantConfig().MaxInputLogsBytes
+	includeChildren := boolArg(args, "include_children", false)
 	rows, err := a.db.Query(ctx, `
-			SELECT id, timestamp, line, source, stream, level, step_name, task_name, runner_id, request_id, traceparent, metadata
-			FROM pipeline_run_logs
-		WHERE run_id::text = $1
-		ORDER BY id DESC
+		WITH RECURSIVE visible_runs AS (
+			SELECT run_id, pipeline_name, parent_run_id, parent_step_name, 0 AS depth
+			FROM pipeline_runs
+			WHERE run_id::text = $1
+			UNION ALL
+			SELECT child.run_id, child.pipeline_name, child.parent_run_id, child.parent_step_name, parent.depth + 1
+			FROM pipeline_runs child
+			JOIN visible_runs parent ON child.parent_run_id = parent.run_id
+			WHERE $3::boolean AND parent.depth < 8
+		)
+		SELECT logs.id, logs.timestamp, logs.line, logs.source, logs.stream, logs.level,
+		       logs.step_name, logs.task_name, logs.runner_id, logs.request_id, logs.traceparent, logs.metadata,
+		       visible_runs.run_id::text, COALESCE(visible_runs.pipeline_name, ''),
+		       COALESCE(visible_runs.parent_run_id::text, ''), COALESCE(visible_runs.parent_step_name, '')
+		FROM pipeline_run_logs logs
+		JOIN visible_runs ON visible_runs.run_id = logs.run_id
+		WHERE logs.id > 0
+		ORDER BY logs.id DESC
 		LIMIT $2
-	`, runID, limitArg(args, 80, 500))
+	`, runID, limitArg(args, 80, 500), includeChildren)
 	if err != nil {
 		return nil, err
 	}
@@ -976,8 +991,9 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 		var timestamp time.Time
 		var line string
 		var source, stream, level, stepName, taskName, runnerID, requestID, traceparent string
+		var logRunID, pipelineName, parentRunID, parentStepName string
 		var metadataJSON []byte
-		if err := rows.Scan(&id, &timestamp, &line, &source, &stream, &level, &stepName, &taskName, &runnerID, &requestID, &traceparent, &metadataJSON); err != nil {
+		if err := rows.Scan(&id, &timestamp, &line, &source, &stream, &level, &stepName, &taskName, &runnerID, &requestID, &traceparent, &metadataJSON, &logRunID, &pipelineName, &parentRunID, &parentStepName); err != nil {
 			return nil, err
 		}
 		lineBytes := len([]byte(line))
@@ -987,6 +1003,10 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 		}
 		usedBytes += lineBytes
 		entry := map[string]any{"id": id, "timestamp": timestamp, "line": line}
+		addNonEmptyString(entry, "run_id", logRunID)
+		addNonEmptyString(entry, "pipeline_name", pipelineName)
+		addNonEmptyString(entry, "parent_run_id", parentRunID)
+		addNonEmptyString(entry, "parent_step_name", parentStepName)
 		addNonEmptyString(entry, "source", source)
 		addNonEmptyString(entry, "stream", stream)
 		addNonEmptyString(entry, "level", level)
@@ -1005,11 +1025,12 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 	}
 	reverseMaps(logs)
 	return map[string]any{
-		"run_id":          runID,
-		"logs":            logs,
-		"bytes":           usedBytes,
-		"max_bytes":       maxBytes,
-		"bytes_truncated": truncated,
+		"run_id":           runID,
+		"include_children": includeChildren,
+		"logs":             logs,
+		"bytes":            usedBytes,
+		"max_bytes":        maxBytes,
+		"bytes_truncated":  truncated,
 	}, rows.Err()
 }
 

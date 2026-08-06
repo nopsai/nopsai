@@ -77,7 +77,7 @@ func (f *fakeDispatcherClient) UpdateRunnerDispatch(ctx context.Context, req *pr
 	return &proto.UpdateRunnerDispatchResponse{}, nil
 }
 
-func TestHandleEjectRunnerRemovesDispatcherRegistrationOnly(t *testing.T) {
+func TestHandleEjectRunnerRevokesRunnerIDAndRemovesDispatcherRegistration(t *testing.T) {
 	dispatcher := &fakeDispatcherClient{}
 	app := &App{
 		dispatcher: dispatcher,
@@ -85,7 +85,7 @@ func TestHandleEjectRunnerRemovesDispatcherRegistrationOnly(t *testing.T) {
 			"*":    {"runner-general", "runner-prod-5"},
 			"prod": {"runner-prod-5"},
 			"dev":  {"runner-dev"},
-		}, EjectedRunnerIDs: []string{"runner-other", "runner-prod-5"}},
+		}, EjectedRunnerIDs: []string{"runner-other"}},
 	}
 	req := httptest.NewRequest(http.MethodDelete, "/v1/system/dispatcher/runners/runner-prod-5", nil)
 	req.SetPathValue("runnerID", "runner-prod-5")
@@ -108,8 +108,8 @@ func TestHandleEjectRunnerRemovesDispatcherRegistrationOnly(t *testing.T) {
 	if dispatcher.updateRunnerReq.GetAllowDispatch() {
 		t.Fatal("allow_dispatch = true, want false for eject control")
 	}
-	if got := app.getConfigSnapshot().EjectedRunnerIDs; len(got) != 1 || got[0] != "runner-other" {
-		t.Fatalf("ejected runner ids = %#v, want only unrelated revocation", got)
+	if got := app.getConfigSnapshot().EjectedRunnerIDs; len(got) != 2 || got[0] != "runner-other" || got[1] != "runner-prod-5" {
+		t.Fatalf("ejected runner ids = %#v, want existing plus removed runner revocation", got)
 	}
 	cfg := app.getConfigSnapshot()
 	if got := cfg.DispatcherRouting["*"]; len(got) != 2 || got[0] != "runner-general" || got[1] != "runner-prod-5" {

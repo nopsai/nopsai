@@ -432,7 +432,7 @@ Common step directives:
 | `steps[].variables` | Step-wide environment overrides. |
 | `steps[].outputs` | Runtime output contract for single-task steps and sync `pipeline:` include imports. Reusable `step:` include outputs are owned by the reusable step definition after expansion. |
 | `steps[].volumes` | Named Docker volume or Kubernetes PVC mounts using `volume:/mount/path`; existing storage is reused and missing storage is created. |
-| `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. Approval and explicit policy/guardrail enforcement failures still fail closed. |
+| `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. Run details warn when ignored work fails, even if the run succeeds. Approval and explicit policy/guardrail enforcement failures still fail closed. |
 | `steps[].llm_output_sharing` | Step-level output-history sharing override. |
 | `steps[].agent_profile` | Step persona override. Valid for conditions and LLM goals in the step. |
 | `steps[].llm_profile` | Step model-client override. Applies to the step condition and tasks unless a task has `llm_profile`. |
@@ -449,7 +449,7 @@ Common task directives:
 | `tasks[].goal` | LLM-backed task goal. Mutually exclusive with `script`. |
 | `tasks[].script` | Direct shell task. Mutually exclusive with `goal`. |
 | `tasks[].depends_on` | Dependencies inside the same step only. |
-| `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step; approval and explicit policy/guardrail enforcement failures still fail closed. |
+| `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step; run details warn when ignored work fails. Approval and explicit policy/guardrail enforcement failures still fail closed. |
 | `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
 | `tasks[].llm_profile` | Most-specific LLM model-client override for this task. |
 | `tasks[].mcp_profiles` | MCP profiles for this LLM goal task. Invalid on script tasks. |
@@ -703,7 +703,10 @@ runners are treated as dispatchable targets. A runner that reconnects after a
 dispatcher stream loss is dispatchable again, but keeps `last_disconnected_at`
 and appears as recovered/degraded during the recent recovery window.
 Runner registration is trusted by service JWT/TLS material and the
-ejected-runner blocklist. Replacing a control plane with the old
+ejected-runner blocklist. Deliberate runner removal disconnects the runner,
+clears dispatcher status, and adds its ID to `ejected_runner_ids`; ordinary
+network disconnects keep the registration available for reconnect. Replacing a
+control plane with the old
 `SERVICE_JWT_SIGNING_KEY` and `DISPATCHER_TLS_SECRET` lets old runner
 definitions authenticate again unless their IDs are carried forward in
 `ejected_runner_ids`; rotate those secrets before exposing the fresh dispatcher
@@ -801,6 +804,10 @@ GitOps applies dependency roots before dependent resources: team hierarchy from
 `config-repositories/` is upserted first, then team-owned dashboards and
 notification routes can resolve team paths, and pipeline dashboard outputs can
 attach to dashboards created in the same sync.
+Long-running config repository syncs can be canceled from the UI/API with the
+matching `.../sync/cancel` route. If no worker is registered but the repository
+row is still `running`, cancellation marks the row `canceled` so operators can
+retry without editing the database manually.
 
 Canonical system files include:
 

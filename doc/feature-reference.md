@@ -59,7 +59,7 @@ Supported pipeline features:
 - task runtime outputs declared with `outputs`, produced as files under the
   reserved `/nopsai/outputs` mount, and consumed by dependent tasks with
   `$steps.<step>.<task>.outputs.<name>`
-- ignored failures
+- ignored failures with run-detail warnings when ignored work fails
 - LLM content and output sharing controls
 - pipeline-level final outputs under `output.items` for Markdown, PDF, Excel,
   JSON, or HTML deliverables generated from the completed run context; each
@@ -567,6 +567,7 @@ Sync behavior:
 - import GitOps secret values only when they decrypt with the current NopsAI
   master key; otherwise keep the secret key with no value
 - sync system/global config repositories before team config repositories, so team bindings defined in Git can be picked up during the same sync-all run
+- cancel active or stale `running` config repository syncs from the UI/API before retrying
 - team config repositories are authoritative for resources under their team
   path; parent repos prune their own managed resources in delegated teams, and
   drift/export can move parent-managed or orphaned GitOps-labeled team resources
@@ -603,6 +604,9 @@ Sync behavior:
   ejected-runner blocklist; replacement control planes must rotate
   `SERVICE_JWT_SIGNING_KEY`/`DISPATCHER_TLS_SECRET` or carry
   `ejected_runner_ids` forward when old runner definitions should not reconnect
+- deliberate runner removal disconnects the runner, clears dispatcher status, and
+  persists the runner ID in the ejected-runner blocklist; ordinary network
+  disconnects keep the runner registration available for reconnect
 
 ## Notifications And Metrics
 
@@ -962,7 +966,7 @@ Pages present in the current UI:
   The setup wizard appears there as Installation.
   Product Wiki, user profile/theme/logout, and the final version row live as
   separated sidebar footer sections so route headers stay compact.
-- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, expandable scroll-zoom graph exploration with frontmost child dialogs, logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
+- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, ignored-failure warnings, expandable scroll-zoom graph exploration with frontmost child dialogs, parent-visible included pipeline logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail
   with a compact run-detail-style header, single-frame embedded dependency

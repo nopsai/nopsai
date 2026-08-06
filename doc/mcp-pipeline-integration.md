@@ -219,7 +219,7 @@ High-value hosted tools include:
   GitOps plans
 - run investigation:
   `nopsai.list_pipeline_runs`, `nopsai.get_pipeline_run`,
-  `nopsai.get_pipeline_run_logs`, and
+  `nopsai.get_pipeline_run_logs` with optional `include_children`, and
   `nopsai.analyze_pipeline_run_failure`
 - confirmed run operations:
   `nopsai.run_pipeline`, `nopsai.list_run_approvals`,

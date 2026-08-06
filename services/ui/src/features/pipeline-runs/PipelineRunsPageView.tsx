@@ -416,6 +416,7 @@ export function PipelineRunsPageView({
             setLogsTaskFilter(null);
             setLogsSearchFilter(null);
           }}
+          includeChildren={Boolean(runDetail?.child_runs?.length)}
           steps={runDetail?.steps}
           stepNames={runDetail?.steps.map(step => step.name)}
           initialStep={logsStepFilter}

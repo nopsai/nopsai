@@ -8,6 +8,7 @@ import {
   Save,
   Search,
   Send,
+  XCircle,
 } from 'lucide-react';
 import { CredentialReferenceLink } from '../credentials/CredentialReferenceLink';
 import { CONFIG_REPOSITORY_PROVIDER_OPTIONS } from '../../../lib/configRepositoryProviders.js';
@@ -71,6 +72,7 @@ export type SystemConfigWorkspaceProps = {
   onSaveGlobalConfigRepo: () => Promise<void>;
   onDeleteGlobalConfigRepo: () => Promise<void>;
   onSyncGlobalConfigRepo: () => Promise<void>;
+  onCancelGlobalConfigRepoSync: () => Promise<void>;
   onCheckGlobalConfigRepoDrift: () => Promise<void>;
   globalConfigRepoDriftLoading: boolean;
   globalConfigRepoPushing: boolean;
@@ -109,6 +111,7 @@ function SystemConfigWorkspace({
   onSaveGlobalConfigRepo,
   onDeleteGlobalConfigRepo,
   onSyncGlobalConfigRepo,
+  onCancelGlobalConfigRepoSync,
   onCheckGlobalConfigRepoDrift,
   globalConfigRepoDriftLoading,
   globalConfigRepoPushing,
@@ -137,6 +140,7 @@ function SystemConfigWorkspace({
   const globalRepoRunning = globalConfigRepo?.last_sync_status === 'running';
   const globalRepoCanEdit = canManageGlobalConfigRepo && !globalConfigRepoLoading && !globalConfigRepoSaving;
   const globalRepoSyncDisabled = !globalConfigRepo || !canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepoSaving || globalRepoRunning;
+  const globalRepoCancelDisabled = !globalConfigRepo || !canManageGlobalConfigRepo || globalConfigRepoSyncing || globalConfigRepoSaving || !globalRepoRunning;
   const globalRepoDriftDisabled = !globalConfigRepo || globalConfigRepoDriftLoading || globalConfigRepoSaving || globalConfigRepoSyncing || globalRepoRunning || globalConfigRepoPushing;
   const globalRepoPushDisabled = globalRepoDriftDisabled || !canManageGlobalConfigRepo || !globalConfigRepo?.write_enabled || !globalConfigRepo?.write_branch;
   const mailManaged = Boolean(mailSettings?.managed_by_config_repo);
@@ -834,7 +838,7 @@ function SystemConfigWorkspace({
                           type="button"
                           className="glass-button-danger system-settings-actions__start"
                           onClick={() => void onDeleteGlobalConfigRepo()}
-                          disabled={globalConfigRepoSaving || globalConfigRepoSyncing}
+                          disabled={globalConfigRepoSaving || globalConfigRepoSyncing || globalRepoRunning}
                         >
                           Remove
                         </button>
@@ -851,6 +855,12 @@ function SystemConfigWorkspace({
                         <RefreshCw className={`h-4 w-4 ${globalConfigRepoSyncing || globalRepoRunning ? 'animate-spin' : ''}`} />
                         {globalConfigRepoSyncing || globalRepoRunning ? 'Syncing...' : 'Sync'}
                       </button>
+                      {globalRepoRunning && canManageGlobalConfigRepo && (
+                        <button type="button" className="glass-button-danger" onClick={() => void onCancelGlobalConfigRepoSync()} disabled={globalRepoCancelDisabled}>
+                          <XCircle className="h-4 w-4" />
+                          {globalConfigRepoSyncing ? 'Canceling...' : 'Cancel sync'}
+                        </button>
+                      )}
                       {canManageGlobalConfigRepo && (
                         <button type="button" className="glass-button-primary" onClick={() => void onSaveGlobalConfigRepo()} disabled={!globalRepoCanEdit}>
                           <Save className="h-4 w-4" />

@@ -5,18 +5,22 @@ import (
 )
 
 type LogLine struct {
-	ID          int64          `json:"id"`
-	Timestamp   time.Time      `json:"timestamp"`
-	Line        string         `json:"line"`
-	Source      string         `json:"source,omitempty"`
-	Stream      string         `json:"stream,omitempty"`
-	Level       string         `json:"level,omitempty"`
-	StepName    string         `json:"step_name,omitempty"`
-	TaskName    string         `json:"task_name,omitempty"`
-	RunnerID    string         `json:"runner_id,omitempty"`
-	RequestID   string         `json:"request_id,omitempty"`
-	Traceparent string         `json:"traceparent,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	ID             int64          `json:"id"`
+	Timestamp      time.Time      `json:"timestamp"`
+	Line           string         `json:"line"`
+	RunID          string         `json:"run_id,omitempty"`
+	PipelineName   string         `json:"pipeline_name,omitempty"`
+	ParentRunID    string         `json:"parent_run_id,omitempty"`
+	ParentStepName string         `json:"parent_step_name,omitempty"`
+	Source         string         `json:"source,omitempty"`
+	Stream         string         `json:"stream,omitempty"`
+	Level          string         `json:"level,omitempty"`
+	StepName       string         `json:"step_name,omitempty"`
+	TaskName       string         `json:"task_name,omitempty"`
+	RunnerID       string         `json:"runner_id,omitempty"`
+	RequestID      string         `json:"request_id,omitempty"`
+	Traceparent    string         `json:"traceparent,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
 type RunListItem struct {

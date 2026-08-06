@@ -165,7 +165,7 @@ func TestEjectRunnerDeletesRegistrationAndCancelsConnection(t *testing.T) {
 	}
 }
 
-func TestEjectRunnerAllowsSameRunnerIDReconnect(t *testing.T) {
+func TestEjectRunnerBlocksSameRunnerIDReconnect(t *testing.T) {
 	d := newDispatcherServer(nil, "http://example")
 	rc := newTestRunnerConn("runner-eject-reusable", "prod")
 	d.addRunner(rc)
@@ -179,16 +179,16 @@ func TestEjectRunnerAllowsSameRunnerIDReconnect(t *testing.T) {
 
 	replacement := newTestRunnerConn("runner-eject-reusable", "prod")
 	replacement.connectionID = "conn-replacement"
-	if !d.addRunner(replacement) {
-		t.Fatal("addRunner() rejected a runner ID after its stale registration was removed")
+	if d.addRunner(replacement) {
+		t.Fatal("addRunner() accepted a runner ID after it was intentionally ejected")
 	}
 
 	status, err := d.GetStatus(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("GetStatus() error = %v", err)
 	}
-	if len(status.GetRunners()) != 1 || status.GetRunners()[0].GetRunnerId() != "runner-eject-reusable" {
-		t.Fatalf("runners = %#v, want replacement runner registered", status.GetRunners())
+	if len(status.GetRunners()) != 0 {
+		t.Fatalf("runners = %#v, want no registered runner after rejected reconnect", status.GetRunners())
 	}
 }
 

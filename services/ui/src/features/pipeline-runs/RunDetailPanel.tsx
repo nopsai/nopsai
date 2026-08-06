@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, BarChart3, BrainCircuit, FileText, GitCompare, Info, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BarChart3, BrainCircuit, FileText, GitCompare, Info, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
 import { AnalysisModal } from '../analysis/AnalysisModal';
 import { buildRunAnalysis } from '../analysis/model';
 import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
@@ -21,6 +21,7 @@ import {
   timeAgo,
   type ParentRunInfo,
 } from './runPresentation';
+import { buildIgnoredFailureWarning } from './runWarnings';
 import { getStatusMeta, normalizeStatus } from './statusPresentation';
 
 type RunDetail = {
@@ -104,6 +105,10 @@ export function RunDetailView({
   const monitoringLink = buildRunMonitoringLink(run);
   const triggerLabel = formatTriggerId(run.trigger_event_id);
   const parentRun = detail.parent_run_info;
+  const ignoredFailureWarning = useMemo(
+    () => buildIgnoredFailureWarning({ steps: detail.steps, childRuns: detail.child_runs }),
+    [detail.child_runs, detail.steps]
+  );
 
   const actionBase =
     'inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition duration-150 focus:outline-none';
@@ -388,6 +393,34 @@ export function RunDetailView({
         <div className="bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded-lg text-sm">
           <div className="font-semibold">Failed to start</div>
           <div className="mt-2 font-mono text-xs whitespace-pre-wrap break-words">{run.failure_reason}</div>
+        </div>
+      )}
+
+      {ignoredFailureWarning && (
+        <div
+          role="status"
+          aria-label="Ignored failures detected"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-200" aria-hidden="true" />
+            <div className="min-w-0">
+              <div className="font-semibold">Ignored failures detected</div>
+              <p className="mt-1 text-xs leading-5 text-amber-800 dark:text-amber-100/90">{ignoredFailureWarning.message}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {ignoredFailureWarning.items.slice(0, 3).map((item, index) => (
+                  <span key={`${item}-${index}`} className="runner-pill border-amber-300 bg-white/70 text-amber-900 dark:border-amber-400/40 dark:bg-amber-300/10 dark:text-amber-100">
+                    {item}
+                  </span>
+                ))}
+                {ignoredFailureWarning.items.length > 3 ? (
+                  <span className="runner-pill border-amber-300 bg-white/70 text-amber-900 dark:border-amber-400/40 dark:bg-amber-300/10 dark:text-amber-100">
+                    +{ignoredFailureWarning.items.length - 3} more
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

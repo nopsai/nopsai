@@ -48,6 +48,13 @@ export type PipelineRunsConfigRepositoryFormState = {
   write_branch: string;
 };
 
+type ConfigRepositorySyncStatus = {
+  status: string;
+  message?: string;
+  started_at?: string;
+  completed_at?: string;
+};
+
 type TeamConfigRepositorySelection = {
   team: Team;
   teamPath: string;
@@ -104,6 +111,19 @@ function normalizeConfigRepository(payload: unknown): PipelineRunsConfigReposito
     last_sync_started_at: typeof record.last_sync_started_at === 'string' ? record.last_sync_started_at : undefined,
     last_sync_completed_at: typeof record.last_sync_completed_at === 'string' ? record.last_sync_completed_at : undefined,
     last_sync_commit_sha: typeof record.last_sync_commit_sha === 'string' ? record.last_sync_commit_sha : undefined,
+  };
+}
+
+function normalizeConfigRepositorySyncStatus(payload: unknown): ConfigRepositorySyncStatus {
+  if (!payload || typeof payload !== 'object') {
+    return { status: '' };
+  }
+  const record = payload as Record<string, unknown>;
+  return {
+    status: typeof record.status === 'string' ? record.status : '',
+    message: typeof record.message === 'string' ? record.message : undefined,
+    started_at: typeof record.started_at === 'string' ? record.started_at : undefined,
+    completed_at: typeof record.completed_at === 'string' ? record.completed_at : undefined,
   };
 }
 
@@ -368,6 +388,32 @@ export function useTeamConfigRepositoryController({
     }
   }, [configRepo?.last_sync_status, configRepoTeam, configRepoSyncAllowed, configRepoSyncing, fetchJson, loadTeamConfigRepository]);
 
+  const cancelTeamConfigRepositorySync = useCallback(async () => {
+    if (!configRepoTeam || !configRepoSyncAllowed || configRepoSyncing || configRepo?.last_sync_status !== 'running') return;
+    setConfigRepoSyncing(true);
+    setConfigRepoError(null);
+    try {
+      const status = normalizeConfigRepositorySyncStatus(
+        await fetchJson(`/v1/teams/${encodeURIComponent(configRepoTeam.teamPath)}/config-repository/sync/cancel`, { method: 'POST' })
+      );
+      setConfigRepo(prev => prev ? {
+        ...prev,
+        last_sync_status: status.status || 'canceled',
+        last_sync_message: status.message || 'Configuration synchronization canceled.',
+        last_sync_started_at: status.started_at || prev.last_sync_started_at,
+        last_sync_completed_at: status.completed_at || new Date().toISOString(),
+      } : prev);
+      window.setTimeout(() => {
+        void loadTeamConfigRepository(configRepoTeam.teamPath, { quiet: true });
+      }, 500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to cancel config repository sync';
+      setConfigRepoError(message);
+    } finally {
+      setConfigRepoSyncing(false);
+    }
+  }, [configRepo?.last_sync_status, configRepoTeam, configRepoSyncAllowed, configRepoSyncing, fetchJson, loadTeamConfigRepository]);
+
   const checkTeamConfigRepositoryDrift = useCallback(async () => {
     if (!configRepoTeam || configRepoDriftLoading) return;
     setConfigRepoDriftOpen(true);
@@ -512,6 +558,7 @@ export function useTeamConfigRepositoryController({
     saveTeamConfigRepository,
     deleteTeamConfigRepository,
     syncTeamConfigRepository,
+    cancelTeamConfigRepositorySync,
     checkTeamConfigRepositoryDrift,
     pushTeamConfigRepositoryDrift,
     saveTeamNotificationRoute,
