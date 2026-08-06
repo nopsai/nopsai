@@ -359,7 +359,9 @@ describe('TeamsWorkspace', () => {
     const user = userEvent.setup();
     const props = renderWorkspace();
 
-    expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1);
+    const createButton = screen.getByRole('button', { name: 'New team' });
+    await user.click(createButton);
+    expect(props.onCreate).toHaveBeenCalledWith('team');
     expect(screen.getByRole('button', { name: 'Search teams' }).closest('.teams-search')).toHaveClass('ai-resource-search');
     expect(screen.queryByRole('button', { name: 'Refresh teams' })).not.toBeInTheDocument();
     expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();

@@ -47,6 +47,7 @@ function run(overrides: Partial<RunListItem> = {}): RunListItem {
 describe('Pipeline Runs presentation', () => {
   it('normalizes repository teams and browser links', () => {
     expect(isAppTeam({ name: 'platform', kind: 'team' })).toBe(false);
+    expect(isAppTeam({ name: 'platform/prod', kind: 'team' })).toBe(false);
     expect(teamDisplayName({ name: 'platform/api', kind: 'app' })).toBe('api');
     expect(teamDisplayName({ name: 'api', kind: 'app' })).toBe('api');
     expect(teamRepositoryLabel({ name: ' platform/api ' })).toBe('platform/api');

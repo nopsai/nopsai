@@ -188,7 +188,38 @@ describe('TeamsPage', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
   });
 
-  it('creates an application under the selected team', async () => {
+  it('creates a team under the selected team by default', async () => {
+    const created: unknown[] = [];
+    vi.spyOn(apiClient, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path === '/v1/teams' && init?.method === 'POST') {
+        created.push(JSON.parse(String(init.body)));
+        return Response.json({ id: 3 }, { status: 201 });
+      }
+      if (path === '/v1/teams?include=applications') return Response.json(teamsPayload);
+      return Response.json({ allowed: true });
+    });
+
+    const user = userEvent.setup();
+    renderTeams('/teams/team/platform');
+
+    await screen.findAllByText('service-api');
+    await user.click(screen.getByRole('button', { name: 'New team' }));
+    expect(screen.getByRole('dialog', { name: 'Create Team' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Team' })).toHaveAttribute('aria-pressed', 'true');
+    await user.type(screen.getByLabelText('Team Name'), 'infra');
+    await user.type(screen.getByLabelText(/Description/), 'Infrastructure team');
+    await user.click(screen.getByRole('button', { name: 'Create Team' }));
+
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toEqual({
+      name: 'infra',
+      description: 'Infrastructure team',
+      parent_team_id: 1,
+    });
+  });
+
+  it('creates an application under the selected team after switching type', async () => {
     const created: unknown[] = [];
     vi.spyOn(apiClient, 'fetch').mockImplementation(async (input, init) => {
       const path = String(input);
@@ -204,12 +235,14 @@ describe('TeamsPage', () => {
     renderTeams('/teams/team/platform');
 
     await screen.findAllByText('service-api');
-    await user.click(screen.getAllByRole('button', { name: 'New' })[0]);
-    expect(screen.getByRole('dialog', { name: 'Create Team Item' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'New team' }));
+    expect(screen.getByRole('dialog', { name: 'Create Team' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Application' }));
+    expect(screen.getByRole('dialog', { name: 'Create Application' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Application' })).toHaveAttribute('aria-pressed', 'true');
     await user.type(screen.getByLabelText('Application Name'), 'worker');
     await user.type(screen.getByLabelText('Repository URL'), 'https://github.com/acme/worker');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Create Application' }));
 
     await waitFor(() => expect(created).toHaveLength(1));
     expect(created[0]).toEqual({
