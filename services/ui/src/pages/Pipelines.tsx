@@ -46,6 +46,7 @@ import {
   type PipelineListItem,
 } from '../features/pipelines/model';
 import { usePipelinePermissions } from '../features/pipelines/usePipelinePermissions';
+import { useBackendYamlValidation } from '../features/validation/useBackendYamlValidation';
 import {
   GLOBAL_RESOURCE_TEAM_PATH,
   compareResourceTreeNodes,
@@ -180,13 +181,37 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     return validatePipelineYaml(editorValue);
   }, [editorValue, isEditing]);
 
+  const backendValidationYaml = useMemo(() => {
+    const name = editableIdentity.name.trim();
+    return isEditing && name ? updateYamlResourceName(editorValue, name) : editorValue;
+  }, [editableIdentity.name, editorValue, isEditing]);
+
+  const backendValidationResourceID = useMemo(() => {
+    const name = editableIdentity.name.trim();
+    const path = normalizeRootPath(editableIdentity.path);
+    return name ? buildPipelineIdentifier(path, name) : detail?.id || '';
+  }, [detail?.id, editableIdentity.name, editableIdentity.path]);
+
+  const backendValidation = useBackendYamlValidation({
+    enabled: isEditing,
+    resource: 'pipeline',
+    yaml: backendValidationYaml,
+    resourceID: backendValidationResourceID,
+    name: editableIdentity.name.trim(),
+  });
+
+  const editorValidationErrors = useMemo(
+    () => [...validation.errors, ...backendValidation.errors],
+    [backendValidation.errors, validation.errors]
+  );
+
   const validationErrorLines = useMemo(() => {
     const lines = new Set<number>();
-    validation.errors.forEach(err => {
+    editorValidationErrors.forEach(err => {
       if (typeof err.line === 'number') lines.add(err.line);
     });
     return lines;
-  }, [validation.errors]);
+  }, [editorValidationErrors]);
 
   const graphData = useMemo<PipelineGraphData>(() => {
     const source = isEditing ? editorValue : detail?.rawYaml;
@@ -656,8 +681,8 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     resources: pipelines,
     detail,
     editorValue,
-    validationErrorCount: validation.errors.length,
-    validationMessage: 'Resolve validation errors before saving.',
+    validationErrorCount: backendValidation.blockingErrorCount,
+    validationMessage: 'Resolve backend validation errors before saving.',
     permissionTeam,
     draftScope,
     canCreate: canCreatePipelineHere,
@@ -791,7 +816,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
               selectedGraphStep={selectedGraphStep}
               isEditing={isEditing}
               editorValue={editorValue}
-              validationErrors={validation.errors}
+              validationErrors={editorValidationErrors}
               validationErrorLines={validationErrorLines}
               editorSuggestion={editorSuggestion}
               autocompleteLoading={autocompleteMeta.loading}
@@ -802,6 +827,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
               canCreatePipelineHere={canCreatePipelineHere}
               canExecuteSelectedPipeline={canExecuteSelectedPipeline}
               saving={saving}
+              saveBlocked={backendValidation.isInvalid}
               editablePipelineName={editableIdentity.name}
               editablePipelineTeam={editableIdentity.path}
               triggers={triggers}

@@ -414,11 +414,17 @@ Rerun:
     before team-owned resources resolve team paths. Dashboard GitOps then runs
     before pipeline upserts so dashboard files can create the target rows and
     pipeline dashboard outputs can attach source bindings in the same sync.
+11. The same parser is available in dry-run mode through
+    `POST /v1/system/config-repo/validate` and
+    `POST /v1/teams/{teamID}/config-repository/validate`; these endpoints accept
+    draft files, perform no writes, and return the shared `{valid, errors,
+    warnings}` validation response.
 
 For Git push, `nopsai` loads the same system or team config repository binding,
-validates that `write_enabled` and `write_branch` are set, prefixes requested
-file paths with the binding `base_path`, and commits through the configured Git
-provider to the review branch. The sync branch is not updated directly. The
+validates that `write_enabled` and `write_branch` are set, dry-runs the draft
+file bundle through config-sync validation, prefixes requested file paths with
+the binding `base_path`, and commits through the configured Git provider to the
+review branch. The sync branch is not updated directly. The
 drift endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run team/config-repository structure,

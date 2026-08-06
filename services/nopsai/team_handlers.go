@@ -419,6 +419,8 @@ func (a *App) handleTeamConfigRepositoryRoute(w http.ResponseWriter, r *http.Req
 		a.handleGetTeamConfigRepositoryDrift(w, r)
 	case strings.HasSuffix(r.URL.Path, "/write") && r.Method == http.MethodPost:
 		a.handleWriteTeamConfigRepository(w, r)
+	case strings.HasSuffix(r.URL.Path, "/validate") && r.Method == http.MethodPost:
+		a.handleValidateTeamConfigRepository(w, r)
 	case r.Method == http.MethodGet:
 		a.handleGetTeamConfigRepository(w, r)
 	case r.Method == http.MethodPut:

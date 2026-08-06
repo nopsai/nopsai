@@ -1158,6 +1158,13 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 		details["credentials_synced"] = len(credentialPlan.credentials)
 	}
+	if authSettingsPlan != nil {
+		created, err := ensureOIDCAuthTeamsForMappings(ctx, tx, authSettingsPlan.providers)
+		if err != nil {
+			return fmt.Errorf("failed to prepare OIDC auth teams from '%s': %w", authSettingsPlan.sourcePath, err)
+		}
+		details["auth_teams_seeded"] += created
+	}
 
 	if err := a.syncAccessConfiguration(ctx, tx, binding, accessPlan, commitSHA, details); err != nil {
 		return err

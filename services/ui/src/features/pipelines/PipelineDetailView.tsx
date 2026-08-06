@@ -71,6 +71,7 @@ type PipelineDetailViewProps = {
   canCreatePipelineHere: boolean;
   canExecuteSelectedPipeline: boolean;
   saving: boolean;
+  saveBlocked?: boolean;
   editablePipelineName: string;
   editablePipelineTeam: string;
   triggers: PipelineTrigger[];
@@ -120,6 +121,7 @@ export function PipelineDetailView({
   canCreatePipelineHere,
   canExecuteSelectedPipeline,
   saving,
+  saveBlocked,
   editablePipelineName,
   editablePipelineTeam,
   triggers,
@@ -210,6 +212,7 @@ export function PipelineDetailView({
   const updatedLabel = formatResourceListUpdatedAt(detail.updatedAt);
   const isGitSource = source === 'git';
   const executeDisabled = isEditing || source === 'draft' || !canExecuteSelectedPipeline;
+  const saveDisabled = saving || (saveBlocked ?? validationErrors.length > 0);
   const analysisDisabled = isEditing || source === 'draft';
   const executeTitle = source === 'draft'
     ? 'Save the draft before executing'
@@ -338,7 +341,7 @@ export function PipelineDetailView({
                   type="button"
                   className="glass-button-primary pipeline-detail-action"
                   onClick={onSave}
-                  disabled={saving || validationErrors.length > 0}
+                  disabled={saveDisabled}
                 >
                   <Save className="h-4 w-4" aria-hidden="true" />
                   <span>{saving ? 'Saving...' : 'Save'}</span>

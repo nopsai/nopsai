@@ -64,7 +64,7 @@ Coverage states:
 
 Current first-class coverage includes setup status/preflight/template planning
 and confirmed bootstrap, pipeline inventory/search, pipeline YAML inspection and
-validation, reusable step GitOps plans, pipeline knowledge-context traversal,
+validation, backend pipeline/reusable-step draft validation endpoints, reusable step GitOps plans, pipeline knowledge-context traversal,
 LLM-drafted YAML checked by validation/proposal tools, GitOps-ready pipeline
 create/update proposals, managed knowledge reads and write
 plans, run/log analysis with explicit run-status and bounded-log chaining,
@@ -72,7 +72,7 @@ confirmed run mutations, team dashboard reads with current publications,
 source bindings, provenance, and history, schedule inventory and GitOps write plans, webhook
 source and external trigger plans, repository trigger provider/team/ingress
 metadata reads, webhook-ingress policy explanations, config
-repo sync/drift/write workflows, notification mail/route plans, monitoring
+repo sync/drift/write workflows with dry-run draft-bundle validation, notification mail/route plans, monitoring
 analytics/views/alerts/recommendation actions including AI token usage by
 pipeline/schedule/run/model/profile/feature/step/task, schedule/pipeline
 comparison aliases, pipeline health explanations, optimization opportunity

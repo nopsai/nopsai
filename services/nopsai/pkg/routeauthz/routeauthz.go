@@ -103,6 +103,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repo/drift":
 		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
+	case path == "/v1/system/config-repo/validate":
+		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repos":
 		return "system.read", model.ResourceRef{Type: "system", ID: "config-repos"}, false, nil
 	case path == "/v1/system/config-repos/sync":
@@ -145,6 +147,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "config_repo.manage", model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/write")}, false, nil
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/drift"):
 		return "config_repo.read", model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/drift")}, false, nil
+	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/validate"):
+		return "config_repo.read", model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/validate")}, false, nil
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository"):
 		resource = model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository")}
 		switch r.Method {
@@ -188,6 +192,12 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		}
 	case path == "/v1/pipelines" && r.Method == http.MethodGet:
 		return "pipeline.list", model.ResourceRef{Type: "pipeline", ID: "*"}, true, nil
+	case path == "/v1/pipelines/validate" && r.Method == http.MethodPost:
+		return "pipeline.list", model.ResourceRef{Type: "pipeline", ID: "*"}, false, nil
+	case path == "/v1/steps/validate" && r.Method == http.MethodPost:
+		return "step.read", model.ResourceRef{Type: "step", ID: "*"}, false, nil
+	case path == "/v1/overrides/validate" && r.Method == http.MethodPost:
+		return "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"}, false, nil
 	case path == "/v1/schedules" && r.Method == http.MethodGet:
 		return "pipeline_schedule.list", model.ResourceRef{Type: "pipeline_schedule", ID: "*"}, true, nil
 	case path == "/v1/schedules" && r.Method == http.MethodPost:

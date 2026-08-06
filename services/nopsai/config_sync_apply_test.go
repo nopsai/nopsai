@@ -65,6 +65,51 @@ func TestApplyConfigSyncPlanSyncsTeamsBeforeTeamOwnedResources(t *testing.T) {
 	}
 }
 
+func TestApplyConfigSyncPlanEnsuresOIDCAuthTeamsBeforeAccessConfiguration(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "config_sync_apply.go", nil, 0)
+	if err != nil {
+		t.Fatalf("failed to parse config_sync_apply.go: %v", err)
+	}
+
+	var applyFunc *ast.FuncDecl
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && fn.Name.Name == "applyConfigSyncPlan" {
+			applyFunc = fn
+			break
+		}
+	}
+	if applyFunc == nil {
+		t.Fatal("applyConfigSyncPlan not found")
+	}
+
+	var authTeamEnsure, accessSync token.Pos
+	ast.Inspect(applyFunc.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch callName(call.Fun) {
+		case "ensureOIDCAuthTeamsForMappings":
+			authTeamEnsure = call.Pos()
+		case "syncAccessConfiguration":
+			accessSync = call.Pos()
+		}
+		return true
+	})
+
+	if authTeamEnsure == token.NoPos {
+		t.Fatal("applyConfigSyncPlan does not ensure OIDC auth teams from GitOps mappings")
+	}
+	if accessSync == token.NoPos {
+		t.Fatal("applyConfigSyncPlan does not sync access configuration")
+	}
+	if authTeamEnsure > accessSync {
+		t.Fatal("OIDC auth teams must be ensured before access grants resolve auth-team subjects")
+	}
+}
+
 func callName(expr ast.Expr) string {
 	switch fun := expr.(type) {
 	case *ast.Ident:

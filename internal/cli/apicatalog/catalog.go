@@ -517,6 +517,22 @@ func bodySpec(method, path string) *BodySpec {
 		spec.Required = true
 		spec.Description = "Create or rotate an encrypted system credential value."
 		spec.Example = `{"name":"llm-openai","purpose":"llm_api_key","value":"secret-value"}`
+	case "/v1/pipelines/validate":
+		spec.Required = true
+		spec.Description = "Validate a pipeline YAML draft without saving it."
+		spec.Example = `{"resource_id":"delivery/release","yaml":"name: release\ncontainer_image: alpine:3.20\nsteps:\n  - name: build\n    script: go test ./...\n"}`
+	case "/v1/steps/validate":
+		spec.Required = true
+		spec.Description = "Validate a reusable-step YAML draft without saving it."
+		spec.Example = `{"resource_id":"library/build-image","yaml":"name: build-image\nscript: docker build .\n"}`
+	case "/v1/overrides/validate":
+		spec.Required = true
+		spec.Description = "Validate a repository trigger override YAML draft without saving it."
+		spec.Example = `{"repository":"acme/service-api","yaml":"triggers:\n  - on: push\n    pipelines:\n      - delivery/release\n"}`
+	case "/v1/system/config-repo/validate", "/v1/teams/{teamID}/config-repository/validate":
+		spec.Required = true
+		spec.Description = "Dry-run validate draft GitOps config repository files without writing or applying them."
+		spec.Example = `{"base_path":"config","files":[{"path":"config/pipelines/deploy.yaml","content":"name: deploy\ncontainer_image: alpine:3.20\nsteps:\n  - name: run\n    script: echo ok\n"}]}`
 	case "/v1/system/config-repo/write", "/v1/teams/{teamID}/config-repository/write":
 		spec.Required = true
 		spec.Description = "Write GitOps files through the configured repository workflow."
