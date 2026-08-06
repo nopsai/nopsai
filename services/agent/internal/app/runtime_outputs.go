@@ -79,19 +79,30 @@ func resolveRuntimeOutputVariables(variables map[string]string, store *runtimeOu
 	}
 	resolved := map[string]RuntimeOutputValue{}
 	for name, raw := range variables {
-		ref, found, err := models.ParseRuntimeOutputRef(raw)
+		refs, found, err := models.ParseRuntimeOutputRefCandidates(raw)
 		if err != nil {
 			return nil, err
 		}
 		if !found {
 			continue
 		}
-		value, ok := store.Resolve(ref)
-		if !ok {
+		var resolvedValue RuntimeOutputValue
+		var resolvedRef models.RuntimeOutputRef
+		for _, ref := range refs {
+			value, ok := store.Resolve(ref)
+			if !ok {
+				continue
+			}
+			resolvedValue = value
+			resolvedRef = ref
+			break
+		}
+		if resolvedRef.StepName == "" {
+			ref := refs[0]
 			return nil, fmt.Errorf("runtime output %s.%s.outputs.%s has not been produced", ref.StepName, ref.TaskName, ref.OutputName)
 		}
-		value.Name = strings.TrimSpace(name)
-		resolved[name] = value
+		resolvedValue.Name = strings.TrimSpace(name)
+		resolved[name] = resolvedValue
 	}
 	if len(resolved) == 0 {
 		return nil, nil
@@ -115,9 +126,11 @@ func referencedRuntimeOutputs(pipeline *models.Pipeline) map[string]bool {
 
 func recordRuntimeOutputReferences(required map[string]bool, variables map[string]string) {
 	for _, value := range variables {
-		ref, found, err := models.ParseRuntimeOutputRef(value)
+		refs, found, err := models.ParseRuntimeOutputRefCandidates(value)
 		if err == nil && found {
-			required[ref.Key()] = true
+			for _, ref := range refs {
+				required[ref.Key()] = true
+			}
 		}
 	}
 }
@@ -208,6 +221,28 @@ func outputRequiredByName(requiredRefs map[string]bool, stepName, taskName strin
 		}
 	}
 	return required
+}
+
+func requiredDeclaredOutputNames(outputs []models.TaskOutput, requiredRefs map[string]bool, stepName, taskName string) []string {
+	if len(outputs) == 0 || len(requiredRefs) == 0 {
+		return nil
+	}
+	required := outputRequiredByName(requiredRefs, stepName, taskName)
+	if len(required) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(outputs))
+	seen := map[string]bool{}
+	for _, output := range outputs {
+		name := strings.TrimSpace(output.Name)
+		if name == "" || !required[name] || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func sortedRuntimeOutputNames(values map[string]RuntimeOutputValue) []string {

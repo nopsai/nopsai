@@ -127,7 +127,9 @@ isolated Docker `tmpfs` or Kubernetes `emptyDir`. Missing files fail only when
 another task references the declared output; undeclared files are ignored.
 Sensitive output values are encrypted when persisted, masked after collection,
 excluded from normal run-detail/API responses, and passed only as authorized
-runtime variables to dependent consumers.
+runtime variables to dependent consumers. Single-task steps and parent-visible
+include outputs can also be consumed with `$steps.<step>.outputs.<name>`, which
+resolves to the step's synthetic task.
 
 Pipeline-declared Docker volumes and Kubernetes PVCs are named storage
 bindings, similar to Tekton workspaces bound to a PVC. The agent mounts an
@@ -162,6 +164,9 @@ The runtime supports:
 - child pipeline triggering with inherited execution history and resolved include
   variables; sensitive include variables are excluded from visible child run
   metadata
+- sync child pipeline output imports when the parent `pipeline:` include declares
+  `outputs`; dependent parent steps consume those values with
+  `$steps.<include-step>.outputs.<name>`
 - optional asynchronous child pipeline monitoring
 - aggregate parent/child run status in Pipeline Runs, so parent cards and
   detail graphs stay running while direct child runs are active and surface
@@ -317,6 +322,9 @@ Variables:
   variables and include variables win key-by-key
 - For `pipeline:` includes, include variables are sent to the child run as
   runtime overrides before child step/task variables are applied
+- For `pipeline:` includes with `sync: true`, parent-visible `outputs` declared
+  on the include step import matching child task runtime outputs back into the
+  parent run state
 
 Scope behavior:
 

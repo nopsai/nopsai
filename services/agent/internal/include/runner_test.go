@@ -152,3 +152,58 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 		t.Fatalf("finalized = %#v, want child failure/0 with llm duration", finalized)
 	}
 }
+
+func TestRunnerSyncFetchesChildOutputsBeforeFinalizingSuccess(t *testing.T) {
+	logger := zerolog.Nop()
+	var finalized []includeFinalization
+	var fetchedParentRunID, fetchedParentStepName, fetchedChildRunID string
+	var fetchedNames []string
+	runner := NewRunner(Config{
+		FetchDefinition: func(context.Context, string) ([]byte, error) {
+			return []byte("name: release-child"), nil
+		},
+		TriggerPipeline: func(context.Context, string, string, string, string, []byte, string, map[string]string, []string) (string, error) {
+			return "child-run-1", nil
+		},
+		MonitorPipeline: func(context.Context, *zerolog.Logger, string) (string, error) {
+			return "success", nil
+		},
+		FetchOutputs: func(_ context.Context, parentRunID, parentStepName, childRunID string, names []string) (map[string]RuntimeOutput, error) {
+			fetchedParentRunID = parentRunID
+			fetchedParentStepName = parentStepName
+			fetchedChildRunID = childRunID
+			fetchedNames = append([]string(nil), names...)
+			return map[string]RuntimeOutput{
+				"image_tag": {Name: "image_tag", Value: "v1.2.3"},
+			}, nil
+		},
+	})
+
+	result := runner.Run(context.Background(), Request{
+		Logger:        &logger,
+		ParentRunID:   "parent-run-1",
+		StepName:      "child",
+		IncludeTarget: "pipeline:release-child",
+		Sync:          true,
+		OutputNames:   []string{"image_tag", "image_tag"},
+		FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
+			finalized = append(finalized, includeFinalization{stepName, taskName, status, exitCode, llmDurationMs})
+		},
+	})
+
+	if !result.Handled || !result.Success || result.Status != "success" {
+		t.Fatalf("result = %#v, want handled success", result)
+	}
+	if result.Outputs["image_tag"].Value != "v1.2.3" {
+		t.Fatalf("outputs = %#v, want image_tag", result.Outputs)
+	}
+	if fetchedParentRunID != "parent-run-1" || fetchedParentStepName != "child" || fetchedChildRunID != "child-run-1" {
+		t.Fatalf("fetch args = %q/%q/%q", fetchedParentRunID, fetchedParentStepName, fetchedChildRunID)
+	}
+	if len(fetchedNames) != 1 || fetchedNames[0] != "image_tag" {
+		t.Fatalf("fetched names = %#v, want deduplicated image_tag", fetchedNames)
+	}
+	if len(finalized) != 1 || finalized[0].status != "success" || finalized[0].exitCode != 0 {
+		t.Fatalf("finalized = %#v, want one success finalization", finalized)
+	}
+}

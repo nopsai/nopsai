@@ -105,6 +105,52 @@ script: echo bad
 	}
 }
 
+func TestParseConfigSyncPlanValidatesPipelineAgainstIncomingReusableStepOutputs(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+		RepoURL:   "https://github.com/acme/platform-config",
+		BasePath:  "config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
+		steps: map[string]string{
+			"config/steps/prepare-runtime.yaml": `
+name: prepare-runtime
+script: |
+  printf manifest > /nopsai/outputs/release_manifest
+outputs:
+  - release_manifest
+`,
+		},
+		pipelines: map[string]string{
+			"config/pipelines/deploy.yaml": `
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: prepare
+    include: step:prepare-runtime
+  - name: consume
+    depends_on:
+      - prepare
+    variables:
+      RELEASE_MANIFEST: $steps.prepare.prepare.outputs.release_manifest
+    script: echo consume
+`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	if _, ok := plan.pipelines["team-1/deploy"]; !ok {
+		t.Fatalf("pipelines = %#v, want team-1/deploy", plan.pipelines)
+	}
+}
+
 func TestParseConfigSyncPlanTriggerExplicitTeamOverridesRepositoryOwner(t *testing.T) {
 	binding := models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,

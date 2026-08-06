@@ -16,6 +16,7 @@ import (
 	"nopsai/pkg/serviceauth"
 	agentapp "nopsai/services/agent/internal/app"
 	"nopsai/services/agent/internal/approval"
+	includeflow "nopsai/services/agent/internal/include"
 
 	"github.com/rs/zerolog"
 )
@@ -83,6 +84,10 @@ type runtimeOutputReportItem struct {
 	SizeBytes int64  `json:"size_bytes,omitempty"`
 }
 
+type runtimeOutputResolveResponse struct {
+	Outputs []runtimeOutputReportItem `json:"outputs"`
+}
+
 func reportTaskOutputs(pipelineName, runID, stepName, taskName string, outputs map[string]agentapp.RuntimeOutputValue) error {
 	if len(outputs) == 0 {
 		return nil
@@ -107,6 +112,36 @@ func reportTaskOutputs(pipelineName, runID, stepName, taskName string, outputs m
 		stepLog(runID, pipelineName, stepName, taskName).Warn().Err(err).Msg("Failed to report runtime outputs to NopsAI API")
 	}
 	return err
+}
+
+func fetchChildRuntimeOutputs(ctx context.Context, parentRunID, parentStepName, childRunID string, names []string) (map[string]includeflow.RuntimeOutput, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	endpoint := fmt.Sprintf("/v1/internal/runs/%s/task-outputs/resolve", url.PathEscape(childRunID))
+	payload := map[string]any{
+		"parent_run_id":    parentRunID,
+		"parent_step_name": parentStepName,
+		"names":            names,
+	}
+	var resp runtimeOutputResolveResponse
+	if err := nopsaiAgentRequest(ctx, http.MethodPost, endpoint, payload, &resp); err != nil {
+		return nil, err
+	}
+	outputs := make(map[string]includeflow.RuntimeOutput, len(resp.Outputs))
+	for _, item := range resp.Outputs {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		outputs[name] = includeflow.RuntimeOutput{
+			Name:      name,
+			Value:     item.Value,
+			Sensitive: item.Sensitive,
+			SizeBytes: item.SizeBytes,
+		}
+	}
+	return outputs, nil
 }
 
 func requestApprovalPause(ctx context.Context, runID string, req approval.PausePayload) (approval.PauseResponse, error) {

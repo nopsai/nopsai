@@ -303,6 +303,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					}
 					includeContext := timeoutController.ContextOrDefault(context.Background())
 					includeVariables, sensitiveIncludeVariables := stepContext.SelectedVariableOverrides(step.GetVariables())
+					outputNames := requiredDeclaredOutputNames(step.GetOutputs(), requiredRuntimeOutputs, stepName, stepName)
 					includeResult := req.IncludeRunner.Run(includeContext, includeflow.Request{
 						Logger:             taskLogger,
 						ParentRunID:        runID,
@@ -312,6 +313,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						History:            historySnapshot,
 						Variables:          includeVariables,
 						SensitiveVariables: sensitiveIncludeVariables,
+						OutputNames:        outputNames,
 						Sync:               step.GetSync(),
 						LLMDurationMs:      llmDurationMs,
 						FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
@@ -323,6 +325,9 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 							}
 						},
 					})
+					if includeResult.Success && len(includeResult.Outputs) > 0 {
+						runtimeOutputs.Set(stepName, stepName, runtimeOutputValuesFromInclude(includeResult.Outputs))
+					}
 					if !includeResult.Success && failureStatusWithTolerance(includeResult.Status, ignoreFailure) == "failure (ignored)" {
 						taskLogger.Warn().Msg("Task failed, but failure is ignored")
 						results <- taskResult{name: runnable.GlobalKey, success: true}
@@ -704,4 +709,24 @@ func inferPlainTextLiveActionLogLevel(line string) string {
 		}
 	}
 	return ""
+}
+
+func runtimeOutputValuesFromInclude(outputs map[string]includeflow.RuntimeOutput) map[string]RuntimeOutputValue {
+	if len(outputs) == 0 {
+		return nil
+	}
+	values := make(map[string]RuntimeOutputValue, len(outputs))
+	for key, output := range outputs {
+		name := strings.TrimSpace(firstNonEmpty(output.Name, key))
+		if name == "" {
+			continue
+		}
+		values[name] = RuntimeOutputValue{
+			Name:      name,
+			Value:     output.Value,
+			Sensitive: output.Sensitive,
+			SizeBytes: output.SizeBytes,
+		}
+	}
+	return values
 }

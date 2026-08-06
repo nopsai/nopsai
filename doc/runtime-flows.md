@@ -290,8 +290,14 @@ For a `pipeline:<identifier>` include:
 9. If the include is `sync: true`, the include step waits for the child result.
    A child failure marks the include step and parent pipeline failed before
    downstream parent tasks are allowed to run.
-10. If the include is `sync: false`, the parent treats it as unblocking and continues.
-11. Run detail and run list responses expose an aggregate lineage status for display:
+10. If the sync include step declares parent-visible `outputs`, the parent
+   agent fetches only those named child task runtime outputs through the
+   lineage-checked internal API and stores them as outputs of the parent include
+   step. Downstream parent steps can consume them with
+   `$steps.<include-step>.outputs.<name>`.
+11. If the include is `sync: false`, the parent treats it as unblocking and
+   continues. Async child includes cannot import parent-visible outputs.
+12. Run detail and run list responses expose an aggregate lineage status for display:
    a parent is shown as running while a direct child run is still active, and a
    successful parent is shown as failed if a direct child later fails. The stored
    parent run result remains separate so dispatcher polling and rerun lifecycle
@@ -310,7 +316,11 @@ For a `step:<identifier>` include:
 6. It merges the reusable step's default variables with the calling include
    step's variables. Calling include variables win key-by-key instead of
    replacing the whole defaults map.
-7. The agent only sees the fully expanded pipeline.
+7. Outputs declared by the reusable step validate and run as outputs of the
+   calling parent step name, so downstream tasks can reference them with the
+   reusable task name or with `$steps.<step>.outputs.<name>` for single-task
+   reusable steps.
+8. The agent only sees the fully expanded pipeline.
 
 ## 10. Logs, Status, And GitHub Feedback
 

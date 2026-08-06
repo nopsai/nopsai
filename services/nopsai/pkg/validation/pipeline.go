@@ -188,8 +188,20 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 			if isTaskStep || isLegacyStep || isApprovalStep {
 				return fmt.Errorf("step '%s' is an 'include' step and cannot also contain 'tasks', 'goal', 'script', or 'approval'", stepName)
 			}
-			if len(step.GetOutputs()) > 0 {
-				return fmt.Errorf("include step '%s' cannot declare task outputs", stepName)
+			stepToTaskNames[stepName][stepName] = true
+			includeOutputs := step.GetOutputs()
+			if len(includeOutputs) > 0 {
+				includeValue := strings.ToLower(strings.TrimSpace(step.GetInclude()))
+				if !strings.HasPrefix(includeValue, "pipeline:") {
+					return fmt.Errorf("include step '%s' can declare outputs only for pipeline includes", stepName)
+				}
+				if !step.GetSync() {
+					return fmt.Errorf("pipeline include step '%s' must use sync: true to declare parent-visible outputs", stepName)
+				}
+				if err := validateTaskOutputs(includeOutputs, fmt.Sprintf("pipeline include step '%s'", stepName)); err != nil {
+					return err
+				}
+				recordTaskOutputDeclarations(taskOutputDeclarations, stepName, stepName, includeOutputs)
 			}
 		} else if isApprovalStep {
 			if isTaskStep || isLegacyStep {
@@ -509,25 +521,39 @@ func validateRuntimeOutputRefsInVariables(variables map[string]string, consumer 
 		return nil
 	}
 	for name, value := range variables {
-		ref, found, err := models.ParseRuntimeOutputRef(value)
+		refs, found, err := models.ParseRuntimeOutputRefCandidates(value)
 		if err != nil {
 			return fmt.Errorf("variable %q in step '%s' references an invalid runtime output: %w", name, consumer.stepName, err)
 		}
 		if !found {
 			if strings.Contains(value, models.RuntimeOutputReferencePrefix) {
-				return fmt.Errorf("variable %q in step '%s' uses a runtime output in an unsupported expression; use the full value $steps.<step>.<task>.outputs.<name>", name, consumer.stepName)
+				return fmt.Errorf("variable %q in step '%s' uses a runtime output in an unsupported expression; use the full value $steps.<step>.outputs.<name> or $steps.<step>.<task>.outputs.<name>", name, consumer.stepName)
 			}
 			continue
 		}
-		if !stepToTaskNames[ref.StepName][ref.TaskName] {
-			return fmt.Errorf("variable %q references missing output producer task %s.%s", name, ref.StepName, ref.TaskName)
+		var firstRef models.RuntimeOutputRef
+		for idx, ref := range refs {
+			if idx == 0 {
+				firstRef = ref
+			}
+			if !stepToTaskNames[ref.StepName][ref.TaskName] {
+				continue
+			}
+			producerKey := strings.TrimSuffix(models.RuntimeOutputRefKey(ref.StepName, ref.TaskName, ""), "/")
+			if _, ok := declarations[producerKey][ref.OutputName]; !ok {
+				continue
+			}
+			if !consumerDependsOnOutputProducer(consumer, ref) {
+				return fmt.Errorf("variable %q consumes output %s.%s.outputs.%s without a valid dependency", name, ref.StepName, ref.TaskName, ref.OutputName)
+			}
+			firstRef = models.RuntimeOutputRef{}
+			break
 		}
-		producerKey := strings.TrimSuffix(models.RuntimeOutputRefKey(ref.StepName, ref.TaskName, ""), "/")
-		if _, ok := declarations[producerKey][ref.OutputName]; !ok {
-			return fmt.Errorf("variable %q references undeclared output %s.%s.outputs.%s", name, ref.StepName, ref.TaskName, ref.OutputName)
-		}
-		if !consumerDependsOnOutputProducer(consumer, ref) {
-			return fmt.Errorf("variable %q consumes output %s.%s.outputs.%s without a valid dependency", name, ref.StepName, ref.TaskName, ref.OutputName)
+		if firstRef.StepName != "" {
+			if !stepToTaskNames[firstRef.StepName][firstRef.TaskName] {
+				return fmt.Errorf("variable %q references missing output producer task %s.%s", name, firstRef.StepName, firstRef.TaskName)
+			}
+			return fmt.Errorf("variable %q references undeclared output %s.%s.outputs.%s", name, firstRef.StepName, firstRef.TaskName, firstRef.OutputName)
 		}
 	}
 	return nil

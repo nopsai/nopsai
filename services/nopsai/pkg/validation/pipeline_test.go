@@ -286,6 +286,58 @@ func TestValidatePipelineAllowsLegacyStepRuntimeOutputs(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineAllowsSyncPipelineIncludeRuntimeOutputs(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "include-output-pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.IncludeStep{
+				BaseStep: models.BaseStep{
+					Name:    "child-build",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}},
+				},
+				Include: "pipeline:child-build",
+				Sync:    true,
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "deploy",
+					DependsOn: []string{"child-build"},
+					Variables: map[string]string{
+						"IMAGE_TAG": "$steps.child-build.outputs.image_tag",
+					},
+				},
+				Script: "echo deploy",
+			}},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("ValidatePipeline() error = %v", err)
+	}
+}
+
+func TestValidatePipelineRejectsAsyncPipelineIncludeRuntimeOutputs(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "async-include-output-pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.IncludeStep{
+				BaseStep: models.BaseStep{
+					Name:    "child-build",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}},
+				},
+				Include: "pipeline:child-build",
+			}},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "sync: true") {
+		t.Fatalf("ValidatePipeline() error = %v, want sync: true error", err)
+	}
+}
+
 func TestValidatePipelineRejectsInvalidStepVariableAndSecretNames(t *testing.T) {
 	p := &models.Pipeline{
 		Name:           "invalid-step-vars",
