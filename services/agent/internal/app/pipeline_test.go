@@ -15,6 +15,7 @@ import (
 	"nopsai/services/agent/internal/executor"
 	includeflow "nopsai/services/agent/internal/include"
 	"nopsai/services/agent/internal/resolver"
+	workspacectx "nopsai/services/agent/internal/workspace"
 
 	"github.com/rs/zerolog"
 )
@@ -168,6 +169,64 @@ func TestRunPipelineHonorsStepIgnoreFailureForSyncIncludeFailure(t *testing.T) {
 		{stepName: "deploy", taskName: "deploy", status: "success"},
 	}) {
 		t.Fatalf("task statuses = %#v, want ignored child failure then deploy success", got)
+	}
+}
+
+func TestRunPipelineHonorsStepIgnoreFailureForGoalResolutionFailureWithBlockingContext(t *testing.T) {
+	runtime := &fakeStepRuntime{stdout: "ok"}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+	resolutionErr := errors.New("approved MCP tool unavailable")
+
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.GoalStep{
+				BaseStep: models.BaseStep{
+					Name:          "change-intelligence",
+					IgnoreFailure: true,
+				},
+				Goal: "Build a pre-execution change brief without modifying systems.",
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "deploy",
+					DependsOn: []string{"change-intelligence"},
+				},
+				Script: "echo deploy",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.PipelineLLMEnabled = true
+	req.ActionSessionResolver = func(*models.Pipeline, *models.PipelineStep, *models.Task) (resolver.ActionSession, error) {
+		return &fakeActionSession{err: resolutionErr}, nil
+	}
+	req.StopRetry = func(err error) bool {
+		return errors.Is(err, resolutionErr)
+	}
+	req.BlockingKnowledgeKinds = func(_ *models.Pipeline, step *models.PipelineStep, _ *models.Task, _ []models.KnowledgeContextSnapshot) []string {
+		if step == nil || step.GetName() != "change-intelligence" {
+			return nil
+		}
+		return []string{"guardrail", "policy"}
+	}
+
+	result := RunPipeline(req)
+
+	if result.ExitCode != 0 || result.FinalStatus != "success" {
+		t.Fatalf("result = %#v, want successful pipeline after ignored goal failure", result)
+	}
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "success" {
+		t.Fatalf("final statuses = %#v, want [success]", got)
+	}
+	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
+		{stepName: "change-intelligence", taskName: "change-intelligence", status: "running"},
+		{stepName: "change-intelligence", taskName: "change-intelligence", status: "failure (ignored)"},
+		{stepName: "deploy", taskName: "deploy", status: "running"},
+		{stepName: "deploy", taskName: "deploy", status: "success"},
+	}) {
+		t.Fatalf("task statuses = %#v, want ignored goal failure then deploy success", got)
 	}
 }
 
@@ -451,6 +510,45 @@ func TestRunPipelineDoesNotIgnoreBlockingConditionFailure(t *testing.T) {
 	}
 }
 
+func TestRunPipelineDoesNotIgnoreBlockingDirectScriptValidationFailure(t *testing.T) {
+	runtime := &fakeStepRuntime{stdout: "ok"}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:          "release",
+					IgnoreFailure: true,
+				},
+				Script: "./release.sh",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.PipelineLLMEnabled = false
+	req.BlockingKnowledgeKinds = func(*models.Pipeline, *models.PipelineStep, *models.Task, []models.KnowledgeContextSnapshot) []string {
+		return []string{"guardrail"}
+	}
+
+	result := RunPipeline(req)
+
+	if result.ExitCode != 1 || result.FinalStatus != "failure" {
+		t.Fatalf("result = %#v, want fail-closed pipeline", result)
+	}
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "failure" {
+		t.Fatalf("final statuses = %#v, want [failure]", got)
+	}
+	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
+		{stepName: "release", taskName: "release", status: "running"},
+		{stepName: "release", taskName: "release", status: "failure"},
+	}) {
+		t.Fatalf("task statuses = %#v, want blocking direct script validation failure", got)
+	}
+}
+
 func TestRunPipelinePausesForApprovalWithoutFinalStatus(t *testing.T) {
 	runtime := &fakeStepRuntime{}
 	statuses := &statusRecorder{}
@@ -671,6 +769,22 @@ type fakeConditionClient struct {
 
 func (c *fakeConditionClient) EvaluateCondition(context.Context, *proto.ConditionRequest) (*proto.ConditionResponse, error) {
 	return c.response, c.err
+}
+
+type fakeActionSession struct {
+	action *proto.Action
+	err    error
+}
+
+func (s *fakeActionSession) ProfileName() string         { return "unit" }
+func (s *fakeActionSession) AgentProfileName() string    { return "sdlc-change-analyst" }
+func (s *fakeActionSession) MCPEnabled() bool            { return true }
+func (s *fakeActionSession) MCPProfiles() []string       { return []string{"gitea-local-readonly"} }
+func (s *fakeActionSession) MCPToolCount() int           { return 1 }
+func (s *fakeActionSession) RequiresMCPToolCall() bool   { return false }
+func (s *fakeActionSession) SuccessfulMCPToolCalls() int { return 0 }
+func (s *fakeActionSession) GetAction(context.Context, *proto.GetActionRequest, *workspacectx.Tools) (*proto.Action, error) {
+	return s.action, s.err
 }
 
 type fakeApprovalPauser struct {
