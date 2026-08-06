@@ -9,8 +9,7 @@ CREATE TABLE teams (
     repository_full_name TEXT NOT NULL DEFAULT '',
     parent_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(name)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE pipeline_runs (
@@ -1297,6 +1296,8 @@ CREATE INDEX idx_resource_acl_subject_lookup ON resource_acl(subject_type, subje
 CREATE INDEX idx_authz_decision_logs_created_at ON authz_decision_logs(created_at);
 CREATE INDEX idx_authz_decision_logs_request_id ON authz_decision_logs(request_id);
 CREATE INDEX idx_teams_kind ON teams(kind);
+CREATE UNIQUE INDEX idx_teams_root_name_unique ON teams(LOWER(name)) WHERE parent_id IS NULL;
+CREATE UNIQUE INDEX idx_teams_parent_name_unique ON teams(parent_id, LOWER(name)) WHERE parent_id IS NOT NULL;
 CREATE INDEX idx_teams_repository_full_name ON teams(repository_full_name) WHERE repository_full_name <> '';
 CREATE UNIQUE INDEX idx_teams_repository_full_name_unique ON teams(LOWER(repository_full_name)) WHERE repository_full_name <> '';
 CREATE INDEX idx_config_repositories_scope ON config_repositories(scope_type, scope_id);

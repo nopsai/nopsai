@@ -142,11 +142,11 @@ Supported grant resources:
 - `config_repo`
 - `platform`
 
-Team grant requests use the internal `team` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. Use `global` for the global team scope; new teams cannot be named `root`, `global`, or `general`.
+Team grant requests use the internal `team` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. Product team paths are canonical and may repeat leaf names under different parents, for example `platform` and `engineering/platform`. Use `global` for the global team scope; new teams cannot be named `root`, `global`, or `general`.
 
 Named secret and variable resources use query-style internal IDs built from repository, scope, and name. The public grant API accepts the same logical IDs shown in the UI.
 
-Runtime resource-sharing grants use a separate `team` subject type for existing team paths. Use `team: global` to share a resource with the global team so any authenticated caller with the resource-use check can match it. `root` and `general` are not accepted aliases for the global team. That `team` subject is only used by the resource Access UI/API to share a resource with a team path; it is not the same as an AAA `auth_team`.
+Runtime resource-sharing grants use the `team` subject type for existing product team paths. AAA `auth_team` rows are the policy/membership subjects that mirror those same paths when teams come from NopsAI team sync or OIDC `team_mapping`; do not model a second team tree for product access. OIDC `team_mapping` also infers a viewer grant on the mapped product team path when the team exists, and `basic_role_mapping` can explicitly raise that to developer or owner. Use `team: global` to share a resource with the global team so any authenticated caller with the resource-use check can match it. `root` and `general` are not accepted aliases for the global team.
 
 Pipeline schedules use `pipeline_schedule` as the resource type. `viewer`
 grants include `pipeline_schedule.list` and `pipeline_schedule.read`;

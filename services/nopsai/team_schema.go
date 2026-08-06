@@ -14,13 +14,13 @@ var teamSchemaStatements = []string{
 		description TEXT NOT NULL DEFAULT '',
 		parent_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		UNIQUE(name)
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`ALTER TABLE teams ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'team'`,
 	`ALTER TABLE teams ADD COLUMN IF NOT EXISTS repo_url TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE teams ADD COLUMN IF NOT EXISTS repository_full_name TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL`,
+	`ALTER TABLE teams DROP CONSTRAINT IF EXISTS teams_name_key`,
 	`ALTER TABLE teams DROP CONSTRAINT IF EXISTS teams_kind_check`,
 	`UPDATE teams SET kind = 'team' WHERE kind IS NULL OR kind NOT IN ('team', 'app')`,
 	`UPDATE teams
@@ -37,6 +37,8 @@ var teamSchemaStatements = []string{
 	   AND repository_full_name <> ''`,
 	`ALTER TABLE teams ADD CONSTRAINT teams_kind_check CHECK (kind IN ('team', 'app'))`,
 	`CREATE INDEX IF NOT EXISTS idx_teams_kind ON teams(kind)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_root_name_unique ON teams(LOWER(name)) WHERE parent_id IS NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_parent_name_unique ON teams(parent_id, LOWER(name)) WHERE parent_id IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_teams_repository_full_name ON teams(repository_full_name) WHERE repository_full_name <> ''`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_repository_full_name_unique ON teams(LOWER(repository_full_name)) WHERE repository_full_name <> ''`,
 }

@@ -167,11 +167,11 @@ Main tables from `db/init.sql`:
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
 - `knowledge_contexts`: Managed markdown knowledge documents teamed by kind/team/name, with GitOps source metadata.
 - `pipeline_run_knowledge_contexts`: Per-run snapshots of resolved knowledge content.
-- `teams`: Compatibility table backing the Teams/application tree used by Pipeline Runs organization.
+- `teams`: Compatibility table backing the Teams/application tree used by Pipeline Runs organization. Team leaf names are unique only within the same parent, so paths such as `platform` and `engineering/platform` can coexist.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `personal_access_tokens`, `service_account_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, personal API credentials, service account credentials, and audit data.
 - `credentials`, `credential_versions`, `credential_access_logs`: Encrypted,
   versioned system integration credentials and purpose-bound consumer audit.
-- `auth_teams`, `auth_team_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA-owned policy data used by the policy engine; product access grants can target users, auth teams, repositories, triggers, service accounts, and internal services.
+- `auth_teams`, `auth_team_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA-owned policy data used by the policy engine. Product team paths are canonical; team sync and SSO mappings mirror those paths into auth-team subjects for membership and approvals rather than maintaining a separate hierarchy.
 - `resource_visibility`: Visibility settings for reusable resources, including knowledge contexts.
 - `access_grants`, `resource_ownership`: Product-owned grant intent and ownership metadata used by the access UI/API.
 - `resource_acl`, `authz_decision_logs`: AAA-owned expanded ACL rows and authorization decision audit logs.
@@ -198,7 +198,8 @@ Workspace
 
 In the current schema, `teams.kind = 'team'` represents team/product
 area nodes and `teams.kind = 'app'` represents application or repository
-nodes. The stable product boundary is the team path. Repositories are
+nodes. The stable product boundary is the team path, and duplicate leaf names
+are valid when they live under different parents. Repositories are
 one possible source of code or events, and one possible runtime identity; they
 are not required parents for pipelines. A pipeline without a repository should
 still have a logical path such as `platform/prod/deploy-prod`, with

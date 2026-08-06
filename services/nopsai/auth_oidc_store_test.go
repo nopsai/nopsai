@@ -166,6 +166,55 @@ func TestOIDCBasicRoleGrantSetForTeamsUsesStrongestRolePerTarget(t *testing.T) {
 	}
 }
 
+func TestOIDCTeamMappingBasicRoleGrantSetMirrorsProductTeamPaths(t *testing.T) {
+	got := oidcTeamMappingBasicRoleGrantSet(map[string]string{
+		"/platform":      "platform",
+		"/platform/prod": "/platform/prod/",
+		"/global":        "global",
+		"/root":          "root",
+		"/blank":         " ",
+	}, []string{"/platform", "/platform/prod", "/global", "/root", "/blank", "/missing"})
+
+	if len(got) != 2 {
+		t.Fatalf("grant set length = %d, want 2: %#v", len(got), got)
+	}
+	platform := got["team:platform"]
+	if platform.Role != productRoleViewer ||
+		platform.ResourceType != grantResourceTeam ||
+		platform.ResourceID != "platform" ||
+		platform.ExternalTeam != "/platform" ||
+		!platform.Inherit ||
+		!platform.RequireResourceExists {
+		t.Fatalf("platform grant = %#v, want inferred viewer on existing product team path", platform)
+	}
+	prod := got["team:platform/prod"]
+	if prod.Role != productRoleViewer || prod.ResourceID != "platform/prod" || prod.ExternalTeam != "/platform/prod" {
+		t.Fatalf("prod grant = %#v, want trimmed product team path", prod)
+	}
+	if _, ok := got["team:global"]; ok {
+		t.Fatalf("grant set = %#v, should not infer global team access from team mapping", got)
+	}
+}
+
+func TestOIDCTeamMappingBasicRoleGrantSetLetsExplicitMappingWin(t *testing.T) {
+	teams := []string{"/platform/prod"}
+	inferred := oidcTeamMappingBasicRoleGrantSet(map[string]string{
+		"/platform/prod": "platform/prod",
+	}, teams)
+	explicit := oidcBasicRoleGrantSetForTeams(map[string]oidcBasicRoleGrantMapping{
+		"/platform/prod": {
+			Role:     "developer",
+			Resource: "team:platform/prod",
+		},
+	}, teams)
+
+	got := mergeOIDCBasicRoleGrantSets(inferred, explicit)
+	grant := got["team:platform/prod"]
+	if grant.Role != productRoleDeveloper || grant.ResourceID != "platform/prod" || grant.RequireResourceExists {
+		t.Fatalf("grant = %#v, want explicit developer mapping to override inferred viewer", grant)
+	}
+}
+
 func TestOIDCDesiredAccessRoleSetDoesNotAddImplicitViewer(t *testing.T) {
 	provider := oidcProviderRecord{
 		RoleMapping: map[string]string{
