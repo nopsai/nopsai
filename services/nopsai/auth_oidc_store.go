@@ -1387,6 +1387,48 @@ func syncOIDCAuthTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUI
 	return nil
 }
 
+func ensureOIDCAuthTeamsForMappings(ctx context.Context, tx oidcTx, providers map[string]oidcProviderRecord) (int, error) {
+	if tx == nil || len(providers) == 0 {
+		return 0, nil
+	}
+
+	teamSet := map[string]struct{}{}
+	for _, provider := range providers {
+		for _, rawName := range provider.TeamMapping {
+			name := strings.TrimSpace(rawName)
+			if name == "" {
+				continue
+			}
+			teamSet[name] = struct{}{}
+		}
+	}
+	if len(teamSet) == 0 {
+		return 0, nil
+	}
+
+	teamNames := make([]string, 0, len(teamSet))
+	for name := range teamSet {
+		teamNames = append(teamNames, name)
+	}
+	sort.Strings(teamNames)
+
+	created := 0
+	for _, name := range teamNames {
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO auth_teams (name, description)
+			VALUES ($1, $2)
+			ON CONFLICT (name) DO NOTHING
+		`, name, "Declared by identity provider team mapping")
+		if err != nil {
+			return created, fmt.Errorf("failed to ensure auth team %q: %w", name, err)
+		}
+		if tag.RowsAffected() > 0 {
+			created++
+		}
+	}
+	return created, nil
+}
+
 func pruneStaleExternalTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUID, providerID string, desired map[string]bool) error {
 	rows, err := tx.Query(ctx, `
 		SELECT team_name

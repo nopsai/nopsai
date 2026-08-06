@@ -41,6 +41,7 @@ import {
 import { useStepPermissions } from '../features/steps/useStepPermissions';
 import { StepCollectionList } from '../features/steps/StepCollectionList';
 import { StepDetailView } from '../features/steps/StepDetailView';
+import { useBackendYamlValidation } from '../features/validation/useBackendYamlValidation';
 import {
   GLOBAL_RESOURCE_TEAM_PATH,
   compareResourceTreeNodes,
@@ -440,13 +441,25 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     return validateStepYaml(editorValue, { expectedName });
   }, [detail, editorValue, isEditing]);
 
+  const backendValidation = useBackendYamlValidation({
+    enabled: isEditing,
+    resource: 'step',
+    yaml: editorValue,
+    resourceID: detail?.id || '',
+  });
+
+  const editorValidationErrors = useMemo(
+    () => [...validation.errors, ...backendValidation.errors],
+    [backendValidation.errors, validation.errors]
+  );
+
   const validationErrorLines = useMemo(() => {
     const lines = new Set<number>();
-    validation.errors.forEach(err => {
+    editorValidationErrors.forEach(err => {
       if (typeof err.line === 'number') lines.add(err.line);
     });
     return lines;
-  }, [validation.errors]);
+  }, [editorValidationErrors]);
 
   const loadSteps = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!opts?.quiet) {
@@ -723,8 +736,8 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     resources: steps,
     detail,
     editorValue,
-    validationErrorCount: validation.errors.length,
-    validationMessage: 'Fix validation errors before saving.',
+    validationErrorCount: backendValidation.blockingErrorCount,
+    validationMessage: 'Resolve backend validation errors before saving.',
     permissionTeam,
     draftScope,
     canCreate: canCreateStepHere,
@@ -821,7 +834,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
               detail={detail}
               isEditing={isEditing}
               editorValue={editorValue}
-              validationErrors={validation.errors}
+              validationErrors={editorValidationErrors}
               validationErrorLines={validationErrorLines}
               editorSuggestion={editorSuggestion}
               autocompleteLoading={autocompleteMeta.loading}
@@ -831,6 +844,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
               canUpdateSelectedStep={canUpdateSelectedStep}
               canCreateStepHere={canCreateStepHere}
               saving={saving}
+              saveBlocked={backendValidation.isInvalid}
               usage={usage}
               usageLoading={usageLoading}
               usageError={usageError}

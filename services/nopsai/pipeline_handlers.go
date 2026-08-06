@@ -686,6 +686,9 @@ func (a *App) resolveStepIncludesWithResolver(ctx context.Context, pipeline *mod
 }
 
 func (a *App) resolveStoredStepIncludeDefinition(ctx context.Context, _ string, stepPath string, includeName string) (string, error) {
+	if a == nil || a.db == nil {
+		return "", fmt.Errorf("stored reusable step resolver is unavailable")
+	}
 	var stepDefStr string
 	err := a.db.QueryRow(ctx, "SELECT definition FROM steps WHERE path = $1 AND name = $2", stepPath, includeName).Scan(&stepDefStr)
 	return stepDefStr, err

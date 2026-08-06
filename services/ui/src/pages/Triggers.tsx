@@ -29,6 +29,7 @@ import {
 import { TriggerExplorerTree } from '../features/triggers/TriggerExplorerTree';
 import { useTriggerManifestMutations } from '../features/triggers/useTriggerManifestMutations';
 import { useTriggerPermissions } from '../features/triggers/useTriggerPermissions';
+import { useBackendYamlValidation } from '../features/validation/useBackendYamlValidation';
 import {
   applyTriggerDetailsToYaml,
   asRecord,
@@ -181,13 +182,31 @@ function TriggersPage({
     return validateTriggerYaml(editorValue);
   }, [editorValue, isEditing]);
 
+  const triggerDetails = useMemo(
+    () => triggerDetailsFormFromYaml(editorValue || detail?.rawYaml || '', detail),
+    [detail, editorValue]
+  );
+
+  const backendValidation = useBackendYamlValidation({
+    enabled: isEditing,
+    resource: 'trigger',
+    yaml: editorValue,
+    repository: detail?.slug || '',
+    teamPath: triggerDetails.teamPath,
+  });
+
+  const editorValidationErrors = useMemo(
+    () => [...validation.errors, ...backendValidation.errors],
+    [backendValidation.errors, validation.errors]
+  );
+
   const validationErrorLines = useMemo(() => {
     const lines = new Set<number>();
-    validation.errors.forEach(err => {
+    editorValidationErrors.forEach(err => {
       if (typeof err.line === 'number') lines.add(err.line);
     });
     return lines;
-  }, [validation.errors]);
+  }, [editorValidationErrors]);
 
   const syncEditorOverlays = useCallback((textarea: HTMLTextAreaElement | null) => {
     if (!textarea) return;
@@ -624,7 +643,7 @@ function TriggersPage({
     permissionOwner,
     detail,
     editorValue,
-    validationErrorCount: validation.errors.length,
+    validationErrorCount: backendValidation.blockingErrorCount,
     serverTriggers,
     defaultTeamPath: defaultCreateTeamPath,
     addToast,
@@ -787,11 +806,6 @@ function TriggersPage({
     return filterTriggerListItems(serverTriggers, { query: searchTerm, source: 'all' });
   }, [serverTriggers, searchTerm]);
 
-  const triggerDetails = useMemo(
-    () => triggerDetailsFormFromYaml(editorValue || detail?.rawYaml || '', detail),
-    [detail, editorValue]
-  );
-
   const visibleTriggers = useMemo(() => {
     const list = searchTerm.trim()
       ? filteredTriggers
@@ -897,7 +911,7 @@ function TriggersPage({
                   detail={detail}
                   isEditing={false}
                   editorValue={editorValue}
-                  validationErrors={validation.errors}
+                  validationErrors={editorValidationErrors}
                   validationErrorLines={validationErrorLines}
                   editorSuggestion={editorSuggestion}
                   autocompleteLoading={autocompleteMeta.loading}
@@ -975,7 +989,8 @@ function TriggersPage({
           slug: detail.slug,
           details: triggerDetails,
           yamlPreview: editorValue,
-          validationErrors: validation.errors,
+          validationErrors: editorValidationErrors,
+          saveBlocked: backendValidation.isInvalid,
           pending: saving,
           gitOpsManaged: normalizeSource(detail.source) === 'git',
         } : null}

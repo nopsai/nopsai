@@ -55,6 +55,7 @@ export type TriggerEditModalState = {
   details: TriggerDetailsFormState;
   yamlPreview: string;
   validationErrors: YamlValidationError[];
+  saveBlocked?: boolean;
   pending: boolean;
   gitOpsManaged?: boolean;
 };
@@ -220,7 +221,7 @@ function TriggerEditDialog({
           <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
             Cancel
           </button>
-          <button type="submit" className="glass-button-primary" disabled={modal.pending || modal.validationErrors.length > 0}>
+          <button type="submit" className="glass-button-primary" disabled={modal.pending || Boolean(modal.saveBlocked)}>
             {modal.pending ? 'Saving...' : 'Save trigger'}
           </button>
         </>

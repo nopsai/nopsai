@@ -17,6 +17,7 @@ import {
   saveRuntimeConfig,
   sendMailSettingsTest,
   syncGlobalConfigRepository,
+  validateGlobalConfigRepositoryDrift,
 } from './api';
 import {
   configRepositoryFormFromRecord,
@@ -31,6 +32,7 @@ import {
   type NotificationMailSettingsFormState,
   type NotificationMailSettingsRecord,
 } from './model';
+import type { BackendValidationIssue } from '../../validation/api';
 
 type ToastTone = 'success' | 'error' | 'info';
 
@@ -88,6 +90,13 @@ type GlobalConfigRepositoryDriftModalProps = {
   onRefresh: () => Promise<void>;
   onPush: () => Promise<void>;
 };
+
+function formatBackendValidationIssue(issue?: BackendValidationIssue) {
+  if (!issue) return 'Config repository validation failed.';
+  const file = issue.file ? `${issue.file}: ` : '';
+  const line = issue.line ? ` (line ${issue.line})` : '';
+  return `${file}${issue.message}${line}`;
+}
 
 export function useSystemConfig({
   runtimeConfigEnabled,
@@ -390,6 +399,15 @@ export function useSystemConfig({
     setGlobalConfigRepoPushing(true);
     setGlobalConfigRepoDriftError(null);
     try {
+      const validation = await validateGlobalConfigRepositoryDrift(
+        globalConfigRepo?.base_path || globalConfigRepoForm.base_path || '',
+        files
+      );
+      if (!validation.valid) {
+        setGlobalConfigRepoDriftError(formatBackendValidationIssue(validation.errors[0]));
+        addToast('Fix config repository validation errors before pushing.', 'error');
+        return;
+      }
       const result = await pushGlobalConfigRepositoryDrift(
         globalConfigRepoDrift.push_message || 'Update Nopsai config',
         files
@@ -408,7 +426,15 @@ export function useSystemConfig({
         setGlobalConfigRepoPushing(false);
       }
     }
-  }, [addToast, canManageGlobalConfigRepo, globalConfigRepo?.write_branch, globalConfigRepoDrift, globalConfigRepoPushing]);
+  }, [
+    addToast,
+    canManageGlobalConfigRepo,
+    globalConfigRepo?.base_path,
+    globalConfigRepo?.write_branch,
+    globalConfigRepoDrift,
+    globalConfigRepoForm.base_path,
+    globalConfigRepoPushing,
+  ]);
 
   useEffect(() => {
     if (!runtimeConfigEnabled) {

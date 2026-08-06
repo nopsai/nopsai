@@ -26,6 +26,7 @@ import {
 import { useLabRunAuthorization } from '../features/lab/useLabRunAuthorization';
 import { useLabRunMutation } from '../features/lab/useLabRunMutation';
 import { useLabSession } from '../features/lab/useLabSession';
+import { useBackendYamlValidation } from '../features/validation/useBackendYamlValidation';
 import {
   applyEnterIndent,
   buildSuggestionItems,
@@ -96,16 +97,28 @@ function LabPage() {
 
   const validation = useMemo(() => validatePipelineYamlStrict(yamlText), [yamlText]);
 
+  const backendValidation = useBackendYamlValidation({
+    enabled: true,
+    resource: 'pipeline',
+    yaml: yamlText,
+    resourceID: selectedPipelineId,
+  });
+
+  const editorValidationErrors = useMemo(
+    () => [...validation.errors, ...backendValidation.errors],
+    [backendValidation.errors, validation.errors]
+  );
+
   const errorMap = useMemo(() => {
     const map = new Map<number, string[]>();
-    validation.errors.forEach(err => {
+    editorValidationErrors.forEach(err => {
       if (typeof err.line !== 'number') return;
       const existing = map.get(err.line) ?? [];
       existing.push(err.message);
       map.set(err.line, existing);
     });
     return map;
-  }, [validation.errors]);
+  }, [editorValidationErrors]);
 
   const validationErrorLines = useMemo(() => new Set(Array.from(errorMap.keys())), [errorMap]);
 
@@ -118,7 +131,7 @@ function LabPage() {
     selectedPipelineId,
     yamlText,
     scopeValue,
-    validation.errors.length
+    backendValidation.blockingErrorCount
   );
   const runValidationBlocked = runValidation.blocked;
   const { run: handleRun, runPending } = useLabRunMutation({
@@ -128,7 +141,7 @@ function LabPage() {
     scopeValue,
     selectedPipelineId,
     setFeedback,
-    validationErrorCount: validation.errors.length,
+    validationErrorCount: backendValidation.blockingErrorCount,
     yamlText,
   });
 
@@ -664,7 +677,7 @@ function LabPage() {
             scopeOptions={scopeOptions}
             scopeValue={scopeValue}
             runPending={runPending}
-            validationErrorCount={validation.errors.length}
+            validationErrorCount={backendValidation.blockingErrorCount}
             accessLoading={runValidation.loading}
             accessError={runValidation.error}
             accessBlocked={runValidationBlocked}
@@ -690,8 +703,8 @@ function LabPage() {
                     type="button"
                     className="glass-button-primary"
                     title="Save this YAML for the current lab session (pipelines stay unchanged)."
-                    onClick={() => saveSession(validation.errors.length)}
-                    disabled={validation.errors.length > 0}
+                    onClick={() => saveSession(backendValidation.blockingErrorCount)}
+                    disabled={backendValidation.isInvalid}
                   >
                     <Check className="h-4 w-4" aria-hidden="true" />
                     <span>Save for Lab</span>
@@ -767,7 +780,7 @@ function LabPage() {
                   <div className="lab-side-panel">
                     <YamlValidationPanel
                       id="lab-validation-status"
-                      errors={validation.errors}
+                      errors={editorValidationErrors}
                       maxVisible={5}
                       invalidLabel="Validation issues"
                       inline

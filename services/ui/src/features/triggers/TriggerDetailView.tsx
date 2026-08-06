@@ -42,6 +42,7 @@ type TriggerDetailViewProps = {
   canCreateTriggerHere: boolean;
   canDeleteSelectedTrigger: boolean;
   saving: boolean;
+  saveBlocked?: boolean;
   triggerDetails: TriggerDetailsFormState;
   teamPaths: string[];
   webhookSources: TriggerWebhookSourceOption[];
@@ -91,6 +92,7 @@ export function TriggerDetailView({
   canCreateTriggerHere,
   canDeleteSelectedTrigger,
   saving,
+  saveBlocked,
   triggerDetails,
   teamPaths,
   webhookSources,
@@ -348,6 +350,7 @@ export function TriggerDetailView({
               canCreate={isEditing ? canCreateTriggerHere : true}
               isGitSource={isGitSource}
               saving={saving}
+              saveBlocked={saveBlocked}
               autocompleteWidth={340}
               onCopy={onCopy}
               onDownload={onDownload}
