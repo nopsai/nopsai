@@ -180,7 +180,9 @@ truth; this file is the source-adjacent placement guide.
   parent-option and hierarchy safety shaping lives in `features/teams/model.ts`;
   request routing for team creation, team updates, app creation, and app moves lives in
   `features/teams/api.ts`; `pages/Teams.tsx` only orchestrates the mutation,
-  refresh, and route update.
+  refresh, and route update. The create dialog opens as Team by default, and
+  Application creation must be selected explicitly before posting to the
+  applications endpoint.
 - Team settings configure GitOps repositories and notification routes only; AI
   profiles and access are summarized from Teams and linked to their owning
   pages so GitOps, AAA, and profile ownership stay compatible with the rest of
