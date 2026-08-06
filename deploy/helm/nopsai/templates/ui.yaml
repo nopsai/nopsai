@@ -20,7 +20,7 @@ spec:
       {{- end }}
       containers:
         - name: ui
-          image: {{ include "nopsai.image" .Values.ui.image | quote }}
+          image: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.ui.image "defaultTag" .Values.global.releaseVersion) | quote }}
           imagePullPolicy: {{ .Values.ui.imagePullPolicy }}
           ports: [{name: http, containerPort: 80}]
           readinessProbe: {httpGet: {path: /, port: http}, initialDelaySeconds: 3, periodSeconds: 10}

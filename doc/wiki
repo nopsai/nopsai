@@ -398,7 +398,8 @@ It should include at least these directives:
 | `llm_enabled` | pipeline | Optional boolean. `false` is for script-only pipelines and rejects goals, conditions, final outputs, and MCP profile validation. |
 | `agent_profile` | pipeline | Default AI persona and instruction profile. Step can override it. |
 | `llm_profile` | pipeline | Default model-provider profile. Step, task, output, and output item can override it where supported. |
-| `mcp_profiles` | pipeline | Approved MCP tool profiles available to LLM goal work. Additive with step and task MCP profiles. |
+| `mcp_profiles` | pipeline | Approved MCP tool profiles available to LLM goal work. Additive with step and task MCP profiles; the agent only accepts server/tool pairs from the resolved profile allowlist. |
+| `policy_merge_mode` | pipeline | Knowledge-context policy merge mode: `restrictive`, `override`, or `fail_on_conflict`. Step and task values can override it. |
 | `runtime_pool` | pipeline | Kubernetes runtime pool default. Docker runners ignore it. |
 | `affinity_enabled` | pipeline | Kubernetes same-node affinity override for the run. |
 | `knowledge_context` | pipeline | Knowledge references merged into all effective LLM task contexts. |
@@ -436,6 +437,7 @@ Common step directives:
 | `steps[].agent_profile` | Step persona override. Valid for conditions and LLM goals in the step. |
 | `steps[].llm_profile` | Step model-client override. Applies to the step condition and tasks unless a task has `llm_profile`. |
 | `steps[].mcp_profiles` | MCP profiles added for LLM goals in the step. Invalid on script-only and include steps. |
+| `steps[].policy_merge_mode` | Step-level knowledge-context policy merge mode override. |
 | `steps[].runtime_pool` | Kubernetes runtime pool override. Falls back to pipeline `runtime_pool`, then runner default. |
 | `steps[].knowledge_context` | Step-level knowledge references merged with pipeline and task context. |
 
@@ -451,6 +453,7 @@ Common task directives:
 | `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
 | `tasks[].llm_profile` | Most-specific LLM model-client override for this task. |
 | `tasks[].mcp_profiles` | MCP profiles for this LLM goal task. Invalid on script tasks. |
+| `tasks[].policy_merge_mode` | Task-level knowledge-context policy merge mode override. |
 | `tasks[].variables` | Task-local environment overrides. Applied after step variables. |
 | `tasks[].knowledge_context` | Most-specific knowledge references for this task. |
 

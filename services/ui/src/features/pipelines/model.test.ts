@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildPipelineGraphData,
+  buildPipelineDependencyReferences,
   filterVisiblePipelineList,
   formatPipelineGitRef,
   formatPipelineTriggerBranchField,
@@ -41,6 +42,23 @@ output:
 steps:
   - name: build
     script: echo "ok"
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('validates policy merge mode directives without unknown-field errors', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+policy_merge_mode: restrictive
+steps:
+  - name: build
+    policy_merge_mode: override
+    tasks:
+      - name: summarize
+        policy_merge_mode: fail_on_conflict
+        goal: Summarize deployment readiness.
 `);
 
   assert.deepEqual(result.errors, []);
@@ -302,6 +320,26 @@ steps:
   assert.deepEqual(detail.variables, ['environment']);
   assert.deepEqual(detail.includedDependencies, ['step:shared/build']);
   assert.deepEqual(detail.dependencyEdges, [{ from: 'build', to: 'deploy' }]);
+  assert.deepEqual(buildPipelineDependencyReferences(detail), [
+    {
+      raw: 'step:shared/build',
+      identifier: 'shared/build',
+      typeLabel: 'Step',
+      actionLabel: 'Open',
+      navigable: true,
+      kind: 'step',
+    },
+    {
+      raw: 'depends_on:deploy:build',
+      identifier: 'build',
+      typeLabel: 'Step',
+      actionLabel: 'Open',
+      navigable: true,
+      kind: 'local-step',
+      targetStep: 'build',
+      sourceStep: 'deploy',
+    },
+  ]);
 });
 
 test('builds pipeline graph data from editor YAML', () => {
@@ -410,5 +448,14 @@ test('formats pipeline activity presentation consistently', () => {
     typeLabel: 'Pipeline',
     actionLabel: 'Open',
     navigable: true,
+    kind: 'pipeline',
+  });
+  assert.deepEqual(parsePipelineDependencyReference('step:shared/build'), {
+    raw: 'step:shared/build',
+    identifier: 'shared/build',
+    typeLabel: 'Step',
+    actionLabel: 'Open',
+    navigable: true,
+    kind: 'step',
   });
 });

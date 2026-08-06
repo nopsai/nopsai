@@ -2006,6 +2006,7 @@ curl -X POST -H 'Content-Type: application/json' \
 curl -X POST http://localhost:8080/v1/runs/<run-id>/rerun
 curl -X POST http://localhost:8080/v1/runs/<run-id>/cancel
 curl -X POST http://localhost:8080/v1/runs/<run-id>/outputs/<output-id>/cancel
+curl -X POST http://localhost:8080/v1/runs/<run-id>/outputs/<output-id>/retry
 curl -X POST -H 'Content-Type: application/json' \
   -d '{"status":"success"}' \
   http://localhost:8080/v1/runs/<run-id>/finalize

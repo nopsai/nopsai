@@ -991,37 +991,37 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	builder.WriteString(strconv.Quote(postgresUser))
 	builder.WriteString("\n  image:\n    repository: postgres\n    tag: \"15\"\n    digest: \"\"\n  auth:\n    passwordKey: postgres-password\n  service:\n    name: postgres\n    port: 5432\n  persistence:\n    enabled: true\n    storageClass: \"\"\n    size: 20Gi\n\n")
 	builder.WriteString("api:\n  replicaCount: 1\n  metricsRequireAuth: true\n  runtimeOutputMaxBytes: 65536\n")
-	if err := writeKubernetesImage(&builder, images, "api"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "api", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("  service:\n    type: ClusterIP\n    port: 8080\n\n")
 	builder.WriteString("aaa:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, images, "aaa"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "aaa", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nagent:\n")
-	if err := writeKubernetesImage(&builder, images, "agent"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "agent", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\ndispatcher:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, images, "dispatcher"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "dispatcher", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\ngitBot:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, images, "gitBot"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "gitBot", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nrunner:\n")
-	if err := writeKubernetesImage(&builder, images, "runner"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "runner", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nk8sRunner:\n  enabled: true\n  replicaCount: 1\n  runnerID: k8s-runner-1\n  scopes: \"\"\n  capacity: 10\n  serviceAccount:\n    create: true\n    name: nopsai-runner\n  workspace:\n    size: 10Gi\n    accessMode: ReadWriteOnce\n    volumeMode: pvc\n    storageClass: \"\"\n")
-	if err := writeKubernetesImage(&builder, images, "k8sRunner"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "k8sRunner", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nsystemLogs:\n  enabled: true\n  provider: kubernetes\n  kubernetes:\n    labelSelector: \"\"\n    container: \"\"\n    rbac:\n      create: true\n\n")
 	builder.WriteString("ui:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, images, "ui"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "ui", version); err != nil {
 		return nil, err
 	}
 	builder.WriteString("  service:\n    type: ClusterIP\n    port: 80\n\n")
@@ -1063,7 +1063,7 @@ func writeKubernetesSecretString(builder *strings.Builder, key, value string) {
 	builder.WriteString("\n")
 }
 
-func writeKubernetesImage(builder *strings.Builder, images map[string]string, imageKey string) error {
+func writeKubernetesImage(builder *strings.Builder, images map[string]string, imageKey, defaultTag string) error {
 	image, err := requiredInstallImage(images, imageKey)
 	if err != nil {
 		return err
@@ -1071,6 +1071,9 @@ func writeKubernetesImage(builder *strings.Builder, images map[string]string, im
 	repository, tag, digest, err := splitInstallImageReference(image)
 	if err != nil {
 		return err
+	}
+	if digest == "" && tag == strings.TrimSpace(defaultTag) {
+		tag = ""
 	}
 	builder.WriteString("  image:\n    repository: ")
 	builder.WriteString(strconv.Quote(repository))

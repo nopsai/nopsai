@@ -64,6 +64,19 @@ outputs:
   assert.match(duplicateOutput.errors[0]?.message ?? '', /declared more than once/);
 });
 
+test('validates reusable step policy merge mode directives', () => {
+  const result = validateStepYaml(`
+name: guarded-step
+policy_merge_mode: restrictive
+tasks:
+  - name: inspect
+    policy_merge_mode: override
+    goal: Inspect workspace readiness.
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
 test('normalizes step identifiers and source labels', () => {
   assert.deepEqual(splitIdentifier('platform/payments/deploy%20api'), {
     name: 'deploy api',

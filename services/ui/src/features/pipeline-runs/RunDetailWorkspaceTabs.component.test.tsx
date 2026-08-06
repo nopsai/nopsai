@@ -27,6 +27,7 @@ test('switches between the run graph and final outputs tabs', async () => {
           },
         ]}
         onCancelOutput={vi.fn()}
+        onRetryOutput={vi.fn()}
       />
     </MemoryRouter>
   );

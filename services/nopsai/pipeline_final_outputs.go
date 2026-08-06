@@ -73,7 +73,10 @@ type pipelineFinalOutputStructuredImageEvidence struct {
 	HasProductionReady bool
 }
 
-var errPipelineFinalOutputNotCancellable = errors.New("final output is already complete")
+var (
+	errPipelineFinalOutputNotCancellable = errors.New("final output is already complete")
+	errPipelineFinalOutputNotRetryable   = errors.New("final output is not failed")
+)
 
 func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID string) error {
 	record, err := runquery.LoadRunRecord(ctx, a.db, runID)
@@ -394,6 +397,53 @@ func (a *App) cancelPipelineFinalOutput(ctx context.Context, runID, outputID str
 	return pipelineFinalOutputRecord{}, errPipelineFinalOutputNotCancellable
 }
 
+func (a *App) retryPipelineFinalOutput(ctx context.Context, runID, outputID string) (pipelineFinalOutputRecord, error) {
+	output, err := a.resetPipelineFinalOutputForRetry(ctx, runID, outputID)
+	if err == nil {
+		go a.generatePipelineFinalOutputByID(context.Background(), runID, output.ID)
+		return output, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return pipelineFinalOutputRecord{}, err
+	}
+	_, err = a.loadPipelineFinalOutputRecord(ctx, runID, outputID)
+	if err != nil {
+		return pipelineFinalOutputRecord{}, err
+	}
+	return pipelineFinalOutputRecord{}, errPipelineFinalOutputNotRetryable
+}
+
+func (a *App) generatePipelineFinalOutputByID(ctx context.Context, runID, outputID string) {
+	if a == nil || a.db == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := a.waitForPipelineFinalOutputLogDrain(ctx); err != nil {
+		log.Debug().Err(err).Str("run_id", runID).Str("output_id", outputID).Msg("Pipeline final output retry log drain wait skipped")
+	}
+	output, err := a.loadPipelineFinalOutputRecord(ctx, runID, outputID)
+	if err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Str("output_id", outputID).Msg("Failed to load pipeline final output for retry")
+		return
+	}
+	status := strings.TrimSpace(output.Status)
+	if status != finalOutputStatusPending && status != finalOutputStatusRunning {
+		return
+	}
+	runContext, err := a.buildPipelineFinalOutputRunContext(ctx, runID)
+	if err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Msg("Failed to build pipeline final output retry context")
+		_ = a.markPipelineFinalOutputFailure(ctx, output.ID, err)
+		a.markDashboardRefreshOutputFailureIfDashboard(ctx, runID, output, err)
+		return
+	}
+	if err := a.generatePipelineFinalOutput(ctx, runID, runContext, output); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Msg("Failed to retry pipeline final output")
+	}
+}
+
 func (a *App) cancelActivePipelineFinalOutputGeneration(outputID string) {
 	if a == nil || strings.TrimSpace(outputID) == "" {
 		return
@@ -416,6 +466,27 @@ func (a *App) updatePipelineFinalOutputCancelled(ctx context.Context, runID, out
 		WHERE run_id::text = $1
 		  AND id::text = $2
 		  AND status IN ('pending', 'generating')
+		RETURNING id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		       generation_attempts, contract_violations, render_attempts, render_failures,
+		       created_at, generation_started_at, updated_at, dashboard_target::text
+	`, runID, outputID))
+}
+
+func (a *App) resetPipelineFinalOutputForRetry(ctx context.Context, runID, outputID string) (pipelineFinalOutputRecord, error) {
+	return scanPipelineFinalOutputRecord(a.db.QueryRow(ctx, `
+		UPDATE pipeline_run_outputs
+		SET status = 'pending',
+			content = '',
+			error = '',
+			generation_attempts = 0,
+			contract_violations = 0,
+			render_attempts = 0,
+			render_failures = 0,
+			generation_started_at = NULL,
+			updated_at = NOW()
+		WHERE run_id::text = $1
+		  AND id::text = $2
+		  AND status = 'failure'
 		RETURNING id::text, item_index, name, type, prompt, llm_profile, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, generation_started_at, updated_at, dashboard_target::text

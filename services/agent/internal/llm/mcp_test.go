@@ -196,3 +196,33 @@ func TestMCPToolSelectionNormalizesServerPrefixedToolNames(t *testing.T) {
 		})
 	}
 }
+
+func TestMCPTaskRuntimeRejectsToolsOutsideResolvedProfile(t *testing.T) {
+	allowed := MCPToolSpec{Server: "github", Name: "issues_list", InputSchema: "{}"}
+	runtime := &MCPTaskRuntime{
+		registry:        &MCPProfileRegistry{},
+		tools:           []MCPToolSpec{allowed},
+		allowed:         map[string]MCPToolSpec{mcpToolKey(allowed.Server, allowed.Name): allowed},
+		requireToolCall: true,
+	}
+
+	for _, tt := range []struct {
+		name   string
+		server string
+		tool   string
+	}{
+		{name: "explicit server", server: "github", tool: "repos_delete"},
+		{name: "dotted tool name", tool: "github.repos_delete"},
+		{name: "slash tool name", tool: "github/repos_delete"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := runtime.CallTool(t.Context(), tt.server, tt.tool, json.RawMessage(`{}`))
+			if err == nil || !strings.Contains(err.Error(), "not allowed") {
+				t.Fatalf("CallTool() error = %v, want not allowed", err)
+			}
+			if runtime.SuccessfulToolCalls() != 0 {
+				t.Fatalf("SuccessfulToolCalls() = %d, want 0", runtime.SuccessfulToolCalls())
+			}
+		})
+	}
+}

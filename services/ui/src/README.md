@@ -73,6 +73,9 @@ truth; this file is the source-adjacent placement guide.
   and health score helpers lives in `features/pipelines/pipelineDetailPresentation.ts`;
   route selection, editor orchestration, drafts, identity edit state, and Lab
   execute handoff remain owned by `pages/Pipelines.tsx`.
+- Run final-output preview, copy, download, cancel, and failed-output retry
+  actions live in `features/pipeline-runs/RunFinalOutputs.tsx`; API mutation
+  callbacks are composed by `pages/PipelineRuns.tsx`.
 - Permission checks must be keyed to the active resource path/name and must fail
   closed when navigation changes.
 - Git-managed workflow resources can be edited in the UI when AAA permits; those

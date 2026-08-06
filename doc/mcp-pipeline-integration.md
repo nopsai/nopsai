@@ -154,7 +154,8 @@ enabled.
 
 When MCP profiles resolve for a goal, including pipeline-level defaults, the
 agent requires at least one successful MCP tool call before accepting a final
-action.
+action. The agent accepts only server/tool pairs in the resolved profile
+allowlist; other MCP tool calls fail before a provider request is made.
 
 ## Runtime Flow
 

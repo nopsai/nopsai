@@ -58,6 +58,7 @@ export function RunDetailView({
   onClose,
   onCancel,
   onCancelOutput,
+  onRetryOutput,
   onRerun,
   onDelete,
   selectedStep,
@@ -78,6 +79,7 @@ export function RunDetailView({
   onClose: () => void;
   onCancel: () => void;
   onCancelOutput: (outputId: string) => void;
+  onRetryOutput: (outputId: string) => void;
   onRerun: () => void;
   onDelete: () => void;
   selectedStep: string | null;
@@ -401,6 +403,7 @@ export function RunDetailView({
         pipelineDefinition={detail.pipeline_definition}
         outputs={detail.final_outputs}
         onCancelOutput={onCancelOutput}
+        onRetryOutput={onRetryOutput}
       />
 
       {approvals.length > 0 && (
