@@ -29,13 +29,33 @@ type BackendYamlValidationOptions = {
 };
 
 type BackendYamlValidationState = {
+  key: string;
+  status: Exclude<BackendYamlValidationStatus, 'idle' | 'checking'>;
+  result: BackendValidationResponse | null;
+  error: string | null;
+};
+
+type BackendYamlValidationSnapshot = {
   status: BackendYamlValidationStatus;
   result: BackendValidationResponse | null;
   error: string | null;
 };
 
-const idleState: BackendYamlValidationState = {
+const emptyState: BackendYamlValidationState = {
+  key: '',
+  status: 'valid',
+  result: null,
+  error: null,
+};
+
+const idleState: BackendYamlValidationSnapshot = {
   status: 'idle',
+  result: null,
+  error: null,
+};
+
+const checkingState: BackendYamlValidationSnapshot = {
+  status: 'checking',
   result: null,
   error: null,
 };
@@ -66,44 +86,43 @@ export function useBackendYamlValidation({
   teamPath = '',
   debounceMs = 450,
 }: BackendYamlValidationOptions) {
-  const [state, setState] = useState<BackendYamlValidationState>(idleState);
+  const [state, setState] = useState<BackendYamlValidationState>(emptyState);
   const sequenceRef = useRef(0);
+  const validationActive = enabled && Boolean(yaml.trim());
+  const request = useMemo(() => ({
+    yaml,
+    resource_id: resourceID,
+    path,
+    name,
+    repository,
+    repo_owner: repoOwner,
+    repo_name: repoName,
+    team_path: teamPath,
+  }), [name, path, repoName, repoOwner, repository, resourceID, teamPath, yaml]);
+  const requestKey = useMemo(() => (
+    validationActive ? JSON.stringify([resource, request]) : ''
+  ), [request, resource, validationActive]);
 
   useEffect(() => {
     sequenceRef.current += 1;
     const sequence = sequenceRef.current;
-    const trimmedYaml = yaml.trim();
 
-    if (!enabled || !trimmedYaml) {
-      setState(idleState);
+    if (!validationActive) {
       return;
     }
 
     const controller = new AbortController();
-    setState({
-      status: 'checking',
-      result: null,
-      error: null,
-    });
 
     const timer = window.setTimeout(() => {
       void validateBackendYamlResource(
         resource,
-        {
-          yaml,
-          resource_id: resourceID,
-          path,
-          name,
-          repository,
-          repo_owner: repoOwner,
-          repo_name: repoName,
-          team_path: teamPath,
-        },
+        request,
         controller.signal
       )
         .then(result => {
           if (sequenceRef.current !== sequence) return;
           setState({
+            key: requestKey,
             status: result.valid ? 'valid' : 'invalid',
             result,
             error: null,
@@ -112,6 +131,7 @@ export function useBackendYamlValidation({
         .catch(error => {
           if (controller.signal.aborted || isAbortError(error) || sequenceRef.current !== sequence) return;
           setState({
+            key: requestKey,
             status: 'unavailable',
             result: null,
             error: error instanceof Error ? error.message : 'Backend validation is unavailable',
@@ -125,37 +145,37 @@ export function useBackendYamlValidation({
     };
   }, [
     debounceMs,
-    enabled,
-    name,
-    path,
-    repoName,
-    repoOwner,
-    repository,
+    request,
+    requestKey,
     resource,
-    resourceID,
-    teamPath,
-    yaml,
+    validationActive,
   ]);
 
+  const currentState: BackendYamlValidationSnapshot = !validationActive
+    ? idleState
+    : state.key === requestKey
+      ? state
+      : checkingState;
+
   const errors = useMemo(() => (
-    state.status === 'invalid' && state.result
-      ? backendIssuesToYamlValidationErrors(state.result.errors)
+    currentState.status === 'invalid' && currentState.result
+      ? backendIssuesToYamlValidationErrors(currentState.result.errors)
       : []
-  ), [state.result, state.status]);
+  ), [currentState.result, currentState.status]);
 
   const warnings = useMemo(() => (
-    state.result ? backendIssuesToYamlValidationErrors(state.result.warnings) : []
-  ), [state.result]);
+    currentState.result ? backendIssuesToYamlValidationErrors(currentState.result.warnings) : []
+  ), [currentState.result]);
 
   return {
-    status: state.status,
-    result: state.result,
-    error: state.error,
+    status: currentState.status,
+    result: currentState.result,
+    error: currentState.error,
     errors,
     warnings,
-    blockingErrorCount: state.status === 'invalid' ? errors.length : 0,
-    isInvalid: state.status === 'invalid',
-    isChecking: state.status === 'checking',
-    isUnavailable: state.status === 'unavailable',
+    blockingErrorCount: currentState.status === 'invalid' ? errors.length : 0,
+    isInvalid: currentState.status === 'invalid',
+    isChecking: currentState.status === 'checking',
+    isUnavailable: currentState.status === 'unavailable',
   };
 }
