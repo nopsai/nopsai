@@ -898,6 +898,7 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 			ei.user_id,
 			ei.provider_id,
 			COALESCE(eg.team_name, ''),
+			ip.team_mapping,
 			ip.basic_role_mapping
 		FROM auth_external_identities ei
 		JOIN auth_identity_providers ip ON ip.id = ei.provider_id
@@ -915,15 +916,16 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 		providerID string
 	}
 	type syncState struct {
-		mapping map[string]oidcBasicRoleGrantMapping
-		teams   []string
+		teamMapping      map[string]string
+		basicRoleMapping map[string]oidcBasicRoleGrantMapping
+		teams            []string
 	}
 	stateByKey := map[syncKey]*syncState{}
 	for rows.Next() {
 		var userID uuid.UUID
 		var providerID, externalTeam string
-		var rawMapping []byte
-		if err := rows.Scan(&userID, &providerID, &externalTeam, &rawMapping); err != nil {
+		var rawTeamMapping, rawBasicRoleMapping []byte
+		if err := rows.Scan(&userID, &providerID, &externalTeam, &rawTeamMapping, &rawBasicRoleMapping); err != nil {
 			return err
 		}
 		key := syncKey{userID: userID, providerID: strings.TrimSpace(providerID)}
@@ -932,9 +934,13 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 			state = &syncState{}
 			stateByKey[key] = state
 		}
-		if state.mapping == nil {
-			_ = json.Unmarshal(rawMapping, &state.mapping)
-			state.mapping = normalizeOIDCBasicRoleMapping(state.mapping)
+		if state.teamMapping == nil {
+			_ = json.Unmarshal(rawTeamMapping, &state.teamMapping)
+			state.teamMapping = normalizeOIDCTeamMapping(state.teamMapping)
+		}
+		if state.basicRoleMapping == nil {
+			_ = json.Unmarshal(rawBasicRoleMapping, &state.basicRoleMapping)
+			state.basicRoleMapping = normalizeOIDCBasicRoleMapping(state.basicRoleMapping)
 		}
 		externalTeam = strings.TrimSpace(externalTeam)
 		if externalTeam != "" {
@@ -954,7 +960,11 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 	}
 	defer tx.Rollback(ctx)
 	for key, state := range stateByKey {
-		if err := syncOIDCBasicRoleGrants(ctx, tx, key.userID, key.providerID, oidcBasicRoleGrantSetForTeams(state.mapping, state.teams)); err != nil {
+		desired := mergeOIDCBasicRoleGrantSets(
+			oidcTeamMappingBasicRoleGrantSet(state.teamMapping, state.teams),
+			oidcBasicRoleGrantSetForTeams(state.basicRoleMapping, state.teams),
+		)
+		if err := syncOIDCBasicRoleGrants(ctx, tx, key.userID, key.providerID, desired); err != nil {
 			return err
 		}
 	}
@@ -990,7 +1000,10 @@ func syncOIDCRolesAndTeams(ctx context.Context, tx oidcTx, userID uuid.UUID, pro
 	if err := syncOIDCAuthTeamMemberships(ctx, tx, userID, provider.ID, authTeamSet); err != nil {
 		return err
 	}
-	desiredBasicRoles := oidcBasicRoleGrantSetForTeams(provider.BasicRoleMapping, teams)
+	desiredBasicRoles := mergeOIDCBasicRoleGrantSets(
+		oidcTeamMappingBasicRoleGrantSet(provider.TeamMapping, teams),
+		oidcBasicRoleGrantSetForTeams(provider.BasicRoleMapping, teams),
+	)
 	desiredBasicRoles = mergeOIDCBasicRoleGrantSets(desiredBasicRoles, oidcBasicRoleGrantSetFromGrants(identity.BasicRoles))
 	if err := syncOIDCBasicRoleGrants(ctx, tx, userID, provider.ID, desiredBasicRoles); err != nil {
 		return err
@@ -1056,6 +1069,36 @@ type oidcDesiredBasicRoleGrant struct {
 	ResourceID            string
 	Inherit               bool
 	RequireResourceExists bool
+}
+
+func oidcTeamMappingBasicRoleGrantSet(mapping map[string]string, teams []string) map[string]oidcDesiredBasicRoleGrant {
+	if len(mapping) == 0 || len(teams) == 0 {
+		return nil
+	}
+	desired := map[string]oidcDesiredBasicRoleGrant{}
+	for _, team := range teams {
+		team = strings.TrimSpace(team)
+		if team == "" {
+			continue
+		}
+		resourceID := strings.Trim(strings.TrimSpace(mapping[team]), "/")
+		if resourceID == "" || isGlobalGrantResourceID(resourceID) || isRetiredGlobalTeamAlias(resourceID) {
+			continue
+		}
+		key := grantResourceTeam + ":" + resourceID
+		desired[key] = oidcDesiredBasicRoleGrant{
+			ExternalTeam:          team,
+			Role:                  productRoleViewer,
+			ResourceType:          grantResourceTeam,
+			ResourceID:            resourceID,
+			Inherit:               true,
+			RequireResourceExists: true,
+		}
+	}
+	if len(desired) == 0 {
+		return nil
+	}
+	return desired
 }
 
 func oidcBasicRoleGrantSetForTeams(mapping map[string]oidcBasicRoleGrantMapping, teams []string) map[string]oidcDesiredBasicRoleGrant {

@@ -89,9 +89,10 @@ teams.kind = 'team' -> team/team/product area
 teams.kind = 'app'   -> repository/application node
 ```
 
-`services/nopsai/team_schema.go` still creates `UNIQUE(name)`, which is not a
-valid enterprise hierarchy constraint because two teams should be able to own
-the same child label, for example `payments/backend` and `identity/backend`.
+`services/nopsai/team_schema.go` now replaces the old global `UNIQUE(name)`
+constraint with sibling-scoped uniqueness, because two teams should be able to
+own the same child label, for example `payments/backend` and
+`identity/backend`.
 
 The UI also projected the same team paths into unrelated resource trees
 through `services/ui/src/app/resourceTrees.ts` and `useResourceTrees.ts`. Phase
@@ -529,7 +530,7 @@ routes perform handler-level AAA checks against the resolved team resource.
 
 - Create `teams` and `applications`.
 - Backfill from `teams.kind`.
-- Replace global `UNIQUE(name)` with scoped uniqueness.
+- Keep team leaf-name uniqueness scoped to the same parent.
 - Add `team_id` and `application_id` to resources and runs.
 - Change run resolution so repository-triggered runs never auto-create teams.
 - Add ownership snapshots to new runs.

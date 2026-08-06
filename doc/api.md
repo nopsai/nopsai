@@ -159,10 +159,15 @@ External-provider-created or linked users are marked with `external_managed` in
 `GET /v1/admin/users`. Their `display_name`, authentication/provisioning/
 authorization ownership fields, external provider, subject, external teams,
 mapped NopsAI auth teams, and externally sourced roles are returned for
-administration views. Local user-role and basic-role mutation endpoints can add
-or remove local grants; provider sync owns only IdP-sourced grants. With
-Keycloak entitlement sync, direct client roles drive provider-managed global
-access roles and team client roles drive provider-managed scoped Basic roles.
+administration views. Product team paths are canonical; mapped auth-team
+subjects should mirror those paths for product team access instead of forming a
+separate hierarchy. Local user-role and basic-role mutation endpoints can add
+or remove local grants; provider sync owns only IdP-sourced grants. OIDC
+`team_mapping` infers a viewer grant on the mapped product team path when that
+team exists, while `basic_role_mapping` can explicitly grant developer or
+owner. With Keycloak entitlement sync, direct client roles drive
+provider-managed global access roles and team client roles drive
+provider-managed scoped Basic roles.
 Leave `default_role` empty for least-privilege SSO providers; set it only when
 every auto-created SSO user should intentionally receive the same global role.
 
@@ -904,7 +909,7 @@ Supported access-grant subject types:
 - `service_account`
 - `internal_service`
 
-Team grants may use `resource_type: "team"` and target team paths, not numeric `team_id` values. Example: `/payments/backend`.
+Team grants may use `resource_type: "team"` and target canonical product team paths, not numeric `team_id` values. Example: `/payments/backend`.
 
 ---
 
@@ -1230,7 +1235,7 @@ Validation and guardrails:
 - Every team must retain at least one `owner`.
 - Only `owner` or `admin` can manage grants.
 - `admin` grants are only valid on `platform`.
-- `GET /v1/access/auth-teams` lists persisted SSO/AAA auth teams from `auth_teams` for subject selectors.
+- `GET /v1/access/auth-teams` lists persisted SSO/AAA auth-team subjects from `auth_teams`; product-team-backed entries use the same canonical team path.
 - `GET /v1/access/teams` lists product team resources for team sharing and resource selectors, always including `global` for the global team and excluding application and repository-backed nodes.
 
 ---
