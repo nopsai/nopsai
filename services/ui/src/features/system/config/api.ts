@@ -23,6 +23,23 @@ import {
   type BackendValidationResponse,
 } from '../../validation/api';
 
+export type ConfigRepositorySyncStatus = {
+  status: string;
+  message?: string;
+  started_at?: string;
+  completed_at?: string;
+};
+
+function normalizeConfigRepositorySyncStatus(payload: unknown): ConfigRepositorySyncStatus {
+  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  return {
+    status: typeof record.status === 'string' ? record.status : '',
+    message: typeof record.message === 'string' ? record.message : undefined,
+    started_at: typeof record.started_at === 'string' ? record.started_at : undefined,
+    completed_at: typeof record.completed_at === 'string' ? record.completed_at : undefined,
+  };
+}
+
 export async function fetchRuntimeConfig() {
   return normalizeSystemConfigPayload(await fetchSystemJson('/v1/system/config'));
 }
@@ -85,6 +102,10 @@ export async function deleteGlobalConfigRepository() {
 
 export async function syncGlobalConfigRepository() {
   await fetchSystemJson('/v1/system/config-repo/sync', { method: 'POST' });
+}
+
+export async function cancelGlobalConfigRepositorySync() {
+  return normalizeConfigRepositorySyncStatus(await fetchSystemJson('/v1/system/config-repo/sync/cancel', { method: 'POST' }));
 }
 
 export async function fetchGlobalConfigRepositoryDrift() {

@@ -58,6 +58,34 @@ func TestStartConfigSyncAllowsOnlyOneConcurrentStart(t *testing.T) {
 	}
 }
 
+func TestHandleCancelConfigSyncMarksStaleRunningStatusCanceled(t *testing.T) {
+	var app App
+	startedAt := time.Unix(1_700_000_000, 0)
+	app.setConfigSyncStatus(ConfigSyncStatus{
+		Status:    "running",
+		Message:   "Configuration synchronization started.",
+		StartedAt: &startedAt,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/system/config/sync/cancel", nil)
+	rec := httptest.NewRecorder()
+	app.handleCancelConfigSync(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", rec.Code, http.StatusOK)
+	}
+	status := app.getConfigSyncStatus()
+	if status.Status != "canceled" {
+		t.Fatalf("config sync status = %q, want canceled", status.Status)
+	}
+	if status.StartedAt == nil || !status.StartedAt.Equal(startedAt) {
+		t.Fatalf("started_at = %v, want %v", status.StartedAt, startedAt)
+	}
+	if status.CompletedAt == nil {
+		t.Fatal("completed_at = nil, want cancellation completion time")
+	}
+}
+
 func TestNormalizeConfigPathForTeam(t *testing.T) {
 	tests := []struct {
 		name      string

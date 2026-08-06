@@ -85,6 +85,10 @@ func (a *App) handleSyncGlobalConfigRepository(w http.ResponseWriter, r *http.Re
 	a.handleSyncConfigRepositoryByScope(w, r, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID)
 }
 
+func (a *App) handleCancelGlobalConfigRepositorySync(w http.ResponseWriter, r *http.Request) {
+	a.handleCancelConfigRepositorySyncByScope(w, r, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID)
+}
+
 func (a *App) handleWriteGlobalConfigRepository(w http.ResponseWriter, r *http.Request) {
 	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID)
 	if err != nil {
@@ -173,6 +177,17 @@ func (a *App) handleSyncTeamConfigRepository(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	a.handleSyncConfigRepositoryByScope(w, r, models.ConfigRepositoryScopeTeam, resource.ID)
+}
+
+func (a *App) handleCancelTeamConfigRepositorySync(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.sync")
+	if !ok {
+		return
+	}
+	if !a.requireTeamConfigRepositoryOwner(w, r, resource.ID) {
+		return
+	}
+	a.handleCancelConfigRepositorySyncByScope(w, r, models.ConfigRepositoryScopeTeam, resource.ID)
 }
 
 func (a *App) handleWriteTeamConfigRepository(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +280,7 @@ func (a *App) handleSyncConfigRepositoryByScope(w http.ResponseWriter, r *http.R
 		writeConfigRepositoryStoreError(w, err, "failed to update sync status")
 		return
 	}
+	syncCtx, run := a.registerConfigRepositorySync(context.Background(), repo.ID)
 
 	status := ConfigSyncStatus{
 		Status:    "running",
@@ -277,7 +293,35 @@ func (a *App) handleSyncConfigRepositoryByScope(w http.ResponseWriter, r *http.R
 	repo.LastSyncMessage = status.Message
 	repo.LastSyncStartedAt = &startedAt
 	repo.LastSyncCompletedAt = nil
-	go a.syncConfigRepository(context.Background(), repo, startedAt)
+	go a.runRegisteredConfigRepositorySync(syncCtx, repo, startedAt, run)
+}
+
+func (a *App) handleCancelConfigRepositorySyncByScope(w http.ResponseWriter, r *http.Request, scopeType, scopeID string) {
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), scopeType, scopeID)
+	if err != nil {
+		writeConfigRepositoryStoreError(w, err, "failed to load config repository")
+		return
+	}
+	if !strings.EqualFold(repo.LastSyncStatus, "running") {
+		writeJSON(w, http.StatusOK, syncStatusFromConfigRepository(repo))
+		return
+	}
+
+	active := a.cancelActiveConfigRepositorySync(repo.ID)
+	completedAt := time.Now()
+	message := "Configuration synchronization canceled."
+	if !active {
+		message = "Configuration synchronization marked canceled; no active worker was registered."
+	}
+	if err := a.store.UpdateConfigRepositorySyncStatus(r.Context(), repo.ID, "canceled", message, repo.LastSyncCommitSHA, repo.LastSyncStartedAt, &completedAt); err != nil {
+		writeConfigRepositoryStoreError(w, err, "failed to cancel config repository sync")
+		return
+	}
+
+	repo.LastSyncStatus = "canceled"
+	repo.LastSyncMessage = message
+	repo.LastSyncCompletedAt = &completedAt
+	writeJSON(w, http.StatusOK, syncStatusFromConfigRepository(repo))
 }
 
 func (a *App) handleListConfigRepositories(w http.ResponseWriter, r *http.Request) {

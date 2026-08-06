@@ -6,6 +6,10 @@ export type RunLogLine = {
   id: number;
   timestamp: string;
   line: string;
+  run_id?: string;
+  pipeline_name?: string;
+  parent_run_id?: string;
+  parent_step_name?: string;
   source?: string;
   stream?: string;
   level?: string;
@@ -21,6 +25,8 @@ export type EnrichedRunLogLine = RunLogLine & {
   level?: string;
   step?: string;
   task?: string;
+  parentStep?: string;
+  pipelineName?: string;
 };
 
 export type RunLogsHashState = {
@@ -99,6 +105,8 @@ export function enrichRunLogLines(lines: RunLogLine[]): EnrichedRunLogLine[] {
       level: parsed.level || (line.level ? normalizeRunLogLevel(line.level) : undefined),
       step: parsed.step || line.step_name || undefined,
       task: parsed.task || line.task_name || undefined,
+      parentStep: line.parent_step_name || undefined,
+      pipelineName: line.pipeline_name || undefined,
     };
   });
 }
@@ -122,13 +130,20 @@ export function filterRunLogLines(lines: EnrichedRunLogLine[], filter: RunLogFil
   const taskFilterActive = Boolean(filter.selectedTasks?.size);
   const searchTerm = filter.searchText.trim().toLowerCase();
   return lines.filter(line => {
-    if (stepFilterActive && (!line.step || !filter.selectedSteps.has(line.step))) return false;
+    if (stepFilterActive && !lineMatchesStepFilter(line, filter.selectedSteps)) return false;
     if (taskFilterActive && (!line.task || !filter.selectedTasks?.has(line.task))) return false;
     if (filter.agentOnly && !isAgentRunLogLine(line)) return false;
     if (filter.selectedLevels.size > 0 && !filter.selectedLevels.has(normalizeRunLogLevel(line.level))) return false;
     if (searchTerm && !(line.line || '').toLowerCase().includes(searchTerm)) return false;
     return true;
   });
+}
+
+function lineMatchesStepFilter(line: EnrichedRunLogLine, selectedSteps: Set<string>): boolean {
+  return Boolean(
+    (line.step && selectedSteps.has(line.step)) ||
+    (line.parentStep && selectedSteps.has(line.parentStep))
+  );
 }
 
 export function parseRunLogsHash(
@@ -228,6 +243,8 @@ export function formatRunLogDownload(lines: EnrichedRunLogLine[]): string {
     .map(line => {
       const timestamp = line.timestamp ? new Date(line.timestamp) : null;
       const parts = [timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp.toISOString() : ''];
+      if (line.pipelineName) parts.push(`[${line.pipelineName}]`);
+      if (line.parentStep) parts.push(`[parent:${line.parentStep}]`);
       if (line.step) parts.push(`[${line.step}]`);
       if (line.task) parts.push(`[${line.task}]`);
       if (line.level) parts.push(normalizeRunLogLevel(line.level).toUpperCase());

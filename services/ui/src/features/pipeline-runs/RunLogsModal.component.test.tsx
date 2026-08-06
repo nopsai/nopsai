@@ -158,6 +158,36 @@ test('opens task logs with both step and task filters applied', async () => {
   expect(screen.queryByText(/deployed/)).not.toBeInTheDocument();
 });
 
+test('loads included pipeline logs from the parent run and labels child lines', async () => {
+  fetchRunLogsMock.mockResolvedValueOnce([
+    {
+      id: 4,
+      timestamp: '2026-06-08T10:00:03Z',
+      run_id: 'child-run',
+      pipeline_name: 'child-deploy',
+      parent_run_id: 'run-1',
+      parent_step_name: 'included',
+      line: '{"level":"info","step":"child-build","message":"child log visible"}',
+    },
+  ]);
+
+  render(
+    <RunLogsModal
+      runId="run-1"
+      runName="Enterprise pipeline"
+      includeChildren
+      onClose={() => undefined}
+      steps={[{ name: 'included', status: 'success' }]}
+      initialStep="included"
+    />
+  );
+
+  expect(await screen.findByText(/child log visible/)).toBeVisible();
+  expect(screen.getByText('child-deploy')).toBeVisible();
+  expect(screen.getByText(/Includes included pipeline logs/)).toBeVisible();
+  expect(fetchRunLogsMock).toHaveBeenCalledWith('run-1', 0, { includeChildren: true });
+});
+
 test('keeps following new lines even when the scroll position was previously above the bottom', async () => {
   vi.useFakeTimers();
   fetchRunLogsMock

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2, X, XCircle } from 'lucide-react';
 import {
   formatConfigRepoTimestamp,
   isAppTeam,
@@ -426,6 +426,7 @@ export function TeamConfigRepositoryModal({
   onSave,
   onDelete,
   onSync,
+  onCancelSync,
   onCheckDrift,
   onSaveNotification,
   onDeleteNotification,
@@ -452,6 +453,7 @@ export function TeamConfigRepositoryModal({
   onSave: () => Promise<void>;
   onDelete: () => Promise<void>;
   onSync: () => Promise<void>;
+  onCancelSync: () => Promise<void>;
   onCheckDrift: () => Promise<void>;
   onSaveNotification: () => Promise<void>;
   onDeleteNotification: () => Promise<void>;
@@ -467,6 +469,7 @@ export function TeamConfigRepositoryModal({
   const isRunning = repo?.last_sync_status === 'running';
   const canEdit = canManage && !loading && !saving;
   const syncDisabled = !repo || !canSync || syncing || saving || isRunning;
+  const cancelSyncDisabled = !repo || !canSync || syncing || saving || !isRunning;
   const driftDisabled = !repo || driftLoading || saving || syncing || isRunning;
   const notificationManaged = Boolean(notificationRoute?.managed_by_config_repo);
   const notificationCanEdit = canManage && !notificationLoading && !notificationSaving && !notificationManaged;
@@ -696,13 +699,19 @@ export function TeamConfigRepositoryModal({
 
               <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
                 {repo && canManage && (
-                  <button type="button" className="glass-button-danger mr-auto" onClick={onDelete} disabled={saving || syncing}>
+                  <button type="button" className="glass-button-danger mr-auto" onClick={onDelete} disabled={saving || syncing || isRunning}>
                     {saving ? 'Removing...' : 'Remove'}
                   </button>
                 )}
                 {repo && canSync && (
                   <button type="button" className="glass-button-subtle" onClick={onSync} disabled={syncDisabled}>
                     {isRunning || syncing ? 'Syncing...' : 'Sync Now'}
+                  </button>
+                )}
+                {repo && canSync && isRunning && (
+                  <button type="button" className="glass-button-danger" onClick={() => void onCancelSync()} disabled={cancelSyncDisabled}>
+                    <XCircle className="h-4 w-4" />
+                    {syncing ? 'Canceling...' : 'Cancel sync'}
                   </button>
                 )}
                 {repo && (

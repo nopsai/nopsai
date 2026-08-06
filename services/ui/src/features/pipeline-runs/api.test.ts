@@ -20,9 +20,11 @@ test('normalizes empty and text pipeline-run API responses', async () => {
   try {
     assert.equal(await requestPipelineRunsJson<string>('/v1/runs/plain'), 'plain text');
     assert.deepEqual(await fetchRunLogs('run/1', 7), []);
+    assert.deepEqual(await fetchRunLogs('run/1', 9, { includeChildren: true }), []);
     assert.deepEqual(calls, [
       '/v1/runs/plain',
       '/v1/runs/run%2F1/logs?since_line=7',
+      '/v1/runs/run%2F1/logs?since_line=9&include_children=true',
     ]);
   } finally {
     apiClient.fetch = originalFetch;

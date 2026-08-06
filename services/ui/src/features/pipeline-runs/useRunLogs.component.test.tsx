@@ -105,3 +105,23 @@ test('explicit task log opens override stale hash filters and filter by task met
     '#/pipelineruns/events/run-1/logs/build/all/unwrap/unstructured/all/short?task=compile'
   );
 });
+
+test('requests included pipeline logs when child log visibility is enabled', async () => {
+  fetchRunLogsMock.mockResolvedValueOnce([
+    {
+      id: 5,
+      timestamp: '2026-06-11T10:00:03Z',
+      run_id: 'child-run',
+      pipeline_name: 'child',
+      parent_step_name: 'included',
+      line: '{"level":"info","step":"child-build","message":"included output"}',
+    },
+  ]);
+
+  const { result } = renderHook(() => useRunLogs({ runID: 'parent-run', includeChildren: true, initialStep: 'included' }));
+
+  await waitFor(() => {
+    expect(fetchRunLogsMock).toHaveBeenCalledWith('parent-run', 0, { includeChildren: true });
+    expect(result.current.visibleLines.map(line => line.id)).toEqual([5]);
+  });
+});

@@ -55,12 +55,15 @@ func hostedMCPDedicatedTools() []hostedMCPTool {
 
 		toolDef("nopsai.get_config_sync_status", "Read system config sync status.", "system.read", "system", "config-sync", objectSchema(map[string]any{})),
 		toolDef("nopsai.sync_system_config", "Run system config sync. Requires confirm:true.", "system.update", "system", "config-sync", objectSchema(map[string]any{"confirm": booleanSchema()})),
+		toolDef("nopsai.cancel_system_config_sync", "Cancel the active system config sync, or mark a stale running sync canceled. Requires confirm:true.", "system.update", "system", "config-sync", objectSchema(map[string]any{"confirm": booleanSchema()})),
 		toolDef("nopsai.get_config_repo", "Read the global or team config repository binding, including provider and credential reference metadata.", "system.read", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema()})),
 		toolDef("nopsai.get_config_repo_drift", "Read global or team config repository drift.", "system.read", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema()})),
 		toolDef("nopsai.sync_config_repo", "Sync the global or team config repository. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.cancel_config_repo_sync", "Cancel a global or team config repository sync, or mark a stale running sync canceled. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.write_config_repo", "Write files to the global or team config repository through the configured Git provider workflow. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema(), "body": objectSchema(map[string]any{}), "files": objectSchema(map[string]any{}), "commit_message": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.list_config_repos", "List configured config repositories.", "system.read", "system", "config-repos", objectSchema(map[string]any{})),
 		toolDef("nopsai.sync_all_config_repos", "Sync all configured config repositories. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"confirm": booleanSchema()})),
+		toolDef("nopsai.cancel_all_config_repos_sync", "Cancel the active all-repository config sync. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"confirm": booleanSchema()})),
 
 		toolDef("nopsai.get_notification_mail_settings", "Read notification mail settings.", "system.read", "system", "notifications", objectSchema(map[string]any{})),
 		toolDef("nopsai.propose_notification_mail_settings", "Return a GitOps-ready notification mail settings file plan without applying changes.", "system.update", "system", "notifications", objectSchema(map[string]any{"settings": objectSchema(map[string]any{}), "enabled": booleanSchema(), "from": stringSchema(), "smtp": objectSchema(map[string]any{}), "message": stringSchema()})),
@@ -128,12 +131,12 @@ func (a *App) authorizeHostedMCPDedicatedToolCall(ctx context.Context, subject a
 		permission.Resource.ID = firstNonEmptyString(stringArg(args, "trigger_id"), stringArg(args, "id"))
 	case "nopsai.get_notification_route", "nopsai.propose_notification_route_update", "nopsai.propose_notification_route_delete":
 		permission.Resource.ID = hostedMCPTeamArg(args)
-	case "nopsai.get_config_repo", "nopsai.get_config_repo_drift", "nopsai.sync_config_repo", "nopsai.write_config_repo":
+	case "nopsai.get_config_repo", "nopsai.get_config_repo_drift", "nopsai.sync_config_repo", "nopsai.cancel_config_repo_sync", "nopsai.write_config_repo":
 		if teamID := hostedMCPTeamArg(args); teamID != "" {
 			permission.Resource.Type = "team"
 			permission.Resource.ID = teamID
 			switch tool.Name {
-			case "nopsai.sync_config_repo":
+			case "nopsai.sync_config_repo", "nopsai.cancel_config_repo_sync":
 				permission.Action = "config_repo.sync"
 			case "nopsai.write_config_repo":
 				permission.Action = "config_repo.manage"
@@ -233,18 +236,24 @@ func (a *App) executeHostedMCPDedicatedTool(ctx context.Context, subject aaamode
 		return a.hostedMCPAPITool(ctx, subject, http.MethodGet, "/v1/system/config/sync", nil, false, false, ""), true, nil
 	case "nopsai.sync_system_config":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/system/config/sync", nil, boolArg(args, "confirm", false), true, "System config sync changes runtime configuration from configured sources."), true, nil
+	case "nopsai.cancel_system_config_sync":
+		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/system/config/sync/cancel", nil, boolArg(args, "confirm", false), true, "Canceling system config sync can leave partially applied configuration in place."), true, nil
 	case "nopsai.get_config_repo":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodGet, hostedMCPConfigRepoPath(args, ""), nil, false, false, ""), true, nil
 	case "nopsai.get_config_repo_drift":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodGet, hostedMCPConfigRepoPath(args, "/drift"), nil, false, false, ""), true, nil
 	case "nopsai.sync_config_repo":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, hostedMCPConfigRepoPath(args, "/sync"), nil, boolArg(args, "confirm", false), true, "Config repository sync can create, update, or delete product configuration."), true, nil
+	case "nopsai.cancel_config_repo_sync":
+		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, hostedMCPConfigRepoPath(args, "/sync/cancel"), nil, boolArg(args, "confirm", false), true, "Canceling config repository sync can leave partially applied configuration in place."), true, nil
 	case "nopsai.write_config_repo":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, hostedMCPConfigRepoPath(args, "/write"), hostedMCPConfigRepoWriteBody(args), boolArg(args, "confirm", false), true, "Config repository write pushes files through the configured GitOps workflow."), true, nil
 	case "nopsai.list_config_repos":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodGet, "/v1/system/config-repos", nil, false, false, ""), true, nil
 	case "nopsai.sync_all_config_repos":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/system/config-repos/sync", nil, boolArg(args, "confirm", false), true, "Syncing all config repositories can update enterprise configuration across scopes."), true, nil
+	case "nopsai.cancel_all_config_repos_sync":
+		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/system/config-repos/sync/cancel", nil, boolArg(args, "confirm", false), true, "Canceling all config repositories sync can leave partially applied configuration in place."), true, nil
 	case "nopsai.get_notification_mail_settings":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodGet, "/v1/system/notifications/mail", nil, false, false, ""), true, nil
 	case "nopsai.propose_notification_mail_settings":

@@ -3,6 +3,7 @@ package nopsai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -21,6 +22,9 @@ func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	syncCtx, cancel := context.WithCancel(context.Background())
+	run := a.setConfigSyncCancel(cancel)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(status); err != nil {
@@ -28,9 +32,32 @@ func (a *App) handleConfigSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func(started time.Time) {
+		defer a.clearConfigSyncCancel(run)
+		defer cancel()
 		log.Info().Msg("Starting synchronization for all config repositories")
-		a.setConfigSyncStatus(a.syncAllConfigRepositories(context.Background(), started))
+		a.setConfigSyncStatus(a.syncAllConfigRepositories(syncCtx, started))
 	}(startedAt)
+}
+
+func (a *App) handleCancelConfigSync(w http.ResponseWriter, r *http.Request) {
+	completedAt := time.Now()
+	active := a.cancelActiveConfigSync()
+	status := ConfigSyncStatus{
+		Status:      "canceled",
+		Message:     "Configuration synchronization canceled.",
+		CompletedAt: &completedAt,
+	}
+	current := a.getConfigSyncStatus()
+	if current.StartedAt != nil {
+		status.StartedAt = current.StartedAt
+	}
+	if !active && !strings.EqualFold(current.Status, "running") {
+		status = current
+	}
+	if active || strings.EqualFold(current.Status, "running") {
+		a.setConfigSyncStatus(status)
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) ConfigSyncStatus {
@@ -43,7 +70,11 @@ func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) 
 	enabled := true
 	syncedRepoIDs := map[int64]struct{}{}
 	syncStore := a.configSyncStore()
+	syncCanceled := false
 	syncRepos := func(scopeType string) {
+		if ctx.Err() != nil {
+			return
+		}
 		repos, err := syncStore.ListConfigRepositories(ctx, models.ConfigRepositoryFilter{ScopeType: scopeType, Enabled: &enabled})
 		if err != nil {
 			details["repositories_failed"]++
@@ -54,6 +85,9 @@ func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) 
 			if _, alreadySynced := syncedRepoIDs[repo.ID]; alreadySynced {
 				continue
 			}
+			if ctx.Err() != nil {
+				return
+			}
 			syncedRepoIDs[repo.ID] = struct{}{}
 			repoStartedAt := time.Now()
 			if err := syncStore.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "running", "Configuration synchronization started.", repo.LastSyncCommitSHA, &repoStartedAt, nil); err != nil {
@@ -61,7 +95,12 @@ func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) 
 				messages = append(messages, fmt.Sprintf("%s:%s: %v", repo.ScopeType, repo.ScopeID, err))
 				continue
 			}
-			status := a.syncConfigRepository(ctx, repo, repoStartedAt)
+			syncCtx, run := a.registerConfigRepositorySync(ctx, repo.ID)
+			status := a.runRegisteredConfigRepositorySync(syncCtx, repo, repoStartedAt, run)
+			if strings.EqualFold(status.Status, "canceled") || errors.Is(ctx.Err(), context.Canceled) {
+				syncCanceled = true
+				return
+			}
 			if strings.EqualFold(status.Status, "success") {
 				details["repositories_synced"]++
 				for key, value := range status.Details {
@@ -75,9 +114,29 @@ func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) 
 	}
 
 	syncRepos(models.ConfigRepositoryScopeSystem)
+	if syncCanceled || errors.Is(ctx.Err(), context.Canceled) {
+		completedAt := time.Now()
+		return ConfigSyncStatus{
+			Status:      "canceled",
+			Message:     "Configuration synchronization canceled.",
+			Details:     details,
+			StartedAt:   &started,
+			CompletedAt: &completedAt,
+		}
+	}
 	for {
 		before := len(syncedRepoIDs)
 		syncRepos(models.ConfigRepositoryScopeTeam)
+		if syncCanceled || errors.Is(ctx.Err(), context.Canceled) {
+			completedAt := time.Now()
+			return ConfigSyncStatus{
+				Status:      "canceled",
+				Message:     "Configuration synchronization canceled.",
+				Details:     details,
+				StartedAt:   &started,
+				CompletedAt: &completedAt,
+			}
+		}
 		if len(syncedRepoIDs) == before {
 			break
 		}
@@ -115,13 +174,24 @@ func (a *App) syncConfigRepository(ctx context.Context, repo models.ConfigReposi
 	completedAt := time.Now()
 	syncStore := a.configSyncStore()
 	if syncErr != nil {
+		status := "error"
 		message := fmt.Sprintf("Configuration synchronization failed: %v", syncErr)
-		log.Error().Err(syncErr).Int64("config_repo_id", repo.ID).Msg("Configuration synchronization failed")
-		if err := syncStore.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "error", message, commitSHA, &started, &completedAt); err != nil {
+		if errors.Is(syncErr, context.Canceled) {
+			status = "canceled"
+			message = "Configuration synchronization canceled."
+			log.Info().Int64("config_repo_id", repo.ID).Msg("Configuration synchronization canceled")
+		} else {
+			log.Error().Err(syncErr).Int64("config_repo_id", repo.ID).Msg("Configuration synchronization failed")
+		}
+		updateCtx := ctx
+		if errors.Is(ctx.Err(), context.Canceled) {
+			updateCtx = context.Background()
+		}
+		if err := syncStore.UpdateConfigRepositorySyncStatus(updateCtx, repo.ID, status, message, commitSHA, &started, &completedAt); err != nil {
 			log.Warn().Err(err).Int64("config_repo_id", repo.ID).Msg("Failed to update config repository sync status")
 		}
 		return ConfigSyncStatus{
-			Status:      "error",
+			Status:      status,
 			Message:     message,
 			StartedAt:   &started,
 			CompletedAt: &completedAt,

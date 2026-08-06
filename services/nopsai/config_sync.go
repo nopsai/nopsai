@@ -53,14 +53,23 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	files, err := fetchConfigSyncRepositoryFiles(ctx, client, repoCtx, binding)
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	plan, err := a.parseConfigSyncPlan(binding, repoCtx, files)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 

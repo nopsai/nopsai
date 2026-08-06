@@ -411,6 +411,8 @@ func (a *App) handleTeamNotificationRouteByMethod(w http.ResponseWriter, r *http
 
 func (a *App) handleTeamConfigRepositoryRoute(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case strings.HasSuffix(r.URL.Path, "/sync/cancel") && r.Method == http.MethodPost:
+		a.handleCancelTeamConfigRepositorySync(w, r)
 	case strings.HasSuffix(r.URL.Path, "/sync") && r.Method == http.MethodGet:
 		a.handleGetTeamConfigRepositorySyncStatus(w, r)
 	case strings.HasSuffix(r.URL.Path, "/sync") && r.Method == http.MethodPost:

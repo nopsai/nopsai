@@ -506,7 +506,15 @@ func (d *dispatcherServer) ejectRunnerLocked(runnerID string) ([]*runnerConn, in
 	if runnerID == "" {
 		return nil, 0, false
 	}
-	return d.removeRunnerRegistrationLocked(runnerID, "eject")
+	targets, requeuedJobs, ok := d.removeRunnerRegistrationLocked(runnerID, "eject")
+	if !ok {
+		return targets, requeuedJobs, ok
+	}
+	if d.ejectedRunners == nil {
+		d.ejectedRunners = make(map[string]struct{})
+	}
+	d.ejectedRunners[runnerID] = struct{}{}
+	return targets, requeuedJobs, ok
 }
 
 func (d *dispatcherServer) removeRunnerRegistrationLocked(runnerID, reason string) ([]*runnerConn, int, bool) {
