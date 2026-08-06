@@ -52,6 +52,12 @@ helm upgrade --install nopsai ./nopsai-<version>.tgz \
   --set secrets.existingSecret=nopsai-secrets
 ```
 
+NopsAI-owned image tags default from `global.releaseVersion` when their
+per-image `tag` is empty. Set `api.image.tag`, `agent.image.tag`, or another
+NopsAI image tag only for an intentional component-specific override; set
+`digest` to pin an image by digest. Third-party images such as PostgreSQL and
+Gotenberg keep explicit tags in values.
+
 Private GHCR installations should create a registry pull Secret in the target
 namespace and attach it through `global.imagePullSecrets`. The Kubernetes
 runner ServiceAccount inherits those credentials so the runner Deployment and

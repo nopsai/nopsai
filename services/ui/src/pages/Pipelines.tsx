@@ -42,6 +42,7 @@ import {
   splitIdentifier,
   validatePipelineYaml,
   type PipelineDetail,
+  type PipelineDependencyReference,
   type PipelineGraphData,
   type PipelineListItem,
 } from '../features/pipelines/model';
@@ -644,6 +645,20 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     navigate(`/pipelines/${id.split('/').map(encodeURIComponent).join('/')}`);
   }, [navigate]);
 
+  const handleOpenDependency = useCallback((dependency: PipelineDependencyReference) => {
+    if (dependency.kind === 'pipeline') {
+      handleSelect(dependency.identifier);
+      return;
+    }
+    if (dependency.kind === 'step') {
+      navigate(`/steps/${encodeId(dependency.identifier)}`);
+      return;
+    }
+    if (dependency.kind === 'local-step') {
+      setSelectedGraphStep(dependency.targetStep || dependency.identifier);
+    }
+  }, [handleSelect, navigate]);
+
   const handlePipelineSaved = useCallback((updated: PipelineDetail) => {
     setDetail(updated);
     setEditorValue(updated.rawYaml);
@@ -848,7 +863,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
               onEditablePipelineTeamChange={value => setEditableIdentity(current => ({ ...current, path: value }))}
               onSelectGraphStep={setSelectedGraphStep}
               onOpenTrigger={repoSlug => navigate(`/triggers/${encodeId(repoSlug)}`)}
-              onOpenDependency={handleSelect}
+              onOpenDependency={handleOpenDependency}
               onCopyDependency={async identifier => {
                 try {
                   await copyTextToClipboard(identifier);

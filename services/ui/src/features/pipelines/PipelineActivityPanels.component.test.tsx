@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
 import { PipelineActivityPanels } from './PipelineActivityPanels';
+import { parsePipelineDependencyReference } from './model';
 
 test('routes trigger, dependency, copy, and run actions through callbacks', async () => {
   const onOpenTrigger = vi.fn();
@@ -16,7 +17,10 @@ test('routes trigger, dependency, copy, and run actions through callbacks', asyn
       triggers={[{ repoSlug: 'acme/api', source: 'git', trigger: { on: 'push', branches: ['main'] } }]}
       triggersLoading={false}
       triggersError={null}
-      dependencies={['pipeline:platform/deploy', 'step:build-image']}
+      dependencies={[
+        parsePipelineDependencyReference('pipeline:platform/deploy'),
+        parsePipelineDependencyReference('step:build-image'),
+      ]}
       runs={[{
         run_id: 'run-123456789',
         pipeline_name: 'release',
@@ -44,12 +48,13 @@ test('routes trigger, dependency, copy, and run actions through callbacks', asyn
 
   await user.click(screen.getByTitle('Open trigger acme/api'));
   await user.click(screen.getByTitle('Open platform/deploy'));
-  await user.click(screen.getByTitle('Copy build-image'));
+  await user.click(screen.getByTitle('Open build-image'));
   await user.click(screen.getByTitle('Open run run-123456789'));
 
   expect(onOpenTrigger).toHaveBeenCalledWith('acme/api');
-  expect(onOpenDependency).toHaveBeenCalledWith('platform/deploy');
-  expect(onCopyDependency).toHaveBeenCalledWith('build-image');
+  expect(onOpenDependency).toHaveBeenCalledWith(expect.objectContaining({ kind: 'pipeline', identifier: 'platform/deploy' }));
+  expect(onOpenDependency).toHaveBeenCalledWith(expect.objectContaining({ kind: 'step', identifier: 'build-image' }));
+  expect(onCopyDependency).not.toHaveBeenCalled();
   expect(onOpenRun).toHaveBeenCalledWith('run-123456789');
   expect(screen.getByText('Output generated')).toHaveClass('runner-pill--ok');
 });

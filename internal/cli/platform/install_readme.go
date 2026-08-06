@@ -87,7 +87,7 @@ func renderKubernetesInstallReadme(version, releaseName, namespace, valuesFile, 
 	builder.WriteString("- Keep `")
 	builder.WriteString(valuesFile)
 	builder.WriteString("` non-secret and GitOps tracked.\n")
-	builder.WriteString("- Review `global.releaseVersion`, image repositories/tags/digests, `postgres.*`, `topology.*`, `bootstrapAdmin.email`, ingress, resources, storage class, and runner settings.\n")
+	builder.WriteString("- Review `global.releaseVersion`, image repositories/tags/digests, `postgres.*`, `topology.*`, `bootstrapAdmin.email`, ingress, resources, storage class, and runner settings. Blank NopsAI image tags inherit `global.releaseVersion`; set an image tag or digest only for a deliberate per-image override.\n")
 	builder.WriteString("- Bundled PostgreSQL defaults to database `")
 	builder.WriteString(postgresDatabase)
 	builder.WriteString("` and user `")

@@ -270,7 +270,7 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 		`storageClass: ""`,
 		`provider: kubernetes`,
 		`repository: "ghcr.io/nopsai/nopsai-k8s-runner"`,
-		`tag: "` + testPlatformVersion + `"`,
+		`tag: ""`,
 		`digest: ""`,
 	} {
 		if !strings.Contains(valuesText, required) {

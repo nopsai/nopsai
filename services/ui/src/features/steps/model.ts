@@ -29,6 +29,7 @@ export const STEP_DIRECTIVES = [
   'outputs',
   'ignore_failure',
   'agent_profile',
+  'policy_merge_mode',
   'runtime_pool',
   'llm_output_sharing',
   'artifacts',
@@ -43,6 +44,7 @@ export const TASK_DIRECTIVES = [
   'outputs',
   'ignore_failure',
   'llm_output_sharing',
+  'policy_merge_mode',
   'variables',
   'knowledge_context',
 ];

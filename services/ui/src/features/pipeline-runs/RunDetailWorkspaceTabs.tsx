@@ -19,6 +19,7 @@ export function RunDetailWorkspaceTabs({
   pipelineDefinition,
   outputs,
   onCancelOutput,
+  onRetryOutput,
 }: {
   runID: string;
   steps: StepDetail[];
@@ -31,6 +32,7 @@ export function RunDetailWorkspaceTabs({
   pipelineDefinition?: PipelineDefinition;
   outputs?: PipelineRunFinalOutput[];
   onCancelOutput: (outputId: string) => void;
+  onRetryOutput: (outputId: string) => void;
 }) {
   const [tabState, setTabState] = useState<{ runID: string; activeTab: WorkspaceTab }>({
     runID,
@@ -116,6 +118,7 @@ export function RunDetailWorkspaceTabs({
               outputs={outputs}
               pipelineDefinition={pipelineDefinition}
               onCancelOutput={onCancelOutput}
+              onRetryOutput={onRetryOutput}
             />
           ) : (
             <div className="run-detail-empty-state">

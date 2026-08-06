@@ -115,7 +115,7 @@ export function PipelineDefinitionPanel({
   onClone: () => void;
   onDiscard: () => void;
   onSave: () => void;
-  onOpenDependency: (identifier: string) => void;
+  onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
   onEditorTextChange: (nextValue: string, cursor: number) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
@@ -221,7 +221,7 @@ function DefinitionSidePanel({
   editablePipelineTeam: string;
   validationErrorCount: number;
   dependencies: PipelineDependencyReference[];
-  onOpenDependency: (identifier: string) => void;
+  onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
   onEditablePipelineNameChange: (value: string) => void;
   onEditablePipelineTeamChange: (value: string) => void;
@@ -280,7 +280,7 @@ function DefinitionSidePanel({
         </dl>
       </section>
       <section className="pipeline-detail-side-panel">
-        <h3>Included dependencies</h3>
+        <h3>Dependencies</h3>
         <DependencyLinks dependencies={dependencies} onOpenDependency={onOpenDependency} onCopyDependency={onCopyDependency} stacked />
       </section>
     </aside>
@@ -303,16 +303,16 @@ export function DependencyLinks({
   stacked = false,
 }: {
   dependencies: PipelineDependencyReference[];
-  onOpenDependency: (identifier: string) => void;
+  onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
   stacked?: boolean;
 }) {
   if (!dependencies.length) {
-    return <span className="pipeline-detail-muted">No includes detected</span>;
+    return <span className="pipeline-detail-muted">No dependencies detected</span>;
   }
   return (
     <div className={stacked ? 'pipeline-detail-dependency-list' : 'pipeline-detail-dependency-links'}>
-      {!stacked ? <span>Included</span> : null}
+      {!stacked ? <span>Dependencies</span> : null}
       {dependencies.map(dependency => (
         <button
           key={dependency.raw}
@@ -321,7 +321,7 @@ export function DependencyLinks({
           title={`${dependency.actionLabel} ${dependency.identifier || dependency.raw}`}
           onClick={() =>
             dependency.navigable
-              ? onOpenDependency(dependency.identifier)
+              ? onOpenDependency(dependency)
               : void onCopyDependency(dependency.identifier || dependency.raw)
           }
         >

@@ -681,6 +681,15 @@ function PipelineRunsPage() {
     [fetchJson, loadRunDetail]
   );
 
+  const handleRetryFinalOutput = useCallback(
+    async (runId: string, outputId: string) => {
+      await fetchJson(`/v1/runs/${encodeURIComponent(runId)}/outputs/${encodeURIComponent(outputId)}/retry`, { method: 'POST' });
+      await loadRunDetail();
+      await loadRuns();
+    },
+    [fetchJson, loadRunDetail, loadRuns]
+  );
+
   const handleApprovalDecision = useCallback(
     async (approval: PipelineApproval, decision: 'approve' | 'reject') => {
       const runId = approval.run_id || runDetail?.run_info.run_id;
@@ -796,6 +805,7 @@ function PipelineRunsPage() {
       handleCloseDetail={handleCloseDetail}
       handleCancelRun={handleCancelRun}
       handleCancelFinalOutput={handleCancelFinalOutput}
+      handleRetryFinalOutput={handleRetryFinalOutput}
       handleRerun={handleRerun}
       handleDeleteRun={handleDeleteRun}
       selectedStep={selectedStep}

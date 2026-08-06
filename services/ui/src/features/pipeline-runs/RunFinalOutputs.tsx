@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, LayoutDashboard, Loader2, MoreHorizontal, Square } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, LayoutDashboard, Loader2, MoreHorizontal, RefreshCw, Square } from 'lucide-react';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { apiClient } from '../../lib/api';
 import { copyTextToClipboard } from '../../lib/clipboard';
@@ -14,6 +14,7 @@ type RunFinalOutputsProps = {
   outputs?: PipelineRunFinalOutput[];
   pipelineDefinition?: PipelineDefinition | null;
   onCancelOutput?: (outputId: string) => void | Promise<void>;
+  onRetryOutput?: (outputId: string) => void | Promise<void>;
 };
 
 type FileSaveHandle = {
@@ -39,7 +40,7 @@ const actionClass =
 const menuItemClass =
   'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10';
 
-export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null, onCancelOutput }: RunFinalOutputsProps) {
+export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null, onCancelOutput, onRetryOutput }: RunFinalOutputsProps) {
   const [previewID, setPreviewID] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string>('');
@@ -109,6 +110,21 @@ export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null
     }
   };
 
+  const handleRetry = async (output: PipelineRunFinalOutput) => {
+    if (!onRetryOutput) return;
+    const key = `retry:${output.id}`;
+    setPendingAction(key);
+    setMessage('');
+    try {
+      await onRetryOutput(output.id);
+      setMessage(`${output.name || 'Output'} retry queued`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Retry failed');
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   return (
     <section className="border border-[var(--border-primary)] rounded-lg bg-white dark:bg-slate-950 p-3 space-y-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -119,6 +135,7 @@ export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null
         {outputs.map(output => {
           const ready = output.status === 'success' && Boolean(output.content);
           const cancellable = output.status === 'pending' || output.status === 'generating';
+          const retryable = output.status === 'failure';
           const expanded = previewID === output.id;
           const timingText = finalOutputTimingText(output);
           const dashboardLink = finalOutputDashboardLink(output, pipelineDefinition);
@@ -152,11 +169,14 @@ export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null
                     expanded={expanded}
                     pendingAction={pendingAction}
                     cancellable={cancellable}
+                    retryable={retryable}
                     canCancel={Boolean(onCancelOutput)}
+                    canRetry={Boolean(onRetryOutput)}
                     onTogglePreview={() => setPreviewID(expanded ? null : output.id)}
                     onCopy={() => void handleCopy(output)}
                     onDownload={() => void handleDownload(output)}
                     onCancel={() => void handleCancel(output)}
+                    onRetry={() => void handleRetry(output)}
                   />
                 </div>
               </div>
@@ -194,22 +214,28 @@ function FinalOutputActionsMenu({
   expanded,
   pendingAction,
   cancellable,
+  retryable,
   canCancel,
+  canRetry,
   onTogglePreview,
   onCopy,
   onDownload,
   onCancel,
+  onRetry,
 }: {
   output: PipelineRunFinalOutput;
   ready: boolean;
   expanded: boolean;
   pendingAction: string | null;
   cancellable: boolean;
+  retryable: boolean;
   canCancel: boolean;
+  canRetry: boolean;
   onTogglePreview: () => void;
   onCopy: () => void;
   onDownload: () => void;
   onCancel: () => void;
+  onRetry: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -257,6 +283,15 @@ function FinalOutputActionsMenu({
             close={close}
             onClick={onDownload}
           />
+          {canRetry ? (
+            <FinalOutputActionItem
+              label={pendingAction === `retry:${output.id}` ? 'Retrying' : 'Retry'}
+              icon={<RefreshCw className="h-4 w-4" aria-hidden="true" />}
+              disabled={!retryable || pendingAction === `retry:${output.id}`}
+              close={close}
+              onClick={onRetry}
+            />
+          ) : null}
           {canCancel ? (
             <FinalOutputActionItem
               label={pendingAction === `cancel:${output.id}` ? 'Cancelling' : 'Cancel'}

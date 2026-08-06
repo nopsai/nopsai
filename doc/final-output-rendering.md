@@ -196,6 +196,12 @@ pending or generating dashboard final outputs attached to that refresh, which
 lets operators clear missed publication handoffs without changing completed
 pipeline run status.
 
+Failed final outputs can be retried individually from run details or with
+`POST /v1/runs/{runID}/outputs/{outputID}/retry`. Retry resets only that output
+to `pending`, clears generated content and render audit for the new attempt,
+and queues generation using the existing run context; successful, pending,
+generating, and cancelled outputs are not retryable.
+
 ## Compatibility
 
 New PDF, HTML, Excel, and dashboard generations must pass the structured
@@ -211,8 +217,10 @@ Dashboard refresh introduces `dashboard.refresh` for dashboard, section, and
 source refresh orchestration.
 Run details, downloads, PDF previews, and `nopsai.get_pipeline_run_output`
 remain protected by `pipeline_run.read` for the requested run. Cancelling output
-generation uses `pipeline_run.cancel` for the requested run. Hosted MCP returns
-the same authorized structured source and audit fields as REST.
+generation uses `pipeline_run.cancel` for the requested run. Retrying a failed
+output uses `pipeline_run.rerun` for the requested run, including through
+`nopsai.retry_pipeline_run_output`. Hosted MCP returns the same authorized
+structured source and audit fields as REST.
 
 The pipeline's `output.items` declaration remains ordinary GitOps YAML. The
 versioned specs are generated run data, not configuration drift and not written

@@ -34,6 +34,17 @@ nopsai
 {{- end -}}
 {{- end }}
 
+{{- define "nopsai.imageWithDefaultTag" -}}
+{{- $image := .image -}}
+{{- if $image.digest -}}
+{{ printf "%s@%s" $image.repository $image.digest }}
+{{- else -}}
+{{- $tag := default .defaultTag $image.tag -}}
+{{- $tag = required "global.releaseVersion is required when image tag is empty" $tag -}}
+{{ printf "%s:%s" $image.repository $tag }}
+{{- end -}}
+{{- end }}
+
 {{- define "nopsai.secretName" -}}
 {{ required "secrets.existingSecret must name a Secret containing the NopsAI deployment keys" .Values.secrets.existingSecret }}
 {{- end }}
