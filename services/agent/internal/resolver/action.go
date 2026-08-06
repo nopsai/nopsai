@@ -87,6 +87,8 @@ type ActionResult struct {
 	LLMDurationMs    int64
 	LLMDurationSet   bool
 	Failed           bool
+	// FailClosed marks policy/guardrail enforcement failures that must stop the run even when ignore_failure is set.
+	FailClosed       bool
 	FinalizeStatus   string
 	FinalizeExitCode int
 }
@@ -152,6 +154,7 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 		return ActionResult{
 			Goal:             goal,
 			Failed:           true,
+			FailClosed:       true,
 			FinalizeStatus:   "failure",
 			FinalizeExitCode: 1,
 		}
@@ -160,13 +163,13 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 	session, sessionErr := req.SessionResolver(req.Pipeline, req.Step, req.Task)
 	if sessionErr != nil {
 		logActionSessionResolutionError(req.Logger, sessionErr)
-		return ActionResult{Goal: goal, Failed: true, FinalizeStatus: "failure", FinalizeExitCode: 1}
+		return ActionResult{Goal: goal, Failed: true, FailClosed: true, FinalizeStatus: "failure", FinalizeExitCode: 1}
 	}
 	if session == nil {
 		if req.Logger != nil {
 			req.Logger.Error().Msg("Failed to resolve action session for direct script validation")
 		}
-		return ActionResult{Goal: goal, Failed: true, FinalizeStatus: "failure", FinalizeExitCode: 1}
+		return ActionResult{Goal: goal, Failed: true, FailClosed: true, FinalizeStatus: "failure", FinalizeExitCode: 1}
 	}
 	if req.Logger != nil {
 		req.Logger.Info().
@@ -214,6 +217,7 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 			LLMDurationMs:    llmDurationMs,
 			LLMDurationSet:   true,
 			Failed:           true,
+			FailClosed:       true,
 			FinalizeStatus:   "failure",
 			FinalizeExitCode: 1,
 		}
@@ -234,6 +238,7 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 			LLMDurationMs:    llmDurationMs,
 			LLMDurationSet:   true,
 			Failed:           true,
+			FailClosed:       true,
 			FinalizeStatus:   "failure",
 			FinalizeExitCode: 1,
 		}
@@ -254,6 +259,7 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 			LLMDurationMs:    llmDurationMs,
 			LLMDurationSet:   true,
 			Failed:           true,
+			FailClosed:       true,
 			FinalizeStatus:   "failure",
 			FinalizeExitCode: 1,
 		}

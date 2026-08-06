@@ -236,7 +236,9 @@ The agent runs tasks in dependency order, not strictly line order.
     with failure.
 30. If a task fails and effective failure tolerance is true, the task becomes
     `failure (ignored)` and the pipeline continues. Approval and blocking
-    policy/guardrail failures still fail closed.
+    policy/guardrail failures still fail closed. The mere presence of blocking
+    knowledge context does not make unrelated goal-resolution, LLM, MCP, or
+    runtime failures non-ignorable.
 31. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
 
 ## 7. How Goal-Based Tasks Work
@@ -468,6 +470,7 @@ Where failures stop the flow:
 - No available runner: run stays queued in dispatcher
 - Agent image or step image pull failure: stopped in runner/agent
 - Task failure without effective `ignore_failure`: stopped in agent
+- Fail-closed approval, policy, or guardrail enforcement failure: stopped in agent even when `ignore_failure` is set
 - Child pipeline sync failure: stops the parent only when `sync: true`
 
 ## 14. Short Mental Model

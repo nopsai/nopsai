@@ -129,6 +129,9 @@ func TestTaskActionResolverBlocksDirectScriptGuardrailRefusal(t *testing.T) {
 	if !result.Failed || result.FinalizeStatus != "failure" || result.FinalizeExitCode != 1 {
 		t.Fatalf("result = %#v, want finalizable failure", result)
 	}
+	if !result.FailClosed {
+		t.Fatal("result FailClosed = false, want true for blocking direct script refusal")
+	}
 }
 
 func TestTaskActionResolverFailsClosedForDirectScriptGuardrailWithoutLLM(t *testing.T) {
@@ -146,6 +149,9 @@ func TestTaskActionResolverFailsClosedForDirectScriptGuardrailWithoutLLM(t *test
 
 	if !result.Failed || result.FinalizeStatus != "failure" || result.FinalizeExitCode != 1 {
 		t.Fatalf("result = %#v, want finalizable failure", result)
+	}
+	if !result.FailClosed {
+		t.Fatal("result FailClosed = false, want true for blocking direct script validation failure")
 	}
 }
 
@@ -171,6 +177,9 @@ func TestTaskActionResolverDisabledLLMReturnsFinalizableFailure(t *testing.T) {
 	}
 	if result.FinalizeStatus != "failure" || result.FinalizeExitCode != 1 {
 		t.Fatalf("finalize result = %q/%d, want failure/1", result.FinalizeStatus, result.FinalizeExitCode)
+	}
+	if result.FailClosed {
+		t.Fatal("result FailClosed = true, want ordinary goal resolution failure to honor ignore_failure")
 	}
 	if result.Goal != "review changes" {
 		t.Fatalf("goal = %q, want step goal", result.Goal)
