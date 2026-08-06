@@ -654,6 +654,11 @@ External triggers should document:
 | `rate_limit.per_minute` | Per-trigger invocation limit over the previous minute. |
 | `idempotency_key` | Optional invoke-request retry key scoped by trigger and caller. |
 
+Product team paths are canonical for team access. Team sync and OIDC
+`team_mapping` mirror those paths into AAA auth-team subjects, and mapped SSO
+teams get viewer access to the same product team path when it exists unless a
+stronger `basic_role_mapping` is configured.
+
 ## Current Product Boundaries
 
 NopsAI is a self-hosted automation control plane for YAML-defined workflows

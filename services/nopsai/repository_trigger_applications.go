@@ -140,7 +140,7 @@ func (a *App) ensureRepositoryTriggerApplication(ctx context.Context, runner que
 		err := reassignRepositoryRunsToApplication(ctx, runner, existing.ID, parentID, app.RepositoryFullName)
 		return existing.ID, false, err
 	}
-	if existing := existingTeams.byName[app.Name]; existing != nil {
+	if existing := existingTeams.byParentName[teamSiblingKey(app.Name, parentID)]; existing != nil {
 		return 0, false, fmt.Errorf("application %s conflicts with an existing team or application", app.Name)
 	}
 

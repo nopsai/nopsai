@@ -271,8 +271,8 @@ type teamRecord struct {
 }
 
 type teamRecordSet struct {
-	byName map[string]*teamRecord
-	byRepo map[string]*teamRecord
+	byParentName map[string]*teamRecord
+	byRepo       map[string]*teamRecord
 }
 
 func loadExistingTeamRecords(ctx context.Context, runner queryRunner) (teamRecordSet, error) {
@@ -283,8 +283,8 @@ func loadExistingTeamRecords(ctx context.Context, runner queryRunner) (teamRecor
 	defer rows.Close()
 
 	result := teamRecordSet{
-		byName: make(map[string]*teamRecord),
-		byRepo: make(map[string]*teamRecord),
+		byParentName: make(map[string]*teamRecord),
+		byRepo:       make(map[string]*teamRecord),
 	}
 	for rows.Next() {
 		var (
@@ -299,15 +299,16 @@ func loadExistingTeamRecords(ctx context.Context, runner queryRunner) (teamRecor
 		if err != nil {
 			return teamRecordSet{}, err
 		}
-		if _, exists := result.byName[key]; exists {
-			return teamRecordSet{}, fmt.Errorf("duplicate team name '%s' detected in database", key)
-		}
 		record.Name = key
 		record.ParentID = pointerFromNullInt(parentID)
 		record.Description = strings.TrimSpace(description.String)
 		record.RepoURL = strings.TrimSpace(record.RepoURL)
 		record.RepositoryFullName = strings.Trim(strings.TrimSpace(record.RepositoryFullName), "/")
-		result.byName[key] = &record
+		parentNameKey := teamSiblingKey(record.Name, record.ParentID)
+		if _, exists := result.byParentName[parentNameKey]; exists {
+			return teamRecordSet{}, fmt.Errorf("duplicate team name '%s' detected under the same parent in database", key)
+		}
+		result.byParentName[parentNameKey] = &record
 		if record.RepositoryFullName != "" {
 			repoKey := strings.ToLower(record.RepositoryFullName)
 			if _, exists := result.byRepo[repoKey]; exists {
@@ -321,6 +322,14 @@ func loadExistingTeamRecords(ctx context.Context, runner queryRunner) (teamRecor
 	}
 
 	return result, nil
+}
+
+func teamSiblingKey(name string, parentID *int) string {
+	parent := "root"
+	if parentID != nil {
+		parent = strconv.Itoa(*parentID)
+	}
+	return parent + "\x00" + strings.ToLower(strings.TrimSpace(name))
 }
 
 func pointerFromNullInt(value sql.NullInt32) *int {
@@ -405,7 +414,7 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 		if record == nil {
 			return
 		}
-		existingTeams.byName[record.Name] = record
+		existingTeams.byParentName[teamSiblingKey(record.Name, record.ParentID)] = record
 		if record.RepositoryFullName != "" {
 			existingTeams.byRepo[strings.ToLower(record.RepositoryFullName)] = record
 		}
@@ -418,7 +427,8 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 			return 0, err
 		}
 		description = strings.TrimSpace(description)
-		if record, ok := existingTeams.byName[normalized]; ok {
+		recordKey := teamSiblingKey(normalized, parentID)
+		if record, ok := existingTeams.byParentName[recordKey]; ok {
 			if record.Kind == "app" || record.RepositoryFullName != "" {
 				return 0, fmt.Errorf("team '%s' conflicts with an existing app", normalized)
 			}
@@ -449,7 +459,7 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 					return 0, fmt.Errorf("failed to reload teams after conflict: %w", loadErr)
 				}
 				existingTeams = refreshed
-				if _, ok := existingTeams.byName[normalized]; ok {
+				if _, ok := existingTeams.byParentName[recordKey]; ok {
 					return ensureTeam(normalized, parentID, description)
 				}
 			}
@@ -473,7 +483,7 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 
 		record := existingTeams.byRepo[repoKey]
 		if record == nil {
-			if existingByName, ok := existingTeams.byName[name]; ok {
+			if existingByName, ok := existingTeams.byParentName[teamSiblingKey(name, parentID)]; ok {
 				if existingByName.Kind != "app" && existingByName.RepositoryFullName == "" {
 					return 0, fmt.Errorf("app '%s' conflicts with an existing team", name)
 				}
@@ -493,7 +503,7 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 				if _, err := tx.Exec(ctx, "UPDATE teams SET name = $1, kind = 'app', parent_id = $2, description = '', repo_url = $3, repository_full_name = $4, updated_at = NOW() WHERE id = $5", name, parentID, repoURL, fullName, record.ID); err != nil {
 					return 0, fmt.Errorf("failed to update app '%s': %w", name, err)
 				}
-				delete(existingTeams.byName, record.Name)
+				delete(existingTeams.byParentName, teamSiblingKey(record.Name, record.ParentID))
 				delete(existingTeams.byRepo, strings.ToLower(record.RepositoryFullName))
 				record.Name = name
 				record.Kind = "app"
