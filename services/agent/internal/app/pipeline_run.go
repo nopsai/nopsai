@@ -425,7 +425,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				}
 				if actionResult.Failed {
 					actionFailureIgnored := false
-					actionFailureCanBeIgnored := ignoreFailure && len(taskBlockingKinds) == 0 && !isRunStopping()
+					actionFailureCanBeIgnored := ignoreFailure && !actionResult.FailClosed && !isRunStopping()
 					if actionResult.FinalizeStatus != "" || actionFailureCanBeIgnored {
 						actionFailureIgnored = finalizeFailure(actionResult.FinalizeStatus, actionResult.FinalizeExitCode, llmDurationMs, actionFailureCanBeIgnored)
 					}
