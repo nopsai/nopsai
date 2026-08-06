@@ -161,11 +161,11 @@ func TestProductRuntimeSettingsStayOutOfComposeEnvironment(t *testing.T) {
 func TestDockerComposeProvidesLocalBootstrapTopology(t *testing.T) {
 	compose := readCompose(t)
 	assertEnvValue(t, compose, "nopsai", "NOPSAI_API_URL", "http://nopsai:8080")
-	assertEnvValue(t, compose, "nopsai", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
+	assertEnvValue(t, compose, "nopsai", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9091")
 	assertEnvValue(t, compose, "nopsai", "GIT_BOT_API_URL", "http://nopsai-git-bot:8081")
 	assertEnvValue(t, compose, "dispatcher", "NOPSAI_API_URL", "http://nopsai:8080")
 	assertEnvValue(t, compose, "git-bot", "NOPSAI_API_URL", "http://nopsai:8080")
-	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
+	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9091")
 	assertEnvValue(t, compose, "nopsai", "SYSTEM_LOGS_DOCKER_HOST", "tcp://docker-socket-proxy:2375")
 }
 
@@ -174,7 +174,7 @@ func TestDockerComposeBindsPublishedPortsToLoopbackByDefault(t *testing.T) {
 	for serviceName, wantPort := range map[string]string{
 		"db":         "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:5432:5432",
 		"nopsai":     "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:8080:8080",
-		"dispatcher": "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:9090:9090",
+		"dispatcher": "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:9091:9090",
 		"git-bot":    "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:8081:8081",
 		"nopsai-ui":  "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:80:80",
 	} {
