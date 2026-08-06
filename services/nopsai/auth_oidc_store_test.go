@@ -109,6 +109,37 @@ func TestSyncOIDCAuthTeamMembershipsPrunesWhenMappingEmpty(t *testing.T) {
 	}
 }
 
+func TestEnsureOIDCAuthTeamsForMappingsCreatesUniqueAuthTeams(t *testing.T) {
+	ctx := context.Background()
+	tx := &recordingOIDCTx{}
+
+	created, err := ensureOIDCAuthTeamsForMappings(ctx, tx, map[string]oidcProviderRecord{
+		"keycloak": {
+			TeamMapping: map[string]string{
+				"/engineering/platform":       "engineering/platform",
+				"/engineering/platform-alias": "engineering/platform",
+				"/platform/prod":              "platform/prod",
+				"/blank":                      " ",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ensureOIDCAuthTeamsForMappings() error = %v", err)
+	}
+	if created != 2 {
+		t.Fatalf("created = %d, want 2", created)
+	}
+	if !recordedOIDCExecContains(tx.execs, "INSERT INTO auth_teams", "engineering/platform", "Declared by identity provider team mapping") {
+		t.Fatalf("execs missing engineering/platform auth team insert: %#v", tx.execs)
+	}
+	if !recordedOIDCExecContains(tx.execs, "INSERT INTO auth_teams", "platform/prod", "Declared by identity provider team mapping") {
+		t.Fatalf("execs missing platform/prod auth team insert: %#v", tx.execs)
+	}
+	if recordedOIDCExecContains(tx.execs, "INSERT INTO auth_teams", " ") {
+		t.Fatalf("execs should ignore blank auth team names: %#v", tx.execs)
+	}
+}
+
 func TestOIDCBasicRoleGrantSetForTeamsUsesStrongestRolePerTarget(t *testing.T) {
 	got := oidcBasicRoleGrantSetForTeams(map[string]oidcBasicRoleGrantMapping{
 		"team-1-viewer": {

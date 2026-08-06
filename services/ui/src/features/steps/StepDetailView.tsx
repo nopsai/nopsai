@@ -23,6 +23,7 @@ type StepDetailViewProps = {
   canUpdateSelectedStep: boolean;
   canCreateStepHere: boolean;
   saving: boolean;
+  saveBlocked?: boolean;
   usage: StepUsageItem[];
   usageLoading: boolean;
   usageError: string | null;
@@ -56,6 +57,7 @@ export function StepDetailView({
   canUpdateSelectedStep,
   canCreateStepHere,
   saving,
+  saveBlocked,
   usage,
   usageLoading,
   usageError,
@@ -155,6 +157,7 @@ export function StepDetailView({
               canCreate={canCreateStepHere}
               isGitSource={isGitSource}
               saving={saving}
+              saveBlocked={saveBlocked}
               onCopy={onCopy}
               onDownload={onDownload}
               onEdit={onEdit}

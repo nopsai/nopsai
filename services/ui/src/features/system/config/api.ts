@@ -18,6 +18,10 @@ import type {
   ConfigRepositoryWriteFile,
 } from '../../../lib/configRepositoryDrift';
 import { fetchSystemJson } from '../api';
+import {
+  validateGlobalConfigRepositoryDraft as validateGlobalConfigRepositoryDraftRequest,
+  type BackendValidationResponse,
+} from '../../validation/api';
 
 export async function fetchRuntimeConfig() {
   return normalizeSystemConfigPayload(await fetchSystemJson('/v1/system/config'));
@@ -93,4 +97,15 @@ export async function pushGlobalConfigRepositoryDrift(message: string, files: Co
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, files }),
   }) as Promise<ConfigRepositoryCommitResponse>;
+}
+
+export async function validateGlobalConfigRepositoryDrift(basePath: string, files: ConfigRepositoryWriteFile[]) {
+  return validateGlobalConfigRepositoryDraftRequest({
+    base_path: basePath,
+    files: files.map(file => ({
+      path: file.path,
+      content: file.content ?? '',
+      delete: Boolean(file.delete),
+    })),
+  }) as Promise<BackendValidationResponse>;
 }

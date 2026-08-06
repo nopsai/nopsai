@@ -40,6 +40,7 @@ type ResourceYamlDetailPanelProps = {
   canCreate: boolean;
   isGitSource: boolean;
   saving: boolean;
+  saveBlocked?: boolean;
   autocompleteWidth?: number;
   showActions?: boolean;
   onCopy: () => void;
@@ -77,6 +78,7 @@ export function ResourceYamlDetailPanel({
   canCreate,
   isGitSource,
   saving,
+  saveBlocked,
   autocompleteWidth,
   showActions = true,
   onCopy,
@@ -95,6 +97,7 @@ export function ResourceYamlDetailPanel({
   onAutoIndentEnter,
 }: ResourceYamlDetailPanelProps) {
   const editorLines = editorValue.split('\n');
+  const saveDisabled = saving || (saveBlocked ?? validationErrors.length > 0);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.ctrlKey && event.code === 'Space') {
@@ -174,7 +177,7 @@ export function ResourceYamlDetailPanel({
                 <button className="glass-button-ghost" onClick={onDiscard}>
                   Discard
                 </button>
-                <button className="glass-button-primary" onClick={onSave} disabled={saving || validationErrors.length > 0}>
+                <button className="glass-button-primary" onClick={onSave} disabled={saveDisabled}>
                   {saving ? 'Saving...' : 'Save'}
                 </button>
               </>

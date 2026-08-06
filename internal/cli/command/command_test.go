@@ -430,8 +430,18 @@ func TestAPIRouteCatalogCommandsExposeAllRegisteredAPIs(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &routes); err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 4 {
+	if len(routes) != 5 {
 		t.Fatalf("pipeline routes = %d", len(routes))
+	}
+	hasValidationRoute := false
+	for _, route := range routes {
+		if route.Method == http.MethodPost && route.Path == "/v1/pipelines/validate" {
+			hasValidationRoute = true
+			break
+		}
+	}
+	if !hasValidationRoute {
+		t.Fatal("pipeline validation route missing from CLI catalog")
 	}
 	output, err = executeCommand(testDependencies(nil, nil), "api", "describe", "GET", "/v1/system/logs/sources/{sourceID}/stream")
 	if err != nil || !strings.Contains(output, "streaming: true") || !strings.Contains(output, "sourceID") {

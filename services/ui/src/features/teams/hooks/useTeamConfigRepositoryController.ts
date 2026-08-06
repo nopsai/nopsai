@@ -16,6 +16,7 @@ import {
   type ConfigRepositoryCommitResponse,
   type ConfigRepositoryDriftResponse,
 } from '../../../lib/configRepositoryDrift';
+import { validateTeamConfigRepositoryDraft, type BackendValidationIssue } from '../../validation/api';
 
 export type PipelineRunsConfigRepository = {
   id: number;
@@ -61,6 +62,13 @@ type UseTeamConfigRepositoryControllerOptions = {
   fetchJson: FetchJson;
   checkAccessPermission: (action: string, resourceType: string, resourceID: string) => Promise<boolean>;
 };
+
+function formatBackendValidationIssue(issue?: BackendValidationIssue) {
+  if (!issue) return 'Config repository validation failed.';
+  const file = issue.file ? `${issue.file}: ` : '';
+  const line = issue.line ? ` (line ${issue.line})` : '';
+  return `${file}${issue.message}${line}`;
+}
 
 const emptyConfigRepositoryForm: PipelineRunsConfigRepositoryFormState = {
   provider: 'github',
@@ -388,6 +396,18 @@ export function useTeamConfigRepositoryController({
     setConfigRepoPushing(true);
     setConfigRepoDriftError(null);
     try {
+      const validation = await validateTeamConfigRepositoryDraft(configRepoTeam.teamPath, {
+        base_path: configRepo?.base_path || configRepoForm.base_path || '',
+        files: files.map(file => ({
+          path: file.path,
+          content: file.content ?? '',
+          delete: Boolean(file.delete),
+        })),
+      });
+      if (!validation.valid) {
+        setConfigRepoDriftError(formatBackendValidationIssue(validation.errors[0]));
+        return;
+      }
       const result = await fetchJson<ConfigRepositoryCommitResponse>(`/v1/teams/${encodeURIComponent(configRepoTeam.teamPath)}/config-repository/write`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -403,7 +423,7 @@ export function useTeamConfigRepositoryController({
     } finally {
       setConfigRepoPushing(false);
     }
-  }, [configRepoDrift, configRepoTeam, configRepoManageAllowed, configRepoPushing, fetchJson]);
+  }, [configRepo?.base_path, configRepoDrift, configRepoForm.base_path, configRepoTeam, configRepoManageAllowed, configRepoPushing, fetchJson]);
 
   const saveTeamNotificationRoute = useCallback(async () => {
     if (!configRepoTeam || !configRepoManageAllowed || notificationRouteSaving || notificationRoute?.managed_by_config_repo) return;

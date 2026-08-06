@@ -1614,6 +1614,12 @@ curl -X PUT \
   --data-binary "@.nopsai/main-pipeline.yaml" \
   http://localhost:8080/v1/pipelines/main-pipeline
 
+# Validate a draft without saving it
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"resource_id":"team-1/dev/main-pipeline","yaml":"name: main-pipeline\ncontainer_image: alpine:3.20\nsteps:\n  - name: run\n    script: echo ok\n"}' \
+  http://localhost:8080/v1/pipelines/validate
+
 # Delete a pipeline
 curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 ```
@@ -1621,6 +1627,7 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 - Paths containing slashes map to nested teams (e.g. `team-1/dev`).
 - Pipeline responses include metadata such as version, description, steps, tasks, timeout, container image, and LLM controls.
 - Pipeline YAML may declare `knowledge_context` at pipeline, step, or task level.
+- `POST /v1/pipelines/validate` returns `{valid, errors, warnings}` with best-effort `path`, `line`, and stable `code` fields. It parses YAML, checks target/name mismatches, expands stored reusable-step includes when available, and performs the same semantic validation used by saves.
 - Team-level product grants inherit to pipelines below that team path.
 
 ---
@@ -1825,6 +1832,11 @@ curl -X POST http://localhost:8080/v1/system/config-repos/sync
 # Compare Nopsai's current config with the sync branch before pushing
 curl http://localhost:8080/v1/system/config-repo/drift
 
+# Validate draft GitOps files without writing or applying them
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"base_path":"nopsai","files":[{"path":"pipelines/services/api/deploy.yaml","content":"name: deploy\ncontainer_image: alpine:3.20\nsteps:\n  - name: deploy\n    script: echo deploy\n"}]}' \
+  http://localhost:8080/v1/system/config-repo/validate
+
 # Push generated config files to the configured review branch
 curl -X POST -H "Content-Type: application/json" \
   -d '{"message":"Add API deploy pipeline","files":[{"path":"pipelines/services/api/deploy.yaml","content":"name: deploy\nsteps:\n  - name: deploy\n    script: echo deploy\n"}]}' \
@@ -1847,6 +1859,7 @@ curl -X POST -H "Content-Type: application/json" \
 - A binding file contains `repo_url`, optional `provider`, optional `credential_ref`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`. `credential_ref` is required for non-GitHub providers and must point at a `bearer_token` credential.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in the configured Git provider before merging back to the sync branch. For the GitHub App path, the app needs `contents: read and write`; token-backed providers need equivalent repository read/write scope.
 - Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run team/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- `POST /v1/system/config-repo/validate` and `POST /v1/teams/{teamID}/config-repository/validate` run the config-sync parser against draft files only. They catch cross-file reusable-step includes, trigger metadata, embedded access, managed-source rules, team-scoped paths, knowledge files, and file-name/name mismatches before write-back.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Team repositories use the same drift and write endpoint shape at `GET /v1/teams/<team-path>/config-repository/drift` and `POST /v1/teams/<team-path>/config-repository/write`. File paths are relative to the configured `base_path`.
 - Nested teams are represented by nested paths, for example `config-repositories/teams/team-2/platform.yaml` creates a binding for `team-2/platform`.
@@ -1911,6 +1924,10 @@ curl -X PUT \
   --data-binary "@.nopsai/shared/utilities/archive-step.yaml" \
   http://localhost:8080/v1/steps/shared/utilities/archive-step
 
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"resource_id":"shared/utilities/archive-step","yaml":"name: archive-step\nscript: tar czf archive.tgz .\n"}' \
+  http://localhost:8080/v1/steps/validate
+
 curl -X DELETE http://localhost:8080/v1/steps/shared/utilities/archive-step
 ```
 
@@ -1918,6 +1935,7 @@ curl -X DELETE http://localhost:8080/v1/steps/shared/utilities/archive-step
 - Reusable step default variables are merged with variables on the calling
   include step; include-step variables win key-by-key.
 - When `include_source=true` each item includes `identifier`, `path`, `name`, `source`, and `updated_at`, allowing the UI to distinguish Git-managed definitions from database overrides.
+- `POST /v1/steps/validate` returns the shared validation response shape and checks YAML parsing, reusable-step semantic rules, and target/name mismatches.
 - Using a reusable step from a pipeline requires `step.use`. Managing step definitions is effectively admin-only in the predefined role set.
 
 ---
@@ -1933,11 +1951,16 @@ curl -X PUT \
   --data-binary "@.nopsai/triggers.yaml" \
   http://localhost:8080/v1/overrides/nopsai/test-app
 
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"repository":"nopsai/test-app","yaml":"triggers:\n  - on: push\n    pipelines:\n      - main-pipeline\n"}' \
+  http://localhost:8080/v1/overrides/validate
+
 curl -X DELETE http://localhost:8080/v1/overrides/nopsai/test-app
 ```
 
 - Overrides let you replace or augment the config-repo trigger manifest for a given repository.
 - The payload mirrors the `.nopsai/triggers.yaml` schema (event, branches, skip branches, tags, skipped repositories, include paths, exclude paths, pipelines, and scope).
+- `POST /v1/overrides/validate` returns the shared validation response shape and checks trigger manifests against repository/provider/team/webhook-source rules without saving.
 - When `include_source=true`, each item includes source/provider/team/ingress
   metadata plus a `scopes` array derived from the stored trigger manifest. Empty
   trigger scopes are reported as `default` so list clients can render scope
