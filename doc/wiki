@@ -832,6 +832,11 @@ schema are separate control layers:
 External MCP currently uses streamable HTTP. Pipeline YAML may reference only
 approved MCP profiles and cannot define arbitrary server URLs. NopsAI also
 exposes a hosted MCP endpoint at `POST /v1/mcp`, filtered by AAA permissions.
+In database-backed deployments, Postgres and the system/global GitOps files are
+authoritative for external MCP; mirroring runtime MCP edits back to bootstrap
+`config.yml` is best-effort after database persistence. Local MCP URLs must be
+reachable from the API runtime, so use a LAN IP or `host.docker.internal` for
+host-launched tools instead of `localhost` inside containers.
 Blocking Knowledge Context kinds (`policy` and `guardrail`) are pinned by
 scope, then recomputed as pipeline, step, and task scopes start. Emergency
 policy response cancels active runs instead of mutating already-resolved policy.

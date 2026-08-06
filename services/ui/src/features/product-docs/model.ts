@@ -3173,6 +3173,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Pipelines may reference approved external streamable-HTTP MCP profiles, and NopsAI also exposes a first-party hosted MCP endpoint at POST /v1/mcp.',
         keyFacts: [
           'External MCP servers define display name, provider, transport, URL, auth type, credential reference, timeout, enabled state, and tools.',
+          'In database-backed deployments, Postgres and GitOps are authoritative; bootstrap config write-back is best-effort after registry persistence.',
           'MCP profile inheritance for goals is additive across pipeline, step, and task profiles.',
           'Explicit MCP profiles are rejected on script steps, script tasks, and include placeholders.',
           'When MCP profiles resolve for a goal, the agent requires at least one successful MCP tool call before accepting the final action.',
@@ -3183,6 +3184,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Mutation tools require confirmation. GitOps proposal tools return commit-ready files with applies: false rather than silently applying production changes.',
           'External MCP profile resolution is additive: pipeline profiles, step profiles, and task profiles are combined with duplicates removed. The tool set is then checked against enabled profiles and scope allowlists.',
           'Pipeline YAML can reference approved MCP profile names only. It cannot define arbitrary server URLs or credentials inline.',
+          'Local MCP URLs must be reachable from the API runtime; host-launched tools usually need a LAN IP or host.docker.internal instead of localhost.',
         ],
         configRows: mcpRows,
         examples: [
