@@ -14,6 +14,7 @@ import (
 	"nopsai/services/nopsai/pkg/validation"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -361,14 +362,21 @@ func (a *App) refreshMCPRegistryFromDB(ctx context.Context) error {
 		return err
 	}
 	cfg := a.setMCPRegistry(servers, profiles)
-	return a.persistMCPRegistryConfig(ctx, cfg)
+	if err := a.ensureMCPServerCredentialReferences(ctx, cfg.EffectiveMCPServers(), credentialActorFromContext(ctx)); err != nil {
+		return err
+	}
+	return a.persistMCPRegistryBootstrapConfig(cfg, false)
 }
 
 func (a *App) persistMCPRegistryConfig(ctx context.Context, cfg config.Config) error {
 	if err := a.ensureMCPServerCredentialReferences(ctx, cfg.EffectiveMCPServers(), credentialActorFromContext(ctx)); err != nil {
 		return err
 	}
-	if a.configPath == "" {
+	return a.persistMCPRegistryBootstrapConfig(cfg, true)
+}
+
+func (a *App) persistMCPRegistryBootstrapConfig(cfg config.Config, required bool) error {
+	if a == nil || a.configPath == "" {
 		return nil
 	}
 	existing := map[string]interface{}{}
@@ -377,6 +385,10 @@ func (a *App) persistMCPRegistryConfig(ctx context.Context, cfg config.Config) e
 			_ = yaml.Unmarshal(contents, &existing)
 		}
 	} else if !os.IsNotExist(err) {
+		if !required {
+			log.Warn().Err(err).Str("config_path", a.configPath).Msg("Failed to sync MCP registry to bootstrap config after database persistence")
+			return nil
+		}
 		return err
 	}
 	existing["mcp_servers"] = cfg.EffectiveMCPServers()
@@ -385,5 +397,12 @@ func (a *App) persistMCPRegistryConfig(ctx context.Context, cfg config.Config) e
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(a.configPath, contents, 0o644)
+	if err := os.WriteFile(a.configPath, contents, 0o644); err != nil {
+		if !required {
+			log.Warn().Err(err).Str("config_path", a.configPath).Msg("Failed to sync MCP registry to bootstrap config after database persistence")
+			return nil
+		}
+		return err
+	}
+	return nil
 }

@@ -95,6 +95,19 @@ Only system/global config repositories may define the MCP registry. Team config
 repositories can reference approved `mcp_profiles` in their pipelines, but they
 cannot define new MCP servers.
 
+In database-backed deployments, Postgres and the system/global GitOps files are
+the authoritative MCP registry. Runtime attempts to mirror MCP edits back into
+the bootstrap `config.yml` are best-effort after database persistence, so an
+immutable container image or read-only mounted bootstrap config does not block a
+successful registry save or tool discovery. Operators should still commit the
+desired MCP registry to the owning GitOps repository to avoid drift.
+
+When a local MCP server runs outside the NopsAI pod or container, set `url` to an
+address reachable from the API runtime, such as a LAN IP or
+`host.docker.internal` when the platform provides it. `localhost` points at the
+API container itself, and Docker Compose service names only work when the API is
+attached to that Compose network.
+
 MCP server/profile GitOps changes must also pass the commercial license policy
 in [license-compliance.md](./license-compliance.md). A profile may reference a
 customer-provided or externally hosted MCP server, but NopsAI must not bundle
