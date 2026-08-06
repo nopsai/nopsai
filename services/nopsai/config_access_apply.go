@@ -331,7 +331,7 @@ func (a *App) syncAccessGrants(ctx context.Context, tx pgx.Tx, binding models.Co
 		if grant.role != customUseGrantRole {
 			continue
 		}
-		key, err := a.upsertManagedResourceUseGrant(ctx, tx, binding, grant, commitSHA)
+		key, err := a.upsertManagedResourceUseGrant(ctx, tx, binding, plan, grant, commitSHA)
 		if err != nil {
 			return nil, err
 		}

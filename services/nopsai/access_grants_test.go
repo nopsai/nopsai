@@ -51,6 +51,8 @@ type fakeQueryRunner struct {
 	args    [][]any
 }
 
+type emptyTeamPathQueryRunner struct{}
+
 type fakeScanRow struct {
 	values []string
 	err    error
@@ -78,6 +80,18 @@ func (r *fakeQueryRunner) QueryRow(_ context.Context, sql string, args ...any) p
 	r.queries = append(r.queries, sql)
 	r.args = append(r.args, args)
 	return r.row
+}
+
+func (r *emptyTeamPathQueryRunner) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, fmt.Errorf("unexpected exec")
+}
+
+func (r *emptyTeamPathQueryRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return &accessAuthTeamRows{}, nil
+}
+
+func (r *emptyTeamPathQueryRunner) QueryRow(context.Context, string, ...any) pgx.Row {
+	return fakeScanRow{err: fmt.Errorf("unexpected query row")}
 }
 
 func (r fakeScanRow) Scan(dest ...any) error {
@@ -321,6 +335,36 @@ func TestResolveAccessGrantServiceAccountCanonicalizesSub(t *testing.T) {
 	}
 	if len(runner.args) != 1 || len(runner.args[0]) == 0 || runner.args[0][0] != auth.ProviderServiceAccount {
 		t.Fatalf("query args = %#v, want service account provider filter", runner.args)
+	}
+}
+
+func TestResolveConfigSyncResourceUseGrantSubjectAllowsIncomingTeamSubject(t *testing.T) {
+	runner := &emptyTeamPathQueryRunner{}
+	plan := newAccessSyncPlan()
+	plan.teamSubjects["engineering/platform"] = struct{}{}
+
+	subject, err := resolveConfigSyncResourceUseGrantSubject(context.Background(), runner, plan, storedAccessGrant{
+		subjectType: grantSubjectTeam,
+		subjectID:   "engineering/platform",
+	})
+	if err != nil {
+		t.Fatalf("resolveConfigSyncResourceUseGrantSubject() error = %v", err)
+	}
+	if subject.Type != grantSubjectTeam || subject.ID != "engineering/platform" || subject.Display != "/engineering/platform" {
+		t.Fatalf("subject = %#v, want incoming team path subject", subject)
+	}
+}
+
+func TestResolveConfigSyncResourceUseGrantSubjectRejectsUnknownIncomingTeamSubject(t *testing.T) {
+	runner := &emptyTeamPathQueryRunner{}
+	plan := newAccessSyncPlan()
+
+	_, err := resolveConfigSyncResourceUseGrantSubject(context.Background(), runner, plan, storedAccessGrant{
+		subjectType: grantSubjectTeam,
+		subjectID:   "engineering/platform",
+	})
+	if err == nil || !strings.Contains(err.Error(), "resource not found") {
+		t.Fatalf("expected missing team subject to remain rejected, got %v", err)
 	}
 }
 
