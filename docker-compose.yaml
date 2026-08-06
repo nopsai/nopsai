@@ -12,7 +12,7 @@ x-service-auth-env: &service-auth-env
 
 x-local-topology-env: &local-topology-env
   NOPSAI_API_URL: http://nopsai:8080
-  DISPATCHER_GRPC_ADDRESS: dispatcher:9090
+  DISPATCHER_GRPC_ADDRESS: dispatcher:9091
 
 x-observability-env: &observability-env
   NOPSAI_ENV: ${NOPSAI_ENV:-local}
@@ -221,7 +221,7 @@ services:
         BASE_IMAGE: base
     restart: always
     ports:
-      - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:9090:9090"
+      - "${NOPSAI_BIND_ADDRESS:-127.0.0.1}:9091:9090"
     depends_on:
       local-compose-safety:
         condition: service_completed_successfully
