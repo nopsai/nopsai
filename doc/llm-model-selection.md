@@ -345,9 +345,11 @@ Deletion rules:
 ## Runtime Contract
 
 The control plane loads the active profile registry from the database, validates
-it, and packages the full registry into the agent runtime as
-`NOPSAI_LLM_PROFILES`. The agent reads that registry and caches LLM clients by
-profile name.
+the profiles selected by the resolved pipeline, and packages only those selected
+profiles into the agent runtime as `NOPSAI_LLM_PROFILES`. The packaged runtime
+default is the profile the pipeline inherits when it does not set a more
+specific override. The agent reads that run-scoped registry and caches LLM
+clients by profile name.
 
 The Agent Profile catalog is packaged separately as `NOPSAI_AGENT_PROFILES`.
 The agent uses it only to build persona text for prompts.
