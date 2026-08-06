@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -296,60 +297,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		plan.notificationRoutes[key] = route
 	}
 
-	for path, content := range files.pipelines {
-		normalized := filepath.ToSlash(path)
-		rel, ok := configsync.RelativePath(normalized, pipelineDir)
-		if !ok {
-			continue
-		}
-		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
-			continue
-		}
-
-		var pipeline models.Pipeline
-		if err := yaml.Unmarshal([]byte(content), &pipeline); err != nil {
-			return configSyncPlan{}, fmt.Errorf("failed to parse pipeline '%s': %w", normalized, err)
-		}
-		if err := validatePipeline(&pipeline); err != nil {
-			return configSyncPlan{}, fmt.Errorf("pipeline validation failed for '%s': %w", normalized, err)
-		}
-
-		pipelinePath, fileBase, _, err := configsync.SplitPipelineIdentifier(rel)
-		if err != nil {
-			return configSyncPlan{}, fmt.Errorf("invalid pipeline path '%s': %w", normalized, err)
-		}
-		if pipeline.Name != fileBase {
-			return configSyncPlan{}, fmt.Errorf("pipeline '%s' name '%s' must match file name '%s'", normalized, pipeline.Name, fileBase)
-		}
-
-		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-			targetID, err := configsync.NormalizePathForTeam(boundTeam, rel)
-			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("invalid team-scoped pipeline path '%s': %w", normalized, err)
-			}
-			pipelinePath, fileBase, _, err = configsync.SplitPipelineIdentifier(targetID)
-			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("invalid normalized pipeline path '%s': %w", targetID, err)
-			}
-		}
-
-		key := configsync.BuildPipelineIdentifier(pipelinePath, fileBase)
-		if _, exists := plan.pipelines[key]; exists {
-			return configSyncPlan{}, fmt.Errorf("duplicate pipeline '%s' detected in config repository", key)
-		}
-		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourcePipeline, key, binding, boundTeam); err != nil {
-			return configSyncPlan{}, fmt.Errorf("invalid pipeline access '%s': %w", normalized, err)
-		}
-
-		plan.pipelines[key] = storedPipeline{
-			definition: content,
-			version:    normalizePipelineVersion(pipeline.Version),
-			path:       pipelinePath,
-			name:       fileBase,
-			sourcePath: normalized,
-		}
-	}
-
 	for path, content := range files.steps {
 		normalized := filepath.ToSlash(path)
 		rel, ok := configsync.RelativePath(normalized, stepDir)
@@ -402,6 +349,60 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		plan.steps[key] = storedStep{
 			definition: content,
 			path:       stepPath,
+			name:       fileBase,
+			sourcePath: normalized,
+		}
+	}
+
+	for path, content := range files.pipelines {
+		normalized := filepath.ToSlash(path)
+		rel, ok := configsync.RelativePath(normalized, pipelineDir)
+		if !ok {
+			continue
+		}
+		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
+			continue
+		}
+
+		var pipeline models.Pipeline
+		if err := yaml.Unmarshal([]byte(content), &pipeline); err != nil {
+			return configSyncPlan{}, fmt.Errorf("failed to parse pipeline '%s': %w", normalized, err)
+		}
+		if err := a.validatePipelineWithConfigSyncStepIncludes(&pipeline, plan.steps, binding, boundTeam); err != nil {
+			return configSyncPlan{}, fmt.Errorf("pipeline validation failed for '%s': %w", normalized, err)
+		}
+
+		pipelinePath, fileBase, _, err := configsync.SplitPipelineIdentifier(rel)
+		if err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid pipeline path '%s': %w", normalized, err)
+		}
+		if pipeline.Name != fileBase {
+			return configSyncPlan{}, fmt.Errorf("pipeline '%s' name '%s' must match file name '%s'", normalized, pipeline.Name, fileBase)
+		}
+
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			targetID, err := configsync.NormalizePathForTeam(boundTeam, rel)
+			if err != nil {
+				return configSyncPlan{}, fmt.Errorf("invalid team-scoped pipeline path '%s': %w", normalized, err)
+			}
+			pipelinePath, fileBase, _, err = configsync.SplitPipelineIdentifier(targetID)
+			if err != nil {
+				return configSyncPlan{}, fmt.Errorf("invalid normalized pipeline path '%s': %w", targetID, err)
+			}
+		}
+
+		key := configsync.BuildPipelineIdentifier(pipelinePath, fileBase)
+		if _, exists := plan.pipelines[key]; exists {
+			return configSyncPlan{}, fmt.Errorf("duplicate pipeline '%s' detected in config repository", key)
+		}
+		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourcePipeline, key, binding, boundTeam); err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid pipeline access '%s': %w", normalized, err)
+		}
+
+		plan.pipelines[key] = storedPipeline{
+			definition: content,
+			version:    normalizePipelineVersion(pipeline.Version),
+			path:       pipelinePath,
 			name:       fileBase,
 			sourcePath: normalized,
 		}
@@ -508,4 +509,48 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 
 	plan.accessPlan = accessPlan
 	return plan, nil
+}
+
+func (a *App) validatePipelineWithConfigSyncStepIncludes(pipeline *models.Pipeline, steps map[string]storedStep, binding models.ConfigRepository, boundTeam string) error {
+	resolver := func(ctx context.Context, includeIdentifier, stepPath, includeName string) (string, error) {
+		for _, key := range configSyncStepIncludeLookupKeys(includeIdentifier, stepPath, includeName, binding, boundTeam) {
+			if step, ok := steps[key]; ok {
+				return step.definition, nil
+			}
+		}
+		return a.resolveStoredStepIncludeDefinition(ctx, includeIdentifier, stepPath, includeName)
+	}
+	resolved, err := a.resolveStepIncludesWithResolver(context.Background(), pipeline, resolver)
+	if err != nil {
+		return err
+	}
+	return validatePipeline(resolved)
+}
+
+func configSyncStepIncludeLookupKeys(includeIdentifier, stepPath, includeName string, binding models.ConfigRepository, boundTeam string) []string {
+	seen := map[string]bool{}
+	keys := []string{}
+	add := func(path, name string) {
+		key := configsync.BuildStepIdentifier(path, name)
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+
+	add(stepPath, includeName)
+	if binding.ScopeType != models.ConfigRepositoryScopeTeam {
+		return keys
+	}
+	targetID, err := configsync.NormalizePathForTeam(boundTeam, includeIdentifier)
+	if err != nil || strings.TrimSpace(targetID) == "" {
+		return keys
+	}
+	normalizedPath, normalizedName, _, err := configsync.SplitStepIdentifier(targetID)
+	if err != nil {
+		return keys
+	}
+	add(normalizedPath, normalizedName)
+	return keys
 }

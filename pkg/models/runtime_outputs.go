@@ -30,14 +30,33 @@ func ParseRuntimeOutputRef(raw string) (RuntimeOutputRef, bool, error) {
 	outputMarker := ".outputs."
 	outputIdx := strings.LastIndex(body, outputMarker)
 	if outputIdx <= 0 || outputIdx+len(outputMarker) >= len(body) {
-		return RuntimeOutputRef{}, true, fmt.Errorf("runtime output reference must use $steps.<step>.<task>.outputs.<name>")
+		return RuntimeOutputRef{}, true, fmt.Errorf("runtime output reference must use $steps.<step>.outputs.<name> or $steps.<step>.<task>.outputs.<name>")
 	}
 
 	producer := body[:outputIdx]
 	outputName := body[outputIdx+len(outputMarker):]
 	taskIdx := strings.LastIndex(producer, ".")
-	if taskIdx <= 0 || taskIdx == len(producer)-1 {
-		return RuntimeOutputRef{}, true, fmt.Errorf("runtime output reference must include a producing step and task")
+	if taskIdx == len(producer)-1 {
+		return RuntimeOutputRef{}, true, fmt.Errorf("runtime output reference must include a producing task")
+	}
+
+	if taskIdx <= 0 {
+		producer = strings.TrimSpace(producer)
+		if producer == "" {
+			return RuntimeOutputRef{}, true, fmt.Errorf("runtime output reference must include a producing step")
+		}
+		ref := RuntimeOutputRef{
+			StepName:   producer,
+			TaskName:   producer,
+			OutputName: strings.TrimSpace(outputName),
+		}
+		if ref.OutputName == "" {
+			return RuntimeOutputRef{}, true, fmt.Errorf("runtime output reference must include non-empty step and output names")
+		}
+		if !IsValidTaskOutputName(ref.OutputName) {
+			return RuntimeOutputRef{}, true, fmt.Errorf("runtime output name %q is invalid", ref.OutputName)
+		}
+		return ref, true, nil
 	}
 
 	ref := RuntimeOutputRef{
@@ -52,6 +71,36 @@ func ParseRuntimeOutputRef(raw string) (RuntimeOutputRef, bool, error) {
 		return RuntimeOutputRef{}, true, fmt.Errorf("runtime output name %q is invalid", ref.OutputName)
 	}
 	return ref, true, nil
+}
+
+func ParseRuntimeOutputRefCandidates(raw string) ([]RuntimeOutputRef, bool, error) {
+	ref, found, err := ParseRuntimeOutputRef(raw)
+	if err != nil || !found {
+		return nil, found, err
+	}
+	candidates := []RuntimeOutputRef{ref}
+
+	value := strings.TrimSpace(raw)
+	body := strings.TrimPrefix(value, RuntimeOutputReferencePrefix)
+	outputMarker := ".outputs."
+	outputIdx := strings.LastIndex(body, outputMarker)
+	if outputIdx <= 0 || outputIdx+len(outputMarker) >= len(body) {
+		return candidates, true, nil
+	}
+	producer := strings.TrimSpace(body[:outputIdx])
+	outputName := strings.TrimSpace(body[outputIdx+len(outputMarker):])
+	if producer == "" || outputName == "" || !IsValidTaskOutputName(outputName) {
+		return candidates, true, nil
+	}
+	stepLevel := RuntimeOutputRef{
+		StepName:   producer,
+		TaskName:   producer,
+		OutputName: outputName,
+	}
+	if stepLevel.Key() != ref.Key() {
+		candidates = append(candidates, stepLevel)
+	}
+	return candidates, true, nil
 }
 
 func RuntimeOutputRefKey(stepName, taskName, outputName string) string {

@@ -385,6 +385,7 @@ func (a *App) registerRunRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/runs/{runID}/checkpoints/{checkpointID}", a.handleGetRunCheckpoint)
 	mux.HandleFunc("POST /v1/internal/runs/{runID}/ai-usage", a.handleRecordAIUsage)
 	mux.HandleFunc("POST /v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs", a.handleRecordTaskOutputs)
+	mux.HandleFunc("POST /v1/internal/runs/{runID}/task-outputs/resolve", a.handleResolveChildTaskOutputs)
 	mux.HandleFunc("GET /v1/internal/runs/{runID}/policy-revision", a.handleGetRunPolicyRevision)
 	mux.HandleFunc("POST /v1/run", a.handleRunPipeline)
 	mux.HandleFunc("POST /v1/run/{pipelineName...}", a.handleRunPipeline)

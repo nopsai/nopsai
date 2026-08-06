@@ -3,6 +3,8 @@ package nopsai
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -14,7 +16,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	errChildOutputLineage   = errors.New("child run does not belong to the requested parent step")
+	errChildOutputAmbiguous = errors.New("child runtime output name is ambiguous")
+	errChildOutputMissing   = errors.New("child runtime output was not produced")
+)
+
 type taskOutputsRequest struct {
+	Outputs []taskOutputInput `json:"outputs"`
+}
+
+type taskOutputResolveRequest struct {
+	ParentRunID    string   `json:"parent_run_id"`
+	ParentStepName string   `json:"parent_step_name"`
+	Names          []string `json:"names"`
+}
+
+type taskOutputResolveResponse struct {
 	Outputs []taskOutputInput `json:"outputs"`
 }
 
@@ -105,6 +123,177 @@ func (a *App) handleRecordTaskOutputs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleResolveChildTaskOutputs(w http.ResponseWriter, r *http.Request) {
+	if !requireInternalServiceRole(w, r, serviceauth.RoleAgent) {
+		return
+	}
+	childRunID := strings.TrimSpace(r.PathValue("runID"))
+	if childRunID == "" {
+		http.Error(w, "child run is required", http.StatusBadRequest)
+		return
+	}
+
+	var req taskOutputResolveRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "invalid task output resolve payload", http.StatusBadRequest)
+		return
+	}
+	parentRunID := strings.TrimSpace(req.ParentRunID)
+	parentStepName := strings.TrimSpace(req.ParentStepName)
+	if parentRunID == "" || parentStepName == "" {
+		http.Error(w, "parent run and parent step are required", http.StatusBadRequest)
+		return
+	}
+	names, ok := normalizeTaskOutputResolveNames(req.Names)
+	if !ok {
+		http.Error(w, "invalid output name", http.StatusBadRequest)
+		return
+	}
+	if len(names) == 0 {
+		writeJSON(w, http.StatusOK, taskOutputResolveResponse{Outputs: []taskOutputInput{}})
+		return
+	}
+
+	resolution, err := resolveChildTaskOutputs(r.Context(), a.db, a.decrypt, childRunID, parentRunID, parentStepName, names)
+	if err != nil {
+		switch {
+		case errors.Is(err, errChildOutputLineage):
+			http.Error(w, errChildOutputLineage.Error(), http.StatusForbidden)
+		case errors.Is(err, errChildOutputAmbiguous):
+			http.Error(w, errChildOutputAmbiguous.Error(), http.StatusConflict)
+		case errors.Is(err, errChildOutputMissing):
+			http.Error(w, errChildOutputMissing.Error(), http.StatusNotFound)
+		default:
+			log.Error().Err(err).Str("run_id", childRunID).Str("parent_run_id", parentRunID).Msg("Failed to resolve child runtime outputs")
+			http.Error(w, "failed to resolve task outputs", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	metadata, _ := json.Marshal(map[string]any{
+		"child_run_id": childRunID,
+		"outputs":      resolution.auditOutputs,
+	})
+	if _, err := a.db.Exec(r.Context(), `
+		INSERT INTO pipeline_run_logs (run_id, line, source, level, step_name, task_name, metadata)
+		VALUES ($1, $2, 'agent', 'info', $3, $3, $4::jsonb)
+	`, parentRunID, "Resolved child runtime outputs", parentStepName, string(metadata)); err != nil {
+		log.Warn().Err(err).Str("run_id", parentRunID).Str("child_run_id", childRunID).Msg("Failed to write child runtime output audit log")
+	}
+
+	writeJSON(w, http.StatusOK, resolution.response)
+}
+
+type childTaskOutputResolverDB interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+type childTaskOutputResolution struct {
+	response     taskOutputResolveResponse
+	auditOutputs []map[string]any
+}
+
+func resolveChildTaskOutputs(ctx context.Context, db childTaskOutputResolverDB, decrypt func(string) (string, error), childRunID, parentRunID, parentStepName string, names []string) (childTaskOutputResolution, error) {
+	var childMatches bool
+	if err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pipeline_runs
+			WHERE run_id::text = $1
+			  AND parent_run_id::text = $2
+			  AND parent_step_name = $3
+		)
+	`, childRunID, parentRunID, parentStepName).Scan(&childMatches); err != nil {
+		return childTaskOutputResolution{}, fmt.Errorf("validate child output lineage: %w", err)
+	}
+	if !childMatches {
+		return childTaskOutputResolution{}, errChildOutputLineage
+	}
+
+	rows, err := db.Query(ctx, `
+		SELECT step_name, task_name, name, value, sensitive, size_bytes
+		FROM pipeline_run_task_outputs
+		WHERE run_id::text = $1
+		  AND name = ANY($2::text[])
+		ORDER BY step_name ASC, task_name ASC, name ASC
+	`, childRunID, names)
+	if err != nil {
+		return childTaskOutputResolution{}, fmt.Errorf("query child runtime outputs: %w", err)
+	}
+	defer rows.Close()
+
+	outputsByName := map[string]taskOutputInput{}
+	for rows.Next() {
+		var stepName, taskName, name, value string
+		var sensitive bool
+		var sizeBytes int64
+		if err := rows.Scan(&stepName, &taskName, &name, &value, &sensitive, &sizeBytes); err != nil {
+			return childTaskOutputResolution{}, fmt.Errorf("scan child runtime output: %w", err)
+		}
+		if _, exists := outputsByName[name]; exists {
+			return childTaskOutputResolution{}, errChildOutputAmbiguous
+		}
+		if sensitive && value != "" {
+			if decrypt == nil {
+				return childTaskOutputResolution{}, fmt.Errorf("decrypt child runtime output %q: decryptor is not configured", name)
+			}
+			decrypted, err := decrypt(value)
+			if err != nil {
+				return childTaskOutputResolution{}, fmt.Errorf("decrypt child runtime output %q: %w", name, err)
+			}
+			value = decrypted
+		}
+		outputsByName[name] = taskOutputInput{
+			Name:      name,
+			Value:     value,
+			Sensitive: sensitive,
+			SizeBytes: runtimeOutputSizeBytes(sizeBytes),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return childTaskOutputResolution{}, fmt.Errorf("iterate child runtime outputs: %w", err)
+	}
+
+	resolution := childTaskOutputResolution{
+		response:     taskOutputResolveResponse{Outputs: make([]taskOutputInput, 0, len(names))},
+		auditOutputs: make([]map[string]any, 0, len(names)),
+	}
+	for _, name := range names {
+		output, exists := outputsByName[name]
+		if !exists {
+			return childTaskOutputResolution{}, errChildOutputMissing
+		}
+		resolution.response.Outputs = append(resolution.response.Outputs, output)
+		resolution.auditOutputs = append(resolution.auditOutputs, map[string]any{
+			"name":       output.Name,
+			"sensitive":  output.Sensitive,
+			"size_bytes": output.SizeBytes,
+		})
+	}
+	return resolution, nil
+}
+
+func normalizeTaskOutputResolveNames(values []string) ([]string, bool) {
+	if len(values) == 0 {
+		return nil, true
+	}
+	seen := map[string]bool{}
+	names := make([]string, 0, len(values))
+	for _, value := range values {
+		name := strings.TrimSpace(value)
+		if name == "" || !models.IsValidTaskOutputName(name) {
+			return nil, false
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names, true
 }
 
 func runtimeOutputSizeBytes(value int64) int64 {

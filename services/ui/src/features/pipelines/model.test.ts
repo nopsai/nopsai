@@ -87,6 +87,41 @@ steps:
   assert.deepEqual(result.errors, []);
 });
 
+test('validates sync pipeline include outputs with step-level references in UI validation', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: child-build
+    include: pipeline:child-build
+    sync: true
+    outputs:
+      - image_tag
+  - name: deploy
+    depends_on:
+      - child-build
+    variables:
+      IMAGE_TAG: $steps.child-build.outputs.image_tag
+    script: echo deploy
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects async pipeline include outputs in UI validation', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: child-build
+    include: pipeline:child-build
+    outputs:
+      - image_tag
+`);
+
+  assert.match(result.errors[0]?.message || '', /sync: true/);
+});
+
 test('rejects invalid pipeline variable declarations in UI validation', () => {
   const result = validatePipelineYaml(`
 name: deploy

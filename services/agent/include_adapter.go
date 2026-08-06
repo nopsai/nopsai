@@ -11,6 +11,7 @@ func newAgentChildPipelineIncludeRunner() includeflow.Runner {
 		FetchDefinition: getPipelineDef,
 		TriggerPipeline: triggerPipeline,
 		MonitorPipeline: monitorPipeline,
+		FetchOutputs:    fetchChildRuntimeOutputs,
 		IsNotFound: func(err error) bool {
 			return err != nil && strings.Contains(err.Error(), "nopsai api returned non-200 status 404")
 		},

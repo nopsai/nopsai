@@ -65,6 +65,7 @@ func TestMutatingCatalogRoutesRequireAuthzOrExplicitHandlerAuthorization(t *test
 		"POST /v1/git/webhooks/{sourceID}":                                         "Git webhooks are public by design and validate source-specific secrets.",
 		"POST /v1/internal/runs/{runID}/ai-usage":                                  "Run AI usage ingestion is an internal service-auth endpoint.",
 		"POST /v1/internal/runs/{runID}/approvals/pause":                           "Run approval pause is an internal service-auth endpoint.",
+		"POST /v1/internal/runs/{runID}/task-outputs/resolve":                      "Child runtime output resolution is an internal service-auth endpoint.",
 		"POST /v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs": "Task output ingestion is an internal service-auth endpoint.",
 		"POST /v1/knowledge-connections":                                           "Knowledge connection creation derives the concrete resource from the request body.",
 		"DELETE /v1/knowledge-connections/{connectionID...}":                       "Knowledge connection writes authorize the concrete resource in the handler.",

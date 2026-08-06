@@ -413,7 +413,7 @@ must define exactly one execution mode:
 
 | Mode | Field | Notes |
 | --- | --- | --- |
-| Include | `include` | `step:<identifier>` includes a reusable step. `pipeline:<identifier>` launches a child pipeline. |
+| Include | `include` | `step:<identifier>` includes a reusable step. `pipeline:<identifier>` launches a child pipeline; sync child includes can declare parent-visible runtime `outputs`. |
 | Multi-task | `tasks` | Each task defines exactly one of `goal` or `script`; task dependencies are local to the same step. |
 | Single LLM goal | `goal` | LLM-backed single-task step. Requires LLM to be enabled. |
 | Single script | `script` | Direct shell step. With guardrail/policy Knowledge Context, the exact command is LLM-validated before execution. |
@@ -429,6 +429,7 @@ Common step directives:
 | `steps[].condition` | LLM-evaluated natural-language condition. False normally skips; false under blocking guardrail/policy context fails closed. |
 | `steps[].secrets` | Scoped secret refs injected as environment variables. |
 | `steps[].variables` | Step-wide environment overrides. |
+| `steps[].outputs` | Runtime output contract for single-task steps and sync `pipeline:` include imports. Reusable `step:` include outputs are owned by the reusable step definition after expansion. |
 | `steps[].volumes` | Named Docker volume or Kubernetes PVC mounts using `volume:/mount/path`; existing storage is reused and missing storage is created. |
 | `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. |
 | `steps[].llm_output_sharing` | Step-level output-history sharing override. |
