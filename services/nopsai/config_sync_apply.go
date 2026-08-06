@@ -216,6 +216,16 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	if err != nil {
 		return err
 	}
+	if accessPlan.teamSubjects == nil {
+		accessPlan.teamSubjects = map[string]struct{}{}
+	}
+	if teamSubjects, err := pipelineRunAuthTeamNamesForStructure(effectivePipelineRunStructure); err != nil {
+		return fmt.Errorf("failed to derive access team subjects from pipeline run teams: %w", err)
+	} else {
+		for _, subject := range teamSubjects {
+			accessPlan.teamSubjects[subject] = struct{}{}
+		}
+	}
 
 	// Teams are the root dependency for team-owned GitOps resources. Dashboards,
 	// notification routes, team AI profiles, access grants, and dashboard source
