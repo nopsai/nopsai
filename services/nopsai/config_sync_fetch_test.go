@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"nopsai/pkg/models"
 )
 
 type fakeConfigSyncGitReader struct {
+	mu        sync.Mutex
 	accessErr error
 	dirErrs   map[string]error
 	fileErrs  map[string]error
@@ -22,11 +25,15 @@ type fakeConfigSyncGitReader struct {
 }
 
 func (f *fakeConfigSyncGitReader) EnsureAccessible(_ context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.accessChecks = append(f.accessChecks, "access")
 	return f.accessErr
 }
 
 func (f *fakeConfigSyncGitReader) Directory(_ context.Context, ref, path string) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.requestedDirs = append(f.requestedDirs, ref+":"+path)
 	if err := f.dirErrs[path]; err != nil {
 		return nil, err
@@ -42,6 +49,8 @@ func (f *fakeConfigSyncGitReader) Directory(_ context.Context, ref, path string)
 }
 
 func (f *fakeConfigSyncGitReader) File(_ context.Context, ref, path string, notFoundErr error) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.requestedFiles = append(f.requestedFiles, ref+":"+path)
 	if err := f.fileErrs[path]; err != nil {
 		return "", err
@@ -50,6 +59,54 @@ func (f *fakeConfigSyncGitReader) File(_ context.Context, ref, path string, notF
 		return content, nil
 	}
 	return "", notFoundErr
+}
+
+func TestFetchConfigSyncRepositoryFilesFetchesDirectoriesConcurrently(t *testing.T) {
+	reader := &concurrentConfigSyncGitReader{delay: 15 * time.Millisecond}
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+		RepoURL:   "https://github.com/acme/platform-config",
+		BasePath:  "config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	if _, err := fetchConfigSyncRepositoryFiles(context.Background(), reader, repoCtx, binding); err != nil {
+		t.Fatalf("fetchConfigSyncRepositoryFiles() error = %v", err)
+	}
+
+	reader.mu.Lock()
+	maxActive := reader.maxActive
+	reader.mu.Unlock()
+	if maxActive < 2 {
+		t.Fatalf("directory fetch max concurrency = %d, want at least 2", maxActive)
+	}
+}
+
+type concurrentConfigSyncGitReader struct {
+	fakeConfigSyncGitReader
+	delay     time.Duration
+	active    int
+	maxActive int
+}
+
+func (f *concurrentConfigSyncGitReader) Directory(ctx context.Context, ref, path string) (map[string]string, error) {
+	f.mu.Lock()
+	f.active++
+	if f.active > f.maxActive {
+		f.maxActive = f.active
+	}
+	f.mu.Unlock()
+
+	time.Sleep(f.delay)
+
+	f.mu.Lock()
+	f.active--
+	f.mu.Unlock()
+	return f.fakeConfigSyncGitReader.Directory(ctx, ref, path)
 }
 
 func TestNewConfigSyncRepositoryContextNormalizesBinding(t *testing.T) {
