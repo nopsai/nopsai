@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"nopsai/pkg/models"
 )
@@ -104,5 +106,70 @@ func TestGitLabConfigRepositoryClientReadsDirectoryAndCommits(t *testing.T) {
 	}
 	if len(commitPayload.Actions) != 2 || commitPayload.Actions[0].Action != "update" || commitPayload.Actions[1].Action != "delete" {
 		t.Fatalf("commit actions = %#v", commitPayload.Actions)
+	}
+}
+
+func TestGitLabConfigRepositoryClientFetchesDirectoryFilesConcurrently(t *testing.T) {
+	var mu sync.Mutex
+	activeRawRequests := 0
+	maxActiveRawRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.EscapedPath(), "/repository/tree"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"type":"blob","path":"pipelines/deploy.yaml"},{"type":"blob","path":"pipelines/test.yaml"}]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.EscapedPath(), "/repository/files/"):
+			mu.Lock()
+			activeRawRequests++
+			if activeRawRequests > maxActiveRawRequests {
+				maxActiveRawRequests = activeRawRequests
+			}
+			mu.Unlock()
+
+			time.Sleep(15 * time.Millisecond)
+
+			mu.Lock()
+			activeRawRequests--
+			mu.Unlock()
+			if strings.Contains(r.URL.EscapedPath(), "deploy.yaml") {
+				_, _ = w.Write([]byte("name: deploy\n"))
+				return
+			}
+			_, _ = w.Write([]byte("name: test\n"))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	repo := models.ConfigRepository{
+		ID:            42,
+		Provider:      models.ConfigRepositoryProviderGitLab,
+		RepoURL:       server.URL + "/acme/platform/configs.git",
+		Branch:        "main",
+		CredentialRef: "credential://system/gitops/gitlab",
+	}
+	app := &App{
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{repo.CredentialRef: "gitlab-token"},
+	}
+	client, _, err := app.newConfigRepositoryGitContentClient(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("newConfigRepositoryGitContentClient() error = %v", err)
+	}
+
+	files, err := client.Directory(context.Background(), "main", "pipelines")
+	if err != nil {
+		t.Fatalf("Directory() error = %v", err)
+	}
+	if files["pipelines/deploy.yaml"] != "name: deploy\n" || files["pipelines/test.yaml"] != "name: test\n" {
+		t.Fatalf("files = %#v", files)
+	}
+
+	mu.Lock()
+	maxActive := maxActiveRawRequests
+	mu.Unlock()
+	if maxActive < 2 {
+		t.Fatalf("raw file fetch max concurrency = %d, want at least 2", maxActive)
 	}
 }

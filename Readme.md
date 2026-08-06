@@ -308,6 +308,9 @@ Config sync applies dependency roots first: team hierarchy from
 other team-owned resources resolve team paths. Dashboard GitOps runs before
 pipeline upserts so dashboard files can create targets and pipeline dashboard
 outputs can attach source bindings in the same sync.
+Sync and drift checks fetch remote GitOps directories and file contents with
+bounded concurrency, then parse and apply from the complete repository snapshot
+so ownership checks and dependency ordering remain deterministic.
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network

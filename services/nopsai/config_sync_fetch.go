@@ -2,7 +2,6 @@ package nopsai
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -84,80 +83,64 @@ func fetchConfigSyncRepositoryFiles(ctx context.Context, reader configSyncGitRea
 		return configSyncRepositoryFiles{}, err
 	}
 
-	fetchDir := func(path, resource string) (map[string]string, error) {
-		files, err := reader.Directory(ctx, repoCtx.branch, path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch %s: %w", resource, err)
-		}
-		return files, nil
+	files := configSyncRepositoryFiles{
+		notifications:  map[string]string{},
+		teamAIProfiles: map[string]string{},
 	}
+	directoryResults, err := fetchConfigRepositoryDirectories(ctx, reader, repoCtx.branch, []configRepositoryDirectoryRequest{
+		{path: repoCtx.dirs.pipeline, resource: "pipeline definitions"},
+		{path: repoCtx.dirs.step, resource: "reusable steps"},
+		{path: repoCtx.dirs.trigger, resource: "trigger manifests"},
+		{path: repoCtx.dirs.externalTrigger, resource: "external trigger manifests"},
+		{path: repoCtx.dirs.gitWebhookSource, resource: "git webhook source manifests"},
+		{path: repoCtx.dirs.dashboard, resource: "dashboard manifests"},
+		{path: repoCtx.dirs.dashboardTemplate, resource: "dashboard template manifests"},
+		{path: repoCtx.dirs.schedule, resource: "schedule manifests"},
+		{path: repoCtx.dirs.scope, resource: "scope definitions"},
+		{path: repoCtx.dirs.configRepository, resource: "config repository bindings"},
+		{path: repoCtx.dirs.access, resource: "access manifests"},
+		{path: repoCtx.dirs.knowledge, resource: "knowledge contexts"},
+		{path: repoCtx.dirs.setting, resource: "system settings"},
+	})
+	if err != nil {
+		return configSyncRepositoryFiles{}, err
+	}
+	files.pipelines = directoryResults[0]
+	files.steps = directoryResults[1]
+	files.triggers = directoryResults[2]
+	files.externalTriggers = directoryResults[3]
+	files.gitWebhookSources = directoryResults[4]
+	files.dashboards = directoryResults[5]
+	files.dashboardTemplates = directoryResults[6]
+	files.schedules = directoryResults[7]
+	files.scopes = directoryResults[8]
+	files.configRepositories = directoryResults[9]
+	files.access = directoryResults[10]
+	files.knowledge = directoryResults[11]
+	files.setting = directoryResults[12]
 
-	var (
-		files configSyncRepositoryFiles
-		err   error
-	)
-	if files.pipelines, err = fetchDir(repoCtx.dirs.pipeline, "pipeline definitions"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.steps, err = fetchDir(repoCtx.dirs.step, "reusable steps"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.triggers, err = fetchDir(repoCtx.dirs.trigger, "trigger manifests"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.externalTriggers, err = fetchDir(repoCtx.dirs.externalTrigger, "external trigger manifests"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.gitWebhookSources, err = fetchDir(repoCtx.dirs.gitWebhookSource, "git webhook source manifests"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.dashboards, err = fetchDir(repoCtx.dirs.dashboard, "dashboard manifests"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.dashboardTemplates, err = fetchDir(repoCtx.dirs.dashboardTemplate, "dashboard template manifests"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.schedules, err = fetchDir(repoCtx.dirs.schedule, "schedule manifests"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.scopes, err = fetchDir(repoCtx.dirs.scope, "scope definitions"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.configRepositories, err = fetchDir(repoCtx.dirs.configRepository, "config repository bindings"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.access, err = fetchDir(repoCtx.dirs.access, "access manifests"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.knowledge, err = fetchDir(repoCtx.dirs.knowledge, "knowledge contexts"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	files.notifications = map[string]string{}
-	files.teamAIProfiles = map[string]string{}
 	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 		rootRoutePath := configsync.RepoJoinPath(repoCtx.basePath, "notifications.yaml")
-		content, err := reader.File(ctx, repoCtx.branch, rootRoutePath, errNotificationGitOpsNotFound)
-		if err == nil {
-			files.notifications[rootRoutePath] = content
-		} else if !errors.Is(err, errNotificationGitOpsNotFound) {
-			return configSyncRepositoryFiles{}, fmt.Errorf("failed to fetch notification route '%s': %w", rootRoutePath, err)
+		rootAIProfilesPath := configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yaml")
+		rootAIProfilesYMLPath := configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yml")
+		optionalResults, err := fetchConfigRepositoryOptionalFiles(ctx, reader, repoCtx.branch, []configRepositoryOptionalFileRequest{
+			{path: rootRoutePath, resource: "notification route", notFoundErr: errNotificationGitOpsNotFound},
+			{path: rootAIProfilesPath, resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
+			{path: rootAIProfilesYMLPath, resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
+		})
+		if err != nil {
+			return configSyncRepositoryFiles{}, err
 		}
-		for _, rootProfilePath := range []string{
-			configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yaml"),
-			configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yml"),
-		} {
-			content, err := reader.File(ctx, repoCtx.branch, rootProfilePath, errTeamAIProfilesGitOpsNotFound)
-			if err == nil {
-				files.teamAIProfiles[rootProfilePath] = content
+		for idx, result := range optionalResults {
+			if !result.found {
 				continue
 			}
-			if !errors.Is(err, errTeamAIProfilesGitOpsNotFound) {
-				return configSyncRepositoryFiles{}, fmt.Errorf("failed to fetch team AI profiles '%s': %w", rootProfilePath, err)
+			if idx == 0 {
+				files.notifications[result.path] = result.content
+			} else {
+				files.teamAIProfiles[result.path] = result.content
 			}
 		}
-	}
-	if files.setting, err = fetchDir(repoCtx.dirs.setting, "system settings"); err != nil {
-		return configSyncRepositoryFiles{}, err
 	}
 	return files, nil
 }

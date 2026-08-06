@@ -225,6 +225,7 @@ func (c tokenConfigRepositoryClient) githubWalkDirectory(ctx context.Context, re
 		}
 		entries = []githubContentEntry{entry}
 	}
+	fileRequests := make([]configRepositoryProviderFileRequest, 0, len(entries))
 	for _, entry := range entries {
 		switch entry.Type {
 		case "dir":
@@ -232,12 +233,21 @@ func (c tokenConfigRepositoryClient) githubWalkDirectory(ctx context.Context, re
 				return err
 			}
 		case "file":
-			content, err := c.githubFile(ctx, ref, entry.Path, fmt.Errorf("file not found"))
-			if err != nil {
-				return err
-			}
-			files[entry.Path] = content
+			path := entry.Path
+			fileRequests = append(fileRequests, configRepositoryProviderFileRequest{
+				path: path,
+				fetch: func(ctx context.Context) (string, error) {
+					return c.githubFile(ctx, ref, path, fmt.Errorf("file not found"))
+				},
+			})
 		}
+	}
+	fetched, err := fetchConfigRepositoryProviderFiles(ctx, fileRequests)
+	if err != nil {
+		return err
+	}
+	for path, content := range fetched {
+		files[path] = content
 	}
 	return nil
 }
@@ -372,7 +382,7 @@ func (c tokenConfigRepositoryClient) githubBranchHead(ctx context.Context, branc
 }
 
 func (c tokenConfigRepositoryClient) gitlabDirectory(ctx context.Context, ref, dir string) (map[string]string, error) {
-	result := map[string]string{}
+	paths := []string{}
 	page := "1"
 	for {
 		values := url.Values{}
@@ -386,7 +396,7 @@ func (c tokenConfigRepositoryClient) gitlabDirectory(ctx context.Context, ref, d
 			return nil, err
 		}
 		if status == http.StatusNotFound {
-			return result, nil
+			return map[string]string{}, nil
 		}
 		if !statusOK(status, http.StatusOK) {
 			return nil, c.statusError("fetch GitLab repository tree", status, body)
@@ -399,11 +409,7 @@ func (c tokenConfigRepositoryClient) gitlabDirectory(ctx context.Context, ref, d
 			if entry.Type != "blob" {
 				continue
 			}
-			content, err := c.gitlabFile(ctx, ref, entry.Path, fmt.Errorf("file not found"))
-			if err != nil {
-				return nil, err
-			}
-			result[entry.Path] = content
+			paths = append(paths, entry.Path)
 		}
 		next := strings.TrimSpace(headers.Get("X-Next-Page"))
 		if next == "" {
@@ -411,7 +417,17 @@ func (c tokenConfigRepositoryClient) gitlabDirectory(ctx context.Context, ref, d
 		}
 		page = next
 	}
-	return result, nil
+	fileRequests := make([]configRepositoryProviderFileRequest, 0, len(paths))
+	for _, path := range paths {
+		path := path
+		fileRequests = append(fileRequests, configRepositoryProviderFileRequest{
+			path: path,
+			fetch: func(ctx context.Context) (string, error) {
+				return c.gitlabFile(ctx, ref, path, fmt.Errorf("file not found"))
+			},
+		})
+	}
+	return fetchConfigRepositoryProviderFiles(ctx, fileRequests)
 }
 
 func (c tokenConfigRepositoryClient) gitlabFile(ctx context.Context, ref, filePath string, notFoundErr error) (string, error) {
@@ -532,6 +548,7 @@ func (c tokenConfigRepositoryClient) bitbucketWalkDirectory(ctx context.Context,
 			}
 			return nil
 		}
+		fileRequests := make([]configRepositoryProviderFileRequest, 0, len(listing.Values))
 		for _, entry := range listing.Values {
 			switch entry.Type {
 			case "commit_directory":
@@ -539,12 +556,21 @@ func (c tokenConfigRepositoryClient) bitbucketWalkDirectory(ctx context.Context,
 					return err
 				}
 			case "commit_file":
-				content, err := c.bitbucketFile(ctx, ref, entry.Path, fmt.Errorf("file not found"))
-				if err != nil {
-					return err
-				}
-				files[entry.Path] = content
+				path := entry.Path
+				fileRequests = append(fileRequests, configRepositoryProviderFileRequest{
+					path: path,
+					fetch: func(ctx context.Context) (string, error) {
+						return c.bitbucketFile(ctx, ref, path, fmt.Errorf("file not found"))
+					},
+				})
 			}
+		}
+		fetched, err := fetchConfigRepositoryProviderFiles(ctx, fileRequests)
+		if err != nil {
+			return err
+		}
+		for path, content := range fetched {
+			files[path] = content
 		}
 		endpoint = strings.TrimSpace(listing.Next)
 	}
@@ -689,6 +715,7 @@ func (c tokenConfigRepositoryClient) giteaWalkDirectory(ctx context.Context, ref
 		}
 		entries = []giteaContentEntry{entry}
 	}
+	fileRequests := make([]configRepositoryProviderFileRequest, 0, len(entries))
 	for _, entry := range entries {
 		switch entry.Type {
 		case "dir":
@@ -696,12 +723,21 @@ func (c tokenConfigRepositoryClient) giteaWalkDirectory(ctx context.Context, ref
 				return err
 			}
 		case "file":
-			content, err := c.giteaFile(ctx, ref, entry.Path, fmt.Errorf("file not found"))
-			if err != nil {
-				return err
-			}
-			files[entry.Path] = content
+			path := entry.Path
+			fileRequests = append(fileRequests, configRepositoryProviderFileRequest{
+				path: path,
+				fetch: func(ctx context.Context) (string, error) {
+					return c.giteaFile(ctx, ref, path, fmt.Errorf("file not found"))
+				},
+			})
 		}
+	}
+	fetched, err := fetchConfigRepositoryProviderFiles(ctx, fileRequests)
+	if err != nil {
+		return err
+	}
+	for path, content := range fetched {
+		files[path] = content
 	}
 	return nil
 }

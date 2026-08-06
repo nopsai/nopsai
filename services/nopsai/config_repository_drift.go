@@ -13,6 +13,7 @@ import (
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
 
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
 )
 
@@ -65,15 +66,32 @@ func (a *App) handleGetTeamConfigRepositoryDrift(w http.ResponseWriter, r *http.
 }
 
 func (a *App) handleGetConfigRepositoryDrift(w http.ResponseWriter, r *http.Request, repo models.ConfigRepository) {
-	desired, err := a.exportConfigRepositoryFiles(r.Context(), repo)
-	if err != nil {
+	var desired map[string]string
+	var gitFiles map[string]string
+	group, ctx := errgroup.WithContext(r.Context())
+	group.Go(func() error {
+		var err error
+		desired, err = a.exportConfigRepositoryFiles(ctx, repo)
+		if err != nil {
+			return configRepositoryDriftLoadError{status: http.StatusInternalServerError, err: err}
+		}
+		return nil
+	})
+	group.Go(func() error {
+		var err error
+		gitFiles, err = a.loadConfigRepositoryGitFiles(ctx, repo)
+		if err != nil {
+			return configRepositoryDriftLoadError{status: http.StatusBadGateway, err: err}
+		}
+		return nil
+	})
+	if err := group.Wait(); err != nil {
+		var loadErr configRepositoryDriftLoadError
+		if errors.As(err, &loadErr) {
+			http.Error(w, loadErr.err.Error(), loadErr.status)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	gitFiles, err := a.loadConfigRepositoryGitFiles(r.Context(), repo)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
@@ -93,6 +111,19 @@ func (a *App) handleGetConfigRepositoryDrift(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+type configRepositoryDriftLoadError struct {
+	status int
+	err    error
+}
+
+func (e configRepositoryDriftLoadError) Error() string {
+	return e.err.Error()
+}
+
+func (e configRepositoryDriftLoadError) Unwrap() error {
+	return e.err
+}
+
 func (a *App) loadConfigRepositoryGitFiles(ctx context.Context, repo models.ConfigRepository) (map[string]string, error) {
 	client, _, err := a.newConfigRepositoryGitContentClient(ctx, repo)
 	if err != nil {
@@ -101,7 +132,7 @@ func (a *App) loadConfigRepositoryGitFiles(ctx context.Context, repo models.Conf
 	result := map[string]string{}
 	dirs := configRepositoryGitDirsForBasePath(repo.BasePath)
 	branch := configRepositoryBranch(repo.Branch)
-	for _, directoryPath := range []string{
+	directoryPaths := []string{
 		dirs.pipeline,
 		dirs.step,
 		dirs.trigger,
@@ -115,11 +146,19 @@ func (a *App) loadConfigRepositoryGitFiles(ctx context.Context, repo models.Conf
 		dirs.configRepository,
 		dirs.access,
 		dirs.setting,
-	} {
-		files, err := client.Directory(ctx, branch, directoryPath)
-		if err != nil {
-			return nil, err
-		}
+	}
+	directoryRequests := make([]configRepositoryDirectoryRequest, 0, len(directoryPaths))
+	for _, directoryPath := range directoryPaths {
+		directoryRequests = append(directoryRequests, configRepositoryDirectoryRequest{
+			path:     directoryPath,
+			resource: fmt.Sprintf("config repository directory '%s'", directoryPath),
+		})
+	}
+	directoryResults, err := fetchConfigRepositoryDirectories(ctx, client, branch, directoryRequests)
+	if err != nil {
+		return nil, err
+	}
+	for _, files := range directoryResults {
 		for filePath, content := range files {
 			rel, ok := configRepositoryRelativeGitPath(repo.BasePath, filePath)
 			if !ok || !isConfigRepositoryDriftPath(rel) {
@@ -129,28 +168,20 @@ func (a *App) loadConfigRepositoryGitFiles(ctx context.Context, repo models.Conf
 		}
 	}
 	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
-		rootPath := configsync.RepoJoinPath(repo.BasePath, "notifications.yaml")
-		content, err := client.File(ctx, branch, rootPath, errNotificationGitOpsNotFound)
-		if err == nil {
-			if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, rootPath); ok && isConfigRepositoryDriftPath(rel) {
-				result[rel] = normalizeConfigRepositoryFileContent(content)
-			}
-		} else if !errors.Is(err, errNotificationGitOpsNotFound) {
+		optionalResults, err := fetchConfigRepositoryOptionalFiles(ctx, client, branch, []configRepositoryOptionalFileRequest{
+			{path: configsync.RepoJoinPath(repo.BasePath, "notifications.yaml"), resource: "notification route", notFoundErr: errNotificationGitOpsNotFound},
+			{path: configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yaml"), resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
+			{path: configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yml"), resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
+		})
+		if err != nil {
 			return nil, err
 		}
-		for _, rootPath := range []string{
-			configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yaml"),
-			configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yml"),
-		} {
-			content, err := client.File(ctx, branch, rootPath, errTeamAIProfilesGitOpsNotFound)
-			if err == nil {
-				if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, rootPath); ok && isConfigRepositoryDriftPath(rel) {
-					result[rel] = normalizeConfigRepositoryFileContent(content)
-				}
+		for _, file := range optionalResults {
+			if !file.found {
 				continue
 			}
-			if !errors.Is(err, errTeamAIProfilesGitOpsNotFound) {
-				return nil, err
+			if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, file.path); ok && isConfigRepositoryDriftPath(rel) {
+				result[rel] = normalizeConfigRepositoryFileContent(file.content)
 			}
 		}
 	}
