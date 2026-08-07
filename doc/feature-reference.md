@@ -875,9 +875,10 @@ Run organization behavior:
   moving across the full step graph. Graph drag panning uses viewport-scaled,
   frame-batched movement and suppresses browser text selection on graph labels.
   Opening a run and pressing Fit center the graph bounds for single-step and
-  multi-step executions. Run detail separates the execution graph and final
-  deliverables into Graph and Outputs tabs, with the shared graph palette
-  honoring light and dark app themes.
+  multi-step executions. Run detail separates the execution graph,
+  dependency-ordered execution list, and final deliverables into Graph, List,
+  and Outputs tabs, with the shared graph palette honoring light and dark app
+  themes.
 - The graph redesign is UI-only: GitOps YAML shape, AAA checks, run APIs, MCP
   monitoring tools, CLI commands, and persisted run/task records are unchanged.
 - pipeline path is used as the run owner when a run has no repository or

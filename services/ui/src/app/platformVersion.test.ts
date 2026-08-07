@@ -35,6 +35,7 @@ test('nginx serves the SPA with restrictive browser security headers', () => {
 
   assert.match(nginxConfig, /add_header Content-Security-Policy "default-src 'self'/);
   assert.match(nginxConfig, /frame-ancestors 'none'/);
+  assert.doesNotMatch(nginxConfig, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
   assert.doesNotMatch(nginxConfig, /upgrade-insecure-requests/);
   assert.match(nginxConfig, /add_header X-Frame-Options "DENY" always;/);
   assert.match(nginxConfig, /add_header X-Content-Type-Options "nosniff" always;/);

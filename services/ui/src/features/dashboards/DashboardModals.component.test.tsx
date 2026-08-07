@@ -71,6 +71,37 @@ test('new dashboard modal uses an existing-team dropdown and dashboard-output pi
   });
 });
 
+test('new dashboard modal keeps save actionable when required pipeline output is missing', () => {
+  const onSubmit = vi.fn();
+  const form = {
+    ...createDashboardForm('team-1'),
+    slug: 'empty-dashboard',
+    title: 'Empty Dashboard',
+    description: 'Operational placeholder.',
+  };
+
+  render(
+    <DashboardModal
+      modal={{ mode: 'create' }}
+      form={form}
+      teams={['team-1']}
+      pipelineOptions={[]}
+      saving={false}
+      error={null}
+      onChange={vi.fn()}
+      onClose={vi.fn()}
+      onSubmit={onSubmit}
+    />
+  );
+
+  expect(screen.getByText(/No pipeline dashboard outputs target team-1\/empty-dashboard/)).toBeVisible();
+  expect(screen.getByText(/Create requires at least one matching dashboard-output pipeline/)).toBeVisible();
+  const saveButton = screen.getByRole('button', { name: 'Save' });
+  expect(saveButton).toBeEnabled();
+  fireEvent.click(saveButton);
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+});
+
 test('edit dashboard modal leaves access management to the dashboard access card', () => {
   const onEditSection = vi.fn();
   const onDeleteSection = vi.fn();

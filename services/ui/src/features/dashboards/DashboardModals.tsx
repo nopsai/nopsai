@@ -119,14 +119,8 @@ export function DashboardModal({
     () => dashboardPipelineOptionsForRef(pipelineOptions, dashboardRef),
     [dashboardRef, pipelineOptions]
   );
-  const matchingPipelineIDSet = useMemo(
-    () => new Set(matchingPipelineOptions.map(pipeline => pipeline.id)),
-    [matchingPipelineOptions]
-  );
-  const selectedMatchingPipelineCount = form.pipelineIDs.filter(id => matchingPipelineIDSet.has(id)).length;
   const canSubmit =
     Boolean(selectedTeamPath && form.slug.trim() && form.title.trim()) &&
-    (!isCreate || selectedMatchingPipelineCount > 0) &&
     !saving;
   const errorID = error ? 'dashboard-form-error' : undefined;
 
@@ -283,7 +277,9 @@ function PipelineAssignmentPicker({
   if (pipelines.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-primary)] px-3 py-4 text-sm text-[var(--text-secondary)]">
-        No pipeline dashboard outputs target {dashboardRef}.
+        {required
+          ? `No pipeline dashboard outputs target ${dashboardRef}. Create requires at least one matching dashboard-output pipeline.`
+          : `No pipeline dashboard outputs target ${dashboardRef}.`}
       </div>
     );
   }
@@ -291,7 +287,9 @@ function PipelineAssignmentPicker({
   return (
     <div className="space-y-3">
       {required && !pipelines.some(pipeline => selectedIDs.includes(pipeline.id)) ? (
-        <p className="text-xs font-medium text-amber-700 dark:text-amber-200">Select at least one matching pipeline.</p>
+        <p className="text-xs font-medium text-amber-700 dark:text-amber-200">
+          Select at least one matching dashboard-output pipeline before saving.
+        </p>
       ) : null}
       <div className="grid gap-3 lg:grid-cols-2">
         {pipelines.map(pipeline => {

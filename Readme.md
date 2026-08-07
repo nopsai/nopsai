@@ -634,10 +634,13 @@ Before production use:
 - Open runner process logs from **System > Dispatcher** when the runner
   advertises a `runner:<runner-id>` source. Registered runners appear in
   System Logs and are marked unavailable until the configured provider can
-  access that Docker host or Kubernetes namespace. Kubernetes runner logs use
-  the registered runner's `kubernetes_namespace` and
-  `kubernetes_label_selector` dispatcher metadata, so the NopsAI API service
-  account needs read-only `pods` and `pods/log` RBAC in that namespace. Removed
+  access that Docker host or Kubernetes namespace. Generated Docker Compose and
+  Helm installs enable hybrid provider lists, but cross-runtime runner logs
+  still need explicit Kubernetes credentials/RBAC or a restricted Docker API
+  endpoint reachable from the API service. Kubernetes runner logs use the
+  registered runner's `kubernetes_namespace` and `kubernetes_label_selector`
+  dispatcher metadata, so the NopsAI API service account needs read-only
+  `pods` and `pods/log` RBAC in that namespace. Removed
   runner registrations are hidden from System Logs even if their old containers
   or pods still exist. For Docker runners installed against a port-forwarded
   Kubernetes control plane, forward `service/dispatcher` on `9090` as well as

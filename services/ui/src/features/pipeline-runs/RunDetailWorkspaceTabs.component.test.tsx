@@ -34,6 +34,13 @@ test('switches between the run graph and final outputs tabs', async () => {
 
   expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByText('Execution Graph')).toBeVisible();
+  const graphPanel = container.querySelector('.run-detail-workspace-panel--graph') as HTMLElement | null;
+  expect(graphPanel?.style.getPropertyValue('--run-graph-frame-height')).toBe('390px');
+  const resizeHandle = screen.getByRole('button', { name: 'Resize graph height' });
+  fireEvent.pointerDown(resizeHandle, { button: 0, clientY: 100 });
+  fireEvent.pointerMove(document, { clientY: 180 });
+  expect(graphPanel?.style.getPropertyValue('--run-graph-frame-height')).toBe('470px');
+  fireEvent.pointerUp(document);
 
   await user.click(screen.getByRole('button', { name: 'Expand graph' }));
   expect(screen.getByRole('dialog', { name: 'Pipeline graph' })).toBeVisible();
@@ -47,6 +54,11 @@ test('switches between the run graph and final outputs tabs', async () => {
   });
   fireEvent.keyDown(window, { key: 'Escape' });
   expect(screen.queryByRole('dialog', { name: 'Pipeline graph' })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole('tab', { name: 'List' }));
+  expect(screen.getByRole('tab', { name: 'List' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('region', { name: 'Pipeline execution list' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Expand graph' })).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('tab', { name: /Outputs.*1/ }));
 
