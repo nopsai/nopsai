@@ -10,22 +10,28 @@ export function EditorAutocompleteMenu({
   suggestion,
   loading,
   width = 320,
+  placement = 'overlay',
   onSelect,
 }: {
   id?: string;
   suggestion: EditorAutocompleteSuggestion;
   loading: boolean;
   width?: number;
+  placement?: 'overlay' | 'inline';
   onSelect: (item: string) => void;
 }) {
   let runningIndex = 0;
+  const overlayStyle = placement === 'overlay'
+    ? { width, maxWidth: 'calc(100% - 32px)', right: 16, bottom: 16, top: 'auto', left: 'auto' }
+    : { width: '100%' };
   return (
     <div
-      className="pipeline-suggestion-overlay"
+      className={`pipeline-suggestion-overlay ${placement === 'inline' ? 'pipeline-suggestion-overlay--inline' : ''}`}
       id={id}
-      style={{ width, maxWidth: 'calc(100% - 32px)', right: 16, bottom: 16, top: 'auto', left: 'auto' }}
+      style={overlayStyle}
       role="listbox"
       aria-label={`${suggestion.title} autocomplete`}
+      onMouseDown={event => event.preventDefault()}
     >
       <div className="scope-suggestion-panel">
         <div className="scope-suggestion-heading">
@@ -70,6 +76,7 @@ export function EditorAutocompleteMenu({
                                 className={`scope-suggestion-pill scope-suggestion-pill--action ${
                                   suggestion.activeIndex === globalIndex ? 'scope-suggestion-pill--active' : ''
                                 }`}
+                                onMouseDown={event => event.preventDefault()}
                                 onClick={() => onSelect(item)}
                               >
                                 {item}
@@ -93,7 +100,10 @@ export function EditorAutocompleteMenu({
                         role="option"
                         id={`${id}-option-${index}`}
                         aria-selected={index === suggestion.activeIndex}
-                        className="scope-suggestion-pill scope-suggestion-pill--action"
+                        className={`scope-suggestion-pill scope-suggestion-pill--action ${
+                          index === suggestion.activeIndex ? 'scope-suggestion-pill--active' : ''
+                        }`}
+                        onMouseDown={event => event.preventDefault()}
                         onClick={() => onSelect(item)}
                       >
                         {item}

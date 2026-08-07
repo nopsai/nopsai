@@ -2888,6 +2888,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Independent ready tasks may execute concurrently; depends_on defines graph edges.',
           'Runtime output references are valid when the dependency graph guarantees the producer runs before the consumer, including through transitive dependencies.',
           'Script-only pipelines can set llm_enabled: false to avoid requiring an LLM registry unless direct scripts use blocking guardrail or policy Knowledge Context.',
+          'Pipeline and Lab YAML editors can expand into a right-side toolbox with validation, contextual suggestions, parameters, samples, and cursor-based step/task snippet insertion.',
         ],
         details: [
           'Pipeline YAML is a reviewed automation contract. It should contain the desired execution graph and references to approved resources, not raw provider credentials, arbitrary MCP server URLs, or environment-specific bootstrap secrets.',
@@ -2895,6 +2896,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Script tasks with effective guardrail or policy knowledge are submitted for LLM validation before execution and fail closed on conflicts or unavailable validation.',
           'Profile directives are intentionally separate. agent_profile changes the persona and instructions; llm_profile selects the provider and model client; mcp_profiles selects approved external tools; knowledge_context supplies governed documents.',
           'Runtime references such as variables and secrets may be bare names, default:NAME for unscoped/default values, or scope/path:NAME for explicit scoped lookup. The injected environment variable name is the final NAME part.',
+          'Normal YAML editing keeps lightweight autocomplete near the cursor. Expanded mode moves validation and suggestion help into a stable right rail and offers insert buttons for common valid step, task, variable, and output structures.',
         ],
         configRows: pipelineTopLevelRows,
         examples: [
@@ -2922,6 +2924,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'steps[].llm_profile means this step uses that model profile for its condition and LLM tasks unless a task has a more specific llm_profile.',
           'steps[].agent_profile changes prompt persona for the step; tasks cannot define agent_profile.',
           'mcp_profiles can be set on pipeline, step, and goal task levels, but not on script or include work.',
+          'The Step editor expanded toolbox lists step and task parameters and can insert reusable script, goal, and task-list structures at the current cursor.',
         ],
         details: [
           'Goal steps and goal tasks ask the selected LLM profile for structured actions. Those actions can execute commands, replace files under the working directory, return an answer, or call an approved MCP tool.',
@@ -2929,6 +2932,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'llm_output_sharing is about history, not logs. Logs still record task output with declared secrets, sensitive variable names, and outputs marked sensitive masked; non-sensitive evidence such as versions, environments, image references, and declared output JSON remains visible.',
           'Durable run-log ingestion adds best-effort credential-pattern redaction before persistence, including escaped JSON values inside agent log messages.',
           'variables are layered in this order: pipeline/runtime values, inherited system values such as GIT_* and SCOPE, step variables, then task variables.',
+          'Expanded toolbox insertion is UI-only authoring help. Saves still use the existing YAML mutation path, AAA checks, and GitOps database-override warnings.',
         ],
         configRows: stepTaskRows,
         examples: [
@@ -2992,6 +2996,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Git Webhook Sources support provider, enabled state, team path, visibility, hmac/static_token/none auth modes, credential_ref, repository allowlist, and rate limits.',
           'Trigger manifests support events, branches, skip_branches, tags, skip_repos, include_paths, exclude_paths, pipelines, and scope.',
           'When changed-file metadata is unavailable, path matching fails open so automation is not silently skipped.',
+          'The Trigger editor expanded toolbox lists provider, team, event-rule, branch/path, pipeline, and scope fields and can insert valid trigger rule samples at the current cursor.',
         ],
         details: [
           'Non-GitHub providers do not currently fetch pipeline or trigger files directly from the source repository. Their triggers and pipelines must already exist in NopsAI, normally through configuration sync.',
@@ -2999,6 +3004,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Delivery history records accepted events, authentication failures, idempotency behavior, and no_match outcomes.',
           'Branch, tag, repository, and changed-file matching uses simple glob semantics. Single star matches one path segment, double star can span directories, and question mark matches one non-slash character.',
           'Path filters are applied only when the provider supplies changed-file data. If the changed-file list is unavailable, NopsAI treats the rule as eligible so CI is not silently skipped.',
+          'Expanded trigger YAML authoring changes only browser-side editing assistance; event matching, authorization, monitoring, CLI, and API contracts are unchanged.',
         ],
         configRows: [
           ...triggerRows,

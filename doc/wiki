@@ -14,6 +14,11 @@ The in-app wiki must be usable as a field reference. A user who sees
 `allowed_callers` under an external trigger should be able to search that exact
 directive and learn what it does, where it can be used, what it does not grant,
 and which options are currently supported.
+YAML authoring references should also describe the expanded editor toolbox:
+Pipeline, Lab, Step, and Trigger editors expose validation, contextual
+suggestions, expandable parameter groups, light samples, and cursor-based
+snippet insertion without changing AAA, GitOps, MCP, monitoring, API, or CLI
+contracts.
 GitOps drift documentation must state that drift review presents Git and Nopsai
 panes with line numbers, synchronized scrolling, and highlighted removed Git
 lines and added desired lines before push.

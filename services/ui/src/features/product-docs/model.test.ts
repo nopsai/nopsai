@@ -144,6 +144,7 @@ test('documents step-level LLM profile directives', () => {
   assert.equal(article.docType, 'reference');
   assert.ok(article.audiences.includes('automation-author'));
   assert.ok(article.keyFacts.some(fact => fact.includes('steps[].llm_profile')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('expanded toolbox')));
   assert.ok(article.configRows.some(row => row.key === 'steps[].llm_profile' && row.description.includes('provider/model') && row.path === 'steps[].llm_profile'));
   assert.ok(article.configRows.some(row => row.key === 'tasks[].llm_profile' && row.required === 'conditional'));
 });

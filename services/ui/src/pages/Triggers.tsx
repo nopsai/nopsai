@@ -909,7 +909,7 @@ function TriggersPage({
               ) : (
                 <TriggerDetailView
                   detail={detail}
-                  isEditing={false}
+                  isEditing={isEditing}
                   editorValue={editorValue}
                   validationErrors={editorValidationErrors}
                   validationErrorLines={validationErrorLines}
