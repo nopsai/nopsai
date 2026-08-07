@@ -11959,6 +11959,213 @@ html.dark .scope-suggestion-footnote {
     width: 100%;
 }
 
+.yaml-editor-fullscreen-modal {
+    position: fixed;
+    z-index: 90;
+    inset: 0;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(2, 6, 23, 0.62);
+    backdrop-filter: blur(10px);
+}
+
+.yaml-editor-fullscreen-modal__surface {
+    width: min(1560px, 100%);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    box-shadow: 0 24px 72px rgba(2, 6, 23, 0.36);
+}
+
+.yaml-editor-fullscreen-modal__head {
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--border-primary);
+    padding: 12px 14px;
+    background: var(--bg-secondary);
+}
+
+.yaml-editor-fullscreen-modal__title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--text-primary);
+}
+
+.yaml-editor-fullscreen-modal__title h2,
+.yaml-editor-fullscreen-modal__title p {
+    margin: 0;
+}
+
+.yaml-editor-fullscreen-modal__title h2 {
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.yaml-editor-fullscreen-modal__title p {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.yaml-editor-fullscreen-modal__title span {
+    border: 1px solid var(--border-primary);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.yaml-editor-fullscreen-modal__actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.yaml-editor-fullscreen-modal__close {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-primary);
+    border-radius: 999px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.yaml-editor-fullscreen-modal__close:hover,
+.yaml-editor-fullscreen-modal__close:focus-visible {
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+    outline: none;
+}
+
+.yaml-editor-fullscreen-modal__body {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+}
+
+.yaml-editor-fullscreen-modal__notice {
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 8px;
+    background: rgba(245,158,11,0.08);
+    color: var(--text-secondary);
+    padding: 0.65rem 0.75rem;
+    font-size: 0.8rem;
+}
+
+.yaml-editor-fullscreen-modal__body > .resource-yaml-editor-shell--fullscreen,
+.yaml-editor-fullscreen-modal__body > .lab-editor-wrapper--fullscreen {
+    flex: 1;
+    min-height: 0;
+}
+
+.resource-yaml-editor-shell--fullscreen {
+    height: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem);
+}
+
+.resource-yaml-editor-shell--fullscreen .editor-container {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+}
+
+.resource-yaml-editor-shell--fullscreen .yaml-editor-stage,
+.resource-yaml-editor-shell--fullscreen .yaml-editor-stage textarea {
+    height: 100%;
+    min-height: 0;
+}
+
+.resource-yaml-editor-shell--fullscreen .yaml-editor-toolbox,
+.lab-editor-wrapper--fullscreen .yaml-editor-toolbox {
+    height: 100%;
+    max-height: none;
+}
+
+.lab-editor-wrapper--fullscreen {
+    height: 100%;
+    display: flex;
+    align-items: stretch;
+}
+
+.lab-editor-wrapper--fullscreen #lab-editor-container {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+}
+
+.lab-editor-wrapper--fullscreen #lab-yaml-stage,
+.lab-editor-wrapper--fullscreen #lab-yaml-stage textarea {
+    height: 100%;
+    min-height: 0;
+    resize: none;
+}
+
+.lab-editor-wrapper--fullscreen .yaml-editor-toolbox {
+    flex: 0 0 min(27rem, 38%);
+}
+
+.resource-yaml-expanded-placeholder {
+    display: flex;
+    align-items: center;
+    min-height: 8rem;
+    border: 1px dashed var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    padding: 1rem;
+    font-size: 0.86rem;
+}
+
+@media (max-width: 980px) {
+    .yaml-editor-fullscreen-modal {
+        padding: 10px;
+    }
+
+    .yaml-editor-fullscreen-modal__head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .yaml-editor-fullscreen-modal__actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .resource-yaml-editor-shell--fullscreen,
+    .lab-editor-wrapper--fullscreen {
+        grid-template-columns: 1fr;
+        flex-direction: column;
+    }
+
+    .resource-yaml-editor-shell--fullscreen .yaml-editor-toolbox,
+    .lab-editor-wrapper--fullscreen .yaml-editor-toolbox {
+        flex: 0 0 auto;
+        height: min(38vh, 26rem);
+    }
+}
+
 .lab-workspace-grid--editor-expanded {
     grid-template-columns: 1fr !important;
 }
