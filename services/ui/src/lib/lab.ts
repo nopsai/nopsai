@@ -233,8 +233,7 @@ export function validateOverrideKey(key: string): boolean {
 type RuntimeOutputConsumer = {
   stepName: string;
   taskName: string;
-  stepDependsOn: string[];
-  taskDependsOn: string[];
+  stepLevel: boolean;
 };
 
 type RuntimeVariableConsumer = {
@@ -245,6 +244,16 @@ type RuntimeVariableConsumer = {
 
 function producerTaskKey(stepName: string, taskName: string): string {
   return `${stepName.trim()}/${taskName.trim()}`;
+}
+
+const STEP_VARIABLE_CONSUMER_TASK_NAME = '__step_variables__';
+
+function stepVariableConsumerKey(stepName: string): string {
+  return producerTaskKey(stepName, STEP_VARIABLE_CONSUMER_TASK_NAME);
+}
+
+function runtimeOutputConsumerKey(consumer: RuntimeOutputConsumer): string {
+  return consumer.stepLevel ? stepVariableConsumerKey(consumer.stepName) : producerTaskKey(consumer.stepName, consumer.taskName);
 }
 
 function resolvePipelineTaskDependency(
@@ -280,23 +289,95 @@ function resolvePipelineTaskDependency(
   return { stepName: '', taskName: '', ok: false };
 }
 
-function consumerDependsOnOutputProducer(consumer: RuntimeOutputConsumer, ref: { stepName: string; taskName: string }): boolean {
-  if (consumer.stepName === ref.stepName && consumer.taskName === ref.taskName) return false;
-  if (consumer.stepDependsOn.some(dep => dep.trim() === ref.stepName || dep.trim() === `${ref.stepName}.${ref.taskName}`)) {
-    return true;
-  }
-  return consumer.taskDependsOn.some(dep => {
-    const trimmed = dep.trim();
-    if (consumer.stepName === ref.stepName && trimmed === ref.taskName) return true;
-    return trimmed === `${ref.stepName}.${ref.taskName}`;
+function buildPipelineDependencyIndex(
+  steps: unknown[],
+  stepNames: Set<string>,
+  stepToTaskNames: Map<string, Set<string>>
+): Map<string, string[]> {
+  const dependencies = new Map<string, string[]>();
+  const ensureNode = (key: string) => {
+    if (!dependencies.has(key)) dependencies.set(key, []);
+  };
+  const appendDependency = (consumerKey: string, producerKey: string) => {
+    ensureNode(consumerKey);
+    ensureNode(producerKey);
+    dependencies.get(consumerKey)?.push(producerKey);
+  };
+
+  stepToTaskNames.forEach((taskNames, stepName) => {
+    ensureNode(stepVariableConsumerKey(stepName));
+    [...taskNames].sort().forEach(taskName => ensureNode(producerTaskKey(stepName, taskName)));
   });
+
+  for (const stepRaw of steps) {
+    if (!isPlainObject(stepRaw)) continue;
+    const stepName = safeString(stepRaw.name);
+    if (!stepName) continue;
+    const taskNames = stepToTaskNames.get(stepName) ?? new Set<string>();
+    const consumerKeys = [stepVariableConsumerKey(stepName), ...[...taskNames].sort().map(taskName => producerTaskKey(stepName, taskName))];
+
+    if (Array.isArray(stepRaw.depends_on)) {
+      for (const dep of stepRaw.depends_on) {
+        const resolved = resolvePipelineTaskDependency(safeString(dep), stepName, stepNames, stepToTaskNames);
+        if (!resolved.ok) continue;
+        let producerKeys = resolved.taskName
+          ? [producerTaskKey(resolved.stepName, resolved.taskName)]
+          : [...(stepToTaskNames.get(resolved.stepName) ?? [])].sort().map(taskName => producerTaskKey(resolved.stepName, taskName));
+        if (!resolved.taskName && producerKeys.length === 0) {
+          producerKeys = [stepVariableConsumerKey(resolved.stepName)];
+        }
+        for (const consumerKey of consumerKeys) {
+          for (const producerKey of producerKeys) {
+            appendDependency(consumerKey, producerKey);
+          }
+        }
+      }
+    }
+
+    const tasks = Array.isArray(stepRaw.tasks) ? stepRaw.tasks : [];
+    for (const taskRaw of tasks) {
+      if (!isPlainObject(taskRaw)) continue;
+      const taskName = safeString(taskRaw.name);
+      if (!taskName || !Array.isArray(taskRaw.depends_on)) continue;
+      const consumerKey = producerTaskKey(stepName, taskName);
+      for (const dep of taskRaw.depends_on) {
+        const resolved = resolvePipelineTaskDependency(safeString(dep), stepName, stepNames, stepToTaskNames);
+        if (!resolved.ok || !resolved.taskName) continue;
+        appendDependency(consumerKey, producerTaskKey(resolved.stepName, resolved.taskName));
+      }
+    }
+  }
+
+  return dependencies;
+}
+
+function dependencyIndexHasPath(dependencies: Map<string, string[]>, from: string, to: string): boolean {
+  if (!from.trim() || !to.trim() || from === to) return false;
+  const visited = new Set<string>();
+  const visit = (node: string): boolean => {
+    if (visited.has(node)) return false;
+    visited.add(node);
+    return (dependencies.get(node) ?? []).some(dep => dep === to || visit(dep));
+  };
+  return visit(from);
+}
+
+function consumerDependsOnOutputProducer(
+  consumer: RuntimeOutputConsumer,
+  ref: { stepName: string; taskName: string },
+  dependencyIndex: Map<string, string[]>
+): boolean {
+  if (consumer.stepLevel && consumer.stepName === ref.stepName) return false;
+  if (!consumer.stepLevel && consumer.stepName === ref.stepName && consumer.taskName === ref.taskName) return false;
+  return dependencyIndexHasPath(dependencyIndex, runtimeOutputConsumerKey(consumer), producerTaskKey(ref.stepName, ref.taskName));
 }
 
 function validateRuntimeOutputRefsInVariables(
   variables: Record<string, unknown>,
   consumer: RuntimeOutputConsumer,
   stepToTaskNames: Map<string, Set<string>>,
-  outputDeclarations: Map<string, Set<string>>
+  outputDeclarations: Map<string, Set<string>>,
+  dependencyIndex: Map<string, string[]>
 ): string | null {
   for (const [name, rawValue] of Object.entries(variables)) {
     if (typeof rawValue !== 'string') continue;
@@ -316,7 +397,7 @@ function validateRuntimeOutputRefsInVariables(
       if (!firstRef) firstRef = ref;
       if (!stepToTaskNames.get(ref.stepName)?.has(ref.taskName)) continue;
       if (!outputDeclarations.get(producerTaskKey(ref.stepName, ref.taskName))?.has(ref.outputName)) continue;
-      if (!consumerDependsOnOutputProducer(consumer, ref)) {
+      if (!consumerDependsOnOutputProducer(consumer, ref, dependencyIndex)) {
         return `Validation Error: Variable '${name}' consumes output ${ref.stepName}.${ref.taskName}.outputs.${ref.outputName} without a valid dependency.`;
       }
       matched = true;
@@ -722,8 +803,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
           consumer: {
             stepName,
             taskName: stepName,
-            stepDependsOn: Array.isArray(step.depends_on) ? step.depends_on.map(dep => safeString(dep)) : [],
-            taskDependsOn: [],
+            stepLevel: true,
           },
           path: `${stepPath}.variables`,
         });
@@ -804,6 +884,9 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       }
 
       const hasLegacyContent = hasGoalContent || hasScriptContent;
+      if (!isInclude && !hasTasks && hasLegacyContent) {
+        stepToTaskNames.get(stepName)?.add(stepName);
+      }
       const stepOutputs = parseTaskOutputDeclarations(step.outputs, `Step '${stepName}' outputs`);
       if (stepOutputs.error) {
         return { errors: [createError(`Validation Error: ${stepOutputs.error}`, [`${stepPath}.outputs`, stepPath])] };
@@ -1009,8 +1092,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
               consumer: {
                 stepName,
                 taskName,
-                stepDependsOn: Array.isArray(step.depends_on) ? step.depends_on.map(dep => safeString(dep)) : [],
-                taskDependsOn: Array.isArray(task.depends_on) ? task.depends_on.map(dep => safeString(dep)) : [],
+                stepLevel: false,
               },
               path: `${taskPath}.variables`,
             });
@@ -1160,8 +1242,9 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       }
     }
 
+    const dependencyIndex = buildPipelineDependencyIndex(steps, stepNames, stepToTaskNames);
     for (const entry of runtimeVariableConsumers) {
-      const error = validateRuntimeOutputRefsInVariables(entry.variables, entry.consumer, stepToTaskNames, outputDeclarations);
+      const error = validateRuntimeOutputRefsInVariables(entry.variables, entry.consumer, stepToTaskNames, outputDeclarations, dependencyIndex);
       if (error) {
         return { errors: [createError(error, [entry.path])] };
       }

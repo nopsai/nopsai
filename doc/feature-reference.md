@@ -57,7 +57,8 @@ Supported pipeline features:
 - per-step and per-task variable overrides
 - per-step secret declaration
 - task runtime outputs declared with `outputs`, produced as files under the
-  reserved `/nopsai/outputs` mount, and consumed by dependent tasks with
+  reserved `/nopsai/outputs` mount, and consumed by downstream step or task
+  variables with
   `$steps.<step>.<task>.outputs.<name>`
 - ignored failures with run-detail warnings when ignored work fails
 - LLM content and output sharing controls
@@ -127,9 +128,12 @@ isolated Docker `tmpfs` or Kubernetes `emptyDir`. Missing files fail only when
 another task references the declared output; undeclared files are ignored.
 Sensitive output values are encrypted when persisted, masked after collection,
 excluded from normal run-detail/API responses, and passed only as authorized
-runtime variables to dependent consumers. Single-task steps and parent-visible
-include outputs can also be consumed with `$steps.<step>.outputs.<name>`, which
-resolves to the step's synthetic task.
+runtime variables to downstream consumers. Output references require the
+dependency graph to guarantee the producer runs before the consumer; a direct
+`depends_on` is not required when an existing transitive path already provides
+that ordering. Single-task steps and parent-visible include outputs can also be
+consumed with `$steps.<step>.outputs.<name>`, which resolves to the step's
+synthetic task.
 
 Pipeline-declared Docker volumes and Kubernetes PVCs are named storage
 bindings, similar to Tekton workspaces bound to a PVC. The agent mounts an
