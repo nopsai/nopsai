@@ -206,6 +206,7 @@ function EventCard({
   const statusDotClass = (status: string, complete?: boolean) => {
     const normalized = normalizeStatus(status, complete);
     if (normalized === 'success') return 'bg-green-500';
+    if (normalized === 'warning') return 'bg-amber-500';
     if (normalized === 'failure') return 'bg-red-500';
     if (normalized === 'failure (ignored)') return 'bg-amber-500';
     if (normalized === 'running') return 'bg-blue-500 animate-pulse';

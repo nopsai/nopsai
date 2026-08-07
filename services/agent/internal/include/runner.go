@@ -122,7 +122,7 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 		finalStatus := r.waitForChild(ctx, req, childRunID)
 		exitCode := 0
 		outputs := map[string]RuntimeOutput(nil)
-		if finalStatus == "success" && len(outputNames) > 0 {
+		if includeStatusSucceeded(finalStatus) && len(outputNames) > 0 {
 			if r.config.FetchOutputs == nil {
 				r.logError(req.Logger, fmt.Errorf("child pipeline output fetcher is not configured"), "Failed to resolve child pipeline outputs")
 				finalStatus = "failure"
@@ -138,7 +138,7 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 			}
 		}
 		req.finalize(req.StepName, req.StepName, finalStatus, exitCode)
-		success := finalStatus == "success"
+		success := includeStatusSucceeded(finalStatus)
 		if !success && req.MarkPipelineFailed != nil {
 			req.MarkPipelineFailed(finalStatus)
 		}
@@ -189,6 +189,15 @@ func normalizedOutputNames(values []string) []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+func includeStatusSucceeded(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success", "warning":
+		return true
+	default:
+		return false
+	}
 }
 
 func (req Request) finalize(stepName, taskName, status string, exitCode int) {

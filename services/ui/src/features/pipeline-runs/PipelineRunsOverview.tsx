@@ -439,9 +439,10 @@ function StatusPill({ status, label }: { status: string; label: string }) {
 
 function statusClass(status: string): string {
   if (status === 'success') return 'success';
+  if (status === 'warning' || status === 'failure (ignored)') return 'warning';
   if (status === 'running') return 'running';
   if (status === 'waiting_approval') return 'waiting';
-  if (status === 'failure' || status === 'failure (ignored)' || status === 'rejected' || status === 'timed_out') return 'failed';
+  if (status === 'failure' || status === 'rejected' || status === 'timed_out') return 'failed';
   return 'pending';
 }
 

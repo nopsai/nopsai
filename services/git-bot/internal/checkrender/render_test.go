@@ -27,6 +27,22 @@ func TestMarkdownFlatListOrdersByTaskIndex(t *testing.T) {
 	}
 }
 
+func TestMarkdownFlatListRendersWarningIcon(t *testing.T) {
+	state := &State{
+		StepOrder: []string{"lint"},
+		Steps: map[string]map[string]TaskStatusUpdate{
+			"lint": {
+				"lint": {StepName: "lint", TaskName: "lint", TaskStatus: "warning", TaskIndex: 1},
+			},
+		},
+	}
+
+	got := MarkdownFlatList(state)
+	if !strings.Contains(got, "⚠️ **lint**: `lint` - warning") {
+		t.Fatalf("flat list did not render warning icon:\n%s", got)
+	}
+}
+
 func TestMarkdownTreeRendersDependencyChild(t *testing.T) {
 	state := &State{
 		Steps: map[string]map[string]TaskStatusUpdate{

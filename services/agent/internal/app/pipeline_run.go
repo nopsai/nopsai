@@ -133,6 +133,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 	historyRevision := uint64(len(completedTasks))
 
 	var pipelineFailed atomic.Bool
+	var pipelineWarned atomic.Bool
 	pipelinePaused := false
 	conditionEvaluator := resolver.NewConditionEvaluator()
 	taskResolver := resolver.NewTaskActionResolver()
@@ -192,6 +193,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					}
 					req.finalizeTask(activeTasks, stepName, task.Name, status, exitCode, llmDurationMs)
 					if status == "failure (ignored)" {
+						pipelineWarned.Store(true)
 						taskLogger.Warn().Msg("Task failed, but failure is ignored")
 						return true
 					}
@@ -317,18 +319,29 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						Sync:               step.GetSync(),
 						LLMDurationMs:      llmDurationMs,
 						FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
-							req.finalizeTask(activeTasks, stepName, taskName, failureStatusWithTolerance(status, ignoreFailure), exitCode, llmDurationMs)
+							finalStatus := failureStatusWithTolerance(status, ignoreFailure)
+							if isWarningRunStatus(finalStatus) {
+								pipelineWarned.Store(true)
+							}
+							req.finalizeTask(activeTasks, stepName, taskName, finalStatus, exitCode, llmDurationMs)
 						},
 						MarkPipelineFailed: func(status string) {
-							if failureStatusWithTolerance(status, ignoreFailure) != "failure (ignored)" {
+							finalStatus := failureStatusWithTolerance(status, ignoreFailure)
+							if isWarningRunStatus(finalStatus) {
+								pipelineWarned.Store(true)
+							} else {
 								pipelineFailed.Store(true)
 							}
 						},
 					})
+					includeStatus := failureStatusWithTolerance(includeResult.Status, ignoreFailure)
+					if isWarningRunStatus(includeStatus) {
+						pipelineWarned.Store(true)
+					}
 					if includeResult.Success && len(includeResult.Outputs) > 0 {
 						runtimeOutputs.Set(stepName, stepName, runtimeOutputValuesFromInclude(includeResult.Outputs))
 					}
-					if !includeResult.Success && failureStatusWithTolerance(includeResult.Status, ignoreFailure) == "failure (ignored)" {
+					if !includeResult.Success && includeStatus == "failure (ignored)" {
 						taskLogger.Warn().Msg("Task failed, but failure is ignored")
 						results <- taskResult{name: runnable.GlobalKey, success: true}
 						return
@@ -607,6 +620,9 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 	} else if failed {
 		finalStatus = "failure"
 		logger.Error().Msg("Pipeline finished with failed tasks")
+	} else if pipelineWarned.Load() {
+		finalStatus = "warning"
+		logger.Warn().Msg("Pipeline finished with ignored failed tasks")
 	} else {
 		logger.Info().Msg("Pipeline finished successfully")
 	}

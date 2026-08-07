@@ -104,6 +104,7 @@ const statusFilterOptions: Array<{ value: PipelineRunStatusFilter; label: string
   { value: 'all', label: 'Any status' },
   { value: 'attention', label: 'Needs attention' },
   { value: 'running', label: 'Running' },
+  { value: 'warning', label: 'Warning' },
   { value: 'failure', label: 'Failed' },
   { value: 'waiting_approval', label: 'Waiting approval' },
   { value: 'success', label: 'Success' },

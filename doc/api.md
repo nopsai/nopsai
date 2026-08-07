@@ -2090,9 +2090,11 @@ curl -X DELETE \
   team/application records.
 - Scheduled runs set `trigger_source: "schedule"` and include schedule metadata when the run came from a pipeline schedule.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.
-- Runs that continue past ignored failed work keep the failed step or task status
-  as `failure (ignored)`; run details surface an ignored-failure warning even
-  when the overall run status is `success`.
+- Runs that continue past ignored failed work keep the failed task status as
+  `failure (ignored)` for audit detail, surface the step with warning
+  presentation, and finish the overall run as `warning` when no blocking failure
+  occurs. Failed runs remain `failure` even when they also contain ignored
+  warning work.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.
 
 ---

@@ -21,7 +21,7 @@ test('detects ignored failure statuses from steps, tasks, and child runs', () =>
       },
       {
         name: 'scan',
-        status: 'ignored_failure',
+        status: 'warning',
         depends_on: [],
         tasks: [],
       },
@@ -49,6 +49,7 @@ test('does not warn for ordinary failed or successful work', () => {
   assert.equal(isIgnoredFailureStatus('failure'), false);
   assert.equal(isIgnoredFailureStatus('success'), false);
   assert.equal(isIgnoredFailureStatus('failure (ignored)'), true);
+  assert.equal(isIgnoredFailureStatus('warning'), true);
   assert.equal(
     buildIgnoredFailureWarning({
       steps: [{ name: 'deploy', status: 'success', depends_on: [], tasks: [] }],

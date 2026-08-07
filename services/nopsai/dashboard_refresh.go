@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	aaamodel "nopsai/services/aaa/pkg/model"
+	runquery "nopsai/services/nopsai/internal/runs"
 )
 
 const dashboardRefreshTriggerSource = "dashboard_refresh"
@@ -628,17 +629,18 @@ func dashboardRefreshRunStatusFromPipelineOutputStatus(runStatus, outputStatus, 
 	case dashboardRefreshRunStatusSkipped:
 		return nextStatus, "pipeline run skipped"
 	}
-	if strings.EqualFold(strings.TrimSpace(runStatus), "success") && runFinishedStale {
+	normalizedRunStatus := runquery.NormalizeRunDetailStatus(runStatus)
+	if (normalizedRunStatus == "success" || normalizedRunStatus == "warning") && runFinishedStale {
 		return dashboardRefreshRunStatusFailed, "pipeline run completed without producing dashboard output"
 	}
 	return "", ""
 }
 
 func dashboardRefreshRunStatusFromPipelineStatus(status string) string {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success":
+	switch runquery.NormalizeRunDetailStatus(status) {
+	case "success", "warning":
 		return ""
-	case "failure", "failure (ignored)", "rejected":
+	case "failure", "rejected":
 		return dashboardRefreshRunStatusFailed
 	case "cancelled":
 		return dashboardRefreshRunStatusCancelled

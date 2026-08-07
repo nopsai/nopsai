@@ -16,6 +16,7 @@ import {
   formatTokenCount,
   formatTriggerId,
   getRunSourceKind,
+  getStatusDotClass,
   runActivityTimestamp,
   teamDisplayName,
   teamRepositoryURL,
@@ -125,6 +126,14 @@ test('summarizes status and latest activity deterministically', () => {
     started_at: '2026-06-08T11:00:00Z',
   });
   assert.equal(timeAgo('2026-06-08T10:00:00Z', Date.parse('2026-06-08T12:00:00Z')), '2h ago');
+});
+
+test('summarizes warning runs below failures but above successes', () => {
+  const successful = run({ run_id: 'success', status: 'success', started_at: '2026-06-08T10:00:00Z' });
+  const warning = run({ run_id: 'warning', status: 'warning', started_at: '2026-06-08T11:00:00Z' });
+
+  assert.equal(summarizeStatus([successful, warning]), 'warning');
+  assert.equal(getStatusDotClass('warning', true), 'bg-amber-500');
 });
 
 test('ignores Go zero timestamps from runs that failed before start', () => {

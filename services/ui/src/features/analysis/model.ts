@@ -1544,7 +1544,7 @@ function buildSuccessfulRunFindings(input: RunAnalysisInput, lastSuccess: RunAna
     });
   }
 
-  const failedIgnoredSteps = input.detail.steps.filter(step => isFailureStatus(step.status) && step.configuration?.ignore_failure);
+  const failedIgnoredSteps = input.detail.steps.filter(step => isIgnoredFailureStepStatus(step.status) && step.configuration?.ignore_failure);
   if (failedIgnoredSteps.length > 0) {
     findings.push({
       category: 'reliability',
@@ -2326,13 +2326,19 @@ function redactInline(value: string) {
 
 function isFailureStatus(status?: string, complete?: boolean) {
   const normalized = normalizeStatus(status);
+  if (normalized === 'warning' || normalized === 'failure_(ignored)') return false;
   if (normalized === 'failure' || normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' || normalized === 'rejected') return true;
-  return complete === true && normalized !== 'success' && normalized !== 'succeeded' && normalized !== 'skipped' && Boolean(normalized);
+  return complete === true && normalized !== 'success' && normalized !== 'succeeded' && normalized !== 'warning' && normalized !== 'skipped' && Boolean(normalized);
 }
 
 function isSuccessStatus(status?: string, complete?: boolean) {
   const normalized = normalizeStatus(status);
-  return normalized === 'success' || normalized === 'succeeded' || (complete === true && normalized === 'completed');
+  return normalized === 'success' || normalized === 'succeeded' || normalized === 'warning' || normalized === 'failure_(ignored)' || (complete === true && normalized === 'completed');
+}
+
+function isIgnoredFailureStepStatus(status?: string) {
+  const normalized = normalizeStatus(status);
+  return normalized === 'warning' || normalized === 'failure_(ignored)' || isFailureStatus(status);
 }
 
 function normalizeStatus(status?: string) {

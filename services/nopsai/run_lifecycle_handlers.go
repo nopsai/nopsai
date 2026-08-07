@@ -95,7 +95,7 @@ func (a *App) markRunCancelled(ctx context.Context, runUUID uuid.UUID, reason st
 		UPDATE task_runs
 		SET status = 'cancelled', finished_at = COALESCE(finished_at, NOW())
 		WHERE run_id = $1
-		  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled')`, runUUID); err != nil {
+		  AND status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'skipped', 'cancelled')`, runUUID); err != nil {
 		return false, err
 	}
 

@@ -207,3 +207,55 @@ func TestRunnerSyncFetchesChildOutputsBeforeFinalizingSuccess(t *testing.T) {
 		t.Fatalf("finalized = %#v, want one success finalization", finalized)
 	}
 }
+
+func TestRunnerSyncTreatsChildWarningAsSuccess(t *testing.T) {
+	logger := zerolog.Nop()
+	var finalized []includeFinalization
+	markedFailed := false
+	fetched := false
+	runner := NewRunner(Config{
+		FetchDefinition: func(context.Context, string) ([]byte, error) {
+			return []byte("name: release-child"), nil
+		},
+		TriggerPipeline: func(context.Context, string, string, string, string, []byte, string, map[string]string, []string) (string, error) {
+			return "child-run-1", nil
+		},
+		MonitorPipeline: func(context.Context, *zerolog.Logger, string) (string, error) {
+			return "warning", nil
+		},
+		FetchOutputs: func(context.Context, string, string, string, []string) (map[string]RuntimeOutput, error) {
+			fetched = true
+			return map[string]RuntimeOutput{
+				"image_tag": {Name: "image_tag", Value: "v1.2.3"},
+			}, nil
+		},
+	})
+
+	result := runner.Run(context.Background(), Request{
+		Logger:        &logger,
+		ParentRunID:   "parent-run-1",
+		StepName:      "child",
+		IncludeTarget: "pipeline:release-child",
+		Sync:          true,
+		OutputNames:   []string{"image_tag"},
+		FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
+			finalized = append(finalized, includeFinalization{stepName, taskName, status, exitCode, llmDurationMs})
+		},
+		MarkPipelineFailed: func(string) {
+			markedFailed = true
+		},
+	})
+
+	if !result.Handled || !result.Success || result.Status != "warning" {
+		t.Fatalf("result = %#v, want handled warning success", result)
+	}
+	if markedFailed {
+		t.Fatal("warning child marked parent pipeline failed")
+	}
+	if !fetched || result.Outputs["image_tag"].Value != "v1.2.3" {
+		t.Fatalf("outputs = %#v, fetched = %v, want image_tag from warning child", result.Outputs, fetched)
+	}
+	if len(finalized) != 1 || finalized[0].status != "warning" || finalized[0].exitCode != 0 {
+		t.Fatalf("finalized = %#v, want one warning finalization", finalized)
+	}
+}
