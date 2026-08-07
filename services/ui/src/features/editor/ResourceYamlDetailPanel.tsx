@@ -1,10 +1,11 @@
-import { useCallback, useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
 import { Copy, Download, Maximize2, Minimize2 } from 'lucide-react';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import type { ResourceAccessResourceType } from '../../components/ResourceAccessCard';
 import { renderYamlHighlight, renderYamlLines } from '../../lib/yamlRenderer';
 import { EditorAutocompleteMenu, type EditorAutocompleteSuggestion } from './EditorAutocompleteMenu';
 import type { YamlValidationError } from './YamlValidationPanel';
+import { YamlEditorFullscreenDialog } from './YamlEditorFullscreenDialog';
 import { YamlEditorToolbox } from './YamlEditorToolbox';
 import { insertYamlSnippetAtCursor, type YamlEditorResourceKind } from './yamlToolboxModel';
 
@@ -103,6 +104,8 @@ export function ResourceYamlDetailPanel({
   const editorLines = editorValue.split('\n');
   const saveDisabled = saving || (saveBlocked ?? validationErrors.length > 0);
   const [editorExpanded, setEditorExpanded] = useState(false);
+  const activeEditorExpanded = isEditing && editorExpanded;
+  const closeExpandedEditor = useCallback(() => setEditorExpanded(false), []);
 
   const handleInsertSnippet = useCallback(
     (snippet: string) => {
@@ -122,6 +125,24 @@ export function ResourceYamlDetailPanel({
     },
     [editorRef, editorValue, onDismissSuggestion, onEditorTextChange]
   );
+
+  const handleEdit = useCallback(() => {
+    setEditorExpanded(false);
+    onEdit();
+  }, [onEdit]);
+
+  const handleDiscard = useCallback(() => {
+    setEditorExpanded(false);
+    onDiscard();
+  }, [onDiscard]);
+
+  useEffect(() => {
+    if (!activeEditorExpanded) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeEditorExpanded, editorRef]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.ctrlKey && event.code === 'Space') {
@@ -166,8 +187,81 @@ export function ResourceYamlDetailPanel({
     }
   };
 
+  const renderEditorWorkspace = (fullscreen: boolean) => (
+    <div className={`resource-yaml-editor-shell ${fullscreen ? 'resource-yaml-editor-shell--expanded resource-yaml-editor-shell--fullscreen' : 'resource-yaml-editor-shell--normal'}`}>
+      <div id={ids.editorContainer} className="editor-container">
+        <div id={ids.lineNumbers} ref={lineNumbersRef}>
+          <div className="line-number-track">
+            {editorLines.map((_, index) => (
+              <div key={`ln-${index}`} className={`line-number ${validationErrorLines.has(index + 1) ? 'line-number--error' : ''}`}>
+                {index + 1}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div id={ids.stage} className="yaml-editor-stage yaml-editor-stage--with-highlight">
+          <div id={ids.highlight} className="yaml-editor-highlight" aria-hidden="true">
+            <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
+              {renderYamlHighlight(editorValue)}
+            </pre>
+          </div>
+          <textarea
+            ref={editorRef}
+            id={ids.editor}
+            aria-label={editorLabel}
+            aria-describedby={ids.validation}
+            aria-invalid={validationErrors.length > 0}
+            aria-autocomplete="list"
+            aria-controls={editorSuggestion ? ids.autocomplete : undefined}
+            aria-activedescendant={editorSuggestion ? `${ids.autocomplete}-option-${editorSuggestion.activeIndex}` : undefined}
+            value={editorValue}
+            onChange={event => onEditorTextChange(event.target.value, event.target.selectionStart || 0)}
+            onClick={event => onOpenSuggestion(event.currentTarget.selectionStart || 0)}
+            onScroll={onEditorScroll}
+            onKeyDown={handleKeyDown}
+            spellCheck={false}
+          />
+        </div>
+        {!fullscreen && editorSuggestion ? (
+          <EditorAutocompleteMenu
+            id={ids.autocomplete}
+            suggestion={editorSuggestion}
+            loading={autocompleteLoading}
+            width={autocompleteWidth}
+            onSelect={onSelectSuggestion}
+          />
+        ) : null}
+      </div>
+      {fullscreen ? (
+        <YamlEditorToolbox
+          resourceKind={resourceKind}
+          validationId={ids.validation}
+          validationErrors={validationErrors}
+          suggestionSlot={
+            editorSuggestion ? (
+              <EditorAutocompleteMenu
+                id={ids.autocomplete}
+                suggestion={editorSuggestion}
+                loading={autocompleteLoading}
+                placement="inline"
+                onSelect={onSelectSuggestion}
+              />
+            ) : (
+              <p className="yaml-editor-toolbox__empty">Use Ctrl+Space while editing to show contextual completions here.</p>
+            )
+          }
+          onInsertSnippet={handleInsertSnippet}
+        />
+      ) : (
+        <div id={ids.validation} className="sr-only" role="status" aria-live="polite">
+          {validationErrors.length ? `${validationErrors.length} YAML validation issue${validationErrors.length === 1 ? '' : 's'}` : 'YAML valid'}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className={`glass-card overflow-hidden resource-yaml-detail-card ${editorExpanded ? 'resource-yaml-detail-card--expanded' : ''}`}>
+    <div className={`glass-card overflow-hidden resource-yaml-detail-card ${activeEditorExpanded ? 'resource-yaml-detail-card--expanded' : ''}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
         <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
         {isEditing && !showActions ? (
@@ -175,11 +269,11 @@ export function ResourceYamlDetailPanel({
             className="glass-button-ghost"
             type="button"
             onClick={() => setEditorExpanded(current => !current)}
-            title={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
-            aria-label={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
-            aria-expanded={editorExpanded}
+            title={activeEditorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+            aria-label={activeEditorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+            aria-expanded={activeEditorExpanded}
           >
-            {editorExpanded ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+            {activeEditorExpanded ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
           </button>
         ) : null}
         {showActions ? (
@@ -196,7 +290,7 @@ export function ResourceYamlDetailPanel({
                 {!canUpdate && !canCreate ? null : (
                   <>
                     {canUpdate ? (
-                      <button className="glass-button-primary" onClick={onEdit}>
+                      <button className="glass-button-primary" onClick={handleEdit}>
                         Edit
                       </button>
                     ) : null}
@@ -214,13 +308,13 @@ export function ResourceYamlDetailPanel({
                   className="glass-button-ghost"
                   type="button"
                   onClick={() => setEditorExpanded(current => !current)}
-                  title={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
-                  aria-label={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
-                  aria-expanded={editorExpanded}
+                  title={activeEditorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+                  aria-label={activeEditorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+                  aria-expanded={activeEditorExpanded}
                 >
-                  {editorExpanded ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+                  {activeEditorExpanded ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
                 </button>
-                <button className="glass-button-ghost" onClick={onDiscard}>
+                <button className="glass-button-ghost" onClick={handleDiscard}>
                   Discard
                 </button>
                 <button className="glass-button-primary" onClick={onSave} disabled={saveDisabled}>
@@ -242,76 +336,40 @@ export function ResourceYamlDetailPanel({
             {renderYamlLines(rawYaml)}
           </div>
         ) : (
-          <div className={`resource-yaml-editor-shell ${editorExpanded ? 'resource-yaml-editor-shell--expanded' : 'resource-yaml-editor-shell--normal'}`}>
-            <div id={ids.editorContainer} className="editor-container">
-              <div id={ids.lineNumbers} ref={lineNumbersRef}>
-                <div className="line-number-track">
-                  {editorLines.map((_, index) => (
-                    <div key={`ln-${index}`} className={`line-number ${validationErrorLines.has(index + 1) ? 'line-number--error' : ''}`}>
-                      {index + 1}
-                    </div>
-                  ))}
-                </div>
+          <>
+            {activeEditorExpanded ? (
+              <div className="resource-yaml-expanded-placeholder">
+                Expanded YAML editor is open.
               </div>
-              <div id={ids.stage} className="yaml-editor-stage yaml-editor-stage--with-highlight">
-                <div id={ids.highlight} className="yaml-editor-highlight" aria-hidden="true">
-                  <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
-                    {renderYamlHighlight(editorValue)}
-                  </pre>
-                </div>
-                <textarea
-                  ref={editorRef}
-                  id={ids.editor}
-                  aria-label={editorLabel}
-                  aria-describedby={ids.validation}
-                  aria-invalid={validationErrors.length > 0}
-                  aria-autocomplete="list"
-                  aria-controls={editorSuggestion ? ids.autocomplete : undefined}
-                  aria-activedescendant={editorSuggestion ? `${ids.autocomplete}-option-${editorSuggestion.activeIndex}` : undefined}
-                  value={editorValue}
-                  onChange={event => onEditorTextChange(event.target.value, event.target.selectionStart || 0)}
-                  onClick={event => onOpenSuggestion(event.currentTarget.selectionStart || 0)}
-                  onScroll={onEditorScroll}
-                  onKeyDown={handleKeyDown}
-                  spellCheck={false}
-                />
-              </div>
-              {!editorExpanded && editorSuggestion ? (
-                <EditorAutocompleteMenu
-                  id={ids.autocomplete}
-                  suggestion={editorSuggestion}
-                  loading={autocompleteLoading}
-                  width={autocompleteWidth}
-                  onSelect={onSelectSuggestion}
-                />
-              ) : null}
-            </div>
-            {editorExpanded ? (
-              <YamlEditorToolbox
-                resourceKind={resourceKind}
-                validationId={ids.validation}
-                validationErrors={validationErrors}
-                suggestionSlot={
-                  editorSuggestion ? (
-                    <EditorAutocompleteMenu
-                      id={ids.autocomplete}
-                      suggestion={editorSuggestion}
-                      loading={autocompleteLoading}
-                      placement="inline"
-                      onSelect={onSelectSuggestion}
-                    />
-                  ) : (
-                    <p className="yaml-editor-toolbox__empty">Use Ctrl+Space while editing to show contextual completions here.</p>
-                  )
+            ) : renderEditorWorkspace(false)}
+            {activeEditorExpanded ? (
+              <YamlEditorFullscreenDialog
+                title={title}
+                subtitle="Fullscreen YAML authoring"
+                validationIssueCount={validationErrors.length}
+                onClose={closeExpandedEditor}
+                actions={
+                  canUpdate ? (
+                    <>
+                      <button type="button" className="glass-button-ghost" onClick={handleDiscard}>
+                        Discard
+                      </button>
+                      <button type="button" className="glass-button-primary" onClick={onSave} disabled={saveDisabled}>
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                    </>
+                  ) : null
                 }
-                onInsertSnippet={handleInsertSnippet}
-              />
-            ) : (
-              <div id={ids.validation} className="sr-only" role="status" aria-live="polite">
-                {validationErrors.length ? `${validationErrors.length} YAML validation issue${validationErrors.length === 1 ? '' : 's'}` : 'YAML valid'}
-              </div>
-            )}
-          </div>
+              >
+                {isGitSource ? (
+                  <div className="yaml-editor-fullscreen-modal__notice">
+                    Editing here saves a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+                  </div>
+                ) : null}
+                {renderEditorWorkspace(true)}
+              </YamlEditorFullscreenDialog>
+            ) : null}
+          </>
         )}
       </div>
     </div>

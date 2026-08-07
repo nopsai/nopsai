@@ -111,8 +111,9 @@ test('renders edit mode with validation and autocomplete keyboard behavior', asy
     />
   );
 
-  const editor = screen.getByRole('textbox', { name: /step yaml editor/i });
   await user.click(screen.getByRole('button', { name: /expand yaml editor/i }));
+  expect(screen.getByRole('dialog', { name: /step definition/i })).toHaveClass('yaml-editor-fullscreen-modal');
+  const editor = screen.getByRole('textbox', { name: /step yaml editor/i });
   fireEvent.change(editor, { target: { value: 'name: build\nscript: echo ok', selectionStart: 27 } });
   await user.type(editor, '{arrowdown}{enter}');
 
@@ -164,8 +165,9 @@ test('inserts toolbox snippets at the current editor cursor when expanded', asyn
     />
   );
 
-  const editor = screen.getByRole('textbox', { name: /pipeline yaml editor/i });
   await user.click(screen.getByRole('button', { name: /expand yaml editor/i }));
+  expect(screen.getByRole('dialog', { name: /pipeline definition/i })).toHaveClass('yaml-editor-fullscreen-modal');
+  const editor = screen.getByRole('textbox', { name: /pipeline yaml editor/i });
   editor.focus();
   editor.setSelectionRange('steps:\n  '.length, 'steps:\n  '.length);
   await user.click(screen.getByRole('button', { name: /script step/i }));
