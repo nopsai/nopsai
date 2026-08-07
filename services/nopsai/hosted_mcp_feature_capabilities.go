@@ -249,6 +249,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"Parent/child run status aggregation",
 				"Approval checkpoints",
 				"Approval resume",
+				"Approval timeout handling",
 				"Pipeline timeout handling",
 				"Secret masking",
 				"Knowledge context run snapshots",

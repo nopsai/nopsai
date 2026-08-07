@@ -209,6 +209,7 @@ type ApprovalDefinition struct {
 	Type              string   `yaml:"type,omitempty" json:"type,omitempty"`
 	Teams             []string `yaml:"teams" json:"teams"`
 	AllowSelfApproval bool     `yaml:"allow_self_approval,omitempty" json:"allow_self_approval,omitempty"`
+	Timeout           string   `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 // ApprovalStep defines a durable human approval checkpoint.
@@ -839,14 +840,31 @@ func PipelineRequiresLLMProfiles(pipeline *Pipeline) bool {
 	if len(pipeline.Output.Items) > 0 {
 		return true
 	}
+	pipelineBlockingKnowledge := knowledgeContextRefsContainBlocking(pipeline.KnowledgeContext)
 	for _, step := range pipeline.Steps {
+		stepBlockingKnowledge := pipelineBlockingKnowledge || knowledgeContextRefsContainBlocking(step.GetKnowledgeContext())
 		if strings.TrimSpace(step.GetCondition()) != "" || strings.TrimSpace(step.GetGoal()) != "" {
+			return true
+		}
+		if strings.TrimSpace(step.GetScript()) != "" && stepBlockingKnowledge {
 			return true
 		}
 		for _, task := range step.GetTasks() {
 			if strings.TrimSpace(task.Goal) != "" {
 				return true
 			}
+			if strings.TrimSpace(task.Script) != "" && (stepBlockingKnowledge || knowledgeContextRefsContainBlocking(task.KnowledgeContext)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func knowledgeContextRefsContainBlocking(refs []KnowledgeContextRef) bool {
+	for _, ref := range refs {
+		if KnowledgeContextKindIsBlocking(ref.Kind) {
+			return true
 		}
 	}
 	return false

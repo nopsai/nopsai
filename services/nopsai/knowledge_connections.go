@@ -803,7 +803,7 @@ func (a *App) loadKnowledgeConnectionDependentContextIDs(ctx context.Context, co
 		return nil
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT kind, team_path, name
+		SELECT team_path, name
 		FROM knowledge_contexts
 		WHERE connection_id = $1
 		ORDER BY kind ASC, team_path ASC, name ASC
@@ -814,9 +814,9 @@ func (a *App) loadKnowledgeConnectionDependentContextIDs(ctx context.Context, co
 	defer rows.Close()
 	var ids []string
 	for rows.Next() {
-		var kind, team, name string
-		if err := rows.Scan(&kind, &team, &name); err == nil {
-			ids = append(ids, buildKnowledgeContextIdentifier(kind, team, name))
+		var team, name string
+		if err := rows.Scan(&team, &name); err == nil {
+			ids = append(ids, buildKnowledgeDocumentIdentifier(team, name))
 		}
 	}
 	return ids

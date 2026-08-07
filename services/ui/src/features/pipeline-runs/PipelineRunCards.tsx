@@ -601,7 +601,7 @@ function BranchStatusIcon({ status, complete, className }: { status: string; com
   const rawStatus = (status || '').toLowerCase();
   const normalized = normalizeStatus(rawStatus, complete ?? Boolean(STATUS_META[rawStatus]));
   const tone = getBranchStatusTone(normalized);
-  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected';
+  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected' || normalized === 'timed_out';
   const isCancelled = normalized === 'cancelled';
   const isRunning = normalized === 'running' || normalized === 'waiting_approval';
   const isSkipped = normalized === 'skipped';

@@ -31,7 +31,7 @@ import {
 
 const documents: KnowledgeContextListItem[] = [
   {
-    id: 'runbook/platform/restart',
+    id: 'platform/restart',
     kind: 'runbook',
     team: 'platform',
     name: 'restart',
@@ -44,7 +44,7 @@ test('builds knowledge trees with empty enterprise team teams', () => {
   const tree = buildKnowledgeTree([
     ...documents,
     {
-      id: 'runbook/overview',
+      id: 'overview',
       kind: 'runbook',
       team: '',
       name: 'overview',
@@ -56,8 +56,8 @@ test('builds knowledge trees with empty enterprise team teams', () => {
   assert.ok(runbooks);
   assert.equal(runbooks?.children.find(child => child.name === 'platform')?.docs[0]?.name, 'restart');
   assert.equal(runbooks?.children.find(child => child.name === 'global')?.docs[0]?.name, 'overview');
-  assert.ok(collectKnowledgeTeamDocs(runbooks).some(document => document.id === 'runbook/overview'));
-  assert.equal(knowledgeDocumentTreePathFromID('runbook/overview'), 'runbook/global');
+  assert.ok(collectKnowledgeTeamDocs(runbooks).some(document => document.id === 'overview'));
+  assert.equal(knowledgeDocumentTreePathFromID('overview'), '');
   assert.equal(
     runbooks?.children.find(child => child.name === 'platform')?.children.find(child => child.name === 'security')?.docs.length,
     0
@@ -99,14 +99,14 @@ test('extracts preview content and document parameters', () => {
 test('validates knowledge identities and route ids', () => {
   assert.equal(validateKnowledgeIdentity('runbook', 'platform', 'restart', documents), 'A knowledge context with that identifier already exists.');
   assert.match(validateKnowledgeIdentity('runbook', '../platform', 'new', documents), /invalid path segments/);
-  assert.equal(decodeKnowledgeRouteID('/knowledge-context/runbook/platform/restart%20service'), 'runbook/platform/restart service');
+  assert.equal(decodeKnowledgeRouteID('/knowledge-context/platform/restart%20service'), 'platform/restart service');
 });
 
 test('normalizes source-aware workspace state', () => {
   const items: KnowledgeContextListItem[] = [
     documents[0],
     {
-      id: 'guardrail/security/repo-check',
+      id: 'security/repo-check',
       kind: 'guardrail',
       team: 'security',
       name: 'repo-check',
@@ -116,7 +116,7 @@ test('normalizes source-aware workspace state', () => {
       used_by_count: 2,
     },
     {
-      id: 'policy/security/source-page',
+      id: 'security/source-page',
       kind: 'policy',
       team: 'security',
       name: 'source-page',
@@ -131,6 +131,7 @@ test('normalizes source-aware workspace state', () => {
   assert.equal(knowledgeContentSource({ source: 'notion-page' }), 'external');
   assert.equal(knowledgeContentSource({ source: 'database' }), 'inline');
   assert.equal(knowledgeTreePathToTeam('guardrail/security/platform'), 'security/platform');
+  assert.equal(documentTeamPath({ id: 'platform/restart', team: '' }), 'platform');
   assert.equal(documentTeamPath({ id: 'runbook/platform/restart', team: '' }), 'platform');
   assert.equal(normalizeKnowledgeWorkspaceTab('connections'), 'connections');
   assert.equal(normalizeKnowledgeWorkspaceTab('unknown'), 'documents');
@@ -202,7 +203,7 @@ test('summarizes persisted knowledge connections', () => {
 
   const summaries = buildKnowledgeConnectionTeamSummaries([
     {
-      id: 'policy/security/source-page',
+      id: 'security/source-page',
       kind: 'policy',
       team: 'security',
       name: 'source-page',
@@ -213,7 +214,7 @@ test('summarizes persisted knowledge connections', () => {
   ], ['security'], connections);
   assert.equal(summaries[0]?.providers[0], 'notion');
   assert.equal(summaries[0]?.connections[0]?.display_name, 'Security Notion');
-  assert.deepEqual(summaries[0]?.connections[0]?.used_by, ['policy/security/source-page']);
+  assert.deepEqual(summaries[0]?.connections[0]?.used_by, ['security/source-page']);
   assert.equal(knowledgeConnectionProviderLabel('wiki'), 'Wiki page');
   assert.equal(knowledgeConnectionStatusLabel('authentication_required'), 'Auth required');
   assert.equal(knowledgeConnectionStatusLabel('provider_unavailable'), 'Integration pending');

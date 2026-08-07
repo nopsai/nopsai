@@ -528,6 +528,19 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	// E. Upsert Knowledge Contexts
 	for key, stored := range knowledgeContexts {
+		var conflictingKind string
+		conflictErr := tx.QueryRow(ctx, `
+			SELECT kind
+			FROM knowledge_contexts
+			WHERE team_path = $1 AND name = $2 AND kind <> $3
+			LIMIT 1
+		`, stored.team, stored.name, stored.kind).Scan(&conflictingKind)
+		if conflictErr == nil {
+			return fmt.Errorf("knowledge document id '%s' already exists for kind %q", buildKnowledgeDocumentIdentifier(stored.team, stored.name), conflictingKind)
+		}
+		if conflictErr != nil && !errors.Is(conflictErr, pgx.ErrNoRows) && !errors.Is(conflictErr, sql.ErrNoRows) {
+			return fmt.Errorf("failed to inspect knowledge document id collision '%s': %w", key, conflictErr)
+		}
 		writable, err := ensureConfigResourceWritable(ctx, tx, "knowledge_contexts", "knowledge context", key, binding, stored.team, "kind = $1 AND team_path = $2 AND name = $3", stored.kind, stored.team, stored.name)
 		if err != nil {
 			return err

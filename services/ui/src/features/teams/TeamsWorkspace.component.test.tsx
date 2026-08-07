@@ -279,11 +279,11 @@ const resourceCatalog: TeamResourceCatalogState = {
       source: 'git',
     },
     {
-      id: 'knowledge_context:runbook/platform/restart',
+      id: 'knowledge_context:platform/restart',
       kind: 'knowledge_context',
       label: 'restart',
       description: 'runbook / public',
-      href: '/knowledge-context/runbook/platform/restart',
+      href: '/knowledge-context/platform/restart',
       teamPath: '',
       source: 'git',
     },
@@ -547,7 +547,7 @@ describe('TeamsWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open Knowledge Context' }));
     expect(screen.getByRole('region', { name: 'Knowledge Context resources' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open restart' })).toHaveAttribute('href', '/knowledge-context/runbook/platform/restart');
+    expect(screen.getByRole('link', { name: 'Open restart' })).toHaveAttribute('href', '/knowledge-context/platform/restart');
 
     await user.click(screen.getByRole('button', { name: 'Open Scopes' }));
     expect(screen.getByRole('region', { name: 'Scopes resources' })).toBeVisible();

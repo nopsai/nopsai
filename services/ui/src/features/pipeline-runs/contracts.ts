@@ -74,6 +74,7 @@ export type ApprovalDefinition = {
   type?: string;
   teams?: string[];
   allow_self_approval?: boolean;
+  timeout?: string;
 };
 
 export type StepConfiguration = {

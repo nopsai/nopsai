@@ -210,6 +210,7 @@ function EventCard({
     if (normalized === 'failure (ignored)') return 'bg-amber-500';
     if (normalized === 'running') return 'bg-blue-500 animate-pulse';
     if (normalized === 'cancelled') return 'bg-orange-500';
+    if (normalized === 'timed_out') return 'bg-orange-500';
     if (normalized === 'skipped') return 'bg-amber-400';
     return 'bg-gray-500';
   };

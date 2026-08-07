@@ -50,7 +50,14 @@ type PipelineApproval = {
   decided_by_email?: string;
   decided_at?: string;
   decision_comment?: string;
+  expires_at?: string;
 };
+
+function approvalBadgeStatus(status: string) {
+  if (status === 'approved') return 'success';
+  if (status === 'rejected' || status === 'timed_out') return status;
+  return 'waiting_approval';
+}
 
 export function RunDetailView({
   detail,
@@ -91,13 +98,14 @@ export function RunDetailView({
   onOpenStepDetail: (stepName: string, taskName?: string) => void;
   onOpenRun: (id: string) => void;
   onShowDefinition: () => void;
-  onApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject') => void;
+  onApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject', comment?: string) => void;
   approvalDecisionPending: string | null;
   comparisonRuns: RunListItem[];
 }) {
   const run = detail.run_info;
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [approvalComments, setApprovalComments] = useState<Record<string, string>>({});
   const normalizedStatus = normalizeStatus(run.status, run.is_complete);
   const isActiveRun = normalizedStatus === 'running' || normalizedStatus === 'pending' || normalizedStatus === 'waiting_approval';
   const approvals = detail.approvals || [];
@@ -111,7 +119,7 @@ export function RunDetailView({
   );
 
   const actionBase =
-    'inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition duration-150 focus:outline-none';
+    'inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition duration-150 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50';
   const ghostAction = `${actionBase} border border-[var(--border-primary)]/80 bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-[0_8px_22px_rgba(0,0,0,0.07)] hover:border-indigo-300/60 hover:text-indigo-600 dark:border-white/10 dark:bg-white/5 dark:text-[var(--text-primary)] dark:shadow-[0_8px_22px_rgba(0,0,0,0.22)] dark:hover:border-indigo-300/50 dark:hover:bg-white/10`;
   const primaryAction = `${actionBase} bg-gradient-to-r from-indigo-500 to-purple-500 text-[var(--text-button)] shadow-[0_10px_28px_rgba(79,70,229,0.22)] hover:shadow-[0_14px_34px_rgba(79,70,229,0.3)] focus:ring-2 focus:ring-offset-2 focus:ring-indigo-400`;
   const dangerAction = `${actionBase} border border-red-500/40 text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20`;
@@ -452,12 +460,15 @@ export function RunDetailView({
               const pending = approval.status === 'pending';
               const approveKey = `${approval.id}:approve`;
               const rejectKey = `${approval.id}:reject`;
+              const timedOut = approval.status === 'timed_out';
+              const comment = approvalComments[approval.id] || '';
+              const trimmedComment = comment.trim();
               return (
                 <div key={approval.id} className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-2">
+                    <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <StatusBadge status={approval.status === 'rejected' ? 'rejected' : approval.status === 'approved' ? 'success' : 'waiting_approval'} complete={approval.status !== 'pending'} />
+                        <StatusBadge status={approvalBadgeStatus(approval.status)} complete={approval.status !== 'pending'} />
                         <span className="font-semibold text-[var(--text-primary)] break-words">{approval.step_name}</span>
                         <span className="runner-pill runner-pill--muted">{approval.approval_type}</span>
                       </div>
@@ -470,8 +481,25 @@ export function RunDetailView({
                       </div>
                       <div className="text-xs text-[var(--text-secondary)]">
                         Requested {timeAgo(approval.requested_at)}
+                        {pending && approval.expires_at ? ` · Expires ${formatRunTimestamp(approval.expires_at)}` : ''}
+                        {timedOut && approval.expires_at ? ` · Timed out ${timeAgo(approval.expires_at)}` : ''}
                         {approval.decided_by_email ? ` · Decided by ${approval.decided_by_email}` : ''}
                       </div>
+                      {pending && (
+                        <textarea
+                          aria-label={`Approval comment for ${approval.step_name}`}
+                          className="min-h-[42px] w-full max-w-2xl resize-y rounded-md border border-[var(--border-primary)] bg-white px-2.5 py-2 text-xs text-[var(--text-primary)] outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-950"
+                          placeholder="Comment"
+                          value={comment}
+                          disabled={Boolean(approvalDecisionPending)}
+                          onChange={event => setApprovalComments(current => ({ ...current, [approval.id]: event.target.value }))}
+                        />
+                      )}
+                      {!pending && approval.decision_comment ? (
+                        <div className="max-w-2xl rounded-md border border-[var(--border-primary)] bg-white/70 px-2.5 py-2 text-xs text-[var(--text-secondary)] dark:bg-slate-950/50">
+                          <span className="font-semibold text-[var(--text-primary)]">Comment:</span> {approval.decision_comment}
+                        </div>
+                      ) : null}
                     </div>
                     {pending && (
                       <div className="flex items-center gap-2">
@@ -479,15 +507,15 @@ export function RunDetailView({
                           className={primaryAction}
                           type="button"
                           disabled={Boolean(approvalDecisionPending)}
-                          onClick={() => onApprovalDecision(approval, 'approve')}
+                          onClick={() => onApprovalDecision(approval, 'approve', trimmedComment)}
                         >
                           {approvalDecisionPending === approveKey ? 'Approving' : 'Approve'}
                         </button>
                         <button
                           className={dangerAction}
                           type="button"
-                          disabled={Boolean(approvalDecisionPending)}
-                          onClick={() => onApprovalDecision(approval, 'reject')}
+                          disabled={Boolean(approvalDecisionPending) || !trimmedComment}
+                          onClick={() => onApprovalDecision(approval, 'reject', trimmedComment)}
                         >
                           {approvalDecisionPending === rejectKey ? 'Rejecting' : 'Reject'}
                         </button>

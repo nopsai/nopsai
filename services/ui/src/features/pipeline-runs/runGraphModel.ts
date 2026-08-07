@@ -167,7 +167,8 @@ function isTerminalStatus(status?: string): boolean {
     || normalized === 'failed'
     || normalized === 'cancelled'
     || normalized === 'skipped'
-    || normalized === 'rejected';
+    || normalized === 'rejected'
+    || normalized === 'timed_out';
 }
 
 function calculateStepDurationFromTasks(tasks: TaskDetail[]): string | null {

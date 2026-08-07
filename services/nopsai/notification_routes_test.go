@@ -63,6 +63,7 @@ func TestParseGitOpsNotificationRoutesConfigRepositoryTeamPath(t *testing.T) {
 enabled: true
 events:
   waiting-approval: true
+  timed-out: true
 `,
 	}, "config-repositories", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
@@ -80,6 +81,9 @@ events:
 	}
 	if !route.definition.Events["waiting_approval"] {
 		t.Fatalf("events = %#v, want waiting_approval enabled", route.definition.Events)
+	}
+	if !route.definition.Events["timed_out"] {
+		t.Fatalf("events = %#v, want timed_out enabled", route.definition.Events)
 	}
 }
 

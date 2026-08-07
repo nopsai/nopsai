@@ -1307,14 +1307,15 @@ func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamod
 		); err != nil {
 			return nil, err
 		}
-		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Team, item.Name)
-		if usedByPipeline != "" && !hostedMCPContainsString(usage[item.ID], usedByPipeline) {
+		item.ResourceID = buildKnowledgeContextIdentifier(item.Kind, item.Team, item.Name)
+		item.ID = buildKnowledgeDocumentIdentifier(item.Team, item.Name)
+		if usedByPipeline != "" && !hostedMCPContainsString(usage[item.ResourceID], usedByPipeline) {
 			continue
 		}
-		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, item.ID)) {
+		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, item.ResourceID)) {
 			continue
 		}
-		item.Visibility, err = a.resourceVisibility(ctx, grantResourceKnowledgeContext, item.ID)
+		item.Visibility, err = a.resourceVisibility(ctx, grantResourceKnowledgeContext, item.ResourceID)
 		if err != nil {
 			return nil, err
 		}
@@ -1322,7 +1323,7 @@ func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamod
 			item.Source = knowledgeSourceGitOps
 		}
 		item.Access = item.Visibility
-		item.UsedBy = usage[item.ID]
+		item.UsedBy = usage[item.ResourceID]
 		item.UsedByCount = len(item.UsedBy)
 		items = append(items, hostedMCPKnowledgeContextListItem(item))
 		if len(items) >= limit {
@@ -1462,14 +1463,15 @@ func (a *App) hostedMCPGetPipelineKnowledgeContext(ctx context.Context, subject 
 			unresolved = append(unresolved, map[string]any{"location": entry.Location, "kind": kind, "ref": ref.Ref, "status": "invalid_ref", "error": err.Error()})
 			continue
 		}
-		id := buildKnowledgeContextIdentifier(kind, team, name)
-		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, id)) {
-			documents = append(documents, map[string]any{"id": id, "status": "denied", "location": entry.Location})
+		resourceID := buildKnowledgeContextIdentifier(kind, team, name)
+		documentID := buildKnowledgeDocumentIdentifier(team, name)
+		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, resourceID)) {
+			documents = append(documents, map[string]any{"id": documentID, "kind": kind, "status": "denied", "location": entry.Location})
 			continue
 		}
 		detail, err := a.loadKnowledgeContextDetail(ctx, kind, team, name)
 		if err != nil {
-			unresolved = append(unresolved, map[string]any{"location": entry.Location, "id": id, "status": "not_found", "error": err.Error()})
+			unresolved = append(unresolved, map[string]any{"location": entry.Location, "id": documentID, "kind": kind, "status": "not_found", "error": err.Error()})
 			continue
 		}
 		document := hostedMCPKnowledgeContextDetail(detail)
@@ -2150,9 +2152,21 @@ func (a *App) knowledgeContextArgID(ctx context.Context, args map[string]any) st
 	id := strings.Trim(strings.TrimSpace(stringArg(args, "id")), "/")
 	if id != "" {
 		if strings.Contains(id, "/") {
-			kind, team, name, err := splitKnowledgeContextIdentifier(id)
-			if err == nil {
+			kind, team, name, err := splitKnowledgeContextRouteIdentifier(id)
+			if err == nil && kind != "" {
 				return buildKnowledgeContextIdentifier(kind, team, name)
+			}
+			kindArg := firstNonEmptyString(stringArg(args, "kind"), stringArg(args, "document_kind"))
+			if err == nil && kindArg != "" {
+				if normalizedKind, kindErr := normalizeKnowledgeContextKind(kindArg); kindErr == nil {
+					return buildKnowledgeContextIdentifier(normalizedKind, team, name)
+				}
+			}
+			if a != nil && a.db != nil {
+				_, _, _, resourceID, resolveErr := a.resolveExistingKnowledgeContextIdentifier(ctx, id)
+				if resolveErr == nil {
+					return resourceID
+				}
 			}
 		}
 		if a != nil && a.db != nil {
@@ -2191,7 +2205,7 @@ func (a *App) loadHostedMCPKnowledgeContextDetail(ctx context.Context, args map[
 	id := strings.Trim(strings.TrimSpace(stringArg(args, "id")), "/")
 	if id != "" {
 		if strings.Contains(id, "/") {
-			kind, team, name, err := splitKnowledgeContextIdentifier(id)
+			kind, team, name, _, err := a.resolveExistingKnowledgeContextIdentifier(ctx, id)
 			if err != nil {
 				return knowledgeContextDetail{}, err
 			}

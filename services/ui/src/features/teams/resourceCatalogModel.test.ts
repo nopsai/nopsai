@@ -101,7 +101,7 @@ test('builds linked resources with canonical detail links', () => {
 
   const knowledgeContexts = buildKnowledgeContextTeamResources([
     {
-      id: 'runbook/platform/restart',
+      id: 'platform/restart',
       kind: 'runbook',
       team: 'platform',
       name: 'restart',
@@ -110,7 +110,7 @@ test('builds linked resources with canonical detail links', () => {
     },
   ]);
   assert.deepEqual(knowledgeContexts.map(resource => [resource.label, resource.teamPath, resource.href]), [
-    ['restart', '', '/knowledge-context/runbook/platform/restart'],
+    ['restart', '', '/knowledge-context/platform/restart'],
   ]);
 
   const scopes = buildScopeTeamResources({

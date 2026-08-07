@@ -215,7 +215,7 @@ function extractPipelineYamlStepExcerpt(yaml: string, stepName: string) {
 
 function isFailureStatus(status?: string) {
   const normalized = String(status || '').trim().toLowerCase().replace(/\s+/g, '_');
-  return normalized === 'failure' || normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' || normalized === 'rejected';
+  return normalized === 'failure' || normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' || normalized === 'rejected' || normalized === 'timed_out';
 }
 
 function escapeRegExp(value: string) {
