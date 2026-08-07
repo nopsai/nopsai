@@ -141,7 +141,7 @@ k8sRunner:
 
 systemLogs:
   enabled: true
-  provider: kubernetes
+  provider: kubernetes,docker
   dockerHost: ""
   kubernetes:
     labelSelector: ""

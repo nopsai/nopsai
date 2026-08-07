@@ -128,10 +128,10 @@ service URLs for split-service or custom-DNS deployments.
 is read from the `secrets.keys.bootstrapAdminPassword` key in the existing
 Secret so GitOps values do not contain plaintext credentials.
 
-System Logs defaults to the Kubernetes provider in this chart. The API
+System Logs defaults to the `kubernetes,docker` provider list in this chart. The API
 Deployment runs as the `api.serviceAccount.name` service account and receives
 read-only namespace Role permissions for `pods` and `pods/log` when
-`systemLogs.enabled=true`, `systemLogs.provider=kubernetes`, and
+`systemLogs.enabled=true`, the provider list includes `kubernetes`, and
 `systemLogs.kubernetes.rbac.create=true`. Set
 `systemLogs.kubernetes.labelSelector` to override the default release-scoped
 selector. The API and bundled k8s runner share `NOPSAI_PLATFORM_ID` from
@@ -140,9 +140,9 @@ are labeled with `nopsai.io/runner-id` and `nopsai.io/platform-id`; when the API
 service account can list pods and read logs in that namespace, the UI exposes
 owned pods as `runner:<runner-id>` system log sources from the runner detail
 view. Set `global.platformID` only when an external GitOps convention needs a
-stable value different from the Helm release name. Hybrid deployments may set
-`systemLogs.provider` to `kubernetes,docker` when both Kubernetes RBAC and a
-Docker API endpoint are intentionally available to the API. Set
+stable value different from the Helm release name. Hybrid deployments can keep
+the default `systemLogs.provider` value when both Kubernetes RBAC and a Docker
+API endpoint are intentionally available to the API. Set
 `systemLogs.dockerHost` to the Docker API or socket-proxy endpoint when the
 provider list includes Docker.
 

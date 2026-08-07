@@ -65,6 +65,7 @@ import {
   type DashboardView,
 } from '../features/dashboards/model';
 import {
+  dashboardRefFromForm,
   dashboardOutputBindingsFromForm,
   sectionFormFromSeed,
   sectionSeedsFromBindings,
@@ -298,7 +299,8 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
     if (!dashboardModal || saving) return;
     const outputBindings = dashboardOutputBindingsFromForm(dashboardForm, dashboardPipelineCatalog);
     if (dashboardModal.mode === 'create' && outputBindings.length === 0) {
-      setFormError('Select at least one pipeline with dashboard outputs targeting this dashboard.');
+      const dashboardRef = dashboardRefFromForm(dashboardForm) || 'this dashboard';
+      setFormError(`Select at least one pipeline with dashboard outputs targeting ${dashboardRef} before creating the dashboard.`);
       return;
     }
     const sectionSeeds = sectionSeedsFromBindings(outputBindings);

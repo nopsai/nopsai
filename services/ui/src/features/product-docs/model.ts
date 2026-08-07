@@ -3351,7 +3351,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Build-only base, agent, and pipeline images are not exposed as System Logs sources.',
           'Runner detail links open the advertised runner log source. Kubernetes runner log discovery follows the registered runner metadata keys kubernetes_namespace and kubernetes_label_selector. Removed runner registrations hide their runner logs even if old containers or pods still exist, and cross-substrate runner log streaming requires Docker provider access to that host or Kubernetes RBAC in that namespace.',
           'Runner source labels overlay dispatcher connection health, so a ready pod or running container can still show dispatcher unreachable or recently reconnected when the gRPC registration stream has been failing or just recovered.',
-          'Hybrid deployments can configure a comma-separated provider list such as docker,kubernetes when both provider credentials are available.',
+          'Generated Docker Compose and Helm installs use comma-separated provider lists such as docker,kubernetes; opposite-runtime runner logs still require matching Kubernetes RBAC or a restricted Docker API endpoint.',
           'Source-level system_log.read permissions control who can list or stream each platform source.',
           'Docker health `none` means no container healthcheck exists; System Logs falls back to the container state, such as `running`, instead of showing `none` as a service status.',
         ],

@@ -211,7 +211,8 @@ truth; this file is the source-adjacent placement guide.
 ### Pipeline Runs
 
 - Run list presentation, selected-run detail, graph rendering, graph dialogs,
-  notification-route UI, and log dialogs belong under `features/pipeline-runs`.
+  execution-list rendering, notification-route UI, and log dialogs belong under
+  `features/pipeline-runs`.
 - `pages/PipelineRuns.tsx` owns route composition, polling, query
   synchronization, and run mutation orchestration only. Source/status/search
   filters remain URL-backed for shareable operations views.
@@ -284,8 +285,11 @@ truth; this file is the source-adjacent placement guide.
   the canvas for both single-step and multi-step runs. Graph rendering should
   ignore single placeholder task rows that only repeat the step name when the
   pipeline definition has no matching task.
-- Run detail keeps the execution graph and final outputs in sibling Graph and
-  Outputs tabs so deliverables do not crowd the graph canvas.
+- Run detail keeps the execution graph, dependency-ordered execution list, and
+  final outputs in sibling Graph, List, and Outputs tabs so deliverables do not
+  crowd the graph canvas. `runExecutionListModel.ts` owns dependency rank and
+  parallel-group derivation; `RunExecutionList.tsx` owns row expansion and
+  graph-equivalent log/detail actions.
 - Pipeline-definition graph steps keep their existing expansion and dependency
   framing behavior and embed the shared graph canvas without nested graph-panel
   chrome. Embedded pipeline graphs must let the overview SVG fill the visible

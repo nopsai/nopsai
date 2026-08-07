@@ -41,7 +41,7 @@ import {
   type DashboardView,
 } from './model';
 
-type DashboardWorkspaceProps = {
+export type DashboardWorkspaceProps = {
   dashboards: DashboardSummary[];
   teams: string[];
   selectedID: string;

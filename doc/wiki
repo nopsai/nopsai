@@ -804,6 +804,9 @@ GitOps applies dependency roots before dependent resources: team hierarchy from
 `config-repositories/` is upserted first, then team-owned dashboards and
 notification routes can resolve team paths, and pipeline dashboard outputs can
 attach to dashboards created in the same sync.
+Dashboard creation from the UI requires selecting at least one matching
+dashboard-output pipeline; if none is selected, the modal shows a validation
+error before any API write.
 Long-running config repository syncs can be canceled from the UI/API with the
 matching `.../sync/cancel` route. If no worker is registered but the repository
 row is still `running`, cancellation marks the row `canceled` so operators can
@@ -892,9 +895,10 @@ Runner discovery follows the registered `docker_container_name`,
 dispatcher metadata; `NOPSAI_PLATFORM_ID` keeps bundled runners and generated
 runner installs on the same ownership boundary. Removed runner registrations
 hide old runner logs even if their containers or pods still exist. Hybrid
-deployments can configure comma-separated providers such as `docker,kubernetes`
-when both provider credentials are mounted. Runner source labels overlay
-dispatcher connection health, so an otherwise ready pod or running container
+deployments use comma-separated providers such as `docker,kubernetes`; opposite
+runtime runner logs still require the API to have matching Kubernetes RBAC or a
+restricted Docker API endpoint. Runner source labels overlay dispatcher
+connection health, so an otherwise ready pod or running container
 can show as `dispatcher unreachable` or `recently reconnected`.
 
 Authentication identity is provider ID, issuer, and OIDC/OAuth subject. Email is

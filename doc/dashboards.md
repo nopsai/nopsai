@@ -468,9 +468,11 @@ The dashboard UI keeps source binding at the dashboard level. New-dashboard and
 edit-dashboard modals group fields by purpose and include one-line descriptions
 for each group. The pipeline picker only lists pipelines with `dashboard`
 outputs whose `dashboard.ref` matches the dashboard being created or edited.
-Selecting those pipelines creates the needed section records and source
-bindings from `dashboard.section`, `dashboard.entry_key`, the output name, and
-the chosen exact run scope.
+Creating a dashboard from the UI requires at least one selected matching
+dashboard-output pipeline; otherwise the modal shows a validation error before
+any API write. Selecting those pipelines creates the needed section records and
+source bindings from `dashboard.section`, `dashboard.entry_key`, the output
+name, and the chosen exact run scope.
 New dashboards choose from existing team paths, and broader sharing is assigned
 through the dashboard Access button after creation, matching the pipeline
 access-management pattern.

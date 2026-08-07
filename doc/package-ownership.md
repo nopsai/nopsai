@@ -194,9 +194,11 @@ Enterprise authentication follows the same split:
 - UI transport lives in `services/ui/src/features/system/logs/api.ts`, hook and
   reconnect orchestration in `useSystemLogs.ts`, data contracts in `types.ts`,
   and rendering in `SystemLogsPanel.tsx`.
-- Docker proxy topology is deployment-owned in `docker-compose.yaml`; Kubernetes
-  RBAC and provider env wiring are deployment-owned in the Helm chart. Metrics
-  are exposed by the existing `services/nopsai/metrics.go` owner.
+- Docker proxy topology and hybrid `docker,kubernetes` provider defaults are
+  deployment-owned in `docker-compose.yaml`; Kubernetes RBAC and
+  `kubernetes,docker` provider env wiring are deployment-owned in the Helm
+  chart. Metrics are exposed by the existing `services/nopsai/metrics.go`
+  owner.
 
 ## Logging And Correlation Ownership
 
