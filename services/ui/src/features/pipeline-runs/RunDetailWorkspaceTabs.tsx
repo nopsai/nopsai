@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
-import { FileText, Maximize2, Workflow, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
+import { FileText, GripHorizontal, ListTree, Maximize2, Workflow, X } from 'lucide-react';
 import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
+import { RunExecutionList } from './RunExecutionList';
 import { RunFinalOutputs } from './RunFinalOutputs';
 import { StepsGraph } from './RunGraph';
 
-type WorkspaceTab = 'graph' | 'outputs';
+type WorkspaceTab = 'graph' | 'list' | 'outputs';
+
+const DEFAULT_GRAPH_FRAME_HEIGHT = 390;
+const MIN_GRAPH_FRAME_HEIGHT = 300;
+const MAX_GRAPH_FRAME_HEIGHT = 860;
 
 export function RunDetailWorkspaceTabs({
   runID,
@@ -40,8 +45,14 @@ export function RunDetailWorkspaceTabs({
   });
   const activeTab = tabState.runID === runID ? tabState.activeTab : 'graph';
   const [expandedGraphOpen, setExpandedGraphOpen] = useState(false);
+  const [graphFrameHeight, setGraphFrameHeight] = useState(DEFAULT_GRAPH_FRAME_HEIGHT);
+  const graphResizeCleanupRef = useRef<(() => void) | null>(null);
   const outputCount = outputs?.length || 0;
   const setActiveTab = (tab: WorkspaceTab) => setTabState({ runID, activeTab: tab });
+  const graphFrameStyle = {
+    '--run-graph-frame-height': `${graphFrameHeight}px`,
+  } as CSSProperties;
+
   useEffect(() => {
     if (!expandedGraphOpen) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -50,6 +61,29 @@ export function RunDetailWorkspaceTabs({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [expandedGraphOpen]);
+  useEffect(() => () => graphResizeCleanupRef.current?.(), []);
+
+  const beginGraphResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = graphFrameHeight;
+    graphResizeCleanupRef.current?.();
+    const handleMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      setGraphFrameHeight(clampGraphFrameHeight(startHeight + moveEvent.clientY - startY));
+    };
+    const stopResize = () => {
+      document.removeEventListener('pointermove', handleMove);
+      document.removeEventListener('pointerup', stopResize);
+      document.body.classList.remove('run-detail-graph-resizing');
+      graphResizeCleanupRef.current = null;
+    };
+    document.body.classList.add('run-detail-graph-resizing');
+    document.addEventListener('pointermove', handleMove);
+    document.addEventListener('pointerup', stopResize);
+    graphResizeCleanupRef.current = stopResize;
+  };
 
   return (
     <section className="run-detail-workspace" aria-label="Run graph and outputs">
@@ -64,6 +98,14 @@ export function RunDetailWorkspaceTabs({
             icon={<Workflow className="h-4 w-4" aria-hidden="true" />}
           />
           <WorkspaceTabButton
+            id="list"
+            label="List"
+            active={activeTab === 'list'}
+            onSelect={setActiveTab}
+            panelId="run-detail-list-panel"
+            icon={<ListTree className="h-4 w-4" aria-hidden="true" />}
+          />
+          <WorkspaceTabButton
             id="outputs"
             label="Outputs"
             count={outputCount}
@@ -73,17 +115,19 @@ export function RunDetailWorkspaceTabs({
             icon={<FileText className="h-4 w-4" aria-hidden="true" />}
           />
         </div>
-        <button
-          type="button"
-          className="run-detail-workspace-action"
-          onClick={() => {
-            setActiveTab('graph');
-            setExpandedGraphOpen(true);
-          }}
-        >
-          <Maximize2 className="h-4 w-4" aria-hidden="true" />
-          <span>Expand graph</span>
-        </button>
+        {activeTab === 'graph' ? (
+          <button
+            type="button"
+            className="run-detail-workspace-action"
+            onClick={() => {
+              setActiveTab('graph');
+              setExpandedGraphOpen(true);
+            }}
+          >
+            <Maximize2 className="h-4 w-4" aria-hidden="true" />
+            <span>Expand graph</span>
+          </button>
+        ) : null}
       </div>
 
       {activeTab === 'graph' ? (
@@ -91,10 +135,40 @@ export function RunDetailWorkspaceTabs({
           id="run-detail-graph-panel"
           role="tabpanel"
           aria-labelledby="run-detail-graph-tab"
-          className="run-detail-workspace-panel"
+          className="run-detail-workspace-panel run-detail-workspace-panel--graph"
+          style={graphFrameStyle}
         >
           <StepsGraph
             graphKey={runID}
+            steps={steps}
+            selectedStep={selectedStep}
+            onSelectStep={onSelectStep}
+            onOpenStepLogs={onOpenStepLogs}
+            onOpenTaskLogs={onOpenTaskLogs}
+            onOpenStepDetail={onOpenStepDetail}
+            childRuns={childRuns}
+            pipelineDefinition={pipelineDefinition}
+          />
+          <button
+            type="button"
+            className="run-detail-graph-resize"
+            aria-label="Resize graph height"
+            title="Drag to resize graph height"
+            onPointerDown={beginGraphResize}
+          >
+            <GripHorizontal className="h-4 w-4" aria-hidden="true" />
+            <span>{graphFrameHeight}px</span>
+          </button>
+        </div>
+      ) : activeTab === 'list' ? (
+        <div
+          id="run-detail-list-panel"
+          role="tabpanel"
+          aria-labelledby="run-detail-list-tab"
+          className="run-detail-workspace-panel"
+        >
+          <RunExecutionList
+            runID={runID}
             steps={steps}
             selectedStep={selectedStep}
             onSelectStep={onSelectStep}
@@ -176,6 +250,10 @@ export function RunDetailWorkspaceTabs({
       ) : null}
     </section>
   );
+}
+
+function clampGraphFrameHeight(value: number): number {
+  return Math.max(MIN_GRAPH_FRAME_HEIGHT, Math.min(MAX_GRAPH_FRAME_HEIGHT, Math.round(value)));
 }
 
 function WorkspaceTabButton({

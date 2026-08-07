@@ -20981,6 +20981,57 @@ html:not(.dark) .run-graph-redesign {
     min-width: 0;
 }
 
+.run-detail-workspace-panel--graph {
+    --run-graph-frame-height: 390px;
+}
+
+.run-detail-workspace-panel--graph .run-graph-workspace {
+    height: var(--run-graph-frame-height);
+}
+
+.run-detail-workspace-panel--graph .run-graph-workspace.has-task-reveal {
+    height: max(var(--run-graph-frame-height), 540px);
+}
+
+.run-detail-workspace-panel--graph .run-graph-workspace:not(.has-task-reveal) .run-graph-overview {
+    height: 100%;
+}
+
+.run-detail-workspace-panel--graph .run-graph-workspace.has-task-reveal .run-graph-overview {
+    height: calc(100% - 260px);
+    min-height: 220px;
+}
+
+.run-detail-graph-resize {
+    width: 100%;
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--border-primary);
+    border-top: 0;
+    border-radius: 0 0 8px 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: ns-resize;
+    font-size: 11px;
+    font-weight: 750;
+    user-select: none;
+}
+
+.run-detail-graph-resize:hover,
+.run-detail-graph-resize:focus-visible {
+    color: var(--text-primary);
+    background: var(--bg-primary);
+}
+
+.run-detail-graph-resizing,
+.run-detail-graph-resizing * {
+    cursor: ns-resize !important;
+    user-select: none !important;
+}
+
 .run-detail-empty-state {
     min-height: 180px;
     display: flex;
@@ -20993,6 +21044,169 @@ html:not(.dark) .run-graph-redesign {
     color: var(--text-secondary);
     font-size: 13px;
     font-weight: 650;
+}
+
+.run-execution-list {
+    display: grid;
+    gap: 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    padding: 10px 12px;
+}
+
+.run-execution-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-height: 26px;
+}
+
+.run-execution-list-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}
+
+.run-execution-list-title h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.run-execution-list-title span {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.run-execution-list-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.run-execution-list-summary span {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.run-execution-lines {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.run-execution-line-shell {
+    position: relative;
+    min-width: 0;
+    padding-left: 14px;
+}
+
+.run-execution-line-shell::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--text-secondary);
+    transform: translateY(-50%);
+}
+
+.run-execution-line {
+    width: 100%;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 5px;
+    color: var(--text-primary);
+    text-align: left;
+    padding: 1px 4px;
+    transition: background 150ms ease, color 150ms ease;
+}
+
+.run-execution-line:hover,
+.run-execution-line:focus-visible {
+    background: color-mix(in srgb, var(--accent-primary) 7%, transparent);
+}
+
+.run-execution-line:active {
+    transform: translateY(1px);
+}
+
+.run-execution-status-mark {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    stroke-width: 2.5;
+}
+
+.run-execution-status-mark--running {
+    animation: run-execution-spin 1s linear infinite;
+}
+
+@keyframes run-execution-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.run-execution-line-content {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    line-height: 1.35;
+}
+
+.run-execution-step-name {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.run-execution-punctuation,
+.run-execution-line-duration {
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.run-execution-unit-chip {
+    max-width: min(340px, 48vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
+    color: var(--text-primary);
+    padding: 1px 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+.run-execution-status-text {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 760;
 }
 
 .run-detail-graph-modal {
@@ -21673,6 +21887,19 @@ html:not(.dark) .run-graph-redesign {
     .run-detail-workspace-tab {
         flex: 1;
         min-width: 0;
+    }
+
+    .run-execution-line {
+        align-items: flex-start;
+        padding-block: 4px;
+    }
+
+    .run-execution-status-mark {
+        margin-top: 1px;
+    }
+
+    .run-execution-unit-chip {
+        max-width: 100%;
     }
 
     .run-detail-graph-modal {

@@ -135,6 +135,7 @@ services:
       FINAL_OUTPUT_PDF_RENDERER_URL: http://gotenberg:3000
       FINAL_OUTPUT_PDF_TIMEOUT_SECONDS: ${FINAL_OUTPUT_PDF_TIMEOUT_SECONDS:-45}
       RUNTIME_OUTPUT_MAX_BYTES: ${RUNTIME_OUTPUT_MAX_BYTES:-65536}
+      SYSTEM_LOGS_PROVIDER: ${SYSTEM_LOGS_PROVIDER:-docker,kubernetes}
       SYSTEM_LOGS_DOCKER_HOST: tcp://docker-socket-proxy:2375
     networks:
       - nopsai-net

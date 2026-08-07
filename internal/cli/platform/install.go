@@ -1019,7 +1019,7 @@ func renderKubernetesValues(version string, images map[string]string, existingSe
 	if err := writeKubernetesImage(&builder, images, "k8sRunner", version); err != nil {
 		return nil, err
 	}
-	builder.WriteString("\nsystemLogs:\n  enabled: true\n  provider: kubernetes\n  kubernetes:\n    labelSelector: \"\"\n    container: \"\"\n    rbac:\n      create: true\n\n")
+	builder.WriteString("\nsystemLogs:\n  enabled: true\n  provider: kubernetes,docker\n  dockerHost: \"\"\n  kubernetes:\n    labelSelector: \"\"\n    container: \"\"\n    rbac:\n      create: true\n\n")
 	builder.WriteString("ui:\n  replicaCount: 1\n")
 	if err := writeKubernetesImage(&builder, images, "ui", version); err != nil {
 		return nil, err
@@ -1613,7 +1613,7 @@ services:
       GIT_BOT_API_URL: ${GIT_BOT_API_URL:-http://git-bot:8081}
       FINAL_OUTPUT_PDF_RENDERER_URL: ${FINAL_OUTPUT_PDF_RENDERER_URL:-http://gotenberg:3000}
       RUNTIME_OUTPUT_MAX_BYTES: ${RUNTIME_OUTPUT_MAX_BYTES:-65536}
-      SYSTEM_LOGS_PROVIDER: docker
+      SYSTEM_LOGS_PROVIDER: ${SYSTEM_LOGS_PROVIDER:-docker,kubernetes}
       SYSTEM_LOGS_DOCKER_HOST: tcp://docker-socket-proxy:2375
       AGENT_IMAGE: ${NOPSAI_AGENT_IMAGE:?NOPSAI_AGENT_IMAGE is required}
     networks: [nopsai-net]
