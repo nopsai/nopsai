@@ -32,7 +32,7 @@ import {
 
 const documents: KnowledgeContextListItem[] = [
   {
-    id: 'runbook/platform/restart',
+    id: 'platform/restart',
     kind: 'runbook',
     team: 'platform',
     name: 'restart',
@@ -73,13 +73,14 @@ describe('Knowledge Context model', () => {
   });
 
   it('normalizes identities, routes, sources, and team paths', () => {
-    expect(encodeKnowledgeID('runbook/platform/restart service')).toBe('runbook/platform/restart%20service');
-    expect(buildKnowledgeID(' runbook ', '/platform/', ' restart ')).toBe('runbook/platform/restart');
-    expect(splitKnowledgePath('runbook/platform/restart')).toEqual({ name: 'restart', team: 'runbook/platform' });
+    expect(encodeKnowledgeID('platform/restart service')).toBe('platform/restart%20service');
+    expect(buildKnowledgeID(' runbook ', '/platform/', ' restart ')).toBe('platform/restart');
+    expect(splitKnowledgePath('platform/restart')).toEqual({ name: 'restart', team: 'platform' });
+    expect(splitKnowledgePath('runbook/platform/restart')).toEqual({ name: 'restart', team: 'platform' });
     expect(normalizeTeamPath(' /runbook//platform/ ')).toBe('runbook/platform');
     expect(parentTeam('runbook/platform')).toBe('runbook');
-    expect(decodeKnowledgeRouteID('/knowledge-context/runbook/platform/restart%20service')).toBe(
-      'runbook/platform/restart service'
+    expect(decodeKnowledgeRouteID('/knowledge-context/platform/restart%20service')).toBe(
+      'platform/restart service'
     );
     expect(decodeKnowledgeRouteID('/pipelines')).toBe('');
     expect(deriveIdentityFromTeam('runbook/platform')).toEqual({ kind: 'runbook', team: 'platform' });
@@ -92,7 +93,7 @@ describe('Knowledge Context model', () => {
     expect(knowledgeContentSource({ source: 'notion-page' })).toBe('external');
     expect(knowledgeContentSource({ source: 'database' })).toBe('inline');
     expect(knowledgeTreePathToTeam('guardrail/security/platform')).toBe('security/platform');
-    expect(documentTeamPath({ id: 'runbook/platform/restart', team: '' })).toBe('platform');
+    expect(documentTeamPath({ id: 'platform/restart', team: '' })).toBe('platform');
     expect(normalizeKnowledgeWorkspaceTab('connections')).toBe('connections');
     expect(normalizeKnowledgeWorkspaceTab('unknown')).toBe('documents');
     expect(normalizeKnowledgeSourceFilter('gitops')).toBe('gitops');
@@ -107,7 +108,7 @@ describe('Knowledge Context model', () => {
     const items: KnowledgeContextListItem[] = [
       documents[0],
       {
-        id: 'guardrail/security/repo-check',
+        id: 'security/repo-check',
         kind: 'guardrail',
         team: 'security',
         name: 'repo-check',
@@ -117,7 +118,7 @@ describe('Knowledge Context model', () => {
         used_by_count: 2,
       },
       {
-        id: 'policy/security/source-page',
+        id: 'security/source-page',
         kind: 'policy',
         team: 'security',
         name: 'source-page',

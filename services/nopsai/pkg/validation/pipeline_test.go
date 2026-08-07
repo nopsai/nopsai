@@ -860,6 +860,34 @@ func TestValidatePipelineRejectsConditionWhenLLMDisabled(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineRejectsBlockingKnowledgeScriptWhenLLMDisabled(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "guarded-script",
+		ContainerImage: "ubuntu:latest",
+		LLMEnabled:     &disabled,
+		KnowledgeContext: []models.KnowledgeContextRef{
+			{Kind: "guardrail", Ref: "data-team/runtime-output-safety"},
+		},
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{Name: "inspect"},
+					Script:   "env",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil {
+		t.Fatal("expected error for LLM-disabled blocking knowledge direct script")
+	}
+	if !strings.Contains(err.Error(), `pipeline has LLM disabled but script step "inspect" uses blocking knowledge context`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidatePipeline_InvalidName(t *testing.T) {
 	p := &models.Pipeline{
 		Name: "Invalid Name With Spaces",
@@ -927,6 +955,8 @@ func TestValidatePipelineRejectsInvalidApprovalDefinition(t *testing.T) {
 		{name: "absolute team", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"/platform/prod"}}, want: "must be a relative team path"},
 		{name: "escaping team", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"../prod"}}, want: "contains invalid path segments"},
 		{name: "duplicate team", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"platform/prod", "platform/prod"}}, want: "repeats approval team"},
+		{name: "invalid timeout", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"platform/prod"}, Timeout: "soon"}, want: "approval.timeout must be a positive duration"},
+		{name: "zero timeout", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"platform/prod"}, Timeout: "0s"}, want: "approval.timeout must be a positive duration"},
 	}
 
 	for _, tt := range tests {
@@ -950,6 +980,28 @@ func TestValidatePipelineRejectsInvalidApprovalDefinition(t *testing.T) {
 				t.Fatalf("error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestValidatePipelineAcceptsApprovalTimeout(t *testing.T) {
+	p := &models.Pipeline{
+		Name: "approval-timeout",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ApprovalStep{
+					BaseStep: models.BaseStep{Name: "prod-gate"},
+					Approval: models.ApprovalDefinition{
+						Type:    "prod-deploy",
+						Teams:   []string{"platform/prod"},
+						Timeout: "24h",
+					},
+				},
+			},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("expected approval timeout to validate, got %v", err)
 	}
 }
 
@@ -1172,6 +1224,37 @@ func TestValidatePipelineLLMProfilesRequiresProfilesForGoalPipeline(t *testing.T
 	err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{})
 	if err == nil || !strings.Contains(err.Error(), "no LLM profiles are configured") {
 		t.Fatalf("ValidatePipelineLLMProfiles() error = %v, want missing profiles error", err)
+	}
+}
+
+func TestValidatePipelineLLMProfilesRequiredForBlockingKnowledgeScript(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "guarded-script",
+		ContainerImage: "ubuntu",
+		LLMProfile:     "fast",
+		KnowledgeContext: []models.KnowledgeContextRef{
+			{Kind: "guardrail", Ref: "data-team/runtime-output-safety"},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{Name: "inspect"},
+				Script:   "env",
+			},
+		}},
+	}
+
+	err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{})
+	if err == nil || !strings.Contains(err.Error(), "no LLM profiles are configured") {
+		t.Fatalf("ValidatePipelineLLMProfiles() error = %v, want missing profiles error", err)
+	}
+
+	if err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{
+		DefaultProfile: "fast",
+		Profiles: map[string]LLMProfileDefinition{
+			"fast": {},
+		},
+	}); err != nil {
+		t.Fatalf("ValidatePipelineLLMProfiles() with configured profile error = %v", err)
 	}
 }
 

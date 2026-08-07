@@ -50,6 +50,14 @@ export const STATUS_META: Record<
     border: 'border-rose-500/60',
     bg: 'fill-rose-100 dark:fill-rose-900/50 stroke-rose-500',
   },
+  timed_out: {
+    text: 'Timed out',
+    pillClass: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-200 dark:border-orange-700',
+    icon: 'M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z',
+    strokeClass: 'text-orange-500',
+    border: 'border-orange-500/60',
+    bg: 'fill-orange-100 dark:fill-orange-900/50 stroke-orange-500',
+  },
   pending: {
     text: 'Pending',
     pillClass: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800/40 dark:text-[var(--text-primary)] dark:border-gray-700',

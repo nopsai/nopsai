@@ -13,6 +13,7 @@ const KNOWN_RUN_STATUSES = new Set([
   'failure',
   'failure (ignored)',
   'rejected',
+  'timed_out',
   'cancelled',
   'waiting_approval',
   'running',

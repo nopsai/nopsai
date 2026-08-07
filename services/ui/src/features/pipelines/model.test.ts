@@ -64,6 +64,47 @@ steps:
   assert.deepEqual(result.errors, []);
 });
 
+test('validates blocking knowledge direct scripts when LLM is enabled', () => {
+  const result = validatePipelineYaml(`
+name: ad-hoc-pipeline
+version: latest
+description: Lab pipeline (ad-hoc)
+container_image: alpine:latest
+llm_enabled: true
+llm_content_sharing: true
+llm_output_sharing: true
+llm_profile: fast
+knowledge_context:
+  - kind: guardrail
+    ref: data-team/runtime-output-safety
+steps:
+  - name: hello
+    script: echo "show env variables"
+  - name: hello2
+    script: env
+    depends_on:
+      - hello
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('rejects blocking knowledge direct scripts when LLM is disabled', () => {
+  const result = validatePipelineYaml(`
+name: guarded-script
+container_image: alpine:3.20
+llm_enabled: false
+knowledge_context:
+  - kind: guardrail
+    ref: data-team/runtime-output-safety
+steps:
+  - name: hello
+    script: env
+`);
+
+  assert.match(result.errors[0]?.message || '', /LLM disabled.*script step 'hello'.*blocking knowledge context/);
+});
+
 test('validates runtime variable declarations, task outputs, and qualified dependencies', () => {
   const result = validatePipelineYaml(`
 name: variable-feature-exercise
@@ -228,6 +269,34 @@ steps:
 `);
 
   assert.deepEqual(result.errors, []);
+});
+
+test('validates approval timeout in UI validation', () => {
+  const valid = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: approval
+    approval:
+      type: deploy
+      teams:
+        - platform/prod
+      timeout: 1h30m
+`);
+  assert.deepEqual(valid.errors, []);
+
+  const invalid = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: approval
+    approval:
+      type: deploy
+      teams:
+        - platform/prod
+      timeout: soon
+`);
+  assert.match(invalid.errors[0]?.message || '', /approval\.timeout must be a positive duration/);
 });
 
 test('validates pipeline dashboard final outputs without dashboard field errors', () => {
@@ -417,6 +486,7 @@ steps:
       teams:
         - sre
       allow_self_approval: false
+      timeout: 24h
   - name: deploy
     depends_on:
       - approve
@@ -452,6 +522,7 @@ steps:
   assert.deepEqual(graph.steps[0]?.configuration?.secrets, ['NPM_TOKEN']);
   assert.equal(graph.steps[0]?.configuration?.runtime_pool, 'ci');
   assert.deepEqual(graph.steps[1]?.configuration?.approval?.teams, ['sre']);
+  assert.equal(graph.steps[1]?.configuration?.approval?.timeout, '24h');
   assert.deepEqual(graph.steps[2]?.configuration?.tasks?.[0]?.variables, { environment: 'prod' });
 });
 

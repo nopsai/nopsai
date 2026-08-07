@@ -1327,8 +1327,8 @@ ADRs, runbooks, references, and examples to LLM-backed pipeline steps.
 # List readable documents
 curl http://localhost:8080/v1/knowledge-contexts
 
-# Inspect a document by kind/team/name
-curl http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+# Inspect a document by document ID; kind is returned as a separate field
+curl http://localhost:8080/v1/knowledge-contexts/security/repo-check
 
 # Upsert a UI-managed document
 curl -X PUT \
@@ -1340,7 +1340,7 @@ curl -X PUT \
     "description":"Baseline repository safety rules",
     "content":"# Repository Check Guardrail\n\n- Do not expose secrets in logs.\n"
   }' \
-  http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+  http://localhost:8080/v1/knowledge-contexts/security/repo-check
 
 # Create and test an external page provider connection
 curl -X POST \
@@ -1382,16 +1382,21 @@ curl -X PUT \
     "failure_mode":"fail",
     "content":"# Source Page\n\nProvider preview text returned by resolve-page.\n"
   }' \
-  http://localhost:8080/v1/knowledge-contexts/policy/security/source-page
+  http://localhost:8080/v1/knowledge-contexts/security/source-page
 
 # Fetch the latest provider page into the cached Knowledge Context content
 curl -X POST \
-  http://localhost:8080/v1/knowledge-contexts/policy/security/source-page/sync
+  http://localhost:8080/v1/knowledge-contexts/security/source-page/sync
 
 # Delete a UI-managed document
 curl -X DELETE \
-  http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+  http://localhost:8080/v1/knowledge-contexts/security/repo-check
 ```
+
+Knowledge document API IDs omit the document type and use `team/name` or `name`
+for global documents. The `kind` remains a normal request/response field.
+Legacy `kind/team/name` URLs are still accepted for compatibility when they are
+unambiguous.
 
 Pipeline YAML can reference managed documents:
 
@@ -2011,6 +2016,8 @@ curl -X POST -H 'Content-Type: application/json' \
 curl -X POST -H 'Content-Type: application/json' \
   -d '{"comment":"Deployment window closed"}' \
   http://localhost:8080/v1/runs/<run-id>/approvals/<approval-id>/reject
+
+Approval comments are optional for approve decisions and required for reject decisions.
 
 # Rerun, cancel, or finalise
 curl -X POST http://localhost:8080/v1/runs/<run-id>/rerun

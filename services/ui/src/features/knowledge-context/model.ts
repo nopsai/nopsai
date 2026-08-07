@@ -176,7 +176,7 @@ export const KNOWLEDGE_CONTEXTS_CHANGED_EVENT = 'nopsai-knowledge-contexts-chang
 export const kindOrder = ['architecture', 'guardrail', 'policy', 'adr', 'guideline', 'runbook', 'reference', 'example'];
 
 export const emptyKnowledgeDraft: KnowledgeContextDetail = {
-  id: 'architecture/team-1/new-document',
+  id: 'team-1/new-document',
   kind: 'architecture',
   team: 'team-1',
   name: 'new-document',
@@ -209,8 +209,8 @@ export function encodeKnowledgeID(id: string) {
   return id.split('/').map(encodeURIComponent).join('/');
 }
 
-export function buildKnowledgeID(kind: string, team: string, name: string) {
-  return [kind, team, name]
+export function buildKnowledgeID(_kind: string, team: string, name: string) {
+  return [team, name]
     .map(part => part.trim().replace(/^\/+|\/+$/g, ''))
     .filter(Boolean)
     .join('/');
@@ -252,6 +252,9 @@ export function clearKnowledgeDraft(id: string) {
 
 export function splitKnowledgePath(id: string) {
   const parts = id.split('/').filter(Boolean);
+  if (parts.length >= 2 && kindOrder.includes(parts[0])) {
+    parts.shift();
+  }
   const name = parts.pop() || '';
   return { name, team: parts.join('/') };
 }

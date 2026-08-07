@@ -42,6 +42,8 @@ var supportedKnowledgeContextKinds = map[string]struct{}{
 	"example":      {},
 }
 
+var errKnowledgeContextIdentifierAmbiguous = errors.New("knowledge document id is ambiguous; include kind")
+
 type storedKnowledgeContext struct {
 	kind        string
 	team        string
@@ -53,6 +55,7 @@ type storedKnowledgeContext struct {
 
 type knowledgeContextListItem struct {
 	ID                string     `json:"id"`
+	ResourceID        string     `json:"-"`
 	UUID              string     `json:"uuid,omitempty"`
 	Kind              string     `json:"kind"`
 	Team              string     `json:"team"`
@@ -203,6 +206,15 @@ func buildKnowledgeContextIdentifier(kind, team, name string) string {
 	return strings.Join(parts, "/")
 }
 
+func buildKnowledgeDocumentIdentifier(team, name string) string {
+	parts := []string{}
+	if team = strings.Trim(strings.TrimSpace(team), "/"); team != "" {
+		parts = append(parts, team)
+	}
+	parts = append(parts, strings.Trim(strings.TrimSpace(name), "/"))
+	return strings.Join(parts, "/")
+}
+
 func splitKnowledgeContextIdentifier(raw string) (string, string, string, error) {
 	value := strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/")), "/")
 	parts := strings.Split(value, "/")
@@ -222,6 +234,74 @@ func splitKnowledgeContextIdentifier(raw string) (string, string, string, error)
 		return "", "", "", err
 	}
 	return kind, team, name, nil
+}
+
+func splitKnowledgeContextRouteIdentifier(raw string) (string, string, string, error) {
+	value := strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/")), "/")
+	if value == "" {
+		return "", "", "", fmt.Errorf("knowledge document id is required")
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) >= 2 {
+		if kind, err := normalizeKnowledgeContextKind(parts[0]); err == nil {
+			name, err := normalizeKnowledgeContextName(parts[len(parts)-1])
+			if err != nil {
+				return "", "", "", err
+			}
+			team, err := normalizeKnowledgeContextTeam(strings.Join(parts[1:len(parts)-1], "/"))
+			if err != nil {
+				return "", "", "", err
+			}
+			return kind, team, name, nil
+		}
+	}
+	name, err := normalizeKnowledgeContextName(parts[len(parts)-1])
+	if err != nil {
+		return "", "", "", err
+	}
+	team, err := normalizeKnowledgeContextTeam(strings.Join(parts[:len(parts)-1], "/"))
+	if err != nil {
+		return "", "", "", err
+	}
+	return "", team, name, nil
+}
+
+func (a *App) resolveExistingKnowledgeContextIdentifier(ctx context.Context, raw string) (string, string, string, string, error) {
+	kind, team, name, err := splitKnowledgeContextRouteIdentifier(raw)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	if kind != "" {
+		return kind, team, name, buildKnowledgeContextIdentifier(kind, team, name), nil
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT kind
+		FROM knowledge_contexts
+		WHERE team_path = $1 AND name = $2
+		ORDER BY kind ASC
+	`, team, name)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	defer rows.Close()
+	var kinds []string
+	for rows.Next() {
+		var candidate string
+		if err := rows.Scan(&candidate); err != nil {
+			return "", "", "", "", err
+		}
+		kinds = append(kinds, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return "", "", "", "", err
+	}
+	if len(kinds) == 0 {
+		return "", team, name, "", pgx.ErrNoRows
+	}
+	if len(kinds) > 1 {
+		return "", team, name, "", errKnowledgeContextIdentifierAmbiguous
+	}
+	return kinds[0], team, name, buildKnowledgeContextIdentifier(kinds[0], team, name), nil
 }
 
 func knowledgeContextRefToParts(kind, ref string) (string, string, string, error) {
@@ -494,6 +574,7 @@ func removeCommonIndent(content string) string {
 
 func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding models.ConfigRepository, boundTeam string, accessPlan accessSyncPlan) (map[string]storedKnowledgeContext, error) {
 	contexts := make(map[string]storedKnowledgeContext)
+	documentIDs := make(map[string]string)
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
 		rel, ok := configsync.RelativePath(normalized, root)
@@ -555,6 +636,11 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 		if _, exists := contexts[key]; exists {
 			return nil, fmt.Errorf("duplicate knowledge context '%s' detected in config repository", key)
 		}
+		documentID := buildKnowledgeDocumentIdentifier(team, name)
+		if existingKey, exists := documentIDs[documentID]; exists {
+			return nil, fmt.Errorf("duplicate knowledge document id '%s' detected in config repository for %s and %s", documentID, existingKey, key)
+		}
+		documentIDs[documentID] = key
 
 		if err := addKnowledgeContextEmbeddedAccess(accessPlan, frontMatter, normalized, key, binding, boundTeam); err != nil {
 			return nil, fmt.Errorf("invalid knowledge context access '%s': %w", normalized, err)
@@ -626,7 +712,8 @@ func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Failed to process knowledge contexts", http.StatusInternalServerError)
 			return
 		}
-		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Team, item.Name)
+		item.ResourceID = buildKnowledgeContextIdentifier(item.Kind, item.Team, item.Name)
+		item.ID = buildKnowledgeDocumentIdentifier(item.Team, item.Name)
 		if connectionID.Valid {
 			item.ConnectionID = connectionID.String
 			if connectionTeam.Valid && connectionName.Valid {
@@ -639,9 +726,9 @@ func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request
 		if sourceModifiedAt.Valid {
 			item.SourceModifiedAt = &sourceModifiedAt.Time
 		}
-		visibility, err := a.resourceVisibility(r.Context(), grantResourceKnowledgeContext, item.ID)
+		visibility, err := a.resourceVisibility(r.Context(), grantResourceKnowledgeContext, item.ResourceID)
 		if err != nil {
-			log.Error().Err(err).Str("knowledge_context", item.ID).Msg("Failed to load knowledge context visibility")
+			log.Error().Err(err).Str("knowledge_context", item.ResourceID).Msg("Failed to load knowledge context visibility")
 			http.Error(w, "Failed to process knowledge contexts", http.StatusInternalServerError)
 			return
 		}
@@ -650,10 +737,10 @@ func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request
 			item.Source = knowledgeSourceGitOps
 		}
 		item.Access = item.Visibility
-		item.UsedBy = usage[item.ID]
+		item.UsedBy = usage[item.ResourceID]
 		item.UsedByCount = len(item.UsedBy)
 		items = append(items, item)
-		resources = append(resources, aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: item.ID})
+		resources = append(resources, aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: item.ResourceID})
 	}
 	if err := rows.Err(); err != nil {
 		http.Error(w, "Failed to process knowledge contexts", http.StatusInternalServerError)
@@ -667,7 +754,7 @@ func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request
 	}
 	filtered := make([]knowledgeContextListItem, 0, len(items))
 	for _, item := range items {
-		if _, ok := allowedSet[resourceKey(aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: item.ID})]; ok {
+		if _, ok := allowedSet[resourceKey(aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: item.ResourceID})]; ok {
 			filtered = append(filtered, item)
 		}
 	}
@@ -676,8 +763,16 @@ func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request
 
 func (a *App) handleGetKnowledgeContext(w http.ResponseWriter, r *http.Request) {
 	identifier := r.PathValue("knowledgeID")
-	kind, team, name, err := splitKnowledgeContextIdentifier(identifier)
+	kind, team, name, resourceID, err := a.resolveExistingKnowledgeContextIdentifier(r.Context(), identifier)
 	if err != nil {
+		if errors.Is(err, errKnowledgeContextIdentifierAmbiguous) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "knowledge context not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -691,7 +786,7 @@ func (a *App) handleGetKnowledgeContext(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Failed to load knowledge context", http.StatusInternalServerError)
 		return
 	}
-	if !a.requireAAADecision(w, r, "knowledge_context.read", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: detail.ID}) {
+	if !a.requireAAADecision(w, r, "knowledge_context.read", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: resourceID}) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
@@ -699,14 +794,14 @@ func (a *App) handleGetKnowledgeContext(w http.ResponseWriter, r *http.Request) 
 
 func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Request) {
 	identifier := r.PathValue("knowledgeID")
-	pathKind, pathTeam, pathName, err := splitKnowledgeContextIdentifier(identifier)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	var req upsertKnowledgeContextRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	pathKind, pathTeam, pathName, err := splitKnowledgeContextRouteIdentifier(identifier)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	kind := firstNonEmptyString(req.Kind, pathKind)
@@ -727,11 +822,32 @@ func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if kind != pathKind || team != pathTeam || name != pathName {
+	if pathKind != "" && (kind != pathKind || team != pathTeam || name != pathName) {
 		http.Error(w, "request body kind, team, and name must match the URL", http.StatusBadRequest)
 		return
 	}
+	if pathKind == "" && (team != pathTeam || name != pathName) {
+		http.Error(w, "request body team and name must match the URL", http.StatusBadRequest)
+		return
+	}
 	resourceID := buildKnowledgeContextIdentifier(kind, team, name)
+	var conflictingKind string
+	conflictErr := a.db.QueryRow(r.Context(), `
+		SELECT kind
+		FROM knowledge_contexts
+		WHERE team_path = $1 AND name = $2 AND kind <> $3
+		LIMIT 1
+	`, team, name, kind).Scan(&conflictingKind)
+	if conflictErr == nil {
+		log.Warn().Str("knowledge_context", resourceID).Str("conflicting_kind", conflictingKind).Msg("Knowledge document id collision")
+		http.Error(w, "knowledge document id already exists", http.StatusConflict)
+		return
+	}
+	if conflictErr != nil && !errors.Is(conflictErr, pgx.ErrNoRows) && !errors.Is(conflictErr, sql.ErrNoRows) {
+		log.Error().Err(conflictErr).Str("knowledge_context", resourceID).Msg("Failed to inspect knowledge document id collision")
+		http.Error(w, "Failed to save knowledge context", http.StatusInternalServerError)
+		return
+	}
 	var exists int
 	lookupErr := a.db.QueryRow(r.Context(), `
 		SELECT 1
@@ -890,8 +1006,16 @@ func (a *App) handleKnowledgeContextPost(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *App) handleSyncKnowledgeContext(w http.ResponseWriter, r *http.Request, identifier string) {
-	kind, team, name, err := splitKnowledgeContextIdentifier(identifier)
+	kind, team, name, resourceID, err := a.resolveExistingKnowledgeContextIdentifier(r.Context(), identifier)
 	if err != nil {
+		if errors.Is(err, errKnowledgeContextIdentifierAmbiguous) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "knowledge context not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -905,7 +1029,7 @@ func (a *App) handleSyncKnowledgeContext(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "Failed to load knowledge context", http.StatusInternalServerError)
 		return
 	}
-	if !a.requireAAADecision(w, r, "knowledge_context.update", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: detail.ID}) {
+	if !a.requireAAADecision(w, r, "knowledge_context.update", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: resourceID}) {
 		return
 	}
 	if strings.TrimSpace(detail.ConnectionID) == "" || (strings.TrimSpace(detail.ExternalPageID) == "" && strings.TrimSpace(detail.ExternalPageURL) == "") {
@@ -959,12 +1083,19 @@ func (a *App) handleSyncKnowledgeContext(w http.ResponseWriter, r *http.Request,
 }
 
 func (a *App) handleDeleteKnowledgeContext(w http.ResponseWriter, r *http.Request) {
-	kind, team, name, err := splitKnowledgeContextIdentifier(r.PathValue("knowledgeID"))
+	kind, team, name, resourceID, err := a.resolveExistingKnowledgeContextIdentifier(r.Context(), r.PathValue("knowledgeID"))
 	if err != nil {
+		if errors.Is(err, errKnowledgeContextIdentifierAmbiguous) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "knowledge context not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	resourceID := buildKnowledgeContextIdentifier(kind, team, name)
 	if !a.requireAAADecision(w, r, "knowledge_context.delete", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: resourceID}) {
 		return
 	}
@@ -1012,7 +1143,8 @@ func (a *App) loadKnowledgeContextDetail(ctx context.Context, kind, team, name s
 	if err != nil {
 		return detail, err
 	}
-	detail.ID = buildKnowledgeContextIdentifier(detail.Kind, detail.Team, detail.Name)
+	detail.ResourceID = buildKnowledgeContextIdentifier(detail.Kind, detail.Team, detail.Name)
+	detail.ID = buildKnowledgeDocumentIdentifier(detail.Team, detail.Name)
 	if connectionID.Valid {
 		detail.ConnectionID = connectionID.String
 		if connectionTeam.Valid && connectionName.Valid {
@@ -1031,7 +1163,7 @@ func (a *App) loadKnowledgeContextDetail(ctx context.Context, kind, team, name s
 	if sourceModifiedAt.Valid {
 		detail.SourceModifiedAt = &sourceModifiedAt.Time
 	}
-	visibility, err := a.resourceVisibility(ctx, grantResourceKnowledgeContext, detail.ID)
+	visibility, err := a.resourceVisibility(ctx, grantResourceKnowledgeContext, detail.ResourceID)
 	if err != nil {
 		return detail, err
 	}
@@ -1067,7 +1199,7 @@ func (a *App) loadKnowledgeContextDetail(ctx context.Context, kind, team, name s
 		}
 	}
 	usage := a.knowledgeContextUsage(ctx)
-	detail.UsedBy = usage[detail.ID]
+	detail.UsedBy = usage[detail.ResourceID]
 	detail.UsedByCount = len(detail.UsedBy)
 	return detail, nil
 }

@@ -20,6 +20,87 @@ func TestPipelineRequiresLLMProfilesSkipsScriptOnlyPipeline(t *testing.T) {
 	}
 }
 
+func TestPipelineRequiresLLMProfilesForBlockingKnowledgeScriptValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		pipeline Pipeline
+	}{
+		{
+			name: "pipeline-level guardrail on script step",
+			pipeline: Pipeline{
+				Name:             "guarded-script",
+				ContainerImage:   "alpine:3.20",
+				KnowledgeContext: []KnowledgeContextRef{{Kind: "guardrail", Ref: "data-team/runtime-output-safety"}},
+				Steps: []PipelineStep{{
+					Step: &ScriptStep{
+						BaseStep: BaseStep{Name: "hello"},
+						Script:   "env",
+					},
+				}},
+			},
+		},
+		{
+			name: "step-level policy on script task",
+			pipeline: Pipeline{
+				Name:           "guarded-task",
+				ContainerImage: "alpine:3.20",
+				Steps: []PipelineStep{{
+					Step: &TaskStep{
+						BaseStep: BaseStep{
+							Name:             "deploy",
+							KnowledgeContext: []KnowledgeContextRef{{Kind: "policy", Ref: "data-team/deploy-policy"}},
+						},
+						Tasks: []Task{{Name: "run", Script: "./deploy.sh"}},
+					},
+				}},
+			},
+		},
+		{
+			name: "task-level guardrail on script task",
+			pipeline: Pipeline{
+				Name:           "task-guarded",
+				ContainerImage: "alpine:3.20",
+				Steps: []PipelineStep{{
+					Step: &TaskStep{
+						BaseStep: BaseStep{Name: "inspect"},
+						Tasks: []Task{{
+							Name:             "env",
+							Script:           "env",
+							KnowledgeContext: []KnowledgeContextRef{{Kind: "guardrail", Ref: "data-team/runtime-output-safety"}},
+						}},
+					},
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !PipelineRequiresLLMProfiles(&tt.pipeline) {
+				t.Fatal("blocking knowledge direct script should require LLM profiles")
+			}
+		})
+	}
+}
+
+func TestPipelineRequiresLLMProfilesIgnoresNonBlockingKnowledgeScript(t *testing.T) {
+	pipeline := &Pipeline{
+		Name:             "documented-script",
+		ContainerImage:   "alpine:3.20",
+		KnowledgeContext: []KnowledgeContextRef{{Kind: "guideline", Ref: "data-team/shell-style"}},
+		Steps: []PipelineStep{{
+			Step: &ScriptStep{
+				BaseStep: BaseStep{Name: "hello"},
+				Script:   "echo ok",
+			},
+		}},
+	}
+
+	if PipelineRequiresLLMProfiles(pipeline) {
+		t.Fatal("non-blocking knowledge on script-only pipeline should not require LLM profiles")
+	}
+}
+
 func TestPipelineRequiresLLMProfilesDetectsAISurfaces(t *testing.T) {
 	tests := []struct {
 		name     string

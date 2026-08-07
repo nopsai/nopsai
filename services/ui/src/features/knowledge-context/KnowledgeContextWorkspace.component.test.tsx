@@ -14,7 +14,7 @@ import {
 
 const documents: KnowledgeContextListItem[] = [
   {
-    id: 'runbook/platform/restart',
+    id: 'platform/restart',
     kind: 'runbook',
     team: 'platform',
     name: 'restart',
@@ -24,7 +24,7 @@ const documents: KnowledgeContextListItem[] = [
     used_by_count: 1,
   },
   {
-    id: 'policy/security/access',
+    id: 'security/access',
     kind: 'policy',
     team: 'security',
     name: 'access',
@@ -136,7 +136,7 @@ describe('KnowledgeContextWorkspace', () => {
     expect(props.onSearchChange).toHaveBeenCalledWith('restart');
     expect(props.onOpenTeam).toHaveBeenCalledWith('runbook');
     expect(props.onCreateDocument).toHaveBeenCalledOnce();
-    expect(props.onSelectDocument).toHaveBeenCalledWith('runbook/platform/restart');
+    expect(props.onSelectDocument).toHaveBeenCalledWith('platform/restart');
   });
 
   it('opens document row actions before deleting and dismisses on outside click', () => {

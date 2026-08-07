@@ -102,7 +102,18 @@ export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'ar
 export const ARRAY_KEYS = new Set(['steps', 'tasks', 'items', 'variables', 'secrets', 'volumes', 'depends_on', 'outputs', 'artifacts', 'mcp_profiles', 'knowledge_context', 'llm_content_include', 'llm_content_ignore']);
 
 const OVERRIDE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
+const GO_DURATION_PATTERN = /^(?=.*[1-9])(?:\d+(?:\.\d+)?|\.\d+)(?:ns|us|\u00b5s|\u03bcs|ms|s|m|h)(?:(?:\d+(?:\.\d+)?|\.\d+)(?:ns|us|\u00b5s|\u03bcs|ms|s|m|h))*$/;
+const BLOCKING_KNOWLEDGE_KINDS = new Set(['guardrail', 'policy']);
 export const DEFAULT_PIPELINE_NAME = 'ad-hoc-pipeline';
+
+function isPositiveGoDuration(value: string) {
+  return GO_DURATION_PATTERN.test(value.trim());
+}
+
+function knowledgeContextRefsContainBlocking(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.some(ref => isPlainObject(ref) && BLOCKING_KNOWLEDGE_KINDS.has(safeString(ref.kind).toLowerCase()));
+}
 
 const VALIDATION_EXAMPLES: Array<{ pattern: RegExp; example: string }> = [
   {
@@ -775,6 +786,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     const stepToTaskNames = new Map<string, Set<string>>();
     const outputDeclarations = new Map<string, Set<string>>();
     const runtimeVariableConsumers: RuntimeVariableConsumer[] = [];
+    const pipelineHasBlockingKnowledge = knowledgeContextRefsContainBlocking(pipeline.knowledge_context);
     for (let index = 0; index < steps.length; index += 1) {
       const step = steps[index] as unknown;
       const stepPath = `steps[${index}]`;
@@ -791,6 +803,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       }
       stepNames.add(stepName);
       stepToTaskNames.set(stepName, new Set<string>());
+      const stepHasBlockingKnowledge = pipelineHasBlockingKnowledge || knowledgeContextRefsContainBlocking(step.knowledge_context);
 
       const stepVariables = step.variables;
       const stepVariablesError = validateRuntimeVariableMap(stepVariables, `Step '${stepName}' variables`);
@@ -869,6 +882,18 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       }
       if (!llmEnabled && hasGoalContent) {
         return { errors: [createError(`Validation Error: Pipeline has LLM disabled but step '${stepName}' defines goal.`, [`${stepPath}.goal`, stepPath])] };
+      }
+      if (!llmEnabled && hasScriptContent && stepHasBlockingKnowledge) {
+        return {
+          errors: [
+            createError(`Validation Error: Pipeline has LLM disabled but script step '${stepName}' uses blocking knowledge context.`, [
+              `${stepPath}.script`,
+              `${stepPath}.knowledge_context`,
+              'knowledge_context',
+              stepPath,
+            ]),
+          ],
+        };
       }
 
       if (hasGoalKey && hasScriptKey) {
@@ -996,6 +1021,20 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
               ]),
             ],
           };
+        }
+        if (hasOwn(approval, 'timeout')) {
+          const timeout = typeof approval.timeout === 'string' ? approval.timeout.trim() : '';
+          if (!timeout || !isPositiveGoDuration(timeout)) {
+            return {
+              errors: [
+                createError(`Validation Error: Approval step '${stepName}' approval.timeout must be a positive duration.`, [
+                  `${stepPath}.approval.timeout`,
+                  `${stepPath}.approval`,
+                  stepPath,
+                ]),
+              ],
+            };
+          }
         }
       }
 
@@ -1138,6 +1177,19 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
           if (!llmEnabled && taskHasGoalContent) {
             return {
               errors: [createError(`Validation Error: Pipeline has LLM disabled but task '${taskName}' in step '${stepName}' defines goal.`, [`${taskPath}.goal`, taskPath])],
+            };
+          }
+          if (!llmEnabled && taskHasScriptContent && (stepHasBlockingKnowledge || knowledgeContextRefsContainBlocking(task.knowledge_context))) {
+            return {
+              errors: [
+                createError(`Validation Error: Pipeline has LLM disabled but script task '${taskName}' in step '${stepName}' uses blocking knowledge context.`, [
+                  `${taskPath}.script`,
+                  `${taskPath}.knowledge_context`,
+                  `${stepPath}.knowledge_context`,
+                  'knowledge_context',
+                  taskPath,
+                ]),
+              ],
             };
           }
           if (llmEnabled && taskHasScriptContent && hasOwn(task, 'mcp_profiles')) {
