@@ -107,7 +107,7 @@ test('renders redesigned pipeline run overview and delegates user actions', asyn
   expect(screen.queryByRole('heading', { name: 'All pipeline runs' })).not.toBeInTheDocument();
   const metrics = screen.getByTestId('pipeline-runs-metrics');
   expect(within(metrics).getByText('Running now')).toBeVisible();
-  expect(within(metrics).getByText('1 failed, 0 waiting approval')).toBeVisible();
+  expect(within(metrics).getByText('1 failed, 0 warnings, 0 waiting approval')).toBeVisible();
   expect(screen.getByText('deploy-api')).toBeVisible();
   expect(screen.getByText('deploy-feature')).toBeVisible();
   expect(container.querySelectorAll('[data-trigger-id="event-related"]')).toHaveLength(2);

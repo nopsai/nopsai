@@ -10,6 +10,7 @@ import type {
 const DEFAULT_PADDING = 32;
 const KNOWN_RUN_STATUSES = new Set([
   'success',
+  'warning',
   'failure',
   'failure (ignored)',
   'rejected',
@@ -30,6 +31,7 @@ export type TaskStatusInput = {
 
 export function getGraphStatusColor(status: GraphStatus): string {
   if (status === 'success') return '#10b981';
+  if (status === 'warning') return '#f59e0b';
   if (status === 'failed') return '#ef4444';
   if (status === 'cancelled') return '#f97316';
   if (status === 'running') return '#3b82f6';
@@ -38,6 +40,7 @@ export function getGraphStatusColor(status: GraphStatus): string {
 
 export function getGraphStatusLabel(status: GraphStatus): string {
   if (status === 'success') return 'Success';
+  if (status === 'warning') return 'Warning';
   if (status === 'failed') return 'Failed';
   if (status === 'cancelled') return 'Cancelled';
   if (status === 'running') return 'Running';
@@ -50,6 +53,7 @@ export function normalizeGraphStatus(status: string | undefined, complete?: bool
   const raw = (status || '').toLowerCase();
   const normalized = KNOWN_RUN_STATUSES.has(raw) ? raw : !complete ? raw || 'pending' : 'pending';
   if (normalized === 'success') return 'success';
+  if (normalized === 'warning' || normalized === 'failure (ignored)') return 'warning';
   if (normalized === 'cancelled') return 'cancelled';
   if (normalized === 'running' || normalized === 'waiting_approval') return 'running';
   if (normalized === 'skipped') return 'skipped';
@@ -64,7 +68,7 @@ export function deriveTaskGraphStatus(task: TaskStatusInput, stepStatus?: string
   const finished = Boolean(task.finished_at);
   const hasExitCode = typeof task.exit_code === 'number';
 
-  if (base === 'skipped' || base === 'failed' || base === 'cancelled') return base;
+  if (base === 'skipped' || base === 'warning' || base === 'failed' || base === 'cancelled') return base;
   if (finished && hasExitCode) return task.exit_code === 0 ? 'success' : 'failed';
   if (!finished && started && stepBase && stepBase !== 'pending' && stepBase !== 'running') return stepBase;
   if (base === 'running' || (started && !finished)) return 'running';
@@ -80,6 +84,7 @@ export function deriveGraphEdgeStatus(source: GraphStatus, target: GraphStatus):
   if (source === 'cancelled' || target === 'cancelled') return 'cancelled';
   if (source === 'running' || target === 'running') return 'running';
   if (source === 'pending' || target === 'pending') return 'pending';
+  if (source === 'warning' || target === 'warning') return 'warning';
   if (source === 'skipped' || target === 'skipped') return 'skipped';
   return 'success';
 }

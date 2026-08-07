@@ -52,12 +52,13 @@ type pipelineNotificationBranding struct {
 }
 
 type pipelineNotificationProgress struct {
-	Total   int
-	Passed  int
-	Failed  int
-	Running int
-	Pending int
-	Skipped int
+	Total    int
+	Passed   int
+	Warnings int
+	Failed   int
+	Running  int
+	Pending  int
+	Skipped  int
 }
 
 type pipelineNotificationMailView struct {
@@ -397,7 +398,7 @@ func buildPipelineNotificationMailView(notificationCtx pipelineNotificationConte
 	}
 	progressLabel := ""
 	if progress.Total > 0 {
-		progressLabel = fmt.Sprintf("%d of %d steps passed", progress.Passed, progress.Total)
+		progressLabel = pipelineNotificationProgressLabel(progress)
 	}
 	preview := strings.TrimSpace(strings.Join([]string{headline, pipeline, failureLocation, progressLabel}, " - "))
 
@@ -437,6 +438,8 @@ func pipelineNotificationPresentation(status, eventType string) (string, string,
 	switch normalized {
 	case "success":
 		return "SUCCEEDED", "Pipeline succeeded", template.CSS("#16794b")
+	case "warning":
+		return "WARNING", "Pipeline completed with warnings", template.CSS("#b54708")
 	case "failure":
 		return "FAILED", "Pipeline failed", template.CSS("#b42318")
 	case "cancelled":
@@ -456,6 +459,8 @@ func pipelineNotificationStepColors(status string) (template.CSS, template.CSS) 
 	switch runquery.NormalizeRunDetailStatus(status) {
 	case "success":
 		return template.CSS("#067647"), template.CSS("#ecfdf3")
+	case "warning":
+		return template.CSS("#b54708"), template.CSS("#fffaeb")
 	case "failure", "rejected":
 		return template.CSS("#b42318"), template.CSS("#fef3f2")
 	case "running":
@@ -473,7 +478,9 @@ func summarizePipelineNotificationProgress(steps []pipelineNotificationStep) pip
 		switch runquery.NormalizeRunDetailStatus(step.Status) {
 		case "success":
 			progress.Passed++
-		case "failure", "rejected", "failure (ignored)":
+		case "warning":
+			progress.Warnings++
+		case "failure", "rejected":
 			progress.Failed++
 		case "running", "waiting_approval":
 			progress.Running++
@@ -484,6 +491,28 @@ func summarizePipelineNotificationProgress(steps []pipelineNotificationStep) pip
 		}
 	}
 	return progress
+}
+
+func pipelineNotificationProgressLabel(progress pipelineNotificationProgress) string {
+	if progress.Warnings > 0 {
+		warningLabel := "warnings"
+		if progress.Warnings == 1 {
+			warningLabel = "warning"
+		}
+		return fmt.Sprintf("%d of %d steps passed, %d %s", progress.Passed, progress.Total, progress.Warnings, warningLabel)
+	}
+	return fmt.Sprintf("%d of %d steps passed", progress.Passed, progress.Total)
+}
+
+func pipelineNotificationSubjectProgressLabel(progress pipelineNotificationProgress) string {
+	if progress.Warnings > 0 {
+		warningLabel := "warnings"
+		if progress.Warnings == 1 {
+			warningLabel = "warning"
+		}
+		return fmt.Sprintf("%d/%d steps passed, %d %s", progress.Passed, progress.Total, progress.Warnings, warningLabel)
+	}
+	return fmt.Sprintf("%d/%d steps passed", progress.Passed, progress.Total)
 }
 
 func pipelineNotificationDisplayName(notificationCtx pipelineNotificationContext) string {
@@ -655,10 +684,11 @@ var pipelineNotificationHTMLTemplate = template.Must(template.New("pipeline-noti
                 {{if .ProgressLabel}}
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                   <tr>
-                    <td width="25%" style="padding:0 5px 0 0;"><div style="padding:13px 10px;background:#f9fafb;border:1px solid #eaecf0;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;">{{.Progress.Total}}</div><div style="font-size:11px;color:#667085;">TOTAL STEPS</div></div></td>
-                    <td width="25%" style="padding:0 5px;"><div style="padding:13px 10px;background:#ecfdf3;border:1px solid #abefc6;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;color:#067647;">{{.Progress.Passed}}</div><div style="font-size:11px;color:#067647;">PASSED</div></div></td>
-                    <td width="25%" style="padding:0 5px;"><div style="padding:13px 10px;background:#fef3f2;border:1px solid #fecdca;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;color:#b42318;">{{.Progress.Failed}}</div><div style="font-size:11px;color:#b42318;">FAILED</div></div></td>
-                    <td width="25%" style="padding:0 0 0 5px;"><div style="padding:13px 10px;background:#f2f4f7;border:1px solid #eaecf0;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;color:#475467;">{{add .Progress.Running .Progress.Pending .Progress.Skipped}}</div><div style="font-size:11px;color:#667085;">REMAINING</div></div></td>
+                    <td width="20%" style="padding:0 4px 0 0;"><div style="padding:13px 8px;background:#f9fafb;border:1px solid #eaecf0;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;">{{.Progress.Total}}</div><div style="font-size:11px;color:#667085;">TOTAL STEPS</div></div></td>
+                    <td width="20%" style="padding:0 4px;"><div style="padding:13px 8px;background:#ecfdf3;border:1px solid #abefc6;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;color:#067647;">{{.Progress.Passed}}</div><div style="font-size:11px;color:#067647;">PASSED</div></div></td>
+                    <td width="20%" style="padding:0 4px;"><div style="padding:13px 8px;background:#fffaeb;border:1px solid #fedf89;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;color:#b54708;">{{.Progress.Warnings}}</div><div style="font-size:11px;color:#b54708;">WARNINGS</div></div></td>
+                    <td width="20%" style="padding:0 4px;"><div style="padding:13px 8px;background:#fef3f2;border:1px solid #fecdca;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;color:#b42318;">{{.Progress.Failed}}</div><div style="font-size:11px;color:#b42318;">FAILED</div></div></td>
+                    <td width="20%" style="padding:0 0 0 4px;"><div style="padding:13px 8px;background:#f2f4f7;border:1px solid #eaecf0;border-radius:10px;text-align:center;"><div style="font-size:22px;font-weight:750;color:#475467;">{{add .Progress.Running .Progress.Pending .Progress.Skipped}}</div><div style="font-size:11px;color:#667085;">REMAINING</div></div></td>
                   </tr>
                 </table>
                 {{end}}

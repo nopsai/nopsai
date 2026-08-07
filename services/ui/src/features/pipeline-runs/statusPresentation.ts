@@ -10,6 +10,14 @@ export const STATUS_META: Record<
     border: 'border-green-500/50',
     bg: 'fill-green-100 dark:fill-green-900/50 stroke-green-500',
   },
+  warning: {
+    text: 'Warning',
+    pillClass: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-600',
+    icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
+    strokeClass: 'text-amber-600',
+    border: 'border-amber-500/60',
+    bg: 'fill-amber-100 dark:fill-amber-900/50 stroke-amber-500',
+  },
   failure: {
     text: 'Failure',
     pillClass: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-700',
@@ -19,7 +27,7 @@ export const STATUS_META: Record<
     bg: 'fill-red-100 dark:fill-red-900/50 stroke-red-500',
   },
   'failure (ignored)': {
-    text: 'Failure (ignored)',
+    text: 'Warning',
     pillClass: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-600',
     icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
     strokeClass: 'text-amber-600',

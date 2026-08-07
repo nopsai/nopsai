@@ -149,11 +149,13 @@ test('summarizes and filters graph entities for search and status controls', () 
   const summary = summarizeGraphStatuses([
     { status: 'success' },
     { status: 'success' },
+    { status: 'warning' },
     { status: 'failed' },
     { status: 'running' },
   ]);
 
   assert.equal(summary.success, 2);
+  assert.equal(summary.warning, 1);
   assert.equal(summary.failed, 1);
   assert.equal(matchesRunGraphEntityFilter({ name: 'publish-images', status: 'success' }, { searchQuery: 'publish', statusFilter: 'success' }), true);
   assert.equal(matchesRunGraphEntityFilter({ name: 'publish-images', status: 'success' }, { searchQuery: 'deploy', statusFilter: 'all' }), false);

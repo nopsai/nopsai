@@ -22,7 +22,7 @@ func markRunRunning(ctx context.Context, runner execRunner, runID string) error 
 		UPDATE pipeline_runs
 		SET status = 'running', started_at = COALESCE(started_at, NOW())
 		WHERE run_id = $1
-		  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'waiting_approval', 'rejected')`, runID)
+		  AND status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'waiting_approval', 'rejected')`, runID)
 	return err
 }
 

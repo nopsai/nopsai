@@ -972,7 +972,7 @@ Pages present in the current UI:
   The setup wizard appears there as Installation.
   Product Wiki, user profile/theme/logout, and the final version row live as
   separated sidebar footer sections so route headers stay compact.
-- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, ignored-failure warnings, expandable scroll-zoom graph exploration with frontmost child dialogs, parent-visible included pipeline logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
+- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, ignored-failure warnings with warning run status, expandable scroll-zoom graph exploration with frontmost child dialogs, parent-visible included pipeline logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, tabbed pipeline detail
   with a compact run-detail-style header, single-frame embedded dependency

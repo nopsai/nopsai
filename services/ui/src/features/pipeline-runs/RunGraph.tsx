@@ -522,6 +522,7 @@ export function StepsGraph({
       >
         <option value="all">All statuses</option>
         <option value="success">Succeeded</option>
+        <option value="warning">Warning</option>
         <option value="failed">Failed</option>
         <option value="running">Running</option>
         <option value="pending">Pending</option>
@@ -553,7 +554,7 @@ export function StepsGraph({
             <span className="run-graph-count">{totalTasks} task{totalTasks === 1 ? '' : 's'}</span>
             {!hideStatusLegend ? (
               <div className="run-graph-legend" aria-label="Graph status summary">
-                {(['success', 'running', 'failed'] as GraphStatus[]).map(status => (
+                {(['success', 'warning', 'running', 'failed'] as GraphStatus[]).map(status => (
                   <span key={status}>
                     <i style={{ backgroundColor: statusColor(status, statusColorOverride) }} />
                     {statusSummary[status]} {getGraphStatusLabel(status)}

@@ -1200,6 +1200,8 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 	a.stateLock.Lock()
 	defer a.stateLock.Unlock()
 
+	displayConclusion := checkRunConclusionTitle(conclusion)
+	githubConclusion := githubCheckRunConclusion(conclusion)
 	state, ok := a.checkRunStates[checkRunID]
 	if !ok {
 		log.Warn().Int64("check_run_id", checkRunID).Msg("State not found for check run, cannot conclude with final name.")
@@ -1208,8 +1210,8 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 			Repo:        repo,
 			CheckRunID:  checkRunID,
 			Name:        "Nopsai Pipeline",
-			Conclusion:  conclusion,
-			Title:       "Nopsai Pipeline - " + strings.Title(conclusion),
+			Conclusion:  githubConclusion,
+			Title:       "Nopsai Pipeline - " + displayConclusion,
 			Summary:     summary,
 			CompletedAt: time.Now(),
 		}); err != nil {
@@ -1222,10 +1224,10 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 	finalName := state.PipelineName
 
 	// Construct the final title with the ID and conclusion.
-	finalTitle := fmt.Sprintf("%s - %s", state.PipelineName, strings.Title(conclusion))
+	finalTitle := fmt.Sprintf("%s - %s", state.PipelineName, displayConclusion)
 	if state.RunID != "" {
 		shortRunID := state.RunID[:8]
-		finalTitle = fmt.Sprintf("%s (%s) - %s", state.PipelineName, shortRunID, strings.Title(conclusion))
+		finalTitle = fmt.Sprintf("%s (%s) - %s", state.PipelineName, shortRunID, displayConclusion)
 	}
 
 	if err := a.checksProvider.Conclude(context.Background(), checkRunConclusionUpdate{
@@ -1233,7 +1235,7 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 		Repo:        repo,
 		CheckRunID:  checkRunID,
 		Name:        finalName,
-		Conclusion:  conclusion,
+		Conclusion:  githubConclusion,
 		Title:       finalTitle,
 		Summary:     summary,
 		CompletedAt: time.Now(),
@@ -1242,6 +1244,36 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 	}
 
 	delete(a.checkRunStates, checkRunID)
+}
+
+func githubCheckRunConclusion(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "success":
+		return "success"
+	case "warning":
+		return "neutral"
+	case "cancelled":
+		return "cancelled"
+	case "timed_out":
+		return "timed_out"
+	case "skipped":
+		return "skipped"
+	default:
+		return "failure"
+	}
+}
+
+func checkRunConclusionTitle(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "warning":
+		return "Warning"
+	case "timed_out":
+		return "Timed Out"
+	case "":
+		return "Failure"
+	default:
+		return strings.Title(strings.ReplaceAll(status, "_", " "))
+	}
 }
 
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {

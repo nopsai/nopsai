@@ -601,7 +601,8 @@ function BranchStatusIcon({ status, complete, className }: { status: string; com
   const rawStatus = (status || '').toLowerCase();
   const normalized = normalizeStatus(rawStatus, complete ?? Boolean(STATUS_META[rawStatus]));
   const tone = getBranchStatusTone(normalized);
-  const isFailure = normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected' || normalized === 'timed_out';
+  const isWarning = normalized === 'warning' || normalized === 'failure (ignored)';
+  const isFailure = normalized === 'failure' || normalized === 'rejected' || normalized === 'timed_out';
   const isCancelled = normalized === 'cancelled';
   const isRunning = normalized === 'running' || normalized === 'waiting_approval';
   const isSkipped = normalized === 'skipped';
@@ -614,6 +615,12 @@ function BranchStatusIcon({ status, complete, className }: { status: string; com
       {isRunning ? (
         <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12a9 9 0 11-6.219-8.56" />
+        </svg>
+      ) : isWarning ? (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 9v4" />
+          <path d="M12 17h.01" />
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
         </svg>
       ) : isFailure || isCancelled ? (
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

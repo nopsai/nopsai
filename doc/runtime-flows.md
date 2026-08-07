@@ -239,8 +239,9 @@ The agent runs tasks in dependency order, not strictly line order.
 29. If a task fails and effective failure tolerance is false, the pipeline stops
     with failure.
 30. If a task fails and effective failure tolerance is true, the task becomes
-    `failure (ignored)` and the pipeline continues. Run details show an
-    ignored-failure warning when this happens, even if the overall run succeeds.
+    `failure (ignored)` and the pipeline continues. Run details show the step as
+    warning, and if no blocking failure occurs the overall run finishes as
+    `warning` instead of `success`.
     Approval and blocking policy/guardrail failures still fail closed. The mere
     presence of blocking knowledge context does not make unrelated
     goal-resolution, LLM, MCP, or runtime failures non-ignorable.
@@ -306,9 +307,10 @@ For a `pipeline:<identifier>` include:
    continues. Async child includes cannot import parent-visible outputs.
 12. Run detail and run list responses expose an aggregate lineage status for display:
    a parent is shown as running while a direct child run is still active, and a
-   successful parent is shown as failed if a direct child later fails. The stored
-   parent run result remains separate so dispatcher polling and rerun lifecycle
-   logic keep using the run's own terminal state.
+   successful parent is shown as warning when a direct child completes with
+   warnings or failed if a direct child later fails. The stored parent run result
+   remains separate so dispatcher polling and rerun lifecycle logic keep using
+   the run's own terminal state.
 
 ## 9. How Reusable Steps Work
 

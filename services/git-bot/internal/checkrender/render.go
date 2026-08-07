@@ -246,7 +246,7 @@ func taskIcon(status string) string {
 	switch {
 	case status == "success":
 		return "✅"
-	case strings.Contains(strings.ToLower(status), "failure (ignored)"):
+	case strings.EqualFold(status, "warning") || strings.Contains(strings.ToLower(status), "failure (ignored)"):
 		return "⚠️"
 	case strings.Contains(strings.ToLower(status), "fail"):
 		return "❌"
@@ -270,7 +270,7 @@ func mermaidTaskStyle(status string) (string, string) {
 	switch {
 	case status == "success":
 		return "✅", "success"
-	case strings.Contains(status, "failure (ignored)"):
+	case strings.EqualFold(status, "warning") || strings.Contains(status, "failure (ignored)"):
 		return "⚠️", "ignored"
 	case strings.Contains(status, "fail"):
 		return "❌", "failure"

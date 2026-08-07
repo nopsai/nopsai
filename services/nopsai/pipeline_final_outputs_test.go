@@ -1456,10 +1456,13 @@ func TestPipelineFinalOutputMatchesRunStatus(t *testing.T) {
 		want      bool
 	}{
 		{name: "default always on success", runStatus: "success", want: true},
+		{name: "default always on warning", runStatus: "warning", want: true},
 		{name: "default always on failure", runStatus: "failure", want: true},
 		{name: "success matches success", when: "success", runStatus: "success", want: true},
+		{name: "success matches warning", when: "success", runStatus: "warning", want: true},
 		{name: "success skips failure", when: "success", runStatus: "failure", want: false},
 		{name: "failure skips success", when: "failure", runStatus: "success", want: false},
+		{name: "failure skips warning", when: "failure", runStatus: "warning", want: false},
 		{name: "failure matches rejected", when: "failure", runStatus: "rejected", want: true},
 	}
 	for _, tt := range tests {
