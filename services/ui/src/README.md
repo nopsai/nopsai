@@ -317,9 +317,9 @@ truth; this file is the source-adjacent placement guide.
   and scope before launch.
 - Autocomplete metadata should remain keyed to the active scope and editor
   context.
-- Lab uses the shared expanded YAML toolbox for pipeline parameters and snippet
-  insertion while keeping Lab-only session, authorization, and run controls in
-  `features/lab` and `pages/Lab.tsx`.
+- Lab uses the shared fullscreen expanded YAML toolbox for pipeline parameters
+  and snippet insertion while keeping Lab-only session, authorization, and run
+  controls in `features/lab` and `pages/Lab.tsx`.
 
 ### Assistant
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Check, Maximize2, Minimize2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeRuntimePoolNames } from '../features/editor/autocomplete';
+import { YamlEditorFullscreenDialog } from '../features/editor/YamlEditorFullscreenDialog';
 import { YamlEditorToolbox } from '../features/editor/YamlEditorToolbox';
 import { insertYamlSnippetAtCursor } from '../features/editor/yamlToolboxModel';
 import { LabDependencyPanel } from '../features/lab/LabDependencyPanel';
@@ -523,6 +524,14 @@ function LabPage() {
   }, [editorFocused, startOverlayTracking, stopOverlayTracking]);
 
   useEffect(() => {
+    if (!editorExpanded) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editorExpanded]);
+
+  useEffect(() => {
     return () => {
       if (caretMirrorRef.current) {
         caretMirrorRef.current.remove();
@@ -711,6 +720,99 @@ function LabPage() {
     </section>
   );
 
+  const renderLabEditorWorkspace = (fullscreen: boolean) => (
+    <div
+      id="lab-editor-wrapper"
+      ref={handleOverlayHostRef}
+      className={`pipeline-editor-wrapper lab-editor-wrapper ${fullscreen ? 'lab-editor-wrapper--expanded lab-editor-wrapper--fullscreen' : 'lab-editor-wrapper--normal'}`}
+    >
+      <div id="lab-editor-container" className="editor-container">
+        <div id="lab-line-numbers" ref={lineNumbersRef}>
+          <div className="line-number-track">
+            {editorLines.map((_, idx) => {
+              const lineNum = idx + 1;
+              const errors = errorMap.get(lineNum);
+              return (
+                <div
+                  key={`ln-${idx}`}
+                  className={`line-number ${validationErrorLines.has(lineNum) ? 'line-number--error' : ''}`}
+                  title={errors ? errors.join('\n') : undefined}
+                >
+                  {lineNum}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div id="lab-yaml-stage" className="yaml-editor-stage yaml-editor-stage--with-highlight">
+          <div className="yaml-editor-highlight" aria-hidden="true">
+            <pre id="lab-yaml-highlight" ref={highlightContentRef} className="yaml-editor-highlight__content">
+              {renderYamlHighlight(yamlText)}
+            </pre>
+          </div>
+          <textarea
+            ref={editorRef}
+            id="lab-yaml-editor"
+            spellCheck={false}
+            value={yamlText}
+            onFocus={event => {
+              setEditorFocused(true);
+              updateSelectionFromTextarea(event.currentTarget);
+            }}
+            onBlur={() => setEditorFocused(false)}
+            onChange={event => {
+              setYamlText(event.target.value);
+              updateSelectionFromTextarea(event.target);
+            }}
+            onScroll={handleEditorScroll}
+            onSelect={event => updateSelectionFromTextarea(event.currentTarget)}
+            onKeyUp={event => updateSelectionFromTextarea(event.currentTarget)}
+            onClick={event => updateSelectionFromTextarea(event.currentTarget)}
+            onKeyDown={event => {
+              if (event.key === 'Tab') {
+                event.preventDefault();
+                if (suggestionContext && suggestionItems.length > 0 && inlineSuggestion) {
+                  applySuggestion(suggestionItems[0]);
+                  return;
+                }
+                handleIndentTab();
+                return;
+              }
+
+              if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                event.preventDefault();
+                handleAutoIndentEnter();
+              }
+            }}
+          ></textarea>
+        </div>
+      </div>
+
+      {fullscreen ? (
+        <YamlEditorToolbox
+          resourceKind="pipeline"
+          validationId="lab-validation-status"
+          validationErrors={editorValidationErrors}
+          renderValidationExample={message => {
+            const example = buildValidationExample(message);
+            return example ? (
+              <pre className="validation-box__example">
+                <code>{example}</code>
+              </pre>
+            ) : null;
+          }}
+          suggestionSlot={expandedSuggestionSlot}
+          onInsertSnippet={insertToolboxSnippet}
+        />
+      ) : (
+        <div id="lab-validation-status" className="sr-only" role="status" aria-live="polite">
+          {editorValidationErrors.length ? `${editorValidationErrors.length} YAML validation issue${editorValidationErrors.length === 1 ? '' : 's'}` : 'YAML valid'}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div data-page="lab" className="active h-full flex flex-col">
       <div className="px-4 pt-4 pb-3">
@@ -781,96 +883,11 @@ function LabPage() {
               </div>
 
               <div className="space-y-4">
-                <div
-                  id="lab-editor-wrapper"
-                  ref={handleOverlayHostRef}
-                  className={`pipeline-editor-wrapper lab-editor-wrapper ${editorExpanded ? 'lab-editor-wrapper--expanded' : 'lab-editor-wrapper--normal'}`}
-                >
-                  <div id="lab-editor-container" className="editor-container">
-                    <div id="lab-line-numbers" ref={lineNumbersRef}>
-                      <div className="line-number-track">
-                        {editorLines.map((_, idx) => {
-                          const lineNum = idx + 1;
-                          const errors = errorMap.get(lineNum);
-                          return (
-                            <div
-                              key={`ln-${idx}`}
-                              className={`line-number ${validationErrorLines.has(lineNum) ? 'line-number--error' : ''}`}
-                              title={errors ? errors.join('\n') : undefined}
-                            >
-                              {lineNum}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div id="lab-yaml-stage" className="yaml-editor-stage yaml-editor-stage--with-highlight">
-                      <div className="yaml-editor-highlight" aria-hidden="true">
-                        <pre id="lab-yaml-highlight" ref={highlightContentRef} className="yaml-editor-highlight__content">
-                          {renderYamlHighlight(yamlText)}
-                        </pre>
-                      </div>
-                      <textarea
-                        ref={editorRef}
-                        id="lab-yaml-editor"
-                        spellCheck={false}
-                        value={yamlText}
-                        onFocus={event => {
-                          setEditorFocused(true);
-                          updateSelectionFromTextarea(event.currentTarget);
-                        }}
-                        onBlur={() => setEditorFocused(false)}
-                        onChange={event => {
-                          setYamlText(event.target.value);
-                          updateSelectionFromTextarea(event.target);
-                        }}
-                        onScroll={handleEditorScroll}
-                        onSelect={event => updateSelectionFromTextarea(event.currentTarget)}
-                        onKeyUp={event => updateSelectionFromTextarea(event.currentTarget)}
-                        onClick={event => updateSelectionFromTextarea(event.currentTarget)}
-                        onKeyDown={event => {
-                          if (event.key === 'Tab') {
-                            event.preventDefault();
-                            if (suggestionContext && suggestionItems.length > 0 && inlineSuggestion) {
-                              applySuggestion(suggestionItems[0]);
-                              return;
-                            }
-                            handleIndentTab();
-                            return;
-                          }
-
-                          if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                            event.preventDefault();
-                            handleAutoIndentEnter();
-                          }
-                        }}
-                      ></textarea>
-                    </div>
+                {editorExpanded ? (
+                  <div className="resource-yaml-expanded-placeholder">
+                    Expanded YAML editor is open.
                   </div>
-
-                  {editorExpanded ? (
-                    <YamlEditorToolbox
-                      resourceKind="pipeline"
-                      validationId="lab-validation-status"
-                      validationErrors={editorValidationErrors}
-                      renderValidationExample={message => {
-                        const example = buildValidationExample(message);
-                        return example ? (
-                          <pre className="validation-box__example">
-                            <code>{example}</code>
-                          </pre>
-                        ) : null;
-                      }}
-                      suggestionSlot={expandedSuggestionSlot}
-                      onInsertSnippet={insertToolboxSnippet}
-                    />
-                  ) : (
-                    <div id="lab-validation-status" className="sr-only" role="status" aria-live="polite">
-                      {editorValidationErrors.length ? `${editorValidationErrors.length} YAML validation issue${editorValidationErrors.length === 1 ? '' : 's'}` : 'YAML valid'}
-                    </div>
-                  )}
-                </div>
+                ) : renderLabEditorWorkspace(false)}
               </div>
             </div>
 
@@ -887,6 +904,29 @@ function LabPage() {
           </div>
         </div>
       </div>
+
+      {editorExpanded ? (
+        <YamlEditorFullscreenDialog
+          title="Pipeline definition"
+          subtitle="Fullscreen Lab YAML authoring"
+          validationIssueCount={editorValidationErrors.length}
+          onClose={() => setEditorExpanded(false)}
+          actions={
+            <button
+              type="button"
+              className="glass-button-primary"
+              title="Save this YAML for the current lab session (pipelines stay unchanged)."
+              onClick={() => saveSession(backendValidation.blockingErrorCount)}
+              disabled={backendValidation.isInvalid}
+            >
+              <Check className="h-4 w-4" aria-hidden="true" />
+              <span>Save for Lab</span>
+            </button>
+          }
+        >
+          {renderLabEditorWorkspace(true)}
+        </YamlEditorFullscreenDialog>
+      ) : null}
 
       <LabSuggestionPortals
         portalBody={portalBody}
