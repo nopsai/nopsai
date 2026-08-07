@@ -426,7 +426,7 @@ Common step directives:
 | --- | --- |
 | `steps[].name` | Required unique step name. Step dependencies reference this name. |
 | `steps[].image` | Step executable image override. |
-| `steps[].depends_on` | Step dependencies. Values must be other step names. |
+| `steps[].depends_on` | Step dependencies. Values may be step names or qualified producer tasks such as `prepare.generate-tag`. |
 | `steps[].condition` | LLM-evaluated natural-language condition. False normally skips; false under blocking guardrail/policy context fails closed. |
 | `steps[].secrets` | Scoped secret refs injected as environment variables. |
 | `steps[].variables` | Step-wide environment overrides. |
@@ -448,7 +448,7 @@ Common task directives:
 | `tasks[].name` | Required unique task name within the step. |
 | `tasks[].goal` | LLM-backed task goal. Mutually exclusive with `script`. |
 | `tasks[].script` | Direct shell task. Mutually exclusive with `goal`. |
-| `tasks[].depends_on` | Dependencies inside the same step only. |
+| `tasks[].depends_on` | Task dependencies. Values may be tasks in the same step or qualified producer tasks from upstream steps. |
 | `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step; run details warn when ignored work fails. Approval and explicit policy/guardrail enforcement failures still fail closed. |
 | `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
 | `tasks[].llm_profile` | Most-specific LLM model-client override for this task. |
@@ -456,6 +456,11 @@ Common task directives:
 | `tasks[].policy_merge_mode` | Task-level knowledge-context policy merge mode override. |
 | `tasks[].variables` | Task-local environment overrides. Applied after step variables. |
 | `tasks[].knowledge_context` | Most-specific knowledge references for this task. |
+
+Runtime output references such as `$steps.<step>.<task>.outputs.<name>` are
+valid when the dependency graph guarantees the producer runs before the
+consumer. A direct `depends_on` edge is not required when a transitive upstream
+path already provides that ordering.
 
 Approval directives:
 

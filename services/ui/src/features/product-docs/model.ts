@@ -541,7 +541,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'steps[].depends_on',
     area: 'Step YAML',
-    description: 'Step dependencies. Values must name other steps; tasks cannot depend on other steps directly.',
+    description: 'Step dependencies. Values may name upstream steps or qualified producer tasks such as prepare.generate-tag.',
     example: '[build, scan]',
   },
   {
@@ -630,7 +630,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'steps[].tasks',
     area: 'Step mode',
-    description: 'Multi-task step. Each task must define exactly one of goal or script and may depend only on tasks in the same step.',
+    description: 'Multi-task step. Each task must define exactly one of goal or script and may depend on same-step tasks or qualified upstream producer tasks.',
     example: '- name: unit-test',
   },
   {
@@ -654,7 +654,7 @@ const stepTaskRows: WikiConfigRow[] = [
   {
     key: 'tasks[].depends_on',
     area: 'Task YAML',
-    description: 'Task dependencies inside the same step only.',
+    description: 'Task dependencies. Values may be tasks in the same step or qualified producer tasks from upstream steps.',
     example: '[install]',
   },
   {
@@ -2880,6 +2880,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Top-level fields include name, version, description, container_image, working_directory, display_options, variables, steps, timeout, llm_enabled, agent_profile, llm_profile, mcp_profiles, runtime_pool, affinity_enabled, knowledge_context, output, and LLM sharing controls.',
           'Every step must contain exactly one mode: include, tasks, goal, script, or approval.',
           'Independent ready tasks may execute concurrently; depends_on defines graph edges.',
+          'Runtime output references are valid when the dependency graph guarantees the producer runs before the consumer, including through transitive dependencies.',
           'Script-only pipelines can set llm_enabled: false to avoid requiring an LLM registry.',
         ],
         details: [

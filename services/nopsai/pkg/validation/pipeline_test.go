@@ -467,6 +467,85 @@ func TestValidatePipelineRejectsRuntimeOutputWithoutDependency(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineAllowsRuntimeOutputWithTransitiveDependency(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "transitive-output-dependency",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "prepare"},
+				Tasks: []models.Task{{
+					Name:    "generate",
+					Script:  "echo ok",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}},
+				}},
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "gate",
+					DependsOn: []string{"prepare"},
+				},
+				Script: "echo gate",
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "build",
+					DependsOn: []string{"gate"},
+					Variables: map[string]string{
+						"image_tag": "$steps.prepare.generate.outputs.image_tag",
+					},
+				},
+				Script: "echo build",
+			}},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("ValidatePipeline() error = %v, want transitive dependency to satisfy runtime output reference", err)
+	}
+}
+
+func TestValidatePipelineAllowsRuntimeOutputThroughApprovalDependency(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "approval-output-dependency",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "prepare"},
+				Tasks: []models.Task{{
+					Name:    "generate",
+					Script:  "echo ok",
+					Outputs: []models.TaskOutput{{Name: "image_tag"}},
+				}},
+			}},
+			{Step: &models.ApprovalStep{
+				BaseStep: models.BaseStep{
+					Name:      "approval",
+					DependsOn: []string{"prepare"},
+				},
+				Approval: models.ApprovalDefinition{
+					Type:  "deploy",
+					Teams: []string{"platform/prod"},
+				},
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "deploy",
+					DependsOn: []string{"approval"},
+					Variables: map[string]string{
+						"image_tag": "$steps.prepare.generate.outputs.image_tag",
+					},
+				},
+				Script: "echo deploy",
+			}},
+		},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("ValidatePipeline() error = %v, want approval dependency to satisfy runtime output reference", err)
+	}
+}
+
 func TestValidatePipelineRejectsDependencyCycles(t *testing.T) {
 	tests := []struct {
 		name     string
