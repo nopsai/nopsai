@@ -137,6 +137,7 @@ export function PipelineDefinitionPanel({
       <div className="pipeline-detail-definition-layout">
         <div className="pipeline-detail-definition-main">
           <ResourceYamlDetailPanel
+            resourceKind="pipeline"
             title="Pipeline Definition (YAML)"
             rawYaml={detail.rawYaml}
             isEditing={isEditing}

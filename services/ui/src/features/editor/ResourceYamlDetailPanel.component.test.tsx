@@ -112,6 +112,7 @@ test('renders edit mode with validation and autocomplete keyboard behavior', asy
   );
 
   const editor = screen.getByRole('textbox', { name: /step yaml editor/i });
+  await user.click(screen.getByRole('button', { name: /expand yaml editor/i }));
   fireEvent.change(editor, { target: { value: 'name: build\nscript: echo ok', selectionStart: 27 } });
   await user.type(editor, '{arrowdown}{enter}');
 
@@ -119,4 +120,55 @@ test('renders edit mode with validation and autocomplete keyboard behavior', asy
   expect(onEditorTextChange).toHaveBeenCalled();
   expect(onMoveSuggestion).toHaveBeenCalledWith(1);
   expect(onSelectSuggestion).toHaveBeenCalledWith('script');
+});
+
+test('inserts toolbox snippets at the current editor cursor when expanded', async () => {
+  const user = userEvent.setup();
+  const onEditorTextChange = vi.fn();
+  const editorRef = createRef<HTMLTextAreaElement>();
+
+  render(
+    <ResourceYamlDetailPanel
+      resourceKind="pipeline"
+      title="Pipeline Definition (YAML)"
+      rawYaml="steps:\n  "
+      isEditing
+      editorValue="steps:\n  "
+      validationErrors={[]}
+      validationErrorLines={new Set()}
+      editorSuggestion={null}
+      autocompleteLoading={false}
+      editorRef={editorRef}
+      highlightContentRef={createRef()}
+      lineNumbersRef={createRef()}
+      ids={ids}
+      editorLabel="Pipeline YAML editor"
+      access={null}
+      canUpdate
+      canCreate={false}
+      isGitSource={false}
+      saving={false}
+      onCopy={vi.fn()}
+      onDownload={vi.fn()}
+      onEdit={vi.fn()}
+      onClone={vi.fn()}
+      onDiscard={vi.fn()}
+      onSave={vi.fn()}
+      onEditorTextChange={onEditorTextChange}
+      onOpenSuggestion={vi.fn()}
+      onMoveSuggestion={vi.fn()}
+      onDismissSuggestion={vi.fn()}
+      onSelectSuggestion={vi.fn()}
+      onEditorScroll={vi.fn()}
+      onAutoIndentEnter={vi.fn()}
+    />
+  );
+
+  const editor = screen.getByRole('textbox', { name: /pipeline yaml editor/i });
+  await user.click(screen.getByRole('button', { name: /expand yaml editor/i }));
+  editor.focus();
+  editor.setSelectionRange('steps:\n  '.length, 'steps:\n  '.length);
+  await user.click(screen.getByRole('button', { name: /script step/i }));
+
+  expect(onEditorTextChange).toHaveBeenCalledWith(expect.stringContaining('- name: build'), expect.any(Number));
 });

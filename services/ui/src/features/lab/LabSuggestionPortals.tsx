@@ -12,6 +12,7 @@ type LabSuggestionPortalsProps = {
   suggestionCopy: { title: string; subtitle: string };
   suggestionItems: LabSuggestionItem[];
   autocompleteLoading: boolean;
+  showFloatingPanel?: boolean;
   onApplySuggestion: (item: LabSuggestionItem) => void;
 };
 
@@ -25,6 +26,7 @@ export function LabSuggestionPortals({
   suggestionCopy,
   suggestionItems,
   autocompleteLoading,
+  showFloatingPanel = true,
   onApplySuggestion,
 }: LabSuggestionPortalsProps) {
   return (
@@ -45,7 +47,7 @@ export function LabSuggestionPortals({
           )
         : null}
 
-      {overlayHost
+      {overlayHost && showFloatingPanel
         ? createPortal(
             <section
               id="lab-suggestion-panel"

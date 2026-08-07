@@ -11683,6 +11683,322 @@ html.dark .scope-suggestion-footnote {
     overflow: hidden;
 }
 
+.pipeline-suggestion-overlay--inline {
+    position: relative;
+    inset: auto;
+    z-index: 1;
+    width: 100%;
+    max-width: none;
+    box-shadow: none;
+    border-radius: 8px;
+    overflow: visible;
+}
+
+.scope-suggestion-pill--active {
+    border-color: rgba(99,102,241,0.55);
+    box-shadow: 0 10px 24px -20px rgba(99,102,241,0.7);
+}
+
+.resource-yaml-editor-shell {
+    display: grid;
+    gap: 1rem;
+    min-width: 0;
+    align-items: start;
+}
+
+.resource-yaml-editor-shell--expanded {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+    align-items: stretch;
+}
+
+.resource-yaml-editor-shell--expanded .editor-container {
+    height: min(78vh, 820px);
+    max-height: none;
+}
+
+.resource-yaml-editor-shell--expanded .yaml-editor-stage,
+.resource-yaml-editor-shell--expanded .yaml-editor-stage textarea {
+    min-height: 0;
+    height: 100%;
+    resize: none;
+}
+
+.yaml-editor-toolbox {
+    display: grid;
+    align-content: start;
+    gap: 0.9rem;
+    min-width: 0;
+    max-height: min(78vh, 820px);
+    overflow: auto;
+    padding: 0.9rem;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+}
+
+.yaml-editor-toolbox__header {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.yaml-editor-toolbox__header h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 800;
+}
+
+.yaml-editor-toolbox__kicker {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.yaml-editor-toolbox__notice,
+.yaml-editor-toolbox__empty {
+    margin: 0;
+    border: 1px solid rgba(245,158,11,0.28);
+    border-radius: 8px;
+    background: rgba(245,158,11,0.08);
+    color: var(--text-secondary);
+    padding: 0.65rem 0.75rem;
+    font-size: 0.76rem;
+    line-height: 1.45;
+}
+
+.yaml-editor-toolbox__empty {
+    border-color: var(--border-primary);
+    background: var(--bg-primary);
+}
+
+.yaml-editor-toolbox__section {
+    display: grid;
+    gap: 0.65rem;
+    min-width: 0;
+}
+
+.yaml-editor-toolbox__section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.yaml-editor-toolbox__section-heading h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 850;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.yaml-editor-toolbox__details-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.yaml-toolbox-details {
+    min-width: 0;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    overflow: hidden;
+}
+
+.yaml-toolbox-details summary {
+    cursor: pointer;
+    padding: 0.68rem 0.75rem;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.yaml-toolbox-details > p {
+    margin: 0;
+    padding: 0 0.75rem 0.65rem;
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    line-height: 1.45;
+}
+
+.yaml-toolbox-param-list {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    border-top: 1px solid var(--border-primary);
+}
+
+.yaml-toolbox-param {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.yaml-toolbox-param:last-child {
+    border-bottom: 0;
+}
+
+.yaml-toolbox-param dt {
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+    font-size: 0.74rem;
+    font-weight: 800;
+}
+
+.yaml-toolbox-param dd {
+    display: grid;
+    gap: 0.42rem;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.42;
+}
+
+.yaml-toolbox-param code,
+.yaml-toolbox-details pre code {
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+    font-size: 0.7rem;
+}
+
+.yaml-toolbox-value-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.yaml-toolbox-value-row code,
+.yaml-toolbox-param dd > code {
+    width: fit-content;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-input);
+    padding: 0.16rem 0.32rem;
+}
+
+.yaml-toolbox-details pre {
+    margin: 0;
+    max-width: 100%;
+    overflow: auto;
+    border-radius: 8px;
+    background: var(--bg-input);
+    padding: 0.55rem 0.65rem;
+}
+
+.yaml-toolbox-details--sample pre {
+    margin: 0 0.75rem 0.75rem;
+}
+
+.yaml-toolbox-snippet-grid {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0 0.75rem 0.75rem;
+}
+
+.yaml-toolbox-snippet {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.55rem;
+    width: 100%;
+    min-height: 2.75rem;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 0.62rem 0.7rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.yaml-toolbox-snippet:hover,
+.yaml-toolbox-snippet:focus-visible {
+    border-color: var(--border-accent);
+    outline: none;
+}
+
+.yaml-toolbox-snippet span {
+    display: grid;
+    gap: 0.18rem;
+    min-width: 0;
+}
+
+.yaml-toolbox-snippet strong,
+.yaml-toolbox-snippet small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.yaml-toolbox-snippet strong {
+    font-size: 0.76rem;
+}
+
+.yaml-toolbox-snippet small {
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
+.yaml-editor-toolbox .scope-suggestion-panel {
+    max-width: none;
+    width: 100%;
+    border-radius: 8px;
+    box-shadow: none;
+}
+
+.yaml-editor-toolbox .scope-suggestion-list {
+    max-height: 220px;
+}
+
+.yaml-toolbox-suggestion-card {
+    width: 100%;
+}
+
+.lab-workspace-grid--editor-expanded {
+    grid-template-columns: 1fr !important;
+}
+
+.lab-workspace-grid--editor-expanded > .glass-card {
+    grid-column: 1 / -1;
+}
+
+.lab-editor-wrapper--expanded {
+    align-items: stretch;
+}
+
+.lab-editor-wrapper--expanded #lab-editor-container {
+    flex: 1 1 auto;
+    height: min(78vh, 820px);
+    max-height: none;
+}
+
+.lab-editor-wrapper--expanded .yaml-editor-toolbox {
+    flex: 0 0 min(24rem, 36%);
+    height: min(78vh, 820px);
+}
+
+@media (max-width: 1180px) {
+    .resource-yaml-editor-shell--expanded,
+    .lab-editor-wrapper--expanded {
+        grid-template-columns: 1fr;
+    }
+
+    .lab-editor-wrapper--expanded {
+        flex-direction: column;
+    }
+
+    .yaml-editor-toolbox,
+    .lab-editor-wrapper--expanded .yaml-editor-toolbox {
+        max-height: none;
+        height: auto;
+    }
+}
+
 /* Lab overrides */
 .lab-overrides-panel {
     background: var(--bg-secondary);
@@ -14074,6 +14390,14 @@ html.dark .pipeline-detail-tabs-wrap {
     min-width: 0;
 }
 
+.pipeline-detail-definition-layout:has(.resource-yaml-detail-card--expanded) {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.pipeline-detail-definition-layout:has(.resource-yaml-detail-card--expanded) .pipeline-detail-definition-side {
+    display: none;
+}
+
 .pipeline-detail-side-panel {
     min-width: 0;
     padding: 1rem;
@@ -15096,6 +15420,10 @@ html.dark .pipeline-editor-autocomplete__ghost {
     height: 100%;
 }
 
+#lab-yaml-editor {
+    resize: none;
+}
+
 #line-numbers,
 #triggers-line-numbers,
 #step-line-numbers,
@@ -15163,6 +15491,22 @@ html.dark .pipeline-editor-autocomplete__ghost {
     flex-direction: column;
     gap: 0.5rem;
     font-size: 0.8rem;
+}
+
+.validation-box--inline {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    pointer-events: auto;
+    box-shadow: none;
+}
+
+.validation-box--error {
+    border-color: rgba(248,113,113,0.45);
+    background: rgba(248,113,113,0.08);
 }
 
 .validation-box--success {

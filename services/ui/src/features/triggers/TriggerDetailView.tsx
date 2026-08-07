@@ -323,6 +323,7 @@ export function TriggerDetailView({
 
           <div className="triggers-detail-column triggers-detail-column--definition">
             <ResourceYamlDetailPanel
+              resourceKind="trigger"
               title="Trigger definition"
               rawYaml={detail.rawYaml}
               isEditing={isEditing}

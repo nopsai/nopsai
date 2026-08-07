@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { EditorAutocompleteMenu } from './EditorAutocompleteMenu';
@@ -24,7 +24,9 @@ describe('EditorAutocompleteMenu', () => {
     expect(screen.getByText(/Loading/)).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'RETRIES' })).toHaveAttribute('aria-selected', 'true');
 
-    await userEvent.click(screen.getByRole('option', { name: 'DEPLOY_ENV' }));
+    const option = screen.getByRole('option', { name: 'DEPLOY_ENV' });
+    expect(fireEvent.mouseDown(option)).toBe(false);
+    await userEvent.click(option);
     expect(onSelect).toHaveBeenCalledWith('DEPLOY_ENV');
   });
 });

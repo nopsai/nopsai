@@ -65,6 +65,10 @@ truth; this file is the source-adjacent placement guide.
   `features/editor`. Resource identity moves that save to a new path/name and
   remove the old resource should stay in the shared YAML mutation hook so AAA,
   GitOps warnings, reloads, and toast behavior remain consistent.
+- Expanded YAML authoring help is shared by `features/editor`: `yamlToolboxModel.ts`
+  owns parameter/snippet/sample model data and indentation-aware cursor insertion,
+  `YamlEditorToolbox.tsx` owns the validation/suggestion/parameter/snippet rail,
+  and pages only orchestrate editor state, metadata loading, and persistence.
 - Pipeline- and step-specific API, model, usage, activity, and permission logic
   stays under `features/pipelines` and `features/steps`.
 - Pipeline detail rendering stays under `features/pipelines/PipelineDetailView.tsx`.
@@ -313,6 +317,9 @@ truth; this file is the source-adjacent placement guide.
   and scope before launch.
 - Autocomplete metadata should remain keyed to the active scope and editor
   context.
+- Lab uses the shared expanded YAML toolbox for pipeline parameters and snippet
+  insertion while keeping Lab-only session, authorization, and run controls in
+  `features/lab` and `pages/Lab.tsx`.
 
 ### Assistant
 

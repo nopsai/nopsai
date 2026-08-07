@@ -130,6 +130,7 @@ export function StepDetailView({
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
           <div className="min-w-0 space-y-4">
             <ResourceYamlDetailPanel
+              resourceKind="step"
               title="Step Definition (YAML)"
               rawYaml={detail.rawYaml}
               isEditing={isEditing}
