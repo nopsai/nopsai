@@ -127,6 +127,7 @@ export function summarizeGraphStatuses(items: Array<{ status: GraphStatus }>) {
     },
     {
       success: 0,
+      warning: 0,
       failed: 0,
       running: 0,
       pending: 0,
@@ -162,6 +163,7 @@ export function isDisplayableGraphTask(
 function isTerminalStatus(status?: string): boolean {
   const normalized = (status || '').toLowerCase().trim();
   return normalized === 'success'
+    || normalized === 'warning'
     || normalized === 'failure'
     || normalized === 'failure (ignored)'
     || normalized === 'failed'

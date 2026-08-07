@@ -44,15 +44,23 @@ test('normalizes filters and applies search, source, and status predicates', () 
     is_complete: false,
     external_trigger_id: 'promote',
   });
+  const warning = run({
+    run_id: 'warning',
+    status: 'warning',
+    started_at: '2026-07-12T12:00:00Z',
+    failure_reason: 'ignored lint failure',
+  });
 
   assert.equal(normalizeRunSourceFilter('repository'), 'repository');
   assert.equal(normalizeRunSourceFilter('unknown'), 'all');
   assert.equal(normalizeRunStatusFilter('attention'), 'attention');
+  assert.equal(normalizeRunStatusFilter('warning'), 'warning');
   assert.equal(normalizeRunStatusFilter('waiting_approval'), 'waiting_approval');
   assert.equal(normalizeRunStatusFilter('bad'), 'all');
-  assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting], { sourceFilter: 'schedule' }).map(item => item.run_id), ['scheduled']);
-  assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting], { statusFilter: 'failure' }).map(item => item.run_id), ['scheduled']);
-  assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting], { statusFilter: 'attention' }).map(item => item.run_id), ['scheduled', 'waiting']);
+  assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting, warning], { sourceFilter: 'schedule' }).map(item => item.run_id), ['scheduled']);
+  assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting, warning], { statusFilter: 'failure' }).map(item => item.run_id), ['scheduled']);
+  assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting, warning], { statusFilter: 'warning' }).map(item => item.run_id), ['warning']);
+  assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting, warning], { statusFilter: 'attention' }).map(item => item.run_id), ['warning', 'scheduled', 'waiting']);
   assert.deepEqual(filterPipelineRuns([repository, scheduled, waiting], { searchTerm: 'abcdef' }).map(item => item.run_id), ['repo']);
 });
 
@@ -70,6 +78,13 @@ test('builds overview metrics from real run states', () => {
       started_at: '2026-07-12T11:00:00Z',
       finished_at: '2026-07-12T11:08:00Z',
       failure_reason: 'Deploy failed\nWhy: rollout timed out',
+    }),
+    run({
+      run_id: 'warning',
+      status: 'warning',
+      started_at: '2026-07-12T11:20:00Z',
+      finished_at: '2026-07-12T11:25:00Z',
+      failure_reason: 'Lint failed but ignore_failure was set',
     }),
     run({
       run_id: 'running',
@@ -90,9 +105,9 @@ test('builds overview metrics from real run states', () => {
 
   const metrics = buildPipelineRunOverviewMetrics(runs, now);
   assert.equal(metrics.find(metric => metric.id === 'running')?.value, '1');
-  assert.equal(metrics.find(metric => metric.id === 'attention')?.note, '1 failed, 1 waiting approval');
-  assert.equal(metrics.find(metric => metric.id === 'success-rate')?.value, '50%');
-  assert.equal(metrics.find(metric => metric.id === 'median-duration')?.value, '4m 0s');
+  assert.equal(metrics.find(metric => metric.id === 'attention')?.note, '1 failed, 1 warning, 1 waiting approval');
+  assert.equal(metrics.find(metric => metric.id === 'success-rate')?.value, '66.7%');
+  assert.equal(metrics.find(metric => metric.id === 'median-duration')?.value, '5m 0s');
 });
 
 test('builds persistent team and application navigation without drilling away from root teams', () => {

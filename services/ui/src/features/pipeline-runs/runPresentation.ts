@@ -44,11 +44,12 @@ const STATUS_PRIORITY = [
   'failure',
   'rejected',
   'timed_out',
-  'failure (ignored)',
   'cancelled',
   'waiting_approval',
   'running',
   'pending',
+  'warning',
+  'failure (ignored)',
   'skipped',
   'success',
 ];
@@ -115,6 +116,7 @@ export function runSourceLabel(kind: RunSourceKind) {
 export function getStatusDotClass(status: string | undefined, complete?: boolean) {
   const normalized = normalizeStatus(status, complete);
   if (normalized === 'success') return 'bg-emerald-400';
+  if (normalized === 'warning') return 'bg-amber-500';
   if (normalized === 'failure') return 'bg-red-500';
   if (normalized === 'failure (ignored)') return 'bg-amber-500';
   if (normalized === 'running') return 'bg-blue-400';
@@ -167,7 +169,8 @@ export function buildStatusTimeline(runs: RunListItem[], limit = 36) {
 export function getBranchStatusTone(status: string) {
   const normalized = normalizeStatus(status, true);
   if (normalized === 'success') return 'text-green-400';
-  if (normalized === 'failure' || normalized === 'failure (ignored)') return 'text-red-400';
+  if (normalized === 'warning' || normalized === 'failure (ignored)') return 'text-amber-400';
+  if (normalized === 'failure') return 'text-red-400';
   if (normalized === 'rejected') return 'text-rose-400';
   if (normalized === 'timed_out') return 'text-orange-400';
   if (normalized === 'waiting_approval') return 'text-cyan-400';

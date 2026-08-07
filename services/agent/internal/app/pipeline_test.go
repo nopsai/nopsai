@@ -105,11 +105,11 @@ func TestRunPipelineHonorsStepIgnoreFailureForScriptStartupFailure(t *testing.T)
 		},
 	}, runtime, statuses, finalStatuses))
 
-	if result.ExitCode != 0 || result.FinalStatus != "success" {
-		t.Fatalf("result = %#v, want successful pipeline after ignored step failure", result)
+	if result.ExitCode != 0 || result.FinalStatus != "warning" {
+		t.Fatalf("result = %#v, want warning pipeline after ignored step failure", result)
 	}
-	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "success" {
-		t.Fatalf("final statuses = %#v, want [success]", got)
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "warning" {
+		t.Fatalf("final statuses = %#v, want [warning]", got)
 	}
 	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
 		{stepName: "lint", taskName: "lint", status: "running"},
@@ -156,11 +156,11 @@ func TestRunPipelineHonorsStepIgnoreFailureForSyncIncludeFailure(t *testing.T) {
 
 	result := RunPipeline(req)
 
-	if result.ExitCode != 0 || result.FinalStatus != "success" {
-		t.Fatalf("result = %#v, want successful pipeline after ignored include failure", result)
+	if result.ExitCode != 0 || result.FinalStatus != "warning" {
+		t.Fatalf("result = %#v, want warning pipeline after ignored include failure", result)
 	}
-	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "success" {
-		t.Fatalf("final statuses = %#v, want [success]", got)
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "warning" {
+		t.Fatalf("final statuses = %#v, want [warning]", got)
 	}
 	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
 		{stepName: "child", taskName: "child", status: "running"},
@@ -169,6 +169,51 @@ func TestRunPipelineHonorsStepIgnoreFailureForSyncIncludeFailure(t *testing.T) {
 		{stepName: "deploy", taskName: "deploy", status: "success"},
 	}) {
 		t.Fatalf("task statuses = %#v, want ignored child failure then deploy success", got)
+	}
+}
+
+func TestRunPipelineMarksParentWarningForSyncIncludeWarning(t *testing.T) {
+	runtime := &fakeStepRuntime{stdout: "ok"}
+	statuses := &statusRecorder{}
+	finalStatuses := &finalStatusRecorder{}
+	req := testPipelineRunRequest(models.Pipeline{
+		Name:           "pipeline",
+		ContainerImage: "alpine:latest",
+		Steps: []models.PipelineStep{
+			{Step: &models.IncludeStep{
+				BaseStep: models.BaseStep{Name: "child"},
+				Include:  "pipeline:child",
+				Sync:     true,
+			}},
+			{Step: &models.ScriptStep{
+				BaseStep: models.BaseStep{
+					Name:      "deploy",
+					DependsOn: []string{"child"},
+				},
+				Script: "echo deploy",
+			}},
+		},
+	}, runtime, statuses, finalStatuses)
+	req.IncludeRunner = &fakeIncludeRunner{
+		status: "warning",
+		result: includeflow.Result{Handled: true, Success: true, Status: "warning"},
+	}
+
+	result := RunPipeline(req)
+
+	if result.ExitCode != 0 || result.FinalStatus != "warning" {
+		t.Fatalf("result = %#v, want warning pipeline after warning include", result)
+	}
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "warning" {
+		t.Fatalf("final statuses = %#v, want [warning]", got)
+	}
+	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
+		{stepName: "child", taskName: "child", status: "running"},
+		{stepName: "child", taskName: "child", status: "warning"},
+		{stepName: "deploy", taskName: "deploy", status: "running"},
+		{stepName: "deploy", taskName: "deploy", status: "success"},
+	}) {
+		t.Fatalf("task statuses = %#v, want warning child then deploy success", got)
 	}
 }
 
@@ -214,11 +259,11 @@ func TestRunPipelineHonorsStepIgnoreFailureForGoalResolutionFailureWithBlockingC
 
 	result := RunPipeline(req)
 
-	if result.ExitCode != 0 || result.FinalStatus != "success" {
-		t.Fatalf("result = %#v, want successful pipeline after ignored goal failure", result)
+	if result.ExitCode != 0 || result.FinalStatus != "warning" {
+		t.Fatalf("result = %#v, want warning pipeline after ignored goal failure", result)
 	}
-	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "success" {
-		t.Fatalf("final statuses = %#v, want [success]", got)
+	if got := finalStatuses.snapshot(); len(got) != 1 || got[0] != "warning" {
+		t.Fatalf("final statuses = %#v, want [warning]", got)
 	}
 	if got := statuses.snapshot(); !sameTaskStatuses(got, []taskStatus{
 		{stepName: "change-intelligence", taskName: "change-intelligence", status: "running"},

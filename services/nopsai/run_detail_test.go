@@ -68,20 +68,28 @@ func TestFinalizeRunDetailStepStatusMarksPendingStepSkippedOnFailedRun(t *testin
 
 func TestFinalizeRunDetailStepStatusPreservesTerminalStepStatus(t *testing.T) {
 	got := runquery.FinalizeRunDetailStepStatus("failure (ignored)", nil, "success")
-	if got != "failure (ignored)" {
-		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure (ignored)")
+	if got != "warning" {
+		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "warning")
 	}
 }
 
-func TestFinalizeRunDetailStepStatusPreservesIgnoredFailureRunStatus(t *testing.T) {
+func TestFinalizeRunDetailStepStatusTreatsIgnoredFailureRunAsWarningSuccess(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0).UTC()
 	tasks := []TaskDetail{
 		{TaskID: "task-1", StepName: "test", TaskName: "lint", Status: "running", StartedAt: start},
 	}
 
 	got := runquery.FinalizeRunDetailStepStatus("running", tasks, "failure (ignored)")
-	if got != "failure (ignored)" {
-		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure (ignored)")
+	if got != "success" {
+		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "success")
+	}
+}
+
+func TestNormalizeRunDetailStatusMapsIgnoredFailuresToWarning(t *testing.T) {
+	for _, status := range []string{"failure (ignored)", "not_found (ignored)", "timed_out (ignored)"} {
+		if got := runquery.NormalizeRunDetailStatus(status); got != "warning" {
+			t.Fatalf("NormalizeRunDetailStatus(%q) = %q, want warning", status, got)
+		}
 	}
 }
 

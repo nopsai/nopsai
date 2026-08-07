@@ -51,6 +51,11 @@ func isIgnorableFailureStatus(status string) bool {
 		strings.Contains(normalized, "timed out")
 }
 
+func isWarningRunStatus(status string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	return normalized == "warning" || normalized == "failure (ignored)"
+}
+
 func (req PipelineRunRequest) agentLogger() *zerolog.Logger {
 	if req.Logger != nil {
 		if logger := req.Logger(req.RunID, req.Pipeline.Name); logger != nil {

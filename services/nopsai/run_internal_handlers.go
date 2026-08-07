@@ -47,7 +47,7 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 				UPDATE task_runs
 				SET status = 'cancelled', finished_at = COALESCE(finished_at, NOW())
 				WHERE run_id = $1 AND step_name = $2 AND task_name = $3
-				  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled')`
+				  AND status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'skipped', 'cancelled')`
 			if _, err := a.db.Exec(context.Background(), query, runID, stepName, taskName); err != nil {
 				log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to preserve cancelled task status")
 				http.Error(w, "Failed to update task status", http.StatusInternalServerError)
@@ -157,7 +157,7 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	finalStatus := normalizeFinalizeRunStatus(req.Status)
 	var failedStep, failedTask string
 	if finalStatus == "failure" {
-		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM task_runs WHERE run_id = $1 AND status NOT IN ('success', 'pending', 'skipped', 'failure (ignored)', 'running') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
+		err := a.db.QueryRow(context.Background(), "SELECT step_name, task_name FROM task_runs WHERE run_id = $1 AND status NOT IN ('success', 'warning', 'pending', 'skipped', 'failure (ignored)', 'running') ORDER BY finished_at ASC, started_at ASC LIMIT 1", runID).Scan(&failedStep, &failedTask)
 		if err != nil {
 			log.Warn().Err(err).Str("run_id", runID).Msg("Could not determine the exact failed task for final status notification.")
 		}
@@ -244,7 +244,7 @@ func closeIncompleteTasksForFinalStatus(ctx context.Context, exec interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }, runID, finalStatus string) error {
 	switch runquery.NormalizeRunDetailStatus(finalStatus) {
-	case "failure", "failure (ignored)":
+	case "failure":
 		_, err := exec.Exec(ctx, `
 			UPDATE task_runs
 			SET status = CASE
@@ -260,7 +260,7 @@ func closeIncompleteTasksForFinalStatus(ctx context.Context, exec interface {
 			        ELSE COALESCE(finished_at, NOW())
 			    END
 			WHERE run_id = $1
-			  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')`, runID)
+			  AND status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')`, runID)
 		return err
 	case "cancelled", "rejected":
 		_, err := exec.Exec(ctx, `
@@ -274,7 +274,7 @@ func closeIncompleteTasksForFinalStatus(ctx context.Context, exec interface {
 			        ELSE COALESCE(finished_at, NOW())
 			    END
 			WHERE run_id = $1
-			  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')`, runID)
+			  AND status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')`, runID)
 		return err
 	default:
 		return nil

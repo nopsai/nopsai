@@ -773,7 +773,7 @@ func (a *App) loadMonitoringSummary(ctx context.Context, filters monitoringAnaly
 			)
 			SELECT
 				(SELECT COUNT(*) FROM filtered),
-				(SELECT COUNT(*) FROM filtered WHERE LOWER(status) = 'success'),
+				(SELECT COUNT(*) FROM filtered WHERE LOWER(status) IN ('success', 'warning')),
 				(SELECT COUNT(*) FROM filtered WHERE LOWER(status) IN ('failure', 'failed')),
 				(SELECT COUNT(*) FROM filtered WHERE LOWER(status) = 'cancelled'),
 				(SELECT COUNT(*) FROM filtered WHERE LOWER(status) = 'running'),
@@ -967,7 +967,7 @@ func (a *App) loadMonitoringPerformance(ctx context.Context, runIDs []string, ki
 			)
 			SELECT pipeline_path || '/' || pipeline_name, pipeline_path, pipeline_name, '', '',
 			       COUNT(*),
-			       COUNT(*) FILTER (WHERE LOWER(status) = 'success'),
+			       COUNT(*) FILTER (WHERE LOWER(status) IN ('success', 'warning')),
 			       COUNT(*) FILTER (WHERE LOWER(status) IN ('failure', 'failed')),
 			       COUNT(*) FILTER (WHERE LOWER(status) = 'cancelled'),
 			       COUNT(*) FILTER (WHERE failure_reason ILIKE '%timeout%'),
@@ -1007,6 +1007,7 @@ func (a *App) loadMonitoringPerformance(ctx context.Context, runIDs []string, ki
 				         WHEN COUNT(*) FILTER (WHERE LOWER(tr.status) = 'running') > 0 THEN 'running'
 				         WHEN COUNT(*) FILTER (WHERE LOWER(tr.status) = 'pending') > 0 THEN 'pending'
 				         WHEN COUNT(*) FILTER (WHERE LOWER(tr.status) = 'cancelled') > 0 THEN 'cancelled'
+				         WHEN COUNT(*) FILTER (WHERE LOWER(tr.status) IN ('warning', 'failure (ignored)')) > 0 THEN 'warning'
 				         WHEN COUNT(*) FILTER (WHERE LOWER(tr.status) = 'success') = COUNT(*) THEN 'success'
 				         ELSE COALESCE(MAX(tr.status), '')
 				       END AS status,
@@ -1029,7 +1030,7 @@ func (a *App) loadMonitoringPerformance(ctx context.Context, runIDs []string, ki
 			)
 			SELECT pipeline_path || '/' || pipeline_name || '/' || step_name, pipeline_path, pipeline_name, step_name, '',
 			       COUNT(*),
-			       COUNT(*) FILTER (WHERE LOWER(status) = 'success'),
+			       COUNT(*) FILTER (WHERE LOWER(status) IN ('success', 'warning')),
 			       COUNT(*) FILTER (WHERE LOWER(status) IN ('failure', 'failed')),
 			       COUNT(*) FILTER (WHERE LOWER(status) = 'cancelled'),
 			       0::bigint,
@@ -1061,7 +1062,7 @@ func (a *App) loadMonitoringPerformance(ctx context.Context, runIDs []string, ki
 			)
 			SELECT pipeline_path || '/' || pipeline_name || '/' || step_name || '/' || task_name, pipeline_path, pipeline_name, step_name, task_name,
 			       COUNT(*),
-			       COUNT(*) FILTER (WHERE LOWER(status) = 'success'),
+			       COUNT(*) FILTER (WHERE LOWER(status) IN ('success', 'warning')),
 			       COUNT(*) FILTER (WHERE LOWER(status) IN ('failure', 'failed')),
 			       COUNT(*) FILTER (WHERE LOWER(status) = 'cancelled'),
 			       0::bigint,

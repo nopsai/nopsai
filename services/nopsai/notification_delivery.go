@@ -450,7 +450,7 @@ func pipelineNotificationSubject(notificationCtx pipelineNotificationContext, ev
 	}
 	progress := summarizePipelineNotificationProgress(notificationCtx.Steps)
 	if progress.Total > 0 {
-		subject += fmt.Sprintf(" (%d/%d steps passed)", progress.Passed, progress.Total)
+		subject += " (" + pipelineNotificationSubjectProgressLabel(progress) + ")"
 	}
 	return subject
 }

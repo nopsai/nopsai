@@ -4703,6 +4703,11 @@ html.dark .pipeline-runs-segment {
     background: rgba(37, 99, 235, 0.12);
 }
 
+.pipeline-runs-status-warning {
+    color: #b45309;
+    background: rgba(217, 119, 6, 0.14);
+}
+
 .pipeline-runs-status-failed {
     color: #b91c1c;
     background: rgba(220, 38, 38, 0.12);

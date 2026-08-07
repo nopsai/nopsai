@@ -94,7 +94,7 @@ func sanitizeInput(name string) string {
 
 func isTerminalRunStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success", "failure", "cancelled", "timed_out", "failure (ignored)", "rejected":
+	case "success", "warning", "failure", "cancelled", "timed_out", "failure (ignored)", "rejected":
 		return true
 	default:
 		return false
@@ -103,7 +103,7 @@ func isTerminalRunStatus(status string) bool {
 
 func isCompletedRunStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success", "failure", "timed_out", "rejected":
+	case "success", "warning", "failure", "timed_out", "rejected":
 		return true
 	default:
 		return false
@@ -114,6 +114,8 @@ func normalizeFinalizeRunStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "success":
 		return "success"
+	case "warning":
+		return "warning"
 	case "cancelled":
 		return "cancelled"
 	default:

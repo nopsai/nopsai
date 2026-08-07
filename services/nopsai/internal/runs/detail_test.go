@@ -85,6 +85,50 @@ func TestApplyChildRunStatusFailsSuccessfulParentWhenChildFails(t *testing.T) {
 	}
 }
 
+func TestApplyChildRunStatusWarnsSuccessfulParentWhenChildWarns(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	parentFinished := start.Add(20 * time.Second)
+	childFinished := start.Add(45 * time.Second)
+	parent := models.RunListItem{
+		RunID:      "parent-1",
+		Status:     "success",
+		StartedAt:  start,
+		FinishedAt: parentFinished,
+		Duration:   "20s",
+		IsComplete: true,
+	}
+
+	got := ApplyChildRunStatus(parent, []models.RunListItem{{
+		RunID:      "child-1",
+		Status:     "warning",
+		StartedAt:  start.Add(5 * time.Second),
+		FinishedAt: childFinished,
+		IsComplete: true,
+	}})
+
+	if got.Status != "warning" {
+		t.Fatalf("status = %q, want warning", got.Status)
+	}
+	if !got.IsComplete {
+		t.Fatal("parent should stay complete after terminal child warning")
+	}
+	if got.FinishedAt != childFinished {
+		t.Fatalf("finished_at = %s, want child finish %s", got.FinishedAt, childFinished)
+	}
+}
+
+func TestDeriveRunDetailStepStatusWarnsForIgnoredFailureTask(t *testing.T) {
+	tasks := []models.TaskDetail{
+		{TaskID: "task-1", StepName: "quality", TaskName: "lint", Status: "failure (ignored)"},
+		{TaskID: "task-2", StepName: "quality", TaskName: "smoke", Status: "success"},
+	}
+
+	got := DeriveRunDetailStepStatus(tasks, nil)
+	if got != "warning" {
+		t.Fatalf("DeriveRunDetailStepStatus() = %q, want warning", got)
+	}
+}
+
 func TestBuildDetailUsesChildRunStatusForParentAndStep(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0).UTC()
 	pipeline := models.Pipeline{

@@ -545,21 +545,21 @@ func FinalizeRunDetailTasksForDisplay(tasks []models.TaskDetail, runStatus, step
 		}
 
 		if finalized[i].StartedAt.IsZero() {
-			if normalizedRun == "success" {
+			if normalizedRun == "success" || normalizedRun == "warning" {
 				finalized[i].Status = "success"
 			}
-			if normalizedRun == "failure" || normalizedRun == "failure (ignored)" || normalizedRun == "cancelled" || normalizedRun == "rejected" {
+			if normalizedRun == "failure" || normalizedRun == "cancelled" || normalizedRun == "rejected" {
 				finalized[i].Status = "skipped"
 			}
 			continue
 		}
 
 		switch normalizedRun {
-		case "success":
+		case "success", "warning":
 			finalized[i].Status = "success"
 		case "cancelled", "rejected":
 			finalized[i].Status = "cancelled"
-		case "failure", "failure (ignored)":
+		case "failure":
 			if normalizedStep == "failure" {
 				finalized[i].Status = "failure"
 				if finalized[i].ExitCode == nil {
@@ -580,7 +580,7 @@ func FinalizeRunDetailTasksForDisplay(tasks []models.TaskDetail, runStatus, step
 
 func IsTerminalRunDetailTaskStatus(status string) bool {
 	switch NormalizeRunDetailStatus(status) {
-	case "success", "failure", "failure (ignored)", "cancelled", "skipped", "rejected":
+	case "success", "warning", "failure", "cancelled", "skipped", "rejected":
 		return true
 	default:
 		return false
@@ -736,12 +736,12 @@ func NormalizeRunDetailStatus(status string) string {
 	switch {
 	case raw == "":
 		return "pending"
-	case raw == "success" || raw == "running" || raw == "pending" || raw == "skipped" || raw == "cancelled" || raw == "waiting_approval" || raw == "rejected" || raw == "timed_out":
+	case raw == "success" || raw == "warning" || raw == "running" || raw == "pending" || raw == "skipped" || raw == "cancelled" || raw == "waiting_approval" || raw == "rejected" || raw == "timed_out":
 		return raw
+	case strings.Contains(raw, "ignored"):
+		return "warning"
 	case raw == "failure" || strings.Contains(raw, "not_found") || strings.Contains(raw, "timeout"):
 		return "failure"
-	case strings.Contains(raw, "ignored"):
-		return "failure (ignored)"
 	case strings.Contains(raw, "fail") || strings.Contains(raw, "error"):
 		return "failure"
 	default:
@@ -754,16 +754,16 @@ func SummarizeRunDetailStatuses(statuses []string) string {
 		return "pending"
 	}
 	priority := map[string]int{
-		"failure":           0,
-		"rejected":          1,
-		"timed_out":         2,
-		"failure (ignored)": 3,
-		"cancelled":         4,
-		"waiting_approval":  5,
-		"running":           6,
-		"pending":           7,
-		"skipped":           8,
-		"success":           9,
+		"failure":          0,
+		"rejected":         1,
+		"timed_out":        2,
+		"cancelled":        3,
+		"waiting_approval": 4,
+		"running":          5,
+		"pending":          6,
+		"warning":          7,
+		"skipped":          8,
+		"success":          9,
 	}
 	best := "pending"
 	bestPriority := len(priority) + 1
@@ -799,7 +799,7 @@ func DeriveRunDetailStepStatus(tasks []models.TaskDetail, childRuns []models.Run
 	}
 	childStatus := SummarizeRunDetailStatuses(childStatuses)
 
-	if taskStatus == "failure" || taskStatus == "failure (ignored)" || taskStatus == "cancelled" {
+	if taskStatus == "failure" || taskStatus == "warning" || taskStatus == "cancelled" {
 		return SummarizeRunDetailStatuses([]string{taskStatus, childStatus})
 	}
 	if childStatus != "pending" {
@@ -816,9 +816,9 @@ func FinalizeRunDetailStepStatus(stepStatus string, tasks []models.TaskDetail, r
 	}
 
 	switch normalizedRun {
-	case "success":
+	case "success", "warning":
 		return "success"
-	case "failure", "failure (ignored)", "timed_out":
+	case "failure", "timed_out":
 		if normalizedStep == "running" || HasInFlightRunDetailTask(tasks) {
 			return normalizedRun
 		}
@@ -914,7 +914,7 @@ func AllTasksDone(tasks []models.TaskDetail) bool {
 
 func IsTerminalRunStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success", "failure", "failure (ignored)", "cancelled", "timed_out", "rejected":
+	case "success", "warning", "failure", "failure (ignored)", "cancelled", "timed_out", "rejected":
 		return true
 	default:
 		return false

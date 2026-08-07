@@ -349,5 +349,5 @@ func normalizePipelineVersion(version string) string {
 
 func isTerminalRunStatus(status string) bool {
 	status = strings.ToLower(strings.TrimSpace(status))
-	return status == "success" || status == "failure" || status == "cancelled" || status == "timed_out" || status == "rejected"
+	return status == "success" || status == "warning" || status == "failure" || status == "failure (ignored)" || status == "cancelled" || status == "timed_out" || status == "rejected"
 }

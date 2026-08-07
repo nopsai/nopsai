@@ -75,6 +75,7 @@ test('keeps the all-runs view toggle aligned with the status filter controls', a
   await waitFor(() => expect(api.requestPipelineRunsJson).toHaveBeenCalled());
   const statusFilter = screen.getByLabelText('Filter by run status');
   expect(screen.getByRole('option', { name: 'Needs attention' })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: 'Warning' })).toBeInTheDocument();
   expect(screen.getByRole('group', { name: 'Pipeline run layout' }).closest('.pipeline-runs-filterbar')).toBe(
     statusFilter.closest('.pipeline-runs-filterbar')
   );

@@ -305,7 +305,7 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 		UPDATE pipeline_runs
 		SET status = $1, started_at = COALESCE(started_at, NOW()), finished_at = NULL
 		WHERE run_id = $2
-		  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'rejected')
+		  AND status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'rejected')
 	`, runStatusWaitingApproval, runID); err != nil {
 		http.Error(w, "Failed to update run status", http.StatusInternalServerError)
 		return
@@ -1001,7 +1001,7 @@ func (a *App) completedTaskKeysForRun(ctx context.Context, runID string) ([]stri
 		SELECT step_name, task_name
 		FROM task_runs
 		WHERE run_id = $1
-		  AND status IN ('success', 'skipped', 'failure (ignored)')
+		  AND status IN ('success', 'warning', 'skipped', 'failure (ignored)')
 		ORDER BY task_index ASC
 	`, runID)
 	if err != nil {

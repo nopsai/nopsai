@@ -34,7 +34,7 @@ const (
 	defaultCleanupCron   = "0 2 * * 0"
 )
 
-var terminalRunStatusesForCleanup = []string{"success", "failure", "cancelled", "timed_out", "failure (ignored)", "rejected", "skipped"}
+var terminalRunStatusesForCleanup = []string{"success", "warning", "failure", "cancelled", "timed_out", "failure (ignored)", "rejected", "skipped"}
 
 var runBackupTables = []string{
 	"pipeline_runs",

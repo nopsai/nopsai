@@ -55,6 +55,7 @@ export function buildIgnoredFailureWarning({
 
 export function isIgnoredFailureStatus(status: string | undefined | null): boolean {
   const normalized = (status || '').trim().toLowerCase().replace(/_/g, ' ');
+  if (normalized === 'warning') return true;
   return normalized.includes('ignored') && normalized.includes('failure');
 }
 

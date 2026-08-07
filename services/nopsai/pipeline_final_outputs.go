@@ -2418,10 +2418,11 @@ func pipelineFinalOutputMatchesRunStatus(when, runStatus string) bool {
 	case "always":
 		return true
 	case "success":
-		return runquery.NormalizeRunDetailStatus(runStatus) == "success"
+		normalized := runquery.NormalizeRunDetailStatus(runStatus)
+		return normalized == "success" || normalized == "warning"
 	case "failure":
 		normalized := runquery.NormalizeRunDetailStatus(runStatus)
-		return runquery.IsTerminalRunStatus(normalized) && normalized != "success"
+		return runquery.IsTerminalRunStatus(normalized) && normalized != "success" && normalized != "warning"
 	default:
 		return false
 	}

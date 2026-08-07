@@ -15,6 +15,7 @@ func TestNormalizeFinalizeRunStatus(t *testing.T) {
 		want string
 	}{
 		{name: "success preserved", raw: "success", want: "success"},
+		{name: "warning preserved", raw: "warning", want: "warning"},
 		{name: "cancelled preserved", raw: "cancelled", want: "cancelled"},
 		{name: "failure normalized", raw: "failure", want: "failure"},
 		{name: "unknown treated as failure", raw: "timed_out", want: "failure"},
@@ -35,6 +36,7 @@ func TestIsCompletedRunStatus(t *testing.T) {
 		want   bool
 	}{
 		{status: "success", want: true},
+		{status: "warning", want: true},
 		{status: "failure", want: true},
 		{status: "timed_out", want: true},
 		{status: "rejected", want: true},
@@ -142,7 +144,7 @@ func TestMarkRunRunningPromotesNonTerminalRun(t *testing.T) {
 	for _, want := range []string{
 		"SET status = 'running'",
 		"started_at = COALESCE(started_at, NOW())",
-		"status NOT IN ('success', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'waiting_approval', 'rejected')",
+		"status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'cancelled', 'timed_out', 'waiting_approval', 'rejected')",
 	} {
 		if !strings.Contains(statement, want) {
 			t.Fatalf("markRunRunning() SQL missing %q in %q", want, statement)
@@ -168,7 +170,7 @@ func TestCloseIncompleteTasksForFinalFailureSkipsPendingAndFailsStartedTasks(t *
 		"WHEN started_at IS NULL THEN 'skipped'",
 		"ELSE 'failure'",
 		"ELSE COALESCE(exit_code, 1)",
-		"status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')",
+		"status NOT IN ('success', 'warning', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')",
 	} {
 		if !strings.Contains(statement, want) {
 			t.Fatalf("closeIncompleteTasksForFinalStatus() SQL missing %q in %q", want, statement)
@@ -176,6 +178,17 @@ func TestCloseIncompleteTasksForFinalFailureSkipsPendingAndFailsStartedTasks(t *
 	}
 	if got := runner.calls[0].args[0]; got != "run-1" {
 		t.Fatalf("closeIncompleteTasksForFinalStatus() run id arg = %v, want run-1", got)
+	}
+}
+
+func TestCloseIncompleteTasksForFinalWarningLeavesTasksUnchanged(t *testing.T) {
+	runner := &recordingRunExecRunner{}
+
+	if err := closeIncompleteTasksForFinalStatus(context.Background(), runner, "run-1", "warning"); err != nil {
+		t.Fatalf("closeIncompleteTasksForFinalStatus() error = %v", err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("expected no Exec calls for warning final status, got %d", len(runner.calls))
 	}
 }
 

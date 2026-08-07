@@ -11,13 +11,17 @@ import {
 test('derives graph statuses from run and task execution details', () => {
   assert.equal(normalizeGraphStatus('waiting_approval'), 'running');
   assert.equal(normalizeGraphStatus('failure'), 'failed');
+  assert.equal(normalizeGraphStatus('failure (ignored)'), 'warning');
+  assert.equal(normalizeGraphStatus('warning'), 'warning');
   assert.equal(deriveTaskGraphStatus({ status: 'success' }, 'pending'), 'pending');
+  assert.equal(deriveTaskGraphStatus({ status: 'failure (ignored)' }, 'success'), 'warning');
   assert.equal(deriveTaskGraphStatus({ status: 'pending' }, 'failure'), 'skipped');
   assert.equal(
     deriveTaskGraphStatus({ status: 'running', started_at: '2026-01-01', finished_at: '2026-01-01', exit_code: 1 }),
     'failed'
   );
   assert.equal(deriveGraphEdgeStatus('success', 'running'), 'running');
+  assert.equal(deriveGraphEdgeStatus('success', 'warning'), 'warning');
 });
 
 test('lays out dependency graphs deterministically in both orientations', () => {

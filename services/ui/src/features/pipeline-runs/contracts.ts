@@ -194,7 +194,7 @@ export type RunFinalOutputStatus = {
   updated_at?: string;
 };
 
-export type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped' | 'cancelled';
+export type GraphStatus = 'success' | 'warning' | 'failed' | 'running' | 'pending' | 'skipped' | 'cancelled';
 
 export type GraphPoint = { x: number; y: number };
 export type GraphSize = { width: number; height: number };

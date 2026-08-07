@@ -17,7 +17,7 @@ import {
 import { normalizeStatus } from './statusPresentation.js';
 
 export type PipelineRunSourceFilter = 'all' | RunSourceKind;
-export type PipelineRunStatusFilter = 'all' | 'attention' | 'running' | 'failure' | 'waiting_approval' | 'success' | 'pending';
+export type PipelineRunStatusFilter = 'all' | 'attention' | 'running' | 'warning' | 'failure' | 'waiting_approval' | 'success' | 'pending';
 
 export type PipelineRunFilterOptions = {
   searchTerm?: string;
@@ -68,7 +68,7 @@ export type PipelineRunBranchOption = {
 export const ALL_PIPELINE_RUN_BRANCHES = 'all';
 
 const sourceFilters: PipelineRunSourceFilter[] = ['all', 'repository', 'schedule', 'external', 'manual'];
-const statusFilters: PipelineRunStatusFilter[] = ['all', 'attention', 'running', 'failure', 'waiting_approval', 'success', 'pending'];
+const statusFilters: PipelineRunStatusFilter[] = ['all', 'attention', 'running', 'warning', 'failure', 'waiting_approval', 'success', 'pending'];
 
 export function normalizeRunSourceFilter(value?: string | null): PipelineRunSourceFilter {
   const normalized = (value || '').trim().toLowerCase() as PipelineRunSourceFilter;
@@ -135,6 +135,7 @@ export function filterPipelineRunsByBranch(runs: RunListItem[], branchKey: strin
 export function buildPipelineRunOverviewMetrics(runs: RunListItem[], now = Date.now()): PipelineRunOverviewMetric[] {
   const activeRuns = runs.filter(run => normalizedRunStatus(run) === 'running');
   const failedRuns = runs.filter(isFailureRun);
+  const warningRuns = runs.filter(isWarningRun);
   const waitingRuns = runs.filter(run => normalizedRunStatus(run) === 'waiting_approval');
   const recentWindowStart = now - 24 * 60 * 60 * 1000;
   const recentRuns = runs.filter(run => {
@@ -142,7 +143,10 @@ export function buildPipelineRunOverviewMetrics(runs: RunListItem[], now = Date.
     return timestamp > 0 && timestamp >= recentWindowStart;
   });
   const terminalRuns = (recentRuns.length ? recentRuns : runs).filter(isTerminalRun);
-  const successfulRuns = terminalRuns.filter(run => normalizedRunStatus(run) === 'success');
+  const successfulRuns = terminalRuns.filter(run => {
+    const normalized = normalizedRunStatus(run);
+    return normalized === 'success' || normalized === 'warning';
+  });
   const successRate = terminalRuns.length ? `${Math.round((successfulRuns.length / terminalRuns.length) * 1000) / 10}%` : '-';
   const durations = terminalRuns
     .map(runDurationSeconds)
@@ -162,9 +166,9 @@ export function buildPipelineRunOverviewMetrics(runs: RunListItem[], now = Date.
     {
       id: 'attention',
       label: 'Needs attention',
-      value: String(failedRuns.length + waitingRuns.length),
-      note: `${failedRuns.length} failed, ${waitingRuns.length} waiting approval`,
-      tone: 'red',
+      value: String(failedRuns.length + warningRuns.length + waitingRuns.length),
+      note: `${failedRuns.length} failed, ${warningRuns.length} ${warningRuns.length === 1 ? 'warning' : 'warnings'}, ${waitingRuns.length} waiting approval`,
+      tone: failedRuns.length ? 'red' : 'amber',
     },
     {
       id: 'success-rate',
@@ -253,8 +257,9 @@ export function buildPipelineRunTableRows(runs: RunListItem[], limit?: number, n
 function runMatchesStatusFilter(run: RunListItem, filter: PipelineRunStatusFilter): boolean {
   if (filter === 'all') return true;
   const normalized = normalizedRunStatus(run);
-  if (filter === 'attention') return isFailureRun(run) || normalized === 'waiting_approval';
+  if (filter === 'attention') return isFailureRun(run) || isWarningRun(run) || normalized === 'waiting_approval';
   if (filter === 'failure') return isFailureRun(run);
+  if (filter === 'warning') return isWarningRun(run);
   return normalized === filter;
 }
 
@@ -280,13 +285,18 @@ function normalizedRunStatus(run: RunListItem): string {
 
 function isFailureRun(run: RunListItem): boolean {
   const normalized = normalizedRunStatus(run);
-  return normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected' || normalized === 'timed_out';
+  return normalized === 'failure' || normalized === 'rejected' || normalized === 'timed_out';
+}
+
+function isWarningRun(run: RunListItem): boolean {
+  const normalized = normalizedRunStatus(run);
+  return normalized === 'warning' || normalized === 'failure (ignored)';
 }
 
 function isTerminalRun(run: RunListItem): boolean {
   const normalized = normalizedRunStatus(run);
   if (normalized === 'running' || normalized === 'waiting_approval' || normalized === 'pending') return false;
-  return Boolean(run.is_complete) || ['success', 'failure', 'failure (ignored)', 'rejected', 'timed_out', 'cancelled', 'skipped'].includes(normalized);
+  return Boolean(run.is_complete) || ['success', 'warning', 'failure', 'failure (ignored)', 'rejected', 'timed_out', 'cancelled', 'skipped'].includes(normalized);
 }
 
 function runDurationSeconds(run: RunListItem): number | null {
@@ -363,7 +373,7 @@ function runScopeName(run: RunListItem): string {
 
 function statusDisplayLabel(status: string): string {
   if (status === 'failure') return 'Failed';
-  if (status === 'failure (ignored)') return 'Ignored failure';
+  if (status === 'warning' || status === 'failure (ignored)') return 'Warning';
   if (status === 'waiting_approval') return 'Approval';
   return status.charAt(0).toUpperCase() + status.slice(1);
 }

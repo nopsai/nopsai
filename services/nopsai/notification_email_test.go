@@ -27,6 +27,28 @@ func TestPipelineNotificationSubjectIncludesFailureAndProgress(t *testing.T) {
 	}
 }
 
+func TestPipelineNotificationSubjectIncludesWarningProgress(t *testing.T) {
+	ctx := pipelineNotificationContext{
+		PipelineName: "include-pipeline",
+		PipelinePath: "general",
+		Status:       "warning",
+		Steps: []pipelineNotificationStep{
+			{Name: "lint", Status: "warning"},
+			{Name: "deploy", Status: "success"},
+		},
+	}
+
+	got := pipelineNotificationSubject(ctx, "success")
+	want := "[WARNING] general/include-pipeline (1/2 steps passed, 1 warning)"
+	if got != want {
+		t.Fatalf("pipelineNotificationSubject() = %q, want %q", got, want)
+	}
+	progress := summarizePipelineNotificationProgress(ctx.Steps)
+	if progress.Warnings != 1 || progress.Failed != 0 {
+		t.Fatalf("progress = %#v, want warning bucket without failed count", progress)
+	}
+}
+
 func TestPipelineNotificationBrandingUsesBundledAppIcon(t *testing.T) {
 	app := App{cfg: &config.Config{PublicURL: "https://ci.example.com/"}}
 

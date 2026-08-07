@@ -221,7 +221,7 @@ func monitorPipeline(ctx context.Context, logger *zerolog.Logger, runID string) 
 			}
 
 			childLogger.Info().Str("status", status).Msg("Polling child pipeline status")
-			if status == "success" || status == "failure" || status == "cancelled" || status == "timed_out" || status == "rejected" {
+			if status == "success" || status == "warning" || status == "failure" || status == "cancelled" || status == "timed_out" || status == "rejected" {
 				return status, nil
 			}
 		case <-monitorCtx.Done():

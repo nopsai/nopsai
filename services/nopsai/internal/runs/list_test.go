@@ -149,6 +149,13 @@ func TestApplyDirectChildRunStatusesAggregatesListStatuses(t *testing.T) {
 				startedAt:   sql.NullTime{Time: start, Valid: true},
 				finishedAt:  sql.NullTime{Time: finished, Valid: true},
 			},
+			{
+				parentRunID: "parent-warning",
+				childRunID:  "child-warning",
+				status:      "warning",
+				startedAt:   sql.NullTime{Time: start, Valid: true},
+				finishedAt:  sql.NullTime{Time: finished, Valid: true},
+			},
 		}},
 	}
 	runs := []models.RunListItem{
@@ -170,6 +177,13 @@ func TestApplyDirectChildRunStatusesAggregatesListStatuses(t *testing.T) {
 			FinishedAt: start.Add(10 * time.Second),
 			IsComplete: true,
 		},
+		{
+			RunID:      "parent-warning",
+			Status:     "success",
+			StartedAt:  start,
+			FinishedAt: start.Add(10 * time.Second),
+			IsComplete: true,
+		},
 	}
 
 	got, err := ApplyDirectChildRunStatuses(context.Background(), queryer, runs)
@@ -185,6 +199,9 @@ func TestApplyDirectChildRunStatusesAggregatesListStatuses(t *testing.T) {
 	if got[1].Status != "failure" || !got[1].IsComplete || got[1].FinishedAt != finished {
 		t.Fatalf("second run = %#v, want failed and complete at child finish", got[1])
 	}
+	if got[2].Status != "warning" || !got[2].IsComplete || got[2].FinishedAt != finished {
+		t.Fatalf("third run = %#v, want warning and complete at child finish", got[2])
+	}
 	if !strings.Contains(queryer.query, "parent_run_id::text = ANY($1::text[])") {
 		t.Fatalf("query = %q, want direct child status lookup", queryer.query)
 	}
@@ -192,7 +209,7 @@ func TestApplyDirectChildRunStatusesAggregatesListStatuses(t *testing.T) {
 	if !ok {
 		t.Fatalf("first query arg = %#v, want []string", queryer.args[0])
 	}
-	if strings.Join(argRunIDs, ",") != "parent-running,parent-failed" {
+	if strings.Join(argRunIDs, ",") != "parent-running,parent-failed,parent-warning" {
 		t.Fatalf("parent IDs = %#v, want input run IDs", argRunIDs)
 	}
 }

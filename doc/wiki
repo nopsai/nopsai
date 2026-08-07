@@ -432,7 +432,7 @@ Common step directives:
 | `steps[].variables` | Step-wide environment overrides. |
 | `steps[].outputs` | Runtime output contract for single-task steps and sync `pipeline:` include imports. Reusable `step:` include outputs are owned by the reusable step definition after expansion. |
 | `steps[].volumes` | Named Docker volume or Kubernetes PVC mounts using `volume:/mount/path`; existing storage is reused and missing storage is created. |
-| `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. Run details warn when ignored work fails, even if the run succeeds. Approval and explicit policy/guardrail enforcement failures still fail closed. |
+| `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. Ignored failed tasks remain auditable as `failure (ignored)`, the step renders as warning, and an otherwise successful run finishes with status `warning`. Approval and explicit policy/guardrail enforcement failures still fail closed. |
 | `steps[].llm_output_sharing` | Step-level output-history sharing override. |
 | `steps[].agent_profile` | Step persona override. Valid for conditions and LLM goals in the step. |
 | `steps[].llm_profile` | Step model-client override. Applies to the step condition and tasks unless a task has `llm_profile`. |
@@ -449,7 +449,7 @@ Common task directives:
 | `tasks[].goal` | LLM-backed task goal. Mutually exclusive with `script`. |
 | `tasks[].script` | Direct shell task. Mutually exclusive with `goal`. |
 | `tasks[].depends_on` | Task dependencies. Values may be tasks in the same step or qualified producer tasks from upstream steps. |
-| `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step; run details warn when ignored work fails. Approval and explicit policy/guardrail enforcement failures still fail closed. |
+| `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step; run details warn when ignored work fails and an otherwise successful run finishes with status `warning`. Approval and explicit policy/guardrail enforcement failures still fail closed. |
 | `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
 | `tasks[].llm_profile` | Most-specific LLM model-client override for this task. |
 | `tasks[].mcp_profiles` | MCP profiles for this LLM goal task. Invalid on script tasks. |

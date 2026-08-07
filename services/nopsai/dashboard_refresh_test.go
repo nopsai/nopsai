@@ -226,8 +226,9 @@ func TestGroupDashboardRefreshLaunchSourcesUsesRequestScopeOverride(t *testing.T
 func TestDashboardRefreshRunStatusFromPipelineStatus(t *testing.T) {
 	tests := map[string]string{
 		"success":           "",
+		"warning":           "",
 		"failure":           dashboardRefreshRunStatusFailed,
-		"failure (ignored)": dashboardRefreshRunStatusFailed,
+		"failure (ignored)": "",
 		"rejected":          dashboardRefreshRunStatusFailed,
 		"cancelled":         dashboardRefreshRunStatusCancelled,
 		"timed_out":         dashboardRefreshRunStatusTimedOut,

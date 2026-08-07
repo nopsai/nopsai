@@ -256,6 +256,49 @@ func TestHandleFindSuiteCheckRunUsesChecksProvider(t *testing.T) {
 	}
 }
 
+func TestHandleRunStatusUpdateMapsWarningToNeutralCheckConclusion(t *testing.T) {
+	checks := &fakeChecksProvider{}
+	app := &GitBotApp{
+		checkRunStates: map[int64]*checkrender.State{
+			42: {
+				RunID:              "12345678-1234-1234-1234-123456789abc",
+				PipelineName:       "build",
+				PipelineDefinition: "name: build\nsteps: []\n",
+				Steps: map[string]map[string]checkrender.TaskStatusUpdate{
+					"lint": {
+						"lint": {StepName: "lint", TaskName: "lint", TaskStatus: "warning", TaskIndex: 1},
+					},
+				},
+				StepOrder: []string{"lint"},
+			},
+		},
+		checksProvider: checks,
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/run/status", strings.NewReader(`{
+		"status": "warning",
+		"check_run_id": 42,
+		"repo_owner": "acme",
+		"repo_name": "widgets"
+	}`))
+	rec := httptest.NewRecorder()
+
+	app.handleRunStatusUpdate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(checks.conclusions) != 1 {
+		t.Fatalf("conclusion calls = %d, want 1", len(checks.conclusions))
+	}
+	conclusion := checks.conclusions[0]
+	if conclusion.Conclusion != "neutral" {
+		t.Fatalf("conclusion = %q, want neutral", conclusion.Conclusion)
+	}
+	if !strings.Contains(conclusion.Title, "Warning") {
+		t.Fatalf("title = %q, want Warning", conclusion.Title)
+	}
+}
+
 func testGitHubSignature(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
