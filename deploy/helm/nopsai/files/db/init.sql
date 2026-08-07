@@ -92,7 +92,7 @@ CREATE TABLE pipeline_approvals (
     approval_type TEXT NOT NULL,
     assigned_teams JSONB NOT NULL DEFAULT '[]'::jsonb,
     allow_self_approval BOOLEAN NOT NULL DEFAULT FALSE,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'timed_out')),
     requested_by_type TEXT NOT NULL DEFAULT '',
     requested_by_id TEXT NOT NULL DEFAULT '',
     requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -101,6 +101,7 @@ CREATE TABLE pipeline_approvals (
     decided_by_email TEXT NOT NULL DEFAULT '',
     decided_at TIMESTAMPTZ,
     decision_comment TEXT NOT NULL DEFAULT '',
+    expires_at TIMESTAMPTZ,
     checkpoint_id UUID REFERENCES pipeline_run_checkpoints(id) ON DELETE SET NULL,
     UNIQUE(run_id, step_name)
 );
@@ -1310,6 +1311,7 @@ CREATE INDEX idx_pipeline_runs_schedule_id ON pipeline_runs(schedule_id);
 CREATE INDEX idx_pipeline_runs_pending_recovery ON pipeline_runs(created_at) WHERE status = 'pending';
 CREATE INDEX idx_pipeline_run_checkpoints_run ON pipeline_run_checkpoints(run_id, created_at DESC);
 CREATE INDEX idx_pipeline_approvals_run ON pipeline_approvals(run_id, status, requested_at DESC);
+CREATE INDEX idx_pipeline_approvals_expiring ON pipeline_approvals(expires_at) WHERE status = 'pending' AND expires_at IS NOT NULL;
 CREATE INDEX idx_steps_config_repo_id ON steps(config_repo_id);
 CREATE INDEX idx_triggers_config_repo_id ON triggers(config_repo_id);
 CREATE INDEX idx_variables_config_repo_id ON variables(config_repo_id);

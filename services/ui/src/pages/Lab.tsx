@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Maximize2, Minimize2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeRuntimePoolNames } from '../features/editor/autocomplete';
-import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
+import { YamlEditorToolbox } from '../features/editor/YamlEditorToolbox';
+import { insertYamlSnippetAtCursor } from '../features/editor/yamlToolboxModel';
 import { LabDependencyPanel } from '../features/lab/LabDependencyPanel';
 import { LabRunControls } from '../features/lab/LabRunControls';
 import { LabSuggestionPortals } from '../features/lab/LabSuggestionPortals';
@@ -94,6 +95,7 @@ function LabPage() {
   const [portalBody, setPortalBody] = useState<HTMLElement | null>(null);
   const overlayHostNodeRef = useRef<HTMLElement | null>(null);
   const [editorFocused, setEditorFocused] = useState(false);
+  const [editorExpanded, setEditorExpanded] = useState(false);
 
   const validation = useMemo(() => validatePipelineYamlStrict(yamlText), [yamlText]);
 
@@ -602,6 +604,20 @@ function LabPage() {
     [setFeedback, setYamlText, suggestionContext, yamlText]
   );
 
+  const insertToolboxSnippet = useCallback(
+    (snippet: string) => {
+      const textarea = editorRef.current;
+      const start = textarea?.selectionStart ?? editorSelection.start;
+      const end = textarea?.selectionEnd ?? editorSelection.end;
+      const { nextValue, nextCursor } = insertYamlSnippetAtCursor(yamlText, start, end, snippet);
+      setYamlText(nextValue);
+      pendingSelectionRef.current = nextCursor;
+      setFeedback(null);
+      textarea?.focus();
+    },
+    [editorSelection.end, editorSelection.start, setFeedback, setYamlText, yamlText]
+  );
+
   const handleIndentTab = useCallback(() => {
     const textarea = editorRef.current;
     if (!textarea) return;
@@ -653,6 +669,48 @@ function LabPage() {
     }
   }, []);
 
+  const expandedSuggestionSlot = (
+    <section className="scope-suggestion-panel yaml-toolbox-suggestion-card" aria-live="polite">
+      <div className="scope-suggestion-heading">
+        <h3 className="scope-suggestion-title">
+          {suggestionContext?.title || suggestionCopy.title}
+        </h3>
+        <p className="scope-suggestion-subtitle">
+          {suggestionCopy.subtitle}
+          {autocompleteMeta.loading ? ' Loading...' : ''}
+        </p>
+      </div>
+      <div className="scope-suggestion-body">
+        {suggestionItems.length ? (
+          <article className="scope-suggestion-item">
+            <div className="scope-suggestion-scope">
+              <span className="scope-suggestion-scope-label">{suggestionContext?.title || suggestionCopy.title}</span>
+              <span className="scope-suggestion-scope-count">{suggestionItems.length} items</span>
+            </div>
+            <div className="scope-suggestion-variables">
+              {suggestionItems.map(item => (
+                <button
+                  key={`${item.value}-${item.label ?? ''}`}
+                  type="button"
+                  className="scope-suggestion-pill scope-suggestion-pill--action"
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => applySuggestion(item)}
+                >
+                  <span>{item.label ?? item.value}</span>
+                  {item.hint ? <span className="scope-suggestion-hint">{item.hint}</span> : null}
+                </button>
+              ))}
+            </div>
+          </article>
+        ) : (
+          <p className="scope-suggestion-empty">
+            {autocompleteMeta.loading ? 'Loading suggestions...' : 'Place the cursor in a YAML key or value to see contextual completions.'}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+
   return (
     <div data-page="lab" className="active h-full flex flex-col">
       <div className="px-4 pt-4 pb-3">
@@ -688,7 +746,7 @@ function LabPage() {
             onRun={() => void handleRun()}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
+          <div className={`grid grid-cols-1 lg:grid-cols-4 gap-5 ${editorExpanded ? 'lab-workspace-grid--editor-expanded' : ''}`}>
             <div className="glass-card p-4 space-y-4 rounded-lg shadow-sm ring-1 ring-[var(--border-primary)]/70 lg:col-span-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -698,6 +756,16 @@ function LabPage() {
                   </div>
                 </div>
                 <div className="flex items-center flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="glass-button-ghost"
+                    title={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+                    aria-label={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+                    aria-expanded={editorExpanded}
+                    onClick={() => setEditorExpanded(current => !current)}
+                  >
+                    {editorExpanded ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+                  </button>
                   <button
                     id="lab-save-yaml"
                     type="button"
@@ -713,7 +781,11 @@ function LabPage() {
               </div>
 
               <div className="space-y-4">
-                <div id="lab-editor-wrapper" ref={handleOverlayHostRef} className="pipeline-editor-wrapper lab-editor-wrapper">
+                <div
+                  id="lab-editor-wrapper"
+                  ref={handleOverlayHostRef}
+                  className={`pipeline-editor-wrapper lab-editor-wrapper ${editorExpanded ? 'lab-editor-wrapper--expanded' : 'lab-editor-wrapper--normal'}`}
+                >
                   <div id="lab-editor-container" className="editor-container">
                     <div id="lab-line-numbers" ref={lineNumbersRef}>
                       <div className="line-number-track">
@@ -777,14 +849,12 @@ function LabPage() {
                     </div>
                   </div>
 
-                  <div className="lab-side-panel">
-                    <YamlValidationPanel
-                      id="lab-validation-status"
-                      errors={editorValidationErrors}
-                      maxVisible={5}
-                      invalidLabel="Validation issues"
-                      inline
-                      renderExample={message => {
+                  {editorExpanded ? (
+                    <YamlEditorToolbox
+                      resourceKind="pipeline"
+                      validationId="lab-validation-status"
+                      validationErrors={editorValidationErrors}
+                      renderValidationExample={message => {
                         const example = buildValidationExample(message);
                         return example ? (
                           <pre className="validation-box__example">
@@ -792,8 +862,14 @@ function LabPage() {
                           </pre>
                         ) : null;
                       }}
+                      suggestionSlot={expandedSuggestionSlot}
+                      onInsertSnippet={insertToolboxSnippet}
                     />
-                  </div>
+                  ) : (
+                    <div id="lab-validation-status" className="sr-only" role="status" aria-live="polite">
+                      {editorValidationErrors.length ? `${editorValidationErrors.length} YAML validation issue${editorValidationErrors.length === 1 ? '' : 's'}` : 'YAML valid'}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -822,6 +898,7 @@ function LabPage() {
         suggestionCopy={suggestionCopy}
         suggestionItems={suggestionItems}
         autocompleteLoading={autocompleteMeta.loading}
+        showFloatingPanel={!editorExpanded}
         onApplySuggestion={applySuggestion}
       />
     </div>

@@ -1,10 +1,12 @@
-import type { KeyboardEvent, RefObject, UIEvent } from 'react';
-import { Copy, Download } from 'lucide-react';
+import { useCallback, useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
+import { Copy, Download, Maximize2, Minimize2 } from 'lucide-react';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import type { ResourceAccessResourceType } from '../../components/ResourceAccessCard';
 import { renderYamlHighlight, renderYamlLines } from '../../lib/yamlRenderer';
 import { EditorAutocompleteMenu, type EditorAutocompleteSuggestion } from './EditorAutocompleteMenu';
-import { YamlValidationPanel, type YamlValidationError } from './YamlValidationPanel';
+import type { YamlValidationError } from './YamlValidationPanel';
+import { YamlEditorToolbox } from './YamlEditorToolbox';
+import { insertYamlSnippetAtCursor, type YamlEditorResourceKind } from './yamlToolboxModel';
 
 type ResourceYamlAccess = {
   resourceType: ResourceAccessResourceType;
@@ -13,6 +15,7 @@ type ResourceYamlAccess = {
 } | null;
 
 type ResourceYamlDetailPanelProps = {
+  resourceKind?: YamlEditorResourceKind;
   title: string;
   rawYaml: string;
   isEditing: boolean;
@@ -60,6 +63,7 @@ type ResourceYamlDetailPanelProps = {
 };
 
 export function ResourceYamlDetailPanel({
+  resourceKind = 'pipeline',
   title,
   rawYaml,
   isEditing,
@@ -98,6 +102,26 @@ export function ResourceYamlDetailPanel({
 }: ResourceYamlDetailPanelProps) {
   const editorLines = editorValue.split('\n');
   const saveDisabled = saving || (saveBlocked ?? validationErrors.length > 0);
+  const [editorExpanded, setEditorExpanded] = useState(false);
+
+  const handleInsertSnippet = useCallback(
+    (snippet: string) => {
+      const editor = editorRef.current;
+      const start = editor?.selectionStart ?? editorValue.length;
+      const end = editor?.selectionEnd ?? start;
+      const { nextValue, nextCursor } = insertYamlSnippetAtCursor(editorValue, start, end, snippet);
+      onDismissSuggestion();
+      onEditorTextChange(nextValue, nextCursor);
+      requestAnimationFrame(() => {
+        const el = editorRef.current;
+        if (!el) return;
+        el.focus();
+        el.selectionStart = nextCursor;
+        el.selectionEnd = nextCursor;
+      });
+    },
+    [editorRef, editorValue, onDismissSuggestion, onEditorTextChange]
+  );
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.ctrlKey && event.code === 'Space') {
@@ -143,9 +167,21 @@ export function ResourceYamlDetailPanel({
   };
 
   return (
-    <div className="glass-card overflow-hidden">
+    <div className={`glass-card overflow-hidden resource-yaml-detail-card ${editorExpanded ? 'resource-yaml-detail-card--expanded' : ''}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
         <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+        {isEditing && !showActions ? (
+          <button
+            className="glass-button-ghost"
+            type="button"
+            onClick={() => setEditorExpanded(current => !current)}
+            title={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+            aria-label={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+            aria-expanded={editorExpanded}
+          >
+            {editorExpanded ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+          </button>
+        ) : null}
         {showActions ? (
           <div className="flex items-center gap-2 flex-wrap">
             {!isEditing ? (
@@ -174,6 +210,16 @@ export function ResourceYamlDetailPanel({
               </>
             ) : canUpdate ? (
               <>
+                <button
+                  className="glass-button-ghost"
+                  type="button"
+                  onClick={() => setEditorExpanded(current => !current)}
+                  title={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+                  aria-label={editorExpanded ? 'Collapse YAML editor' : 'Expand YAML editor'}
+                  aria-expanded={editorExpanded}
+                >
+                  {editorExpanded ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+                </button>
                 <button className="glass-button-ghost" onClick={onDiscard}>
                   Discard
                 </button>
@@ -196,49 +242,75 @@ export function ResourceYamlDetailPanel({
             {renderYamlLines(rawYaml)}
           </div>
         ) : (
-          <div id={ids.editorContainer} className="editor-container">
-            <div id={ids.lineNumbers} ref={lineNumbersRef}>
-              <div className="line-number-track">
-                {editorLines.map((_, index) => (
-                  <div key={`ln-${index}`} className={`line-number ${validationErrorLines.has(index + 1) ? 'line-number--error' : ''}`}>
-                    {index + 1}
-                  </div>
-                ))}
+          <div className={`resource-yaml-editor-shell ${editorExpanded ? 'resource-yaml-editor-shell--expanded' : 'resource-yaml-editor-shell--normal'}`}>
+            <div id={ids.editorContainer} className="editor-container">
+              <div id={ids.lineNumbers} ref={lineNumbersRef}>
+                <div className="line-number-track">
+                  {editorLines.map((_, index) => (
+                    <div key={`ln-${index}`} className={`line-number ${validationErrorLines.has(index + 1) ? 'line-number--error' : ''}`}>
+                      {index + 1}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div id={ids.stage} className="yaml-editor-stage yaml-editor-stage--with-highlight">
-              <div id={ids.highlight} className="yaml-editor-highlight" aria-hidden="true">
-                <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
-                  {renderYamlHighlight(editorValue)}
-                </pre>
+              <div id={ids.stage} className="yaml-editor-stage yaml-editor-stage--with-highlight">
+                <div id={ids.highlight} className="yaml-editor-highlight" aria-hidden="true">
+                  <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
+                    {renderYamlHighlight(editorValue)}
+                  </pre>
+                </div>
+                <textarea
+                  ref={editorRef}
+                  id={ids.editor}
+                  aria-label={editorLabel}
+                  aria-describedby={ids.validation}
+                  aria-invalid={validationErrors.length > 0}
+                  aria-autocomplete="list"
+                  aria-controls={editorSuggestion ? ids.autocomplete : undefined}
+                  aria-activedescendant={editorSuggestion ? `${ids.autocomplete}-option-${editorSuggestion.activeIndex}` : undefined}
+                  value={editorValue}
+                  onChange={event => onEditorTextChange(event.target.value, event.target.selectionStart || 0)}
+                  onClick={event => onOpenSuggestion(event.currentTarget.selectionStart || 0)}
+                  onScroll={onEditorScroll}
+                  onKeyDown={handleKeyDown}
+                  spellCheck={false}
+                />
               </div>
-              <textarea
-                ref={editorRef}
-                id={ids.editor}
-                aria-label={editorLabel}
-                aria-describedby={ids.validation}
-                aria-invalid={validationErrors.length > 0}
-                aria-autocomplete="list"
-                aria-controls={editorSuggestion ? ids.autocomplete : undefined}
-                aria-activedescendant={editorSuggestion ? `${ids.autocomplete}-option-${editorSuggestion.activeIndex}` : undefined}
-                value={editorValue}
-                onChange={event => onEditorTextChange(event.target.value, event.target.selectionStart || 0)}
-                onClick={event => onOpenSuggestion(event.currentTarget.selectionStart || 0)}
-                onScroll={onEditorScroll}
-                onKeyDown={handleKeyDown}
-                spellCheck={false}
-              />
+              {!editorExpanded && editorSuggestion ? (
+                <EditorAutocompleteMenu
+                  id={ids.autocomplete}
+                  suggestion={editorSuggestion}
+                  loading={autocompleteLoading}
+                  width={autocompleteWidth}
+                  onSelect={onSelectSuggestion}
+                />
+              ) : null}
             </div>
-            <YamlValidationPanel id={ids.validation} errors={validationErrors} />
-            {editorSuggestion ? (
-              <EditorAutocompleteMenu
-                id={ids.autocomplete}
-                suggestion={editorSuggestion}
-                loading={autocompleteLoading}
-                width={autocompleteWidth}
-                onSelect={onSelectSuggestion}
+            {editorExpanded ? (
+              <YamlEditorToolbox
+                resourceKind={resourceKind}
+                validationId={ids.validation}
+                validationErrors={validationErrors}
+                suggestionSlot={
+                  editorSuggestion ? (
+                    <EditorAutocompleteMenu
+                      id={ids.autocomplete}
+                      suggestion={editorSuggestion}
+                      loading={autocompleteLoading}
+                      placement="inline"
+                      onSelect={onSelectSuggestion}
+                    />
+                  ) : (
+                    <p className="yaml-editor-toolbox__empty">Use Ctrl+Space while editing to show contextual completions here.</p>
+                  )
+                }
+                onInsertSnippet={handleInsertSnippet}
               />
-            ) : null}
+            ) : (
+              <div id={ids.validation} className="sr-only" role="status" aria-live="polite">
+                {validationErrors.length ? `${validationErrors.length} YAML validation issue${validationErrors.length === 1 ? '' : 's'}` : 'YAML valid'}
+              </div>
+            )}
           </div>
         )}
       </div>
