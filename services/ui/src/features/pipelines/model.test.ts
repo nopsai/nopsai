@@ -175,6 +175,61 @@ steps:
   assert.match(result.errors[0]?.message || '', /without a valid dependency/);
 });
 
+test('allows runtime output references through transitive dependencies in UI validation', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: prepare
+    tasks:
+      - name: produce
+        outputs:
+          - image_tag
+        script: echo ok
+  - name: gate
+    depends_on:
+      - prepare
+    script: echo gate
+  - name: build
+    depends_on:
+      - gate
+    variables:
+      IMAGE_TAG: $steps.prepare.produce.outputs.image_tag
+    script: echo build
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('allows runtime output references through approval dependency gates in UI validation', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: prepare
+    tasks:
+      - name: produce
+        outputs:
+          - image_tag
+        script: echo ok
+  - name: approval
+    depends_on:
+      - prepare
+    approval:
+      type: deploy
+      teams:
+        - platform/prod
+  - name: deploy
+    depends_on:
+      - approval
+    variables:
+      IMAGE_TAG: $steps.prepare.produce.outputs.image_tag
+    script: echo deploy
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
 test('validates pipeline dashboard final outputs without dashboard field errors', () => {
   const result = validatePipelineYaml(`
 name: deploy

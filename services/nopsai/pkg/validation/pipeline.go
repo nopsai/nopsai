@@ -261,6 +261,8 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		}
 	}
 
+	dependencyIndex := buildPipelineDependencyIndex(pipeline, stepToTaskNames, allStepNames)
+
 	// Second pass: Validate dependencies based on the corrected rules
 	for _, step := range pipeline.Steps {
 		stepName := step.GetName()
@@ -278,10 +280,10 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		}
 
 		if err := validateRuntimeOutputRefsInVariables(step.GetVariables(), outputRefConsumer{
-			stepName:      stepName,
-			taskName:      stepName,
-			stepDependsOn: step.GetDependsOn(),
-		}, stepToTaskNames, taskOutputDeclarations); err != nil {
+			stepName:  stepName,
+			taskName:  stepName,
+			stepLevel: true,
+		}, stepToTaskNames, taskOutputDeclarations, dependencyIndex); err != nil {
 			return err
 		}
 
@@ -300,18 +302,16 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 					}
 				}
 				if err := validateRuntimeOutputRefsInVariables(task.Variables, outputRefConsumer{
-					stepName:      stepName,
-					taskName:      task.Name,
-					taskDependsOn: task.DependsOn,
-					stepDependsOn: step.GetDependsOn(),
-				}, stepToTaskNames, taskOutputDeclarations); err != nil {
+					stepName: stepName,
+					taskName: task.Name,
+				}, stepToTaskNames, taskOutputDeclarations, dependencyIndex); err != nil {
 					return err
 				}
 			}
 		}
 	}
 
-	if err := validatePipelineDependencyGraph(pipeline, stepToTaskNames, allStepNames); err != nil {
+	if err := validatePipelineDependencyGraph(dependencyIndex); err != nil {
 		return err
 	}
 
@@ -366,10 +366,9 @@ func validatePipelineStructuralLimits(pipeline *models.Pipeline) error {
 }
 
 type outputRefConsumer struct {
-	stepName      string
-	taskName      string
-	stepDependsOn []string
-	taskDependsOn []string
+	stepName  string
+	taskName  string
+	stepLevel bool
 }
 
 func ValidateReusableStep(step *models.PipelineStep) error {
@@ -516,7 +515,7 @@ func recordTaskOutputDeclarations(declarations map[string]map[string]models.Task
 	}
 }
 
-func validateRuntimeOutputRefsInVariables(variables map[string]string, consumer outputRefConsumer, stepToTaskNames map[string]map[string]bool, declarations map[string]map[string]models.TaskOutput) error {
+func validateRuntimeOutputRefsInVariables(variables map[string]string, consumer outputRefConsumer, stepToTaskNames map[string]map[string]bool, declarations map[string]map[string]models.TaskOutput, dependencyIndex pipelineDependencyIndex) error {
 	if len(variables) == 0 {
 		return nil
 	}
@@ -543,7 +542,7 @@ func validateRuntimeOutputRefsInVariables(variables map[string]string, consumer 
 			if _, ok := declarations[producerKey][ref.OutputName]; !ok {
 				continue
 			}
-			if !consumerDependsOnOutputProducer(consumer, ref) {
+			if !consumerDependsOnOutputProducer(consumer, ref, dependencyIndex) {
 				return fmt.Errorf("variable %q consumes output %s.%s.outputs.%s without a valid dependency", name, ref.StepName, ref.TaskName, ref.OutputName)
 			}
 			firstRef = models.RuntimeOutputRef{}
@@ -559,26 +558,14 @@ func validateRuntimeOutputRefsInVariables(variables map[string]string, consumer 
 	return nil
 }
 
-func consumerDependsOnOutputProducer(consumer outputRefConsumer, ref models.RuntimeOutputRef) bool {
-	if consumer.stepName == ref.StepName && consumer.taskName == ref.TaskName {
+func consumerDependsOnOutputProducer(consumer outputRefConsumer, ref models.RuntimeOutputRef, dependencyIndex pipelineDependencyIndex) bool {
+	if consumer.stepLevel && consumer.stepName == ref.StepName {
 		return false
 	}
-	for _, dep := range consumer.stepDependsOn {
-		dep = strings.TrimSpace(dep)
-		if dep == ref.StepName || dep == ref.StepName+"."+ref.TaskName {
-			return true
-		}
+	if !consumer.stepLevel && consumer.stepName == ref.StepName && consumer.taskName == ref.TaskName {
+		return false
 	}
-	for _, dep := range consumer.taskDependsOn {
-		dep = strings.TrimSpace(dep)
-		if consumer.stepName == ref.StepName && dep == ref.TaskName {
-			return true
-		}
-		if dep == ref.StepName+"."+ref.TaskName {
-			return true
-		}
-	}
-	return false
+	return dependencyIndexHasPath(dependencyIndex, outputRefConsumerKey(consumer), pipelineTaskKey(ref.StepName, ref.TaskName))
 }
 
 func resolvePipelineTaskDependency(depName, currentStep string, allStepNames map[string]bool, stepToTaskNames map[string]map[string]bool) (string, string, bool) {
@@ -615,30 +602,66 @@ func resolvePipelineTaskDependency(depName, currentStep string, allStepNames map
 	return "", "", false
 }
 
-func validatePipelineDependencyGraph(pipeline *models.Pipeline, stepToTaskNames map[string]map[string]bool, allStepNames map[string]bool) error {
-	dependencies := map[string][]string{}
+type pipelineDependencyIndex map[string][]string
+
+const stepVariableConsumerTaskName = "__step_variables__"
+
+func stepVariableConsumerKey(stepName string) string {
+	return pipelineTaskKey(stepName, stepVariableConsumerTaskName)
+}
+
+func outputRefConsumerKey(consumer outputRefConsumer) string {
+	if consumer.stepLevel {
+		return stepVariableConsumerKey(consumer.stepName)
+	}
+	return pipelineTaskKey(consumer.stepName, consumer.taskName)
+}
+
+func buildPipelineDependencyIndex(pipeline *models.Pipeline, stepToTaskNames map[string]map[string]bool, allStepNames map[string]bool) pipelineDependencyIndex {
+	dependencies := pipelineDependencyIndex{}
+	ensureNode := func(key string) {
+		if _, ok := dependencies[key]; !ok {
+			dependencies[key] = nil
+		}
+	}
+	appendDependency := func(consumerKey, producerKey string) {
+		ensureNode(consumerKey)
+		ensureNode(producerKey)
+		dependencies[consumerKey] = append(dependencies[consumerKey], producerKey)
+	}
+
 	for stepName, taskNames := range stepToTaskNames {
+		ensureNode(stepVariableConsumerKey(stepName))
 		for _, taskName := range sortedTaskNames(taskNames) {
-			dependencies[pipelineTaskKey(stepName, taskName)] = nil
+			ensureNode(pipelineTaskKey(stepName, taskName))
 		}
 	}
 
 	for _, step := range pipeline.Steps {
 		stepName := step.GetName()
 		consumerTasks := sortedTaskNames(stepToTaskNames[stepName])
+		consumerKeys := []string{stepVariableConsumerKey(stepName)}
+		for _, consumerTask := range consumerTasks {
+			consumerKeys = append(consumerKeys, pipelineTaskKey(stepName, consumerTask))
+		}
 		for _, depName := range step.GetDependsOn() {
 			depStep, depTask, ok := resolvePipelineTaskDependency(depName, stepName, allStepNames, stepToTaskNames)
 			if !ok {
 				continue
 			}
-			producerTasks := []string{depTask}
+			producerKeys := []string{pipelineTaskKey(depStep, depTask)}
 			if depTask == "" {
-				producerTasks = sortedTaskNames(stepToTaskNames[depStep])
+				producerKeys = nil
+				for _, producerTask := range sortedTaskNames(stepToTaskNames[depStep]) {
+					producerKeys = append(producerKeys, pipelineTaskKey(depStep, producerTask))
+				}
+				if len(producerKeys) == 0 {
+					producerKeys = append(producerKeys, stepVariableConsumerKey(depStep))
+				}
 			}
-			for _, consumerTask := range consumerTasks {
-				consumerKey := pipelineTaskKey(stepName, consumerTask)
-				for _, producerTask := range producerTasks {
-					dependencies[consumerKey] = append(dependencies[consumerKey], pipelineTaskKey(depStep, producerTask))
+			for _, consumerKey := range consumerKeys {
+				for _, producerKey := range producerKeys {
+					appendDependency(consumerKey, producerKey)
 				}
 			}
 		}
@@ -650,11 +673,35 @@ func validatePipelineDependencyGraph(pipeline *models.Pipeline, stepToTaskNames 
 				if !ok || depTask == "" {
 					continue
 				}
-				dependencies[consumerKey] = append(dependencies[consumerKey], pipelineTaskKey(depStep, depTask))
+				appendDependency(consumerKey, pipelineTaskKey(depStep, depTask))
 			}
 		}
 	}
+	return dependencies
+}
 
+func dependencyIndexHasPath(dependencies pipelineDependencyIndex, from string, to string) bool {
+	if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" || from == to {
+		return false
+	}
+	visited := map[string]bool{}
+	var visit func(string) bool
+	visit = func(node string) bool {
+		if visited[node] {
+			return false
+		}
+		visited[node] = true
+		for _, dep := range dependencies[node] {
+			if dep == to || visit(dep) {
+				return true
+			}
+		}
+		return false
+	}
+	return visit(from)
+}
+
+func validatePipelineDependencyGraph(dependencies pipelineDependencyIndex) error {
 	state := map[string]int{}
 	stack := []string{}
 	for _, node := range sortedDependencyNodes(dependencies) {
@@ -665,7 +712,7 @@ func validatePipelineDependencyGraph(pipeline *models.Pipeline, stepToTaskNames 
 	return nil
 }
 
-func dependencyCycle(node string, dependencies map[string][]string, state map[string]int, stack []string) []string {
+func dependencyCycle(node string, dependencies pipelineDependencyIndex, state map[string]int, stack []string) []string {
 	switch state[node] {
 	case 1:
 		for idx, existing := range stack {
@@ -703,7 +750,7 @@ func sortedTaskNames(taskNames map[string]bool) []string {
 	return names
 }
 
-func sortedDependencyNodes(dependencies map[string][]string) []string {
+func sortedDependencyNodes(dependencies pipelineDependencyIndex) []string {
 	nodes := make([]string, 0, len(dependencies))
 	for node := range dependencies {
 		nodes = append(nodes, node)
