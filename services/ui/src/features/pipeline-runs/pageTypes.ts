@@ -29,6 +29,7 @@ export type PipelineApproval = {
   decided_by_email?: string;
   decided_at?: string;
   decision_comment?: string;
+  expires_at?: string;
 };
 
 export type PipelineRunsTriggerTeam = {

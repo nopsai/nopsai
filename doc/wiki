@@ -341,8 +341,8 @@ answer practical questions such as:
 - "Can a script task use `mcp_profiles`?" No. Explicit MCP profiles are valid
   only for LLM-backed goal work.
 - "What happens when `llm_enabled: false`?" The pipeline must be script-only and
-  cannot define goals, step conditions, final outputs, or explicit MCP profile
-  use.
+  cannot define goals, step conditions, final outputs, explicit MCP profile use,
+  or direct scripts with blocking guardrail/policy Knowledge Context.
 - "Can a dashboard output define `dashboard.*` fields when type is `pdf`?" No.
   Dashboard target fields require `type: dashboard`.
 - "Where does an analysis health score come from?" It starts at 100 and
@@ -395,14 +395,14 @@ It should include at least these directives:
 | `variables` | pipeline | Runtime variable references required by the pipeline. Bare names resolve in the run scope; `default:NAME` resolves unscoped/default; `scope/path:NAME` resolves an explicit scope and injects `NAME`. |
 | `steps` | pipeline | Required non-empty ordered list of step definitions. |
 | `timeout` | pipeline | Optional whole-run duration such as `45m` or `2h`. |
-| `llm_enabled` | pipeline | Optional boolean. `false` is for script-only pipelines and rejects goals, conditions, final outputs, and MCP profile validation. |
+| `llm_enabled` | pipeline | Optional boolean. `false` is for script-only pipelines and rejects goals, conditions, final outputs, and direct scripts with blocking guardrail/policy Knowledge Context. |
 | `agent_profile` | pipeline | Default AI persona and instruction profile. Step can override it. |
 | `llm_profile` | pipeline | Default model-provider profile. Step, task, output, and output item can override it where supported. |
 | `mcp_profiles` | pipeline | Approved MCP tool profiles available to LLM goal work. Additive with step and task MCP profiles; the agent only accepts server/tool pairs from the resolved profile allowlist. |
 | `policy_merge_mode` | pipeline | Knowledge-context policy merge mode: `restrictive`, `override`, or `fail_on_conflict`. Step and task values can override it. |
 | `runtime_pool` | pipeline | Kubernetes runtime pool default. Docker runners ignore it. |
 | `affinity_enabled` | pipeline | Kubernetes same-node affinity override for the run. |
-| `knowledge_context` | pipeline | Knowledge references merged into all effective LLM task contexts. |
+| `knowledge_context` | pipeline | Knowledge references merged into all effective LLM task contexts; guardrail and policy entries also validate direct scripts before execution. |
 | `llm_content_sharing` | pipeline | Optional boolean. Defaults to `false`; set `true` only when workspace file listings/content should be shared automatically with LLM goal resolution. Bounded workspace tools can still retrieve current file identities and file content on demand. Shared and retrieved files include path, SHA-256, size, and workspace revision metadata so stale file replacements can be rejected. |
 | `llm_content_include` | pipeline | Include filters for files shared with LLM goal context. |
 | `llm_content_ignore` | pipeline | Ignore filters for files shared with LLM goal context. |
@@ -469,6 +469,10 @@ Approval directives:
 | `steps[].approval.type` | Required approval kind. Letters, numbers, underscores, dots, and hyphens are supported. |
 | `steps[].approval.teams` | Required relative team paths assigned to approve or reject. |
 | `steps[].approval.allow_self_approval` | Whether the original requester may approve the same checkpoint. |
+| `steps[].approval.timeout` | Optional positive duration such as `30m`, `2h`, or `24h`; expired approvals mark the run `timed_out`. |
+
+Approval decision comments are optional when approving and required when
+rejecting.
 
 ## AI Directive Reference
 

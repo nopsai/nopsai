@@ -34,6 +34,7 @@ var (
 		"approval_approved",
 		"approval_rejected",
 		"cancelled",
+		"timed_out",
 		"skipped",
 	}
 )
@@ -164,7 +165,7 @@ func defaultNotificationEvents() map[string]bool {
 	for _, eventType := range notificationEventTypes {
 		events[eventType] = false
 	}
-	for _, eventType := range []string{"failure", "waiting_approval", "approval_requested", "approval_rejected", "cancelled"} {
+	for _, eventType := range []string{"failure", "waiting_approval", "approval_requested", "approval_rejected", "cancelled", "timed_out"} {
 		events[eventType] = true
 	}
 	return events

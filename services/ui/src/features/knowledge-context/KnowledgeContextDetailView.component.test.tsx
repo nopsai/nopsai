@@ -5,7 +5,7 @@ import { KnowledgeContextDetailView } from './KnowledgeContextDetailView';
 import type { KnowledgeContextDetail } from './model';
 
 const detail: KnowledgeContextDetail = {
-  id: 'runbook/platform/restart',
+  id: 'platform/restart',
   uuid: '',
   kind: 'runbook',
   team: 'platform',
@@ -61,10 +61,10 @@ describe('KnowledgeContextDetailView', () => {
     const { props } = renderDetail();
 
     expect(screen.getByRole('heading', { name: /restart/ })).toBeVisible();
-    expect(screen.getByText('ID: runbook/platform/restart')).toBeVisible();
+    expect(screen.getByText('ID: platform/restart')).toBeVisible();
     expect(screen.getByText('Document Details')).toBeVisible();
     expect(screen.getByText('System Health')).toBeVisible();
-    expect(screen.getAllByText('runbook/platform/restart').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('platform/restart').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Copy document ID' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Actions' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Access' })).not.toBeInTheDocument();
@@ -132,7 +132,7 @@ describe('KnowledgeContextDetailView', () => {
   it('renders external page sync controls and read-only cached content', () => {
     const externalDetail: KnowledgeContextDetail = {
       ...detail,
-      id: 'policy/security/source-page',
+      id: 'security/source-page',
       kind: 'policy',
       team: 'security',
       name: 'source-page',

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	appconfig "nopsai/config"
 	"nopsai/pkg/models"
@@ -792,6 +793,12 @@ func validateApprovalDefinition(approval models.ApprovalDefinition, stepName str
 	if len(teams) == 0 {
 		return fmt.Errorf("approval step '%s' must assign at least one approval team", stepName)
 	}
+	if timeout := strings.TrimSpace(approval.Timeout); timeout != "" {
+		duration, err := time.ParseDuration(timeout)
+		if err != nil || duration <= 0 {
+			return fmt.Errorf("approval step '%s' approval.timeout must be a positive duration", stepName)
+		}
+	}
 	seen := make(map[string]bool, len(teams))
 	for _, team := range teams {
 		normalized := strings.Trim(strings.ReplaceAll(team, "\\", "/"), "/")
@@ -825,16 +832,21 @@ func validatePipelineLLMSettings(pipeline *models.Pipeline) error {
 	if len(pipeline.Output.Items) > 0 {
 		return fmt.Errorf("pipeline has LLM disabled but defines final outputs")
 	}
+	pipelineBlockingKnowledge := knowledgeContextRefsContainBlocking(pipeline.KnowledgeContext)
 	for _, step := range pipeline.Steps {
 		stepName := step.GetName()
 		if stepName == "" {
 			stepName = "unknown"
 		}
+		stepBlockingKnowledge := pipelineBlockingKnowledge || knowledgeContextRefsContainBlocking(step.GetKnowledgeContext())
 		if strings.TrimSpace(step.GetCondition()) != "" {
 			return fmt.Errorf("pipeline has LLM disabled but step %q defines condition", stepName)
 		}
 		if strings.TrimSpace(step.GetGoal()) != "" {
 			return fmt.Errorf("pipeline has LLM disabled but step %q defines goal", stepName)
+		}
+		if strings.TrimSpace(step.GetScript()) != "" && stepBlockingKnowledge {
+			return fmt.Errorf("pipeline has LLM disabled but script step %q uses blocking knowledge context", stepName)
 		}
 		for _, task := range step.GetTasks() {
 			taskName := task.Name
@@ -844,9 +856,21 @@ func validatePipelineLLMSettings(pipeline *models.Pipeline) error {
 			if strings.TrimSpace(task.Goal) != "" {
 				return fmt.Errorf("pipeline has LLM disabled but task %q in step %q defines goal", taskName, stepName)
 			}
+			if strings.TrimSpace(task.Script) != "" && (stepBlockingKnowledge || knowledgeContextRefsContainBlocking(task.KnowledgeContext)) {
+				return fmt.Errorf("pipeline has LLM disabled but script task %q in step %q uses blocking knowledge context", taskName, stepName)
+			}
 		}
 	}
 	return nil
+}
+
+func knowledgeContextRefsContainBlocking(refs []models.KnowledgeContextRef) bool {
+	for _, ref := range refs {
+		if models.KnowledgeContextKindIsBlocking(ref.Kind) {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePipelineOutput(output models.PipelineOutput) error {

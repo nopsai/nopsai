@@ -111,6 +111,7 @@ export type PipelineGraphApprovalDefinition = {
   type?: string;
   teams?: string[];
   allow_self_approval?: boolean;
+  timeout?: string;
 };
 
 export type PipelineGraphStepConfiguration = {
@@ -380,6 +381,7 @@ function normalizeApproval(value: unknown): PipelineGraphApprovalDefinition | un
     type: typeof record.type === 'string' ? record.type : undefined,
     teams: normalizeStringArray(record.teams),
     allow_self_approval: typeof record.allow_self_approval === 'boolean' ? record.allow_self_approval : undefined,
+    timeout: typeof record.timeout === 'string' ? record.timeout : undefined,
   };
 }
 

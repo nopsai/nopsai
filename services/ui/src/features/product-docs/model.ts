@@ -424,13 +424,13 @@ const pipelineTopLevelRows: WikiConfigRow[] = [
   {
     key: 'llm_enabled',
     area: 'Pipeline YAML',
-    description: 'Set false only for script-only pipelines. It rejects goals, conditions, MCP profile validation, and final outputs.',
+    description: 'Set false only for script-only pipelines without blocking guardrail or policy script validation. It rejects goals, conditions, MCP profile validation, and final outputs.',
     example: 'false',
     type: 'boolean',
     required: false,
     defaultValue: 'true',
     scope: 'pipeline',
-    constraints: ['false requires script-only execution and rejects goals, conditions, explicit MCP profiles, and final outputs.'],
+    constraints: ['false requires script-only execution and rejects goals, conditions, explicit MCP profiles, final outputs, and direct scripts with blocking guardrail or policy Knowledge Context.'],
   },
   {
     key: 'agent_profile',
@@ -481,7 +481,7 @@ const pipelineTopLevelRows: WikiConfigRow[] = [
   {
     key: 'knowledge_context',
     area: 'Pipeline YAML',
-    description: 'Pipeline-level knowledge references merged into every LLM condition and goal in the run.',
+    description: 'Pipeline-level knowledge references merged into conditions, goals, and blocking direct-script validation.',
     example: 'kind: guardrail, ref: security/repo-check',
     type: 'array<object>',
     required: false,
@@ -731,6 +731,12 @@ const approvalIncludeRows: WikiConfigRow[] = [
     area: 'Approval step',
     description: 'Whether the original requester can approve the same checkpoint.',
     example: 'false',
+  },
+  {
+    key: 'steps[].approval.timeout',
+    area: 'Approval step',
+    description: 'Optional positive duration. Expired approvals mark the approval and run timed_out.',
+    example: '24h',
   },
 ];
 
@@ -1806,7 +1812,7 @@ const baseWikiSections: WikiSectionInput[] = [
         summary:
           'Create a script-only pipeline that does not require an LLM profile, run it, inspect logs, and validate the terminal result.',
         keyFacts: [
-          'Set llm_enabled: false when every executable unit is a script and no final outputs are configured.',
+          'Set llm_enabled: false when every executable unit is a script, no final outputs are configured, and no blocking guardrail or policy Knowledge Context needs script validation.',
           'Each step must define exactly one execution mode.',
           'Script output is stored as pipeline logs and can be inspected from Pipeline runs.',
           'The run still uses normal pipeline, scope, runner, and secret authorization.',
@@ -1849,7 +1855,7 @@ const baseWikiSections: WikiSectionInput[] = [
           {
             key: 'llm_enabled',
             area: 'Pipeline YAML',
-            description: 'Set false only for script-only pipelines. It rejects goals, conditions, MCP profile validation, and final outputs.',
+            description: 'Set false only for script-only pipelines without blocking guardrail or policy script validation. It rejects goals, conditions, MCP profile validation, and final outputs.',
             example: 'false',
             type: 'boolean',
             required: false,
@@ -1870,7 +1876,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         relatedDocs: ['doc/feature-reference.md', 'doc/runtime-flows.md'],
         runbooks: ['Validate a new pipeline', 'Debug queued run'],
-        caveats: ['Goal tasks, conditions, MCP profiles, and final outputs are invalid when llm_enabled is false.'],
+        caveats: ['Goal tasks, conditions, MCP profiles, final outputs, and direct scripts with blocking guardrail or policy Knowledge Context are invalid when llm_enabled is false.'],
       },
       {
         id: 'first-ai-assisted-pipeline',
@@ -2095,7 +2101,7 @@ const baseWikiSections: WikiSectionInput[] = [
               {
                 title: 'Approval step',
                 language: 'yaml',
-                code: 'steps:\n  - name: build\n    script: ./scripts/build.sh\n  - name: production-gate\n    depends_on: [build]\n    approval:\n      type: production-deploy\n      teams:\n        - platform/prod\n      allow_self_approval: false\n  - name: deploy\n    depends_on: [production-gate]\n    script: ./scripts/deploy.sh',
+                code: 'steps:\n  - name: build\n    script: ./scripts/build.sh\n  - name: production-gate\n    depends_on: [build]\n    approval:\n      type: production-deploy\n      teams:\n        - platform/prod\n      allow_self_approval: false\n      timeout: 24h\n  - name: deploy\n    depends_on: [production-gate]\n    script: ./scripts/deploy.sh',
                 complete: false,
                 testedIn: DEFAULT_VERIFIED_DATE,
               },
@@ -2118,7 +2124,7 @@ const baseWikiSections: WikiSectionInput[] = [
         examples: [],
         relatedDocs: ['doc/feature-reference.md', 'doc/access-control.md'],
         runbooks: ['Approve or reject a pending gate', 'Resume an approval checkpoint', 'Audit cross-team include permissions'],
-        caveats: ['Rejecting an approval marks the approval task failed and the run rejected.'],
+        caveats: ['Approving can include an optional comment. Rejecting requires a comment and marks the approval task failed and the run rejected.'],
       },
       {
         id: 'create-final-deliverable',
@@ -2881,7 +2887,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Every step must contain exactly one mode: include, tasks, goal, script, or approval.',
           'Independent ready tasks may execute concurrently; depends_on defines graph edges.',
           'Runtime output references are valid when the dependency graph guarantees the producer runs before the consumer, including through transitive dependencies.',
-          'Script-only pipelines can set llm_enabled: false to avoid requiring an LLM registry.',
+          'Script-only pipelines can set llm_enabled: false to avoid requiring an LLM registry unless direct scripts use blocking guardrail or policy Knowledge Context.',
         ],
         details: [
           'Pipeline YAML is a reviewed automation contract. It should contain the desired execution graph and references to approved resources, not raw provider credentials, arbitrary MCP server URLs, or environment-specific bootstrap secrets.',
@@ -2901,7 +2907,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         relatedDocs: ['doc/feature-reference.md', 'doc/runtime-flows.md'],
         runbooks: ['Validate a new pipeline', 'Review dependency graph before production use', 'Convert manual shell script to script-only pipeline'],
-        caveats: ['Goal tasks, conditions, and explicit MCP profiles are invalid when LLM behavior is disabled.'],
+        caveats: ['Goal tasks, conditions, explicit MCP profiles, and direct scripts with blocking guardrail or policy Knowledge Context are invalid when LLM behavior is disabled.'],
       },
       {
         id: 'step-task-directives',
@@ -2967,12 +2973,12 @@ const baseWikiSections: WikiSectionInput[] = [
           {
             title: 'Approval step',
             language: 'yaml',
-            code: 'steps:\n  - name: deploy-gate\n    approval:\n      type: production-deploy\n      teams:\n        - platform/prod\n      allow_self_approval: false',
+            code: 'steps:\n  - name: deploy-gate\n    approval:\n      type: production-deploy\n      teams:\n        - platform/prod\n      allow_self_approval: false\n      timeout: 24h',
           },
         ],
         relatedDocs: ['doc/feature-reference.md', 'doc/access-control.md'],
         runbooks: ['Approve or reject a pending gate', 'Resume an approval checkpoint', 'Audit cross-team include permissions'],
-        caveats: ['Rejecting an approval marks the approval task failed and the run rejected.'],
+        caveats: ['Approving can include an optional comment. Rejecting requires a comment and marks the approval task failed and the run rejected.'],
       },
       {
         id: 'git-triggers',
@@ -3143,7 +3149,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Resolution order is task, step, pipeline, then default profile.',
           'Generic reasoning and thinking fields are supported only for LM Studio; other providers reject those generic settings.',
           'Prompt cache and provider-state modes can be auto, required, or disabled; required fails closed when the provider adapter cannot satisfy the feature.',
-          'Script-only pipelines with llm_enabled: false can run without a configured LLM registry.',
+          'Script-only pipelines with llm_enabled: false can run without a configured LLM registry unless direct scripts use blocking guardrail or policy Knowledge Context.',
         ],
         details: [
           'Profiles should use credential_ref for hosted provider API keys instead of plaintext secrets.',
@@ -3210,6 +3216,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Knowledge Context lets pipelines attach governed project knowledge to LLM-backed work and snapshots the resolved content with each run.',
         keyFacts: [
           'Supported kinds are architecture, guardrail, policy, adr, guideline, runbook, reference, and example.',
+          'Document IDs shown in the UI and Knowledge Context API use team/name; kind is stored and selected separately.',
           'Knowledge may be declared at pipeline, step, and task level, then merged into effective task context.',
           'Managed documents require knowledge_context.use. Repo-local files are loaded from the run repository at the run commit.',
           'Guardrails and policies are strict prompt constraints for goals, commands, scripts, file writes, MCP calls, MCP arguments, and conditions.',
@@ -3550,7 +3557,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'SMTP settings use credential references, and team notification policies route run and approval events by team, pipeline, repository, branch, recipients, exclusions, and throttle behavior.',
         keyFacts: [
           'Mail settings include enabled, from_address, smtp_host, smtp_port, smtp_start_tls, smtp_username, and smtp_password_credential_ref.',
-          'Supported events include running, pending, success, failure, cancelled, approval requested, approval approved, and approval rejected.',
+          'Supported events include running, pending, success, failure, cancelled, timed out, approval requested, approval approved, and approval rejected.',
           'Notification policies can inherit through team lineage.',
           'Delivery records and dedupe behavior are persisted for operational review.',
         ],

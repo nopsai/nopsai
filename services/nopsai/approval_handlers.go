@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -26,8 +27,17 @@ import (
 const (
 	runStatusWaitingApproval  = "waiting_approval"
 	runStatusRejected         = "rejected"
+	runStatusTimedOut         = "timed_out"
 	taskStatusWaitingApproval = "waiting_approval"
+	taskStatusTimedOut        = "timed_out"
+	approvalStatusPending     = "pending"
+	approvalStatusApproved    = "approved"
+	approvalStatusRejected    = "rejected"
+	approvalStatusTimedOut    = "timed_out"
 	approvalActionApprove     = "approval.approve"
+	approvalRejectCommentText = "comment is required when rejecting an approval"
+	approvalTimeoutComment    = "Approval timed out"
+	approvalTimeoutBatchSize  = 50
 )
 
 type approvalPauseRequest struct {
@@ -77,11 +87,20 @@ type pipelineApprovalResponse struct {
 	DecidedByEmail    string     `json:"decided_by_email,omitempty"`
 	DecidedAt         *time.Time `json:"decided_at,omitempty"`
 	DecisionComment   string     `json:"decision_comment,omitempty"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
 	CheckpointID      string     `json:"checkpoint_id,omitempty"`
 }
 
 type approvalDecisionRequest struct {
 	Comment string `json:"comment"`
+}
+
+func normalizeApprovalDecisionComment(approved bool, raw string) (string, error) {
+	comment := strings.TrimSpace(raw)
+	if !approved && comment == "" {
+		return "", errors.New(approvalRejectCommentText)
+	}
+	return comment, nil
 }
 
 type approvalDecisionRecord struct {
@@ -96,6 +115,7 @@ type approvalDecisionRecord struct {
 	RequestedByType   string
 	RequestedByID     string
 	CheckpointID      string
+	ExpiresAt         *time.Time
 	RunStatus         string
 	PipelineName      string
 	PipelinePath      string
@@ -173,6 +193,15 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Approval step must assign at least one team", http.StatusBadRequest)
 		return
 	}
+	var expiresAt any
+	if timeout := strings.TrimSpace(approvalConfig.Timeout); timeout != "" {
+		duration, err := time.ParseDuration(timeout)
+		if err != nil || duration <= 0 {
+			http.Error(w, "Approval step timeout is invalid", http.StatusBadRequest)
+			return
+		}
+		expiresAt = time.Now().UTC().Add(duration)
+	}
 
 	workspaceArchive, err := decodeOptionalBase64(req.WorkspaceArchiveBase64)
 	if err != nil {
@@ -206,7 +235,7 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Failed to inspect existing approval", http.StatusInternalServerError)
 		return
 	}
-	if existingErr == nil && existingStatus != "pending" {
+	if existingErr == nil && existingStatus != approvalStatusPending {
 		http.Error(w, "Approval has already been decided", http.StatusConflict)
 		return
 	}
@@ -231,11 +260,11 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 		err = tx.QueryRow(r.Context(), `
 			INSERT INTO pipeline_approvals (
 				run_id, step_name, task_name, approval_type, assigned_teams,
-				allow_self_approval, requested_by_type, requested_by_id, checkpoint_id
+				allow_self_approval, requested_by_type, requested_by_id, checkpoint_id, expires_at
 			)
-			VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
 			RETURNING id
-		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedTeamsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID).Scan(&approvalID)
+		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedTeamsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID, expiresAt).Scan(&approvalID)
 	} else {
 		err = tx.QueryRow(r.Context(), `
 			UPDATE pipeline_approvals
@@ -246,10 +275,11 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 			    requested_by_type = $7,
 			    requested_by_id = $8,
 			    requested_at = NOW(),
-			    checkpoint_id = $9
+			    checkpoint_id = $9,
+			    expires_at = $10
 			WHERE run_id = $1 AND step_name = $2
 			RETURNING id
-		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedTeamsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID).Scan(&approvalID)
+		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedTeamsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID, expiresAt).Scan(&approvalID)
 	}
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to upsert approval")
@@ -351,11 +381,21 @@ func (a *App) handleGetRunCheckpoint(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleListRunApprovals(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.PathValue("runID"))
+	authorized, err := a.canReadRunOrApprove(r, runID)
+	if err != nil {
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !authorized {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	a.expireApprovalTimeouts(r.Context())
 	rows, err := a.db.Query(r.Context(), `
 		SELECT id::text, run_id::text, step_name, task_name, approval_type, assigned_teams,
 		       allow_self_approval, status, requested_by_type, requested_by_id, requested_at,
 		       decided_by_type, decided_by_id, decided_by_email, decided_at, decision_comment,
-		       COALESCE(checkpoint_id::text, '')
+		       expires_at, COALESCE(checkpoint_id::text, '')
 		FROM pipeline_approvals
 		WHERE run_id = $1
 		ORDER BY requested_at ASC
@@ -380,15 +420,6 @@ func (a *App) handleListRunApprovals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authorized, err := a.canReadRunOrApprove(r, runID)
-	if err != nil {
-		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	if !authorized {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, approvals)
 }
 
@@ -416,7 +447,12 @@ func (a *App) handleApprovalDecision(w http.ResponseWriter, r *http.Request, app
 		http.Error(w, "Invalid approval decision request", http.StatusBadRequest)
 		return
 	}
-	req.Comment = strings.TrimSpace(req.Comment)
+	comment, err := normalizeApprovalDecisionComment(approved, req.Comment)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Comment = comment
 
 	record, err := a.loadApprovalForDecision(r.Context(), runID, approvalID)
 	if err != nil {
@@ -427,12 +463,20 @@ func (a *App) handleApprovalDecision(w http.ResponseWriter, r *http.Request, app
 		http.Error(w, "Failed to load approval", http.StatusInternalServerError)
 		return
 	}
-	if record.Status != "pending" {
+	if record.Status != approvalStatusPending {
 		http.Error(w, "Approval has already been decided", http.StatusConflict)
 		return
 	}
 	if record.RunStatus != runStatusWaitingApproval {
 		http.Error(w, "Run is not waiting for approval", http.StatusConflict)
+		return
+	}
+	if record.ExpiresAt != nil && !time.Now().UTC().Before(record.ExpiresAt.UTC()) {
+		if !a.authorizeApprovalDecision(w, r, record) {
+			return
+		}
+		a.expireApprovalTimeouts(r.Context())
+		http.Error(w, "Approval has timed out", http.StatusConflict)
 		return
 	}
 	if strings.TrimSpace(record.CheckpointID) == "" || len(record.PipelineDef) == 0 {
@@ -455,13 +499,13 @@ func (a *App) handleApprovalDecision(w http.ResponseWriter, r *http.Request, app
 	}
 	defer tx.Rollback(r.Context())
 
-	nextApprovalStatus := "approved"
+	nextApprovalStatus := approvalStatusApproved
 	nextRunStatus := "pending"
 	taskStatus := "success"
 	exitCode := 0
 	failureReason := ""
 	if !approved {
-		nextApprovalStatus = "rejected"
+		nextApprovalStatus = approvalStatusRejected
 		nextRunStatus = runStatusRejected
 		taskStatus = "failure"
 		exitCode = 1
@@ -476,8 +520,8 @@ func (a *App) handleApprovalDecision(w http.ResponseWriter, r *http.Request, app
 		    decided_by_email = $4,
 		    decided_at = NOW(),
 		    decision_comment = $5
-		WHERE id = $6 AND run_id = $7 AND status = 'pending'
-	`, nextApprovalStatus, deciderType, deciderID, deciderEmail, req.Comment, approvalID, runID)
+		WHERE id = $6 AND run_id = $7 AND status = $8
+	`, nextApprovalStatus, deciderType, deciderID, deciderEmail, req.Comment, approvalID, runID, approvalStatusPending)
 	if err != nil {
 		http.Error(w, "Failed to update approval", http.StatusInternalServerError)
 		return
@@ -564,13 +608,14 @@ func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID str
 	var teamsBytes, variablesBytes []byte
 	var pipelineDefCheckpoint, pipelineDefRun sql.NullString
 	var checkpointID, parentRunID, runnerID, scope sql.NullString
+	var expiresAt sql.NullTime
 	var repoOwner, repoName, cloneURL, sshURL, ref, targetRef, commitSHA, commitURL, commitMessage sql.NullString
 	var commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, checkRunID, triggerEventID sql.NullString
 	err := a.db.QueryRow(ctx, `
 		SELECT
 			pa.id::text, pa.run_id::text, pa.step_name, pa.task_name, pa.approval_type,
 			pa.assigned_teams, pa.allow_self_approval, pa.status, pa.requested_by_type,
-			pa.requested_by_id, COALESCE(pa.checkpoint_id::text, ''),
+			pa.requested_by_id, pa.expires_at, COALESCE(pa.checkpoint_id::text, ''),
 			pr.status, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version,
 			COALESCE(pr.parent_run_id::text, ''), COALESCE(pr.scope, ''),
 			pr.pipeline_definition, COALESCE(cp.pipeline_definition, ''), COALESCE(cp.variables, '{}'::jsonb), COALESCE(cp.runner_id, ''),
@@ -589,7 +634,7 @@ func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID str
 	`, runID, approvalID).Scan(
 		&record.ID, &record.RunID, &record.StepName, &record.TaskName, &record.ApprovalType,
 		&teamsBytes, &record.AllowSelfApproval, &record.Status, &record.RequestedByType,
-		&record.RequestedByID, &checkpointID,
+		&record.RequestedByID, &expiresAt, &checkpointID,
 		&record.RunStatus, &record.PipelineName, &record.PipelinePath, &record.PipelineVersion,
 		&parentRunID, &scope,
 		&pipelineDefRun, &pipelineDefCheckpoint, &variablesBytes, &runnerID,
@@ -599,6 +644,9 @@ func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID str
 	)
 	if err != nil {
 		return record, err
+	}
+	if expiresAt.Valid {
+		record.ExpiresAt = &expiresAt.Time
 	}
 	record.CheckpointID = checkpointID.String
 	record.ParentRunID = parentRunID.String
@@ -629,6 +677,139 @@ func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID str
 		"trigger_event_id":       triggerEventID.String,
 	}
 	return record, nil
+}
+
+type expiredApprovalRecord struct {
+	RunID      string
+	StepName   string
+	TaskName   string
+	GitContext map[string]string
+}
+
+func (a *App) expireApprovalTimeouts(ctx context.Context) {
+	if a == nil || a.db == nil {
+		return
+	}
+	records, err := a.expireApprovalTimeoutsNow(ctx, approvalTimeoutBatchSize)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to expire approval timeouts")
+		return
+	}
+	for _, record := range records {
+		go a.notifyGitBotOfTaskStatus(record.RunID, record.StepName, record.TaskName, taskStatusTimedOut)
+		go a.dispatchPipelineRunNotification(record.RunID, runStatusTimedOut)
+		go a.notifyGitBotOfFinalStatus(runStatusTimedOut, record.StepName, record.TaskName, approvalTimeoutComment, record.GitContext)
+	}
+}
+
+func (a *App) expireApprovalTimeoutsNow(ctx context.Context, limit int) ([]expiredApprovalRecord, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		SELECT
+			pa.run_id::text, pa.step_name, pa.task_name,
+			COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''),
+			COALESCE(pr.git_clone_url, ''), COALESCE(pr.git_ssh_url, ''),
+			COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
+			COALESCE(pr.git_commit_sha, ''), COALESCE(pr.git_commit_url, ''),
+			COALESCE(pr.git_commit_message, ''), COALESCE(pr.git_commit_author_name, ''),
+			COALESCE(pr.git_commit_author_email, ''), COALESCE(pr.git_commit_author_username, ''),
+			COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_pusher_email, ''),
+			COALESCE(pr.git_check_run_id::text, ''), COALESCE(pr.trigger_event_id, '')
+		FROM pipeline_approvals pa
+		JOIN pipeline_runs pr ON pr.run_id = pa.run_id
+		WHERE pa.status = $1
+		  AND pa.expires_at IS NOT NULL
+		  AND pa.expires_at <= NOW()
+		  AND pr.status = $2
+		ORDER BY pa.expires_at ASC
+		LIMIT $3
+		FOR UPDATE OF pa SKIP LOCKED
+	`, approvalStatusPending, runStatusWaitingApproval, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []expiredApprovalRecord
+	for rows.Next() {
+		var record expiredApprovalRecord
+		var repoOwner, repoName, cloneURL, sshURL, ref, targetRef, commitSHA, commitURL, commitMessage string
+		var commitAuthorName, commitAuthorEmail, commitAuthorUsername, pusherName, pusherEmail, checkRunID, triggerEventID string
+		if err := rows.Scan(
+			&record.RunID, &record.StepName, &record.TaskName,
+			&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &targetRef, &commitSHA, &commitURL,
+			&commitMessage, &commitAuthorName, &commitAuthorEmail, &commitAuthorUsername,
+			&pusherName, &pusherEmail, &checkRunID, &triggerEventID,
+		); err != nil {
+			return nil, err
+		}
+		record.GitContext = pendingRunRecoveryGitContext(map[string]string{
+			"run_id":                 record.RunID,
+			"repo_owner":             repoOwner,
+			"repo_name":              repoName,
+			"clone_url":              cloneURL,
+			"ssh_url":                sshURL,
+			"ref":                    ref,
+			"target_ref":             targetRef,
+			"commit_sha":             commitSHA,
+			"commit_url":             commitURL,
+			"commit_message":         commitMessage,
+			"commit_author_name":     commitAuthorName,
+			"commit_author_email":    commitAuthorEmail,
+			"commit_author_username": commitAuthorUsername,
+			"pusher_name":            pusherName,
+			"pusher_email":           pusherEmail,
+			"check_run_id":           checkRunID,
+			"trigger_event_id":       triggerEventID,
+		})
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for _, record := range records {
+		if _, err := tx.Exec(ctx, `
+			UPDATE pipeline_approvals
+			SET status = $1,
+			    decided_at = NOW(),
+			    decision_comment = $2
+			WHERE run_id = $3 AND step_name = $4 AND status = $5
+		`, approvalStatusTimedOut, approvalTimeoutComment, record.RunID, record.StepName, approvalStatusPending); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE task_runs
+			SET status = $1,
+			    exit_code = 1,
+			    started_at = COALESCE(started_at, NOW()),
+			    finished_at = NOW()
+			WHERE run_id = $2 AND step_name = $3 AND task_name = $4
+		`, taskStatusTimedOut, record.RunID, record.StepName, record.TaskName); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE pipeline_runs
+			SET status = $1,
+			    finished_at = NOW(),
+			    failure_reason = $2
+			WHERE run_id = $3 AND status = $4
+		`, runStatusTimedOut, approvalTimeoutComment, record.RunID, runStatusWaitingApproval); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (a *App) authorizeApprovalDecision(w http.ResponseWriter, r *http.Request, record approvalDecisionRecord) bool {
@@ -842,11 +1023,12 @@ func scanApprovalResponse(rows pgx.Rows) (pipelineApprovalResponse, error) {
 	var approval pipelineApprovalResponse
 	var teamsBytes []byte
 	var decidedAt sql.NullTime
+	var expiresAt sql.NullTime
 	err := rows.Scan(
 		&approval.ID, &approval.RunID, &approval.StepName, &approval.TaskName, &approval.ApprovalType,
 		&teamsBytes, &approval.AllowSelfApproval, &approval.Status, &approval.RequestedByType,
 		&approval.RequestedByID, &approval.RequestedAt, &approval.DecidedByType, &approval.DecidedByID,
-		&approval.DecidedByEmail, &decidedAt, &approval.DecisionComment, &approval.CheckpointID,
+		&approval.DecidedByEmail, &decidedAt, &approval.DecisionComment, &expiresAt, &approval.CheckpointID,
 	)
 	if err != nil {
 		return approval, err
@@ -854,6 +1036,9 @@ func scanApprovalResponse(rows pgx.Rows) (pipelineApprovalResponse, error) {
 	approval.AssignedTeams = decodeApprovalTeams(teamsBytes)
 	if decidedAt.Valid {
 		approval.DecidedAt = &decidedAt.Time
+	}
+	if expiresAt.Valid {
+		approval.ExpiresAt = &expiresAt.Time
 	}
 	return approval, nil
 }

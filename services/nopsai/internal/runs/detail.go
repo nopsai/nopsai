@@ -736,7 +736,7 @@ func NormalizeRunDetailStatus(status string) string {
 	switch {
 	case raw == "":
 		return "pending"
-	case raw == "success" || raw == "running" || raw == "pending" || raw == "skipped" || raw == "cancelled" || raw == "waiting_approval" || raw == "rejected":
+	case raw == "success" || raw == "running" || raw == "pending" || raw == "skipped" || raw == "cancelled" || raw == "waiting_approval" || raw == "rejected" || raw == "timed_out":
 		return raw
 	case raw == "failure" || strings.Contains(raw, "not_found") || strings.Contains(raw, "timeout"):
 		return "failure"
@@ -756,13 +756,14 @@ func SummarizeRunDetailStatuses(statuses []string) string {
 	priority := map[string]int{
 		"failure":           0,
 		"rejected":          1,
-		"failure (ignored)": 2,
-		"cancelled":         3,
-		"waiting_approval":  4,
-		"running":           5,
-		"pending":           6,
-		"skipped":           7,
-		"success":           8,
+		"timed_out":         2,
+		"failure (ignored)": 3,
+		"cancelled":         4,
+		"waiting_approval":  5,
+		"running":           6,
+		"pending":           7,
+		"skipped":           8,
+		"success":           9,
 	}
 	best := "pending"
 	bestPriority := len(priority) + 1
@@ -817,7 +818,7 @@ func FinalizeRunDetailStepStatus(stepStatus string, tasks []models.TaskDetail, r
 	switch normalizedRun {
 	case "success":
 		return "success"
-	case "failure", "failure (ignored)":
+	case "failure", "failure (ignored)", "timed_out":
 		if normalizedStep == "running" || HasInFlightRunDetailTask(tasks) {
 			return normalizedRun
 		}

@@ -95,8 +95,10 @@ Direct `script` tasks are also checked when an effective guardrail or policy is
 present. Before the script runs, the LLM must validate the exact script as the
 proposed `EXECUTE_COMMAND`. If validation is unavailable, changes the command,
 or returns a conflict explanation, the task fails instead of executing the
-script. Command logs and run history mask known secret values plus the
-NopsAI-provided runtime variable values passed into the step.
+script. Pipelines using this strict script validation must keep `llm_enabled`
+true and use a resolvable LLM profile. Command logs and run history mask known
+secret values plus the NopsAI-provided runtime variable values passed into the
+step.
 
 ## Managed Knowledge
 
@@ -191,6 +193,11 @@ not in the knowledge document row.
 The UI shows document parameters such as `name`, `kind`, `description`, and the
 access settings in the details panel. The preview renders only the `content`
 text. New GitOps documents should use `access` for sharing.
+
+The document ID shown in the UI and Knowledge Context API omits the document
+type: use `team/name` for team documents and `name` for global documents. The
+document `kind` stays a separate field and GitOps files still live under
+`knowledge/<kind>/...`.
 
 The Knowledge Context page uses a two-pane browser workspace. The left explorer
 keeps the knowledge kind/team tree visible, while the default right pane lists
@@ -479,6 +486,9 @@ from `repository:nopsai/test-app` can use
 `knowledge_context:guardrail/security/repo-check` only if that repository has
 the required use permission through its team, visibility, or an explicit
 resource-access grant.
+
+Access-grant resource IDs continue to include the kind for compatibility with
+AAA and GitOps access manifests, even though UI/API document IDs do not.
 
 ## UI And API
 

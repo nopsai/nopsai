@@ -165,7 +165,7 @@ Main tables from `db/init.sql`:
 - `pipeline_run_logs`: Durable log lines ingested from runner/agent activity, with structured source, stream, level, step, task, runner, request ID, traceparent, and JSON metadata columns for audit-friendly querying.
 - `pipelines`, `steps`, `triggers`: Stored configuration and overrides. Pipelines and reusable steps also carry resource visibility for runtime sharing.
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
-- `knowledge_contexts`: Managed markdown knowledge documents teamed by kind/team/name, with GitOps source metadata.
+- `knowledge_contexts`: Managed markdown knowledge documents with separate kind plus team/name document IDs, with GitOps source metadata.
 - `pipeline_run_knowledge_contexts`: Per-run snapshots of resolved knowledge content.
 - `teams`: Compatibility table backing the Teams/application tree used by Pipeline Runs organization. Team leaf names are unique only within the same parent, so paths such as `platform` and `engineering/platform` can coexist.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `personal_access_tokens`, `service_account_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, personal API credentials, service account credentials, and audit data.

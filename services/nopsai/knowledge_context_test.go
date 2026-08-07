@@ -116,6 +116,47 @@ func TestKnowledgeContextRefToPartsAcceptsGlobalDocumentRef(t *testing.T) {
 	}
 }
 
+func TestKnowledgeDocumentIdentifierOmitsKind(t *testing.T) {
+	if got := buildKnowledgeDocumentIdentifier("platform/prod", "restart"); got != "platform/prod/restart" {
+		t.Fatalf("document id = %q, want platform/prod/restart", got)
+	}
+	if got := buildKnowledgeDocumentIdentifier("", "overview"); got != "overview" {
+		t.Fatalf("global document id = %q, want overview", got)
+	}
+}
+
+func TestSplitKnowledgeContextRouteIdentifierAcceptsKindlessAndLegacyIDs(t *testing.T) {
+	kind, team, name, err := splitKnowledgeContextRouteIdentifier("platform/prod/restart")
+	if err != nil {
+		t.Fatalf("split kindless id error = %v", err)
+	}
+	if kind != "" || team != "platform/prod" || name != "restart" {
+		t.Fatalf("kindless id = (%q, %q, %q), want empty kind platform/prod restart", kind, team, name)
+	}
+
+	kind, team, name, err = splitKnowledgeContextRouteIdentifier("runbook/platform/prod/restart")
+	if err != nil {
+		t.Fatalf("split legacy id error = %v", err)
+	}
+	if kind != "runbook" || team != "platform/prod" || name != "restart" {
+		t.Fatalf("legacy id = (%q, %q, %q), want runbook platform/prod restart", kind, team, name)
+	}
+}
+
+func TestParseGitOpsKnowledgeContextsRejectsDuplicateDocumentIDsAcrossKinds(t *testing.T) {
+	_, err := parseGitOpsKnowledgeContexts(map[string]string{
+		"knowledge/runbook/platform/restart.md":   "name: restart\ncontent: |\n  runbook",
+		"knowledge/policy/platform/restart.md":    "name: restart\ncontent: |\n  policy",
+		"knowledge/guardrail/platform/allowed.md": "name: allowed\ncontent: |\n  ok",
+	}, "knowledge", models.ConfigRepository{}, "", newAccessSyncPlan())
+	if err == nil {
+		t.Fatal("expected duplicate document id error")
+	}
+	if !strings.Contains(err.Error(), "duplicate knowledge document id 'platform/restart'") {
+		t.Fatalf("error = %v, want duplicate document id", err)
+	}
+}
+
 func TestKnowledgeContextRefToPartsRejectsRetiredGlobalAliases(t *testing.T) {
 	for _, ref := range []string{"root/restart", "general/restart", "__general__/restart"} {
 		if _, _, _, err := knowledgeContextRefToParts("runbook", ref); err == nil {

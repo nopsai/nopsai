@@ -52,7 +52,11 @@ func (a *App) runPendingRunRecoveryWorker(ctx context.Context) {
 }
 
 func (a *App) recoverPendingPipelineRuns(ctx context.Context) {
-	if a == nil || a.db == nil || a.dispatcher == nil {
+	if a == nil || a.db == nil {
+		return
+	}
+	a.expireApprovalTimeouts(ctx)
+	if a.dispatcher == nil {
 		return
 	}
 	cutoff := time.Now().Add(-pendingRunRecoveryMinAge)

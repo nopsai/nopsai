@@ -43,6 +43,7 @@ export type RepoSummary = {
 const STATUS_PRIORITY = [
   'failure',
   'rejected',
+  'timed_out',
   'failure (ignored)',
   'cancelled',
   'waiting_approval',
@@ -118,6 +119,7 @@ export function getStatusDotClass(status: string | undefined, complete?: boolean
   if (normalized === 'failure (ignored)') return 'bg-amber-500';
   if (normalized === 'running') return 'bg-blue-400';
   if (normalized === 'cancelled') return 'bg-orange-400';
+  if (normalized === 'timed_out') return 'bg-orange-500';
   if (normalized === 'skipped') return 'bg-slate-400';
   return 'bg-gray-500';
 }
@@ -167,6 +169,7 @@ export function getBranchStatusTone(status: string) {
   if (normalized === 'success') return 'text-green-400';
   if (normalized === 'failure' || normalized === 'failure (ignored)') return 'text-red-400';
   if (normalized === 'rejected') return 'text-rose-400';
+  if (normalized === 'timed_out') return 'text-orange-400';
   if (normalized === 'waiting_approval') return 'text-cyan-400';
   if (normalized === 'running') return 'text-blue-400';
   return 'text-slate-300';

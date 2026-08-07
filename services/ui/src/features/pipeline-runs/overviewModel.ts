@@ -280,13 +280,13 @@ function normalizedRunStatus(run: RunListItem): string {
 
 function isFailureRun(run: RunListItem): boolean {
   const normalized = normalizedRunStatus(run);
-  return normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected';
+  return normalized === 'failure' || normalized === 'failure (ignored)' || normalized === 'rejected' || normalized === 'timed_out';
 }
 
 function isTerminalRun(run: RunListItem): boolean {
   const normalized = normalizedRunStatus(run);
   if (normalized === 'running' || normalized === 'waiting_approval' || normalized === 'pending') return false;
-  return Boolean(run.is_complete) || ['success', 'failure', 'failure (ignored)', 'rejected', 'cancelled', 'skipped'].includes(normalized);
+  return Boolean(run.is_complete) || ['success', 'failure', 'failure (ignored)', 'rejected', 'timed_out', 'cancelled', 'skipped'].includes(normalized);
 }
 
 function runDurationSeconds(run: RunListItem): number | null {

@@ -20,8 +20,8 @@ func hostedMCPDedicatedTools() []hostedMCPTool {
 	return []hostedMCPTool{
 		toolDef("nopsai.run_pipeline", "Start a pipeline run as the current subject. Requires confirm:true.", "pipeline.execute", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "scope": stringSchema(), "variables": objectSchema(map[string]any{}), "definition": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.list_run_approvals", "List approvals for a pipeline run when the current subject can read or approve the run.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
-		toolDef("nopsai.approve_run_approval", "Approve a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
-		toolDef("nopsai.reject_run_approval", "Reject a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.approve_run_approval", "Approve a pending run approval as the current subject. Optional comment. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.reject_run_approval", "Reject a pending run approval as the current subject. Comment is required. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.rerun_pipeline_run", "Rerun a completed pipeline run. Requires confirm:true.", "pipeline_run.rerun", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.retry_pipeline_run_output", "Retry one failed pipeline final output without rerunning the whole pipeline. Requires confirm:true.", "pipeline_run.rerun", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.cancel_pipeline_run", "Cancel an in-progress pipeline run. Requires confirm:true.", "pipeline_run.cancel", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
@@ -363,7 +363,11 @@ func (a *App) hostedMCPRunApprovalDecision(ctx context.Context, subject aaamodel
 	runID := stringArg(args, "run_id")
 	approvalID := stringArg(args, "approval_id")
 	body := map[string]any{}
-	if comment := stringArg(args, "comment"); comment != "" {
+	comment := strings.TrimSpace(stringArg(args, "comment"))
+	if decision == "reject" && comment == "" {
+		return map[string]any{"applies": false, "valid": false, "error": approvalRejectCommentText}, true, nil
+	}
+	if comment != "" {
 		body["comment"] = comment
 	}
 	path := "/v1/runs/" + hostedMCPPathTail(runID) + "/approvals/" + hostedMCPPathTail(approvalID) + "/" + decision
@@ -657,7 +661,27 @@ func (a *App) hostedMCPProposeKnowledgeContext(ctx context.Context, args map[str
 func (a *App) hostedMCPKnowledgeContextParts(ctx context.Context, args map[string]any) (string, string, string, error) {
 	if id := strings.Trim(strings.TrimSpace(stringArg(args, "id")), "/"); id != "" {
 		if strings.Contains(id, "/") {
-			return splitKnowledgeContextIdentifier(id)
+			kind, team, name, err := splitKnowledgeContextRouteIdentifier(id)
+			if err != nil {
+				return "", "", "", err
+			}
+			if kind != "" {
+				return kind, team, name, nil
+			}
+			if kindArg := firstNonEmptyString(stringArg(args, "kind"), stringArg(args, "document_kind")); kindArg != "" {
+				kind, err := normalizeKnowledgeContextKind(kindArg)
+				if err != nil {
+					return "", "", "", err
+				}
+				return kind, team, name, nil
+			}
+			if a != nil && a.db != nil {
+				kind, team, name, _, err := a.resolveExistingKnowledgeContextIdentifier(ctx, id)
+				if err == nil {
+					return kind, team, name, nil
+				}
+			}
+			return "", "", "", fmt.Errorf("kind is required when knowledge document id omits document type")
 		}
 		if a != nil && a.db != nil {
 			var kind, team, name string

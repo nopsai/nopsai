@@ -241,7 +241,8 @@ steps:
 When `llm_enabled: false` is set, LLM and MCP profile validation is skipped and
 no LLM profile registry is required at runtime. Agent Profile references are
 still schema-validated as pipeline/step metadata. The pipeline cannot define
-`goal` tasks or step `condition` values, because those require an LLM.
+`goal` tasks, step `condition` values, final outputs, or direct scripts with
+blocking guardrail/policy Knowledge Context, because those require an LLM.
 
 ## Resolution
 
@@ -306,7 +307,9 @@ Runs are rejected before agent launch when:
 - A required API key environment variable is missing.
 - Timeout, token, or temperature limits are invalid.
 
-These checks do not apply when the pipeline sets `llm_enabled: false`.
+These checks do not apply when the pipeline sets `llm_enabled: false`; direct
+scripts with blocking guardrail/policy Knowledge Context must keep LLM enabled
+so NopsAI can validate the exact script before execution.
 
 Example scope error:
 

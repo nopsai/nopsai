@@ -48,7 +48,7 @@ Supported pipeline features:
 - multi-task steps
 - single-task `goal` steps
 - single-task `script` steps
-- approval steps with `approval.type`, assigned `approval.teams`, and optional `approval.allow_self_approval`
+- approval steps with `approval.type`, assigned `approval.teams`, optional `approval.allow_self_approval`, and optional `approval.timeout`
 - reusable step inclusion with `step:<identifier>`
 - child pipeline inclusion with `pipeline:<identifier>` and include variables
   that override child scope variables
@@ -153,9 +153,10 @@ steps:
       teams:
         - platform/prod
       allow_self_approval: false
+      timeout: 24h
 ```
 
-Approval team paths are relative team paths. Any assigned team where the caller has `approval.approve` can approve or reject the pending gate. Pending approval runs are visible to assigned approvers even when the pipeline itself belongs to another team, so approval queues do not depend on broad pipeline ownership.
+Approval team paths are relative team paths. Any assigned team where the caller has `approval.approve` can approve or reject the pending gate. Approval comments are optional when approving and required when rejecting. Pending approval runs are visible to assigned approvers even when the pipeline itself belongs to another team, so approval queues do not depend on broad pipeline ownership. `approval.timeout` uses Go duration syntax such as `30m`, `2h`, or `24h`; when it expires, the approval and run are marked `timed_out`.
 
 ## Execution Semantics
 
@@ -678,7 +679,7 @@ Pipeline notifications include:
   notifications can target the operational team even when the pipeline is
   defined elsewhere; selectable teams come from the team hierarchy
 - asynchronous mail delivery for running, pending, success, failure, cancelled,
-  approval requested, approval approved, and approval rejected events when a
+  approval requested, approval approved, approval rejected, and timed_out events when a
   saved or GitOps-managed route exists for the run team
 
 ## Analysis Reviewers
@@ -988,7 +989,7 @@ Pages present in the current UI:
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
-- `Knowledge Context`: kind/team/document browser, top-toolbar document/connection metrics aligned with actions, compact magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
+- `Knowledge Context`: kind/team/document browser with kindless document IDs, top-toolbar document/connection metrics aligned with actions, compact magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
 - `System`: config, data management, compact dispatcher overview/runners/routing/install tabs, runtime-filtered table-first runner fleet controls with runner detail below the table after selection, route edit/effective-routing tables, runtime pool management, redesigned Access management with Basic/Advanced modes, top-row summary metrics, Pipeline Runs-style advanced tabs, full-width table-first catalogs, sectioned full-height drawer create/edit flows, compact magnifier search, and icon create actions without extra table filters, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint

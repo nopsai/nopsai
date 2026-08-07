@@ -75,7 +75,7 @@ type PipelineRunsPageViewProps = {
   setStepDetailName: Dispatch<SetStateAction<string | null>>;
   setStepDetailTaskName: Dispatch<SetStateAction<string | null>>;
   setDefinitionOpen: Dispatch<SetStateAction<boolean>>;
-  handleApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject') => Promise<void>;
+  handleApprovalDecision: (approval: PipelineApproval, decision: 'approve' | 'reject', comment?: string) => Promise<void>;
   approvalDecisionPending: string | null;
   definitionOpen: boolean;
   logsOpen: boolean;

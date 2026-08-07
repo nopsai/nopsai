@@ -691,16 +691,21 @@ function PipelineRunsPage() {
   );
 
   const handleApprovalDecision = useCallback(
-    async (approval: PipelineApproval, decision: 'approve' | 'reject') => {
+    async (approval: PipelineApproval, decision: 'approve' | 'reject', comment = '') => {
       const runId = approval.run_id || runDetail?.run_info.run_id;
       if (!runId || approvalDecisionPending) return;
+      const trimmedComment = comment.trim();
+      if (decision === 'reject' && !trimmedComment) {
+        alert('A rejection comment is required.');
+        return;
+      }
       const key = `${approval.id}:${decision}`;
       setApprovalDecisionPending(key);
       try {
         await fetchJson(`/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approval.id)}/${decision}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify(trimmedComment ? { comment: trimmedComment } : {}),
         });
         await loadRunDetail();
         await loadRuns();

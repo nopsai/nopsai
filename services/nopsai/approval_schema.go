@@ -31,7 +31,7 @@ var approvalSchemaStatements = []string{
 		approval_type TEXT NOT NULL,
 		assigned_teams JSONB NOT NULL DEFAULT '[]'::jsonb,
 		allow_self_approval BOOLEAN NOT NULL DEFAULT FALSE,
-		status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+		status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'timed_out')),
 		requested_by_type TEXT NOT NULL DEFAULT '',
 		requested_by_id TEXT NOT NULL DEFAULT '',
 		requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -40,11 +40,16 @@ var approvalSchemaStatements = []string{
 		decided_by_email TEXT NOT NULL DEFAULT '',
 		decided_at TIMESTAMPTZ,
 		decision_comment TEXT NOT NULL DEFAULT '',
+		expires_at TIMESTAMPTZ,
 		checkpoint_id UUID REFERENCES pipeline_run_checkpoints(id) ON DELETE SET NULL,
 		UNIQUE(run_id, step_name)
 		)`,
 	`ALTER TABLE pipeline_approvals ADD COLUMN IF NOT EXISTS assigned_teams JSONB NOT NULL DEFAULT '[]'::jsonb`,
+	`ALTER TABLE pipeline_approvals ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`,
+	`ALTER TABLE pipeline_approvals DROP CONSTRAINT IF EXISTS pipeline_approvals_status_check`,
+	`ALTER TABLE pipeline_approvals ADD CONSTRAINT pipeline_approvals_status_check CHECK (status IN ('pending', 'approved', 'rejected', 'timed_out'))`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_approvals_run ON pipeline_approvals(run_id, status, requested_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_pipeline_approvals_expiring ON pipeline_approvals(expires_at) WHERE status = 'pending' AND expires_at IS NOT NULL`,
 }
 
 func ensureApprovalSchema(ctx context.Context, db *pgxpool.Pool) error {
