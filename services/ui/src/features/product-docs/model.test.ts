@@ -145,8 +145,17 @@ test('documents step-level LLM profile directives', () => {
   assert.ok(article.audiences.includes('automation-author'));
   assert.ok(article.keyFacts.some(fact => fact.includes('steps[].llm_profile')));
   assert.ok(article.keyFacts.some(fact => fact.includes('expanded toolbox')));
+  assert.ok(article.keyFacts.some(fact => fact.includes('viewport-responsive sizing')));
   assert.ok(article.configRows.some(row => row.key === 'steps[].llm_profile' && row.description.includes('provider/model') && row.path === 'steps[].llm_profile'));
   assert.ok(article.configRows.some(row => row.key === 'tasks[].llm_profile' && row.required === 'conditional'));
+});
+
+test('documents responsive pipeline YAML authoring frames', () => {
+  const article = findWikiArticle(wikiSections, 'pipeline-schema');
+
+  assert.ok(article);
+  assert.ok(article.keyFacts.some(fact => fact.includes('current viewport')));
+  assert.ok(article.details.some(detail => detail.includes('responsive height rules')));
 });
 
 test('documents examples as runnable source evidence', () => {

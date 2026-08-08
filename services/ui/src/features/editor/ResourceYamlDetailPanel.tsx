@@ -219,6 +219,7 @@ export function ResourceYamlDetailPanel({
             aria-controls={fullscreen && editorSuggestion ? ids.autocomplete : undefined}
             aria-activedescendant={fullscreen && editorSuggestion ? `${ids.autocomplete}-option-${editorSuggestion.activeIndex}` : undefined}
             value={editorValue}
+            wrap="off"
             onChange={event => onEditorTextChange(event.target.value, event.target.selectionStart || 0, { openSuggestion: fullscreen })}
             onClick={event => {
               if (fullscreen) {

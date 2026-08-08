@@ -79,7 +79,13 @@ truth; this file is the source-adjacent placement guide.
   Alt+Up/Alt+Down changes the highlighted suggestion, and mouse clicks in the
   editor should never force a suggestion selection. Expanded validation details
   should open as a compact overlay from the top-bar status chip so parser errors
-  remain readable without reducing the editor frame height.
+  remain readable without reducing the editor frame height. Pipeline and step
+  Definition-tab YAML frames must derive their read-only and editing heights from
+  the available viewport rather than fixed caps, and fullscreen editor containers
+  must override generic editor ID sizing so the editor and toolbox fill the modal.
+  Editing surfaces use code-editor-style horizontal scrolling instead of soft
+  wrapping so one YAML line maps to one line-number row through the end of large
+  files.
 - Pipeline- and step-specific API, model, usage, activity, and permission logic
   stays under `features/pipelines` and `features/steps`.
 - Pipeline detail rendering stays under `features/pipelines/PipelineDetailView.tsx`.
