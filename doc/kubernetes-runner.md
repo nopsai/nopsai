@@ -246,7 +246,8 @@ manifest include the configured pools as `KUBERNETES_RUNTIME_POOLS`.
 
 Pipeline, Lab, and reusable-step editors suggest configured pool names when
 editing a `runtime_pool:` value. Use Ctrl+Space in the YAML editor to open
-suggestions, or type the pool name directly.
+suggestions, Tab to insert the highlighted suggestion, or type the pool name
+directly.
 
 ## Installing From The UI
 

@@ -24,6 +24,8 @@ export function EditorAutocompleteMenu({
   const overlayStyle = placement === 'overlay'
     ? { width, maxWidth: 'calc(100% - 32px)', right: 16, bottom: 16, top: 'auto', left: 'auto' }
     : { width: '100%' };
+  const shortcutText = `Tab inserts${loading ? ' - Loading...' : ''}`;
+
   return (
     <div
       className={`pipeline-suggestion-overlay ${placement === 'inline' ? 'pipeline-suggestion-overlay--inline' : ''}`}
@@ -33,14 +35,10 @@ export function EditorAutocompleteMenu({
       aria-label={`${suggestion.title} autocomplete`}
       onMouseDown={event => event.preventDefault()}
     >
-      <div className="scope-suggestion-panel">
-        <div className="scope-suggestion-heading">
-          <p className="scope-suggestion-kicker">Autocomplete</p>
+      <div className="scope-suggestion-panel scope-suggestion-panel--compact">
+        <div className="scope-suggestion-heading scope-suggestion-heading--compact">
           <p className="scope-suggestion-title">{suggestion.title}</p>
-          <p className="scope-suggestion-subtitle">
-            Ctrl+Space - Enter to insert - Esc to close
-            {loading ? ' - Loading...' : ''}
-          </p>
+          <p className="scope-suggestion-subtitle">{shortcutText}</p>
         </div>
         <div className="scope-suggestion-body">
           {suggestion.items.length ? (
@@ -73,7 +71,7 @@ export function EditorAutocompleteMenu({
                                 role="option"
                                 id={`${id}-option-${globalIndex}`}
                                 aria-selected={suggestion.activeIndex === globalIndex}
-                                className={`scope-suggestion-pill scope-suggestion-pill--action ${
+                                className={`scope-suggestion-row scope-suggestion-pill scope-suggestion-pill--action ${
                                   suggestion.activeIndex === globalIndex ? 'scope-suggestion-pill--active' : ''
                                 }`}
                                 onMouseDown={event => event.preventDefault()}
@@ -91,24 +89,20 @@ export function EditorAutocompleteMenu({
                     );
                   })
                 : suggestion.items.map((item, index) => (
-                    <div
+                    <button
                       key={`${item}-${index}`}
-                      className={`scope-suggestion-item ${index === suggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
+                      type="button"
+                      role="option"
+                      id={`${id}-option-${index}`}
+                      aria-selected={index === suggestion.activeIndex}
+                      className={`scope-suggestion-row scope-suggestion-pill scope-suggestion-pill--action ${
+                        index === suggestion.activeIndex ? 'scope-suggestion-pill--active' : ''
+                      }`}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => onSelect(item)}
                     >
-                      <button
-                        type="button"
-                        role="option"
-                        id={`${id}-option-${index}`}
-                        aria-selected={index === suggestion.activeIndex}
-                        className={`scope-suggestion-pill scope-suggestion-pill--action ${
-                          index === suggestion.activeIndex ? 'scope-suggestion-pill--active' : ''
-                        }`}
-                        onMouseDown={event => event.preventDefault()}
-                        onClick={() => onSelect(item)}
-                      >
-                        {item}
-                      </button>
-                    </div>
+                      {item}
+                    </button>
                   ))}
             </div>
           ) : (

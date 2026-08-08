@@ -1,30 +1,20 @@
 import type { ReactNode } from 'react';
 import { PlusCircle } from 'lucide-react';
-import { YamlValidationPanel, type YamlValidationError } from './YamlValidationPanel';
 import {
   getYamlToolboxSpec,
   type YamlEditorResourceKind,
+  type YamlToolboxParameter,
   type YamlToolboxSnippet,
 } from './yamlToolboxModel';
 
 type YamlEditorToolboxProps = {
   resourceKind: YamlEditorResourceKind;
-  validationId: string;
-  validationErrors: YamlValidationError[];
-  validationMaxVisible?: number;
-  invalidLabel?: string;
-  renderValidationExample?: (message: string) => ReactNode;
   suggestionSlot?: ReactNode;
   onInsertSnippet: (snippet: string) => void;
 };
 
 export function YamlEditorToolbox({
   resourceKind,
-  validationId,
-  validationErrors,
-  validationMaxVisible = 5,
-  invalidLabel = 'Validation issues',
-  renderValidationExample,
   suggestionSlot,
   onInsertSnippet,
 }: YamlEditorToolboxProps) {
@@ -37,21 +27,6 @@ export function YamlEditorToolbox({
         <h3>{spec.title}</h3>
       </div>
 
-      <YamlValidationPanel
-        id={validationId}
-        errors={validationErrors}
-        maxVisible={validationMaxVisible}
-        invalidLabel={invalidLabel}
-        inline
-        renderExample={renderValidationExample}
-      />
-
-      {validationErrors.length > 0 ? (
-        <div className="yaml-editor-toolbox__notice">
-          {spec.invalidHint}
-        </div>
-      ) : null}
-
       {suggestionSlot ? (
         <section className="yaml-editor-toolbox__section" aria-label="Autocomplete suggestions">
           {suggestionSlot}
@@ -63,33 +38,15 @@ export function YamlEditorToolbox({
           <h4>Parameters</h4>
         </div>
         <div className="yaml-editor-toolbox__details-list">
-          {spec.parameterGroups.map((group, index) => (
-            <details key={group.id} className="yaml-toolbox-details" open={index === 0 || validationErrors.length > 0}>
+          {spec.parameterGroups.map(group => (
+            <details key={group.id} className="yaml-toolbox-details">
               <summary>{group.title}</summary>
               <p>{group.description}</p>
-              <dl className="yaml-toolbox-param-list">
+              <div className="yaml-toolbox-param-list">
                 {group.parameters.map(parameter => (
-                  <div key={`${group.id}-${parameter.key}`} className="yaml-toolbox-param">
-                    <dt>{parameter.key}</dt>
-                    <dd>
-                      <span>{parameter.description}</span>
-                      {parameter.valueHint ? <code>{parameter.valueHint}</code> : null}
-                      {parameter.validValues?.length ? (
-                        <span className="yaml-toolbox-value-row">
-                          {parameter.validValues.map(value => (
-                            <code key={`${parameter.key}-${value}`}>{value}</code>
-                          ))}
-                        </span>
-                      ) : null}
-                      {parameter.structure ? (
-                        <pre>
-                          <code>{parameter.structure}</code>
-                        </pre>
-                      ) : null}
-                    </dd>
-                  </div>
+                  <ParameterDetails key={`${group.id}-${parameter.key}`} parameter={parameter} />
                 ))}
-              </dl>
+              </div>
             </details>
           ))}
         </div>
@@ -101,7 +58,7 @@ export function YamlEditorToolbox({
         </div>
         <div className="yaml-editor-toolbox__details-list">
           {spec.snippetGroups.map(group => (
-            <details key={group.id} className="yaml-toolbox-details" open>
+            <details key={group.id} className="yaml-toolbox-details">
               <summary>{group.title}</summary>
               <p>{group.description}</p>
               <div className="yaml-toolbox-snippet-grid">
@@ -134,6 +91,46 @@ export function YamlEditorToolbox({
         </div>
       </section>
     </aside>
+  );
+}
+
+function ParameterDetails({ parameter }: { parameter: YamlToolboxParameter }) {
+  const hasMetadata = Boolean(parameter.valueHint || parameter.validValues?.length || parameter.structure);
+
+  return (
+    <details className="yaml-toolbox-param">
+      <summary title={`${parameter.key}: ${parameter.description}`}>
+        <code>{parameter.key}</code>
+        <span>{parameter.description}</span>
+      </summary>
+      <div className="yaml-toolbox-param__body">
+        {parameter.valueHint ? (
+          <div>
+            <span>Value</span>
+            <code>{parameter.valueHint}</code>
+          </div>
+        ) : null}
+        {parameter.validValues?.length ? (
+          <div>
+            <span>Values</span>
+            <span className="yaml-toolbox-value-row">
+              {parameter.validValues.map(value => (
+                <code key={`${parameter.key}-${value}`}>{value}</code>
+              ))}
+            </span>
+          </div>
+        ) : null}
+        {parameter.structure ? (
+          <div>
+            <span>Structure</span>
+            <pre>
+              <code>{parameter.structure}</code>
+            </pre>
+          </div>
+        ) : null}
+        {!hasMetadata ? <p>No constrained values or nested structure.</p> : null}
+      </div>
+    </details>
   );
 }
 

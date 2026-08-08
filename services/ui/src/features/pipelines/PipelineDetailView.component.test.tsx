@@ -151,6 +151,8 @@ test('keeps pipeline detail actions and tab callbacks wired after redesign', asy
   await user.click(screen.getByRole('button', { name: 'Edit' }));
   expect(props.onEdit).toHaveBeenCalledTimes(1);
   expect(screen.getByText('Pipeline Definition (YAML)')).toBeVisible();
+  expect(screen.getByText('YAML valid')).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Validation' })).not.toBeInTheDocument();
 
   await user.click(screen.getByLabelText('Copy YAML'));
   expect(props.onCopy).toHaveBeenCalledTimes(1);

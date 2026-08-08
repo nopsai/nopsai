@@ -21,6 +21,7 @@ describe('EditorAutocompleteMenu', () => {
 
     expect(screen.getByRole('listbox', { name: 'Variables autocomplete' })).toBeInTheDocument();
     expect(screen.getByText('+2 more')).toBeInTheDocument();
+    expect(screen.getByText(/Tab inserts/)).toBeInTheDocument();
     expect(screen.getByText(/Loading/)).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'RETRIES' })).toHaveAttribute('aria-selected', 'true');
 

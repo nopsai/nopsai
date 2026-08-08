@@ -14,11 +14,21 @@ The in-app wiki must be usable as a field reference. A user who sees
 `allowed_callers` under an external trigger should be able to search that exact
 directive and learn what it does, where it can be used, what it does not grant,
 and which options are currently supported.
-YAML authoring references should also describe the fullscreen expanded editor
-toolbox: Pipeline, Lab, Step, and Trigger editors expose validation, contextual
-suggestions, expandable parameter groups, light samples, and cursor-based
-snippet insertion without changing AAA, GitOps, MCP, monitoring, API, or CLI
-contracts.
+YAML authoring references should also describe the fullscreen expanded editor:
+Pipeline, Lab, Step, and Trigger editors expose top-bar validation, contextual
+suggestions, collapsed parameter groups with expandable parameter rows, light
+samples, collapsed insertion-structure groups, compact single-line autocomplete
+rows, and cursor-based snippet insertion. Pipeline, embedded step, reusable step,
+and task parameter rows must cover the same supported directive sets as
+autocomplete without changing AAA, GitOps, MCP, monitoring, API, or CLI contracts.
+Autocomplete must not capture normal YAML editing: Enter keeps inserting an
+indented line, plain arrow keys keep moving the caret, Tab accepts the highlighted
+suggestion, and Alt+Up/Alt+Down changes the highlighted suggestion.
+Expanded validation details must open as a compact overlay from the top-bar
+status chip so long parser errors wrap cleanly without shrinking the YAML frame.
+Lab documentation must keep the run workspace compact: run setup has no
+explanatory hero copy, Pipeline definition carries inline YAML validation in its
+title row, and the right rail aligns run readiness above included dependencies.
 GitOps drift documentation must state that drift review presents Git and Nopsai
 panes with line numbers, synchronized scrolling, and highlighted removed Git
 lines and added desired lines before push.
