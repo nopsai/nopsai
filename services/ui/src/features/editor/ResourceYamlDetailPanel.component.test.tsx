@@ -117,6 +117,7 @@ test('renders edit mode with validation and autocomplete keyboard behavior', asy
   expect(screen.getByText('1 issue')).toBeInTheDocument();
   expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   const normalEditor = screen.getByRole('textbox', { name: /step yaml editor/i });
+  expect(normalEditor).toHaveAttribute('wrap', 'off');
   await user.click(normalEditor);
   fireEvent.change(normalEditor, { target: { value: 'name: build\n', selectionStart: 12 } });
 
@@ -128,6 +129,7 @@ test('renders edit mode with validation and autocomplete keyboard behavior', asy
   expect(screen.getByText('1 validation issue')).toBeInTheDocument();
   expect(screen.getByRole('listbox', { name: /suggestions autocomplete/i })).toBeInTheDocument();
   const editor = screen.getByRole('textbox', { name: /step yaml editor/i });
+  expect(editor).toHaveAttribute('wrap', 'off');
   fireEvent.change(editor, { target: { value: 'name: build\nscript: echo ok', selectionStart: 27 } });
   await user.keyboard('{ArrowDown}{Enter}');
 

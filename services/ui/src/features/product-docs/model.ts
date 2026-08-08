@@ -2889,6 +2889,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Runtime output references are valid when the dependency graph guarantees the producer runs before the consumer, including through transitive dependencies.',
           'Script-only pipelines can set llm_enabled: false to avoid requiring an LLM registry unless direct scripts use blocking guardrail or policy Knowledge Context.',
           'Pipeline and Lab YAML editors can expand into a fullscreen authoring surface with a right-side toolbox for validation, contextual suggestions, parameters, samples, and cursor-based step/task snippet insertion.',
+          'Pipeline Definition YAML view and edit frames size from the current viewport instead of a fixed editor box; fullscreen authoring lets the editor and toolbox fill the modal, and editing uses horizontal scrolling instead of soft wrapping so line numbers stay aligned.',
         ],
         details: [
           'Pipeline YAML is a reviewed automation contract. It should contain the desired execution graph and references to approved resources, not raw provider credentials, arbitrary MCP server URLs, or environment-specific bootstrap secrets.',
@@ -2897,6 +2898,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Profile directives are intentionally separate. agent_profile changes the persona and instructions; llm_profile selects the provider and model client; mcp_profiles selects approved external tools; knowledge_context supplies governed documents.',
           'Runtime references such as variables and secrets may be bare names, default:NAME for unscoped/default values, or scope/path:NAME for explicit scoped lookup. The injected environment variable name is the final NAME part.',
           'Normal YAML editing keeps lightweight autocomplete near the cursor. Fullscreen expanded mode moves validation and suggestion help into a stable right rail and offers insert buttons for common valid step, task, variable, and output structures.',
+          'The shared YAML frame uses responsive height rules in normal and fullscreen modes. Validation, GitOps override warnings, horizontal editor scrolling, and the toolbox scroll independently without changing AAA, GitOps, MCP, monitoring, API, or CLI contracts.',
         ],
         configRows: pipelineTopLevelRows,
         examples: [
@@ -2925,6 +2927,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'steps[].agent_profile changes prompt persona for the step; tasks cannot define agent_profile.',
           'mcp_profiles can be set on pipeline, step, and goal task levels, but not on script or include work.',
           'The Step editor fullscreen expanded toolbox lists step and task parameters and can insert reusable script, goal, and task-list structures at the current cursor.',
+          'Reusable step Definition YAML view and edit frames follow the same viewport-responsive sizing contract as pipeline definitions.',
         ],
         details: [
           'Goal steps and goal tasks ask the selected LLM profile for structured actions. Those actions can execute commands, replace files under the working directory, return an answer, or call an approved MCP tool.',

@@ -745,6 +745,7 @@ function LabPage() {
             id="lab-yaml-editor"
             spellCheck={false}
             value={yamlText}
+            wrap="off"
             onFocus={event => {
               setEditorFocused(true);
               updateSelectionFromTextarea(event.currentTarget);
