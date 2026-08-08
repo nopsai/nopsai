@@ -710,7 +710,9 @@ already loads:
   without card limits. Pipeline detail actions for clone, edit, access, YAML
   copy, and YAML download live beside Execute; editing a pipeline can update
   YAML, pipeline name, and team path in one save flow, and the detail side rail
-  keeps identifiers left-aligned and copyable.
+  keeps identifiers left-aligned and copyable. Definition-tab YAML view and edit
+  frames are viewport-responsive so long pipeline definitions do not inherit a
+  fixed editor box.
   Modes cover complete review, security, reliability, monitoring, performance,
   maintainability, and pre-execution readiness.
 - **Analyse Run** in run detail reviews run metadata, steps/tasks, approvals,
@@ -978,7 +980,7 @@ Pages present in the current UI:
 - `Pipelines`: pipeline browser/editor, drafts, fullscreen expanded YAML
   authoring with top-bar validation and collapsed parameter help, tabbed pipeline detail
   with a compact run-detail-style header, title-level Definition YAML validation,
-  single-frame embedded dependency graphing, definition side summary,
+  viewport-responsive YAML view/edit frames, single-frame embedded dependency graphing, definition side summary,
   trigger/run/include panels, read-only health findings, copyable identifiers,
   team-path-aware Back navigation, and Execute handoff to Lab
 - `Pipelines`: YAML parameter help mirrors autocomplete coverage for supported
@@ -1000,7 +1002,7 @@ Pages present in the current UI:
   right-rail run readiness above included dependencies, and direct run execution
 - `Steps`: reusable step library with pipeline-detail-style selected-step
   routes, compact hero actions, tabbed definition/usage panels, side summary,
-  fullscreen expanded step/task YAML toolbox with top-bar validation, usage
+  viewport-responsive definition YAML frames, fullscreen expanded step/task YAML toolbox with top-bar validation, usage
   inspection, editable team/name identity fields, copyable identifiers, and step
   use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection

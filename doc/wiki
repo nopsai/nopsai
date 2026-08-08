@@ -26,6 +26,11 @@ indented line, plain arrow keys keep moving the caret, Tab accepts the highlight
 suggestion, and Alt+Up/Alt+Down changes the highlighted suggestion.
 Expanded validation details must open as a compact overlay from the top-bar
 status chip so long parser errors wrap cleanly without shrinking the YAML frame.
+Pipeline and Step Definition YAML frames must size from the current viewport in
+both read-only and edit modes; fullscreen authoring must let the editor/toolbox
+grid fill the modal instead of inheriting generic fixed editor heights.
+Editing surfaces use horizontal scrolling rather than soft wrapping so line
+numbers continue matching logical YAML lines at the end of large files.
 Lab documentation must keep the run workspace compact: run setup has no
 explanatory hero copy, Pipeline definition carries inline YAML validation in its
 title row, and the right rail aligns run readiness above included dependencies.
@@ -205,6 +210,8 @@ Definition and Used in pipelines panels, YAML validation in the shared YAML card
 title row, editable team/name identity fields during edit mode, a definition
 side summary for identity/source/usage, and usage links that route to the owning
 pipeline without changing AAA, GitOps, monitoring, MCP, API, or CLI contracts.
+Step YAML view and edit frames use the same viewport-responsive sizing contract
+as pipeline definitions.
 
 CLI reference pages must cover both automation commands and the interactive
 operator console. The interactive console currently exposes API catalog calls,
