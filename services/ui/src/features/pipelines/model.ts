@@ -320,26 +320,11 @@ export function buildPipelineDependencyReferences(detail: PipelineDetail): Pipel
   const references = new Map<string, PipelineDependencyReference>();
   detail.includedDependencies.forEach(value => {
     const dependency = parsePipelineDependencyReference(value);
+    if (dependency.kind !== 'pipeline' && dependency.kind !== 'step') return;
     const key = `${dependency.kind}:${dependency.identifier || dependency.raw}`;
     if (!references.has(key)) {
       references.set(key, dependency);
     }
-  });
-  detail.dependencyEdges.forEach(edge => {
-    const targetStep = edge.from.trim();
-    const sourceStep = edge.to.trim();
-    if (!targetStep || !sourceStep) return;
-    const dependency: PipelineDependencyReference = {
-      raw: `depends_on:${sourceStep}:${targetStep}`,
-      identifier: targetStep,
-      typeLabel: 'Step',
-      actionLabel: 'Open',
-      navigable: true,
-      kind: 'local-step',
-      targetStep,
-      sourceStep,
-    };
-    references.set(`local-step:${sourceStep}:${targetStep}`, dependency);
   });
   const order: Record<PipelineDependencyReference['kind'], number> = {
     pipeline: 0,

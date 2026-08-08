@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Bot, CheckCircle2, Edit3, ExternalLink, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { Bot, CheckCircle2, Edit3, ExternalLink, FlaskConical, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { type LLMFeatureConfig, type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
@@ -154,7 +154,14 @@ function LLMProfilesPanel({
     saveDefaultProfile,
     deleteProfile,
     testProfile,
-  } = useLLMProfiles({ canManage, canManageTeamProfiles });
+  } = useLLMProfiles({
+    canManage,
+    canManageTeamProfiles,
+    onProfileSaved: profileName => {
+      setSelectedProfileName(profileName);
+      setTeamFilter(aiResourceTreeFilterForResource(profileName));
+    },
+  });
 
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);
@@ -730,7 +737,7 @@ function LLMProfileDetail({
         </div>
         <div className="ai-resource-detail__actions">
           <AIResourceIconAction label={testLabel} tone="primary" onClick={onTest} disabled={!canTest || Boolean(testing)}>
-            {testing === profile.name ? <RefreshIcon /> : <CheckCircle2 className="h-4 w-4" aria-hidden="true" />}
+            {testing === profile.name ? <RefreshIcon /> : <FlaskConical className="h-4 w-4" aria-hidden="true" />}
           </AIResourceIconAction>
           <AIResourceIconAction label="Edit profile" tone="accent" onClick={onEdit} disabled={!canManage || saving}>
             <Edit3 className="h-4 w-4" aria-hidden="true" />
@@ -742,6 +749,9 @@ function LLMProfileDetail({
             buttonClassName="ai-resource-icon-action"
             iconOnly
           />
+          <AIResourceIconAction label="Delete profile" tone="danger" onClick={onDelete} disabled={!canDelete || saving}>
+            <TrashIcon />
+          </AIResourceIconAction>
         </div>
       </div>
 
@@ -795,13 +805,7 @@ function LLMProfileDetail({
         ]}
       />
 
-      <div className="ai-resource-detail__footer">
-        <button type="button" className="ai-resource-delete-link" onClick={onDelete} disabled={!canDelete || saving}>
-          <TrashIcon />
-          Delete profile
-        </button>
-        {isDefault && <p>Default profiles cannot be deleted.</p>}
-      </div>
+      {isDefault && <div className="ai-resource-detail__footer"><p>Default profiles cannot be deleted.</p></div>}
     </div>
   );
 }

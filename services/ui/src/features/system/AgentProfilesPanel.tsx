@@ -99,7 +99,14 @@ function AgentProfilesPanel({
     deleteProfile,
     toggleProfileEnabled,
     setDefaultProfile,
-  } = useAgentProfiles({ canManage, canManageTeamProfiles });
+  } = useAgentProfiles({
+    canManage,
+    canManageTeamProfiles,
+    onProfileSaved: profileID => {
+      setSelectedProfileID(profileID);
+      setTeamFilter(aiResourceTreeFilterForResource(profileID));
+    },
+  });
 
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);

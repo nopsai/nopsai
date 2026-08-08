@@ -148,9 +148,13 @@ test('renders the redesigned searchable variables and secrets workspace', async 
   const onCreateVariable = vi.fn();
   const onCreateSecret = vi.fn();
 
-  renderScopeDetail({ onSelectSecret, onCreateVariable, onCreateSecret });
+  const { container } = renderScopeDetail({ onSelectSecret, onCreateVariable, onCreateSecret });
 
-  expect(screen.getByRole('heading', { name: '/nopsai' })).toBeVisible();
+  expect(container.querySelector('.scope-detail-redesign__eyebrow')).toBeNull();
+  expect(screen.queryByText('Manage configuration values, encrypted credentials, access, and runtime usage across this scope.')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Back' })).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Copy scope identifier' }));
+  expect(copyTextToClipboardMock).toHaveBeenCalledWith('nopsai');
   expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('scope-detail-action--ghost');
   expect(screen.getByText('Variables and secrets')).toBeVisible();
   expect(screen.getByRole('button', { name: /DOCKER_HOST/i })).toHaveClass('scope-detail-item--active');

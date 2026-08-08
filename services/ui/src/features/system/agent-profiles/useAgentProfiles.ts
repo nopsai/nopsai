@@ -29,9 +29,11 @@ import {
 export function useAgentProfiles({
   canManage,
   canManageTeamProfiles = false,
+  onProfileSaved,
 }: {
   canManage: boolean;
   canManageTeamProfiles?: boolean;
+  onProfileSaved?: (profileID: string) => void;
 }) {
   const [payload, setPayload] = useState(emptyAgentProfilesPayload);
   const [teamProfilesPayload, setTeamProfilesPayload] = useState<TeamAgentProfilesResponse | null>(null);
@@ -224,10 +226,11 @@ export function useAgentProfiles({
           const scopedID = buildAIResourceScopedID(targetTeamPath, localID);
           const saved = teamAgentProfileRecords(result).find(profile => profile.id === scopedID) || null;
           setSelectedProfile(saved);
-          setEditingID(scopedID);
-          setEditingTeamPath(targetTeamPath);
+          setEditingID(null);
+          setEditingTeamPath('');
           setForm(prev => ({ ...prev, id: scopedID }));
-          setPanelMode('edit');
+          setPanelMode('view');
+          onProfileSaved?.(scopedID);
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Unable to save team agent profile');
         } finally {
@@ -248,17 +251,18 @@ export function useAgentProfiles({
         setPayload(nextPayload);
         const saved = nextPayload.profiles.find(profile => profile.id === targetID) || null;
         setSelectedProfile(saved);
-        setEditingID(targetID);
+        setEditingID(null);
         setEditingTeamPath('');
         setForm(prev => ({ ...prev, id: targetID }));
-        setPanelMode('edit');
+        setPanelMode('view');
+        onProfileSaved?.(targetID);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to save agent profile');
       } finally {
         setSaving(false);
       }
     },
-    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, editingID, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles, selectedProfile]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, editingID, editingTeamPath, form, loadTeamProfiles, onProfileSaved, payload.default_profile, payload.profiles, selectedProfile]
   );
 
   const deleteProfile = useCallback(

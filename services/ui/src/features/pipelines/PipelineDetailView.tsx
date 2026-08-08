@@ -96,6 +96,7 @@ type PipelineDetailViewProps = {
   onOpenTrigger: (repoSlug: string) => void;
   onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
+  onCopyIdentifier: (identifier: string) => void | Promise<void>;
   onOpenRun: (runID: string) => void;
   onEditorTextChange: (nextValue: string, cursor: number, options?: YamlEditorTextChangeOptions) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
@@ -146,6 +147,7 @@ export function PipelineDetailView({
   onOpenTrigger,
   onOpenDependency,
   onCopyDependency,
+  onCopyIdentifier,
   onOpenRun,
   onEditorTextChange,
   onOpenSuggestion,
@@ -231,7 +233,7 @@ export function PipelineDetailView({
     { id: 'triggers', label: 'Trigger rules', count: triggers.length },
     { id: 'runs', label: 'Runs', count: recentRuns.length },
     { id: 'health', label: 'Health', count: analysisResult?.findings.length || 0 },
-    { id: 'dependencies', label: 'Dependencies', count: dependencyRefs.length },
+    { id: 'dependencies', label: 'Includes', count: dependencyRefs.length },
   ];
 
   const openDefinitionForEdit = () => {
@@ -256,10 +258,15 @@ export function PipelineDetailView({
       <div id="pipelines-detail-view" className="pipelines-view pipelines-detail-shell">
         <section className="pipeline-detail-hero" aria-labelledby="pipeline-detail-name">
           <div className="pipeline-detail-hero__main">
-            <button id="pipelines-back-btn" type="button" className="pipeline-detail-back" onClick={onBack}>
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              <span>Back to list</span>
-            </button>
+            <div className="pipeline-detail-back-row">
+              <button id="pipelines-back-btn" type="button" className="pipeline-detail-back" onClick={onBack}>
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                <span>Back</span>
+              </button>
+              <span className="pipeline-detail-back-context" title={formatPipelineDetailPath(detail)}>
+                {formatPipelineDetailPath(detail)}
+              </span>
+            </div>
             <div className="pipeline-detail-title-row">
               <h2 id="pipeline-detail-name">{detail.name || detail.id}</h2>
               <span className={`pipeline-detail-source pipeline-detail-source--${sourceState.tone}`}>
@@ -408,7 +415,7 @@ export function PipelineDetailView({
                     <span aria-hidden="true">·</span>
                     <span><b>{countPipelineGraphTasks(graphData)}</b> tasks</span>
                     <span aria-hidden="true">·</span>
-                    <span><b>{dependencyRefs.length}</b> dependencies</span>
+                    <span><b>{dependencyRefs.length}</b> includes</span>
                   </div>
                 </header>
                 <div className="pipeline-detail-graph-stage">
@@ -474,6 +481,7 @@ export function PipelineDetailView({
               onEditablePipelineTeamChange={onEditablePipelineTeamChange}
               onOpenDependency={handleOpenDependency}
               onCopyDependency={onCopyDependency}
+              onCopyIdentifier={onCopyIdentifier}
               onEditorTextChange={onEditorTextChange}
               onOpenSuggestion={onOpenSuggestion}
               onMoveSuggestion={onMoveSuggestion}
@@ -563,7 +571,7 @@ export function PipelineDetailView({
           ) : null}
 
           {activeTab === 'dependencies' ? (
-            <ActivityTabPanel id="dependencies" title="Dependencies" tabLabel="Dependencies">
+            <ActivityTabPanel id="dependencies" title="Included pipelines and steps" tabLabel="Includes">
               <PipelineActivityPanels
                 pipelineLabel={detail.name || detail.id}
                 triggers={triggers}

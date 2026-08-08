@@ -261,6 +261,29 @@ html.dark [class*="text-neutral-200"] {
   outline: none;
 }
 
+.pipeline-run-detail-back-row,
+.knowledge-detail-back-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.pipeline-run-detail-back-context,
+.resource-collection-path,
+.pipeline-detail-back-context,
+.knowledge-detail-back-context {
+    min-width: 0;
+    max-width: min(36rem, 58vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
 .tabs-nav__link:hover {
   color: var(--text-primary);
 }
@@ -13806,9 +13829,48 @@ html.dark .scope-related-card__meta-value {
 
 .scope-detail-redesign__head {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 20px;
+}
+
+.scope-detail-redesign__path-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.scope-detail-identifier {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: min(44rem, 58vw);
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 800;
+}
+
+.scope-detail-identifier span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scope-detail-identifier svg {
+    flex: 0 0 auto;
+    color: var(--scope-detail-muted);
+}
+
+.scope-detail-identifier:hover,
+.scope-detail-identifier:focus-visible {
+    color: var(--accent-primary);
+    outline: none;
 }
 
 .scope-detail-redesign__title {
@@ -15059,13 +15121,20 @@ html.dark .pipelines-detail-shell {
     min-width: 0;
 }
 
+.pipeline-detail-back-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    margin: -0.12rem 0 0.35rem;
+}
+
 .pipeline-detail-back {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
     min-height: 1.8rem;
     padding: 0 0.48rem;
-    margin: -0.12rem 0 0.35rem;
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
@@ -15415,30 +15484,37 @@ html.dark .pipeline-detail-tabs-wrap {
     padding: 0.9rem;
 }
 
-.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #editor-container {
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #editor-container,
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #step-editor-container {
     height: clamp(34rem, calc(100dvh - 24rem), 48rem);
     max-height: none;
 }
 
 .pipeline-detail-definition-main .resource-yaml-editor-shell--normal #pipeline-yaml-stage,
-.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #pipeline-yaml-stage textarea {
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #step-yaml-stage,
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #pipeline-yaml-stage textarea,
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #step-yaml-stage textarea {
     height: 100%;
     min-height: 0;
 }
 
-.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #pipeline-yaml-editor {
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #pipeline-yaml-editor,
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #step-yaml-editor {
+    height: 100%;
     max-height: none;
     min-height: 0;
+    resize: none;
 }
 
-.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #line-numbers {
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #line-numbers,
+.pipeline-detail-definition-main .resource-yaml-editor-shell--normal #step-line-numbers {
     flex: 0 0 3.15rem;
     min-width: 3.15rem;
 }
 
 .pipeline-detail-definition-side {
     display: grid;
-    gap: 0.85rem;
+    gap: 0.75rem;
     align-content: start;
     min-width: 0;
     position: sticky;
@@ -15455,7 +15531,7 @@ html.dark .pipeline-detail-tabs-wrap {
 
 .pipeline-detail-side-panel {
     min-width: 0;
-    padding: 0.9rem;
+    padding: 0.82rem;
     border: 1px solid var(--pipeline-detail-border);
     border-radius: 8px;
     background: var(--pipeline-detail-surface);
@@ -15463,7 +15539,7 @@ html.dark .pipeline-detail-tabs-wrap {
 }
 
 .pipeline-detail-side-panel h3 {
-    margin-bottom: 0.65rem;
+    margin-bottom: 0.55rem;
     font-size: 0.78rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -15479,29 +15555,58 @@ html.dark .pipeline-detail-tabs-wrap {
 
 .pipeline-detail-key-values div {
     display: grid;
-    grid-template-columns: minmax(5.6rem, 0.72fr) minmax(0, 1fr);
-    gap: 0.55rem;
-    padding: 0.55rem 0.6rem;
-    border-bottom: 1px solid var(--pipeline-detail-border);
-}
-
-.pipeline-detail-key-values div:last-child {
-    border-bottom: 0;
+    grid-template-columns: minmax(4.8rem, 0.58fr) minmax(0, 1fr);
+    gap: 0.45rem;
+    padding: 0.45rem 0.55rem;
 }
 
 .pipeline-detail-key-values dt {
     color: var(--text-secondary);
-    font-size: 0.74rem;
+    font-size: 0.72rem;
 }
 
 .pipeline-detail-key-values dd {
     min-width: 0;
     margin: 0;
     overflow-wrap: anywhere;
-    text-align: right;
+    text-align: left;
     color: var(--text-primary);
-    font-size: 0.76rem;
+    font-size: 0.75rem;
     font-weight: 700;
+}
+
+.pipeline-detail-key-value-content {
+    display: inline-flex;
+    max-width: 100%;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 0.38rem;
+}
+
+.pipeline-detail-key-value-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.pipeline-detail-key-copy {
+    flex: 0 0 auto;
+    width: 1.45rem;
+    height: 1.45rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--pipeline-detail-border);
+    border-radius: 6px;
+    background: var(--pipeline-detail-surface-soft);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.pipeline-detail-key-copy:hover,
+.pipeline-detail-key-copy:focus-visible {
+    border-color: var(--pipeline-detail-border-strong);
+    color: var(--text-primary);
+    outline: none;
 }
 
 .pipeline-detail-identity-fields {
@@ -15772,6 +15877,11 @@ html.dark .pipeline-detail-tabs-wrap {
     grid-template-columns: minmax(12rem, 1.1fr) minmax(8rem, 0.7fr) minmax(10rem, 0.8fr) minmax(7rem, 0.6fr) minmax(7rem, 0.6fr) minmax(9rem, 0.8fr) minmax(9rem, 0.75fr);
 }
 
+.pipeline-detail-object-table--step-usage .pipeline-detail-object-row {
+    min-width: 56rem;
+    grid-template-columns: minmax(14rem, 1.1fr) minmax(10rem, 0.75fr) minmax(7rem, 0.55fr) minmax(20rem, 1.4fr) minmax(4rem, 0.35fr);
+}
+
 .pipeline-detail-object-row--head {
     border-bottom: 1px solid var(--pipeline-detail-border);
     background: rgba(100,116,139,0.08);
@@ -15791,12 +15901,21 @@ button.pipeline-detail-object-row--button {
     cursor: pointer;
 }
 
-.pipeline-detail-object-list li:last-child button.pipeline-detail-object-row--button {
+.pipeline-detail-object-row--link {
+    width: 100%;
+    border-bottom: 1px solid var(--pipeline-detail-border);
+    text-decoration: none;
+}
+
+.pipeline-detail-object-list li:last-child button.pipeline-detail-object-row--button,
+.pipeline-detail-object-list li:last-child .pipeline-detail-object-row--link {
     border-bottom: 0;
 }
 
 button.pipeline-detail-object-row--button:hover,
-button.pipeline-detail-object-row--button:focus-visible {
+button.pipeline-detail-object-row--button:focus-visible,
+.pipeline-detail-object-row--link:hover,
+.pipeline-detail-object-row--link:focus-visible {
     background: rgba(20,184,166,0.08);
     color: var(--text-primary);
     outline: none;
@@ -15812,6 +15931,13 @@ button.pipeline-detail-object-row--button:focus-visible {
 .pipeline-detail-object-primary {
     color: var(--text-primary);
     font-weight: 760;
+}
+
+.step-usage-open-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    color: var(--pipeline-detail-cyan);
 }
 
 @media (max-width: 1280px) {
@@ -15868,7 +15994,8 @@ button.pipeline-detail-object-row--button:focus-visible {
         justify-content: center;
     }
 
-    .pipeline-detail-definition-main .resource-yaml-editor-shell--normal #editor-container {
+    .pipeline-detail-definition-main .resource-yaml-editor-shell--normal #editor-container,
+    .pipeline-detail-definition-main .resource-yaml-editor-shell--normal #step-editor-container {
         height: min(62vh, 36rem);
     }
 

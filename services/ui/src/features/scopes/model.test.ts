@@ -28,6 +28,8 @@ import {
   parentScopeTeam,
   parseScopedIdentity,
   parseScopeYamlSafe,
+  scopeBackTeam,
+  scopeDetailRoute,
   scopeSourceLabel,
   summarizeScopeSourceMix,
   suggestCloneName,
@@ -38,6 +40,10 @@ test('normalizes scope routes and repository identities', () => {
   assert.equal(normalizeScopeLabel('/Default/'), '');
   assert.equal(encodeScopeForRoute('teams/platform'), 'teams/platform');
   assert.equal(decodeScopeFromRoute(['teams', 'platform']), 'teams/platform');
+  assert.equal(scopeDetailRoute('teams/platform/dev', 'teams/platform', '?tab=values'), '/scopes/teams/platform/dev?tab=values&team=teams%2Fplatform');
+  assert.equal(scopeDetailRoute('teams/platform/dev', '', '?team=teams%2Fplatform'), '/scopes/teams/platform/dev');
+  assert.equal(scopeBackTeam('teams/platform/dev', 'teams/platform'), 'teams/platform');
+  assert.equal(scopeBackTeam('teams/platform/dev'), 'teams/platform');
   assert.equal(normalizeRepositorySlug('/acme/control-plane/'), 'acme/control-plane');
   assert.deepEqual(parseScopedIdentity('acme/control-plane/token'), {
     repoOwner: 'acme',

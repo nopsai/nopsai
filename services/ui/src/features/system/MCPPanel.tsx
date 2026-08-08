@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
-import { Boxes, Cable, CheckCircle2, Edit3, ExternalLink, Plus, Trash2, Wrench, X } from 'lucide-react';
+import { Boxes, Cable, Edit3, ExternalLink, FlaskConical, Plus, Trash2, Wrench, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useMCPRegistry } from './mcp/useMCPRegistry';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
@@ -133,7 +133,22 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     saveProfile,
     deleteProfile,
     testProfile,
-  } = useMCPRegistry({ canManage, canManageTeamProfiles });
+  } = useMCPRegistry({
+    canManage,
+    canManageTeamProfiles,
+    onServerSaved: serverName => {
+      setSelectedServerName(serverName);
+      setSelectedProfileName(null);
+      setTeamFilter(aiResourceTreeFilterForResource(serverName));
+      navigate(mcpResourceRoute('servers', serverName, location.search), { preventScrollReset: true });
+    },
+    onProfileSaved: profileName => {
+      setSelectedProfileName(profileName);
+      setSelectedServerName(null);
+      setTeamFilter(aiResourceTreeFilterForResource(profileName));
+      navigate(mcpResourceRoute('profiles', profileName, location.search), { preventScrollReset: true });
+    },
+  });
 
   useEffect(() => {
     setTeamFilter(requestedTeamFilter);
@@ -802,6 +817,9 @@ function MCPServerDetail({
             buttonClassName="ai-resource-icon-action"
             iconOnly
           />
+          <AIResourceIconAction label="Delete server" tone="danger" onClick={() => void onDelete(server.name)} disabled={!canManage || saving}>
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </AIResourceIconAction>
         </div>
       </div>
 
@@ -862,13 +880,6 @@ function MCPServerDetail({
           <p className="ai-resource-detail-copy">No tools discovered yet.</p>
         )}
       </section>
-
-      <div className="ai-resource-detail__footer">
-        <button type="button" className="ai-resource-delete-link" onClick={() => void onDelete(server.name)} disabled={!canManage || saving}>
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
-          Delete server
-        </button>
-      </div>
     </div>
   );
 }
@@ -917,7 +928,7 @@ function MCPProfileDetail({
         </div>
         <div className="ai-resource-detail__actions">
           <AIResourceIconAction label={testLabel} tone="primary" onClick={() => void onTest(profile.name)} disabled={!canTest || Boolean(testing)}>
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            <FlaskConical className="h-4 w-4" aria-hidden="true" />
           </AIResourceIconAction>
           {canManage && (
             <AIResourceIconAction label="Edit profile" tone="accent" onClick={() => onEdit(profile)} disabled={saving}>
@@ -931,6 +942,9 @@ function MCPProfileDetail({
             buttonClassName="ai-resource-icon-action"
             iconOnly
           />
+          <AIResourceIconAction label="Delete profile" tone="danger" onClick={() => void onDelete(profile.name)} disabled={!canManage || saving}>
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </AIResourceIconAction>
         </div>
       </div>
 
@@ -961,13 +975,6 @@ function MCPProfileDetail({
           <p className="ai-resource-detail-copy">No server tools approved yet.</p>
         )}
       </section>
-
-      <div className="ai-resource-detail__footer">
-        <button type="button" className="ai-resource-delete-link" onClick={() => void onDelete(profile.name)} disabled={!canManage || saving}>
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
-          Delete profile
-        </button>
-      </div>
     </div>
   );
 }

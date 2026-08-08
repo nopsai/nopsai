@@ -87,10 +87,18 @@ truth; this file is the source-adjacent placement guide.
   Pure display derivation for source state, graph work-unit counts, run summary,
   and health score helpers lives in `features/pipelines/pipelineDetailPresentation.ts`;
   Definition-tab YAML validation is surfaced in the shared YAML card header,
-  while the Pipeline side rail stays focused on identity, source/sync, and
-  dependencies.
+  while the Pipeline side rail stays focused on compact copyable identity,
+  source/sync, and included pipeline/step resources.
   route selection, editor orchestration, drafts, identity edit state, and Lab
-  execute handoff remain owned by `pages/Pipelines.tsx`.
+  execute handoff remain owned by `pages/Pipelines.tsx`; detail back actions
+  must return to the owning team-scoped list rather than the root list.
+- Step detail rendering stays under `features/steps/StepDetailView.tsx`.
+  Tab section rendering lives in `features/steps/StepDetailSections.tsx`.
+  Pure display derivation for source state, team labels, and usage source counts
+  lives in `features/steps/stepDetailPresentation.ts`; usage table rendering
+  stays in `features/steps/StepUsagePanel.tsx`. `pages/Steps.tsx` owns route
+  selection, editor orchestration, drafts, identity edit state, permissions,
+  modal composition, and team-scoped detail back navigation.
 - Run final-output preview, copy, download, cancel, and failed-output retry
   actions live in `features/pipeline-runs/RunFinalOutputs.tsx`; API mutation
   callbacks are composed by `pages/PipelineRuns.tsx`.
@@ -114,11 +122,13 @@ truth; this file is the source-adjacent placement guide.
 - `features/scopes/ScopeDetailView.tsx` owns the selected-scope detail
   workspace: metric cards, combined variable/secret search and type filters,
   selected-item inspector, value reveal/copy affordances, relationship columns,
-  and collapsible runner assignments. Pure list shaping, source summaries, and
-  timestamp display helpers stay in `features/scopes/model.ts`; API calls,
-  action-time AAA checks, GitOps database-override warnings, modal lifecycles,
-  and route selection remain in `api.ts`, `useScopeModalMutations.ts`,
-  `useScopePermissions.ts`, and `pages/Scopes.tsx`.
+  copyable scope path, and collapsible runner assignments. Pure list shaping,
+  source summaries, and timestamp display helpers stay in
+  `features/scopes/model.ts`; API calls, action-time AAA checks, GitOps
+  database-override warnings, modal lifecycles, and route selection remain in
+  `api.ts`, `useScopeModalMutations.ts`, `useScopePermissions.ts`, and
+  `pages/Scopes.tsx`. Scope detail Back returns to the remembered team/list
+  context from selection, falling back to the scope parent path for direct URLs.
 - `features/event-automation/EventAutomationSwitch.tsx`,
   `EventAutomationToolbar.tsx`, `AutomationResourceTree.tsx`, and
   `resourceTreeModel.ts` own the rendering-only route switch, shared page
@@ -498,6 +508,9 @@ truth; this file is the source-adjacent placement guide.
   the same slash path placement as pipelines: `team/subteam/name` belongs to
   `/team/subteam`, inherits parent team access, and remains global when no team
   prefix is present.
+- Successful LLM profile, agent profile, MCP server, and MCP profile saves
+  return to the saved resource detail instead of leaving the edit form open;
+  delete and test/discovery actions live in the top detail toolbar.
 - Global default selectors stay tied to global system profile defaults. When
   the current default is outside the viewer's allowed resource set, the API
   returns an explicit empty `default_profile` and the UI renders the value as
@@ -528,6 +541,9 @@ truth; this file is the source-adjacent placement guide.
   owns selected document rendering and local detail tabs, and
   `KnowledgeContextModals.tsx` owns document create/clone/delete, external page
   search/preview rendering, and connection create dialogs.
+- Knowledge detail navigation resolves the selected document's kind/team tree
+  path from the loaded document where possible. Back targets and forced-open
+  tree ancestors must stay aligned with the opened document.
 - Knowledge document collection rows stay single-line name entries; document
   path and source details remain in table columns or the selected detail panel.
 - Monitoring model rules own metric normalization and display teaming.

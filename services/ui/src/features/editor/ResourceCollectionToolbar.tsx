@@ -53,6 +53,11 @@ export function ResourceCollectionToolbar({
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
+          {activeTeam ? (
+            <span className="resource-collection-path" title={activeTeam}>
+              {activeTeam}
+            </span>
+          ) : null}
           {filters}
           {summary ? <div className="text-xs text-[var(--text-secondary)]">{summary}</div> : null}
         </div>

@@ -13,6 +13,7 @@ import {
   knowledgeConnectionDisplayName,
   knowledgeConnectionMatchesIdentifier,
   knowledgeFailureModeOptions,
+  kindOrder,
   knowledgeSyncModeOptions,
   knowledgeSyncStatusLabel,
   normalizeTeamPath,
@@ -23,7 +24,7 @@ import {
   type KnowledgeFailureMode,
   type KnowledgeSyncMode,
 } from './model';
-import { formatKnowledgeDate, kindIconType } from './presentation';
+import { formatKnowledgeDate, kindIconType, kindPlural } from './presentation';
 
 type KnowledgeDetailTab = 'overview' | 'content' | 'usage';
 
@@ -32,6 +33,17 @@ const detailTabs: Array<{ id: KnowledgeDetailTab; label: string }> = [
   { id: 'content', label: 'Content' },
   { id: 'usage', label: 'Usage' },
 ];
+
+function knowledgeBackPathLabel(path: string) {
+  const parts = normalizeTeamPath(path).split('/').filter(Boolean);
+  if (!parts.length) return 'All knowledge';
+  return parts
+    .map((part, index) => {
+      if (index === 0 && kindOrder.includes(part)) return kindPlural(part);
+      return isGlobalResourceTeamPath(part) ? GLOBAL_RESOURCE_TEAM_LABEL : part;
+    })
+    .join(' / ');
+}
 
 export type KnowledgeContentMetrics = {
   lines: number;
@@ -55,6 +67,7 @@ export type KnowledgeContextDetailViewProps = {
   syncing: boolean;
   connections: KnowledgeConnectionListItem[];
   teamOptions: string[];
+  backPath: string;
   onBackToList: () => void;
   onCopy: () => void;
   onDownload: () => void;
@@ -88,6 +101,7 @@ export function KnowledgeContextDetailView({
   syncing,
   connections,
   teamOptions,
+  backPath,
   onBackToList,
   onCopy,
   onDownload,
@@ -145,6 +159,7 @@ export function KnowledgeContextDetailView({
   const editableTeamOptions = Array.from(
     new Set(teamOptions.map(option => normalizeTeamPath(option)).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
+  const backPathLabel = knowledgeBackPathLabel(backPath);
   const handleStartEditing = () => {
     setActionsOpen(false);
     setActiveTab('content');
@@ -171,10 +186,13 @@ export function KnowledgeContextDetailView({
             </div>
           </div>
           <div className="kc-demo-detail-actions" role="toolbar" aria-label="Document actions">
-            <button type="button" className="kc-doc-action-btn kc-doc-action-btn--back" onClick={onBackToList}>
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              Back
-            </button>
+            <div className="knowledge-detail-back-row">
+              <button type="button" className="kc-doc-action-btn kc-doc-action-btn--back" onClick={onBackToList}>
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                Back
+              </button>
+              <span className="knowledge-detail-back-context" title={backPathLabel}>{backPathLabel}</span>
+            </div>
             {!isEditing ? (
               <div className="kc-doc-actions-menu" ref={actionsMenuRef}>
                 <button

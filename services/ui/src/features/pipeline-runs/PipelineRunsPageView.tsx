@@ -1,6 +1,6 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Grid2X2, List, Search, X } from 'lucide-react';
+import { ArrowLeft, Grid2X2, List, Search, X } from 'lucide-react';
 import type { RunListItem } from './contracts';
 import type { Team } from './runPresentation';
 import type { PipelineRunSourceFilter, PipelineRunStatusFilter } from './overviewModel';
@@ -188,6 +188,8 @@ export function PipelineRunsPageView({
     return `${buildPipelineRunsRoute(tab, activeTeamURLValue)}${search ? `?${search}` : ''}`;
   };
   const runSearchActive = searchOpen || Boolean(searchTerm.trim());
+  const activeTabLabel = tabs.find(tab => tab.id === activeTab)?.label || 'Pipeline runs';
+  const detailBackContextLabel = activeTeamURLValue ? `${activeTabLabel} / ${activeTeamURLValue}` : activeTabLabel;
 
   return (
     <div data-page="pipelineruns" className="active h-full min-h-0 flex flex-col overflow-hidden">
@@ -321,6 +323,7 @@ export function PipelineRunsPageView({
                 detail={runDetail}
                 loading={runDetailLoading}
                 error={runDetailError}
+                backContextLabel={detailBackContextLabel}
                 onClose={handleCloseDetail}
                 onCancel={() => void handleCancelRun(runDetail.run_info.run_id)}
                 onCancelOutput={outputId => void handleCancelFinalOutput(runDetail.run_info.run_id, outputId)}
@@ -364,6 +367,7 @@ export function PipelineRunsPageView({
                 runId={activeRunId}
                 loading={runDetailLoading}
                 error={runDetailError}
+                backContextLabel={detailBackContextLabel}
                 onClose={handleCloseDetail}
               />
             )
@@ -453,11 +457,13 @@ function RunDetailLoadingState({
   runId,
   loading,
   error,
+  backContextLabel,
   onClose,
 }: {
   runId: string;
   loading: boolean;
   error: string | null;
+  backContextLabel?: string;
   onClose: () => void;
 }) {
   return (
@@ -471,10 +477,22 @@ function RunDetailLoadingState({
           </p>
           {error ? <p className="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p> : null}
         </div>
-        <button type="button" className="glass-button-ghost shrink-0" onClick={onClose}>
-          <X className="h-4 w-4" aria-hidden="true" />
-          Close
-        </button>
+        <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
+          <button
+            type="button"
+            className="glass-button-ghost"
+            onClick={onClose}
+            aria-label={`Back to ${backContextLabel || 'pipeline runs'}`}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+          {backContextLabel ? (
+            <span className="pipeline-run-detail-back-context" title={backContextLabel}>
+              {backContextLabel}
+            </span>
+          ) : null}
+        </div>
       </div>
     </section>
   );

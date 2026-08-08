@@ -135,12 +135,12 @@ export function PipelineActivityPanels({
       {visibleSections.has('dependencies') ? (
       <section className="glass-card overflow-hidden">
         <header className="p-4 border-b border-[var(--border-primary)]">
-          <h3 className="text-lg font-semibold text-[var(--text-primary)]">Dependencies</h3>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">Included Pipelines and Steps</h3>
         </header>
         <div className="p-4">
           {normalizedDependencies.length ? (
             rowMode ? (
-              <div className="pipeline-detail-object-table pipeline-detail-object-table--dependencies" role="table" aria-label="Dependencies">
+              <div className="pipeline-detail-object-table pipeline-detail-object-table--dependencies" role="table" aria-label="Included pipelines and steps">
                 <div className="pipeline-detail-object-row pipeline-detail-object-row--head" role="row" aria-hidden="true">
                   <span>Identifier</span>
                   <span>Type</span>
@@ -194,7 +194,7 @@ export function PipelineActivityPanels({
             </ul>
             )
           ) : (
-            <p className="text-sm text-[var(--text-secondary)]">No dependencies detected for this pipeline.</p>
+            <p className="text-sm text-[var(--text-secondary)]">No included pipelines or steps detected for this pipeline.</p>
           )}
         </div>
       </section>

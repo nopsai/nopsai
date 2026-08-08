@@ -33,6 +33,7 @@ import {
   findKnowledgeTeam,
   isExternalKnowledgeDocument,
   isGitManagedDocument,
+  knowledgeDocumentTreePath,
   knowledgeDocumentTreePathFromID,
   knowledgeConnectionIdentifier,
   knowledgeConnectionMatchesIdentifier,
@@ -245,11 +246,20 @@ export default function KnowledgeContextPage({
     );
   }, [items, search]);
 
+  const selectedListItem = useMemo(
+    () => selectedID ? items.find(item => item.id === selectedID) || null : null,
+    [items, selectedID]
+  );
+  const selectedDocumentTreePath = useMemo(() => {
+    if (!selectedID) return '';
+    if (detail?.id === selectedID) return knowledgeDocumentTreePath(detail);
+    if (selectedListItem) return knowledgeDocumentTreePath(selectedListItem);
+    return knowledgeDocumentTreePathFromID(selectedID);
+  }, [detail, selectedID, selectedListItem]);
   const activeTeam = useMemo(() => {
     const routeTeam = isTeamRoute ? decodeTeamRouteSegments(routeSegments.slice(2)) : '';
-    const selectedTeam = selectedID ? knowledgeDocumentTreePathFromID(selectedID) : '';
-    return normalizeTeamPath(routeTeam || searchParams.get('team') || selectedTeam || '');
-  }, [isTeamRoute, routeSegments, searchParams, selectedID]);
+    return normalizeTeamPath(routeTeam || selectedDocumentTreePath || searchParams.get('team') || '');
+  }, [isTeamRoute, routeSegments, searchParams, selectedDocumentTreePath]);
   const activeWorkspaceTab = normalizeKnowledgeWorkspaceTab(searchParams.get('tab'));
   const knowledgeTree = useMemo(() => buildKnowledgeTree(items, resourceTeamPaths), [items, resourceTeamPaths]);
   const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
@@ -481,7 +491,7 @@ export default function KnowledgeContextPage({
   );
 
   const handleBackToList = useCallback(() => {
-    const team = detail ? splitKnowledgePath(detail.id).team : activeTeam;
+    const team = detail ? knowledgeDocumentTreePath(detail) : activeTeam;
     openTeam(team);
   }, [activeTeam, detail, openTeam]);
 
@@ -1019,6 +1029,7 @@ export default function KnowledgeContextPage({
           search={search}
           collectionDocuments={collectionDocuments}
           selectedID={selectedID}
+          selectedTreePath={selectedDocumentTreePath}
           detailLoading={detailLoading}
           selectedDetail={{
             detail,
@@ -1036,6 +1047,7 @@ export default function KnowledgeContextPage({
             syncing,
             connections,
             teamOptions,
+            backPath: detail ? knowledgeDocumentTreePath(detail) : activeTeam,
             onBackToList: handleBackToList,
             onCopy: handleCopy,
             onDownload: handleDownload,

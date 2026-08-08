@@ -108,6 +108,7 @@ export function ScopeDetailView({
   const [runnerPanelOpen, setRunnerPanelOpen] = useState(false);
   const [selectedRunnerId, setSelectedRunnerId] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<ValueCopyState>('idle');
+  const [identifierCopyState, setIdentifierCopyState] = useState<ValueCopyState>('idle');
 
   const scopeLabel = normalizeScopeLabel(selectedScope ?? '');
   const scopeDisplay = formatScopeDisplay(scopeLabel);
@@ -158,13 +159,33 @@ export function ScopeDetailView({
     onCreateSecret(scopeLabel);
   };
 
+  const handleCopyIdentifier = async () => {
+    try {
+      await copyTextToClipboard(scopeLabel || 'default');
+      setIdentifierCopyState('copied');
+    } catch {
+      setIdentifierCopyState('error');
+    }
+  };
+
   return (
     <div id="scopes-detail-view" className="scope-detail-redesign">
       <header className="scope-detail-redesign__head">
-        <div className="scope-detail-redesign__title">
-          <span className="scope-detail-redesign__eyebrow">Scope</span>
-          <h2>{scopeDisplay}</h2>
-          <p>Manage configuration values, encrypted credentials, access, and runtime usage across this scope.</p>
+        <div className="scope-detail-redesign__path-row">
+          <button type="button" className="scope-detail-action scope-detail-action--ghost" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            <span>Back</span>
+          </button>
+          <button
+            type="button"
+            className="scope-detail-identifier"
+            onClick={handleCopyIdentifier}
+            aria-label="Copy scope identifier"
+            title={identifierCopyState === 'copied' ? 'Copied' : identifierCopyState === 'error' ? 'Copy failed' : 'Copy scope identifier'}
+          >
+            <span>{scopeDisplay}</span>
+            <Copy className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
         <div className="scope-detail-redesign__actions">
           <ResourceAccessCard
@@ -208,10 +229,6 @@ export function ScopeDetailView({
               ) : null}
             </div>
           ) : null}
-          <button type="button" className="scope-detail-action scope-detail-action--ghost" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            <span>Back</span>
-          </button>
         </div>
       </header>
 

@@ -453,16 +453,6 @@ steps:
       navigable: true,
       kind: 'step',
     },
-    {
-      raw: 'depends_on:deploy:build',
-      identifier: 'build',
-      typeLabel: 'Step',
-      actionLabel: 'Open',
-      navigable: true,
-      kind: 'local-step',
-      targetStep: 'build',
-      sourceStep: 'deploy',
-    },
   ]);
 });
 

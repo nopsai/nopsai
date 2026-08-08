@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { RunListItem } from '../features/pipeline-runs/contracts';
 
@@ -104,13 +104,42 @@ test('filters application-sourced runs on the overview tab', async () => {
   expect(api.requestPipelineRunsJson).not.toHaveBeenCalledWith('/v1/runs?teamId=root');
 });
 
+test('returns from a route-backed run detail to the current run list', async () => {
+  const user = userEvent.setup();
+  api.requestPipelineRunsJson.mockImplementation((path: string) => {
+    if (path === '/v1/runs/run-failed') {
+      return Promise.resolve({
+        run_info: runs[0],
+        steps: [],
+        child_runs: [],
+        final_outputs: [],
+      });
+    }
+    if (path === '/v1/runs/run-failed/approvals') return Promise.resolve([]);
+    if (path.startsWith('/v1/runs?offset=')) return Promise.resolve(runs);
+    return Promise.resolve({});
+  });
+
+  renderPipelineRunsPage('/pipelineruns/recent/run-failed');
+
+  await user.click(await screen.findByRole('button', { name: 'Back to All runs' }));
+  expect(screen.getByTestId('location')).toHaveTextContent('/pipelineruns/recent');
+});
+
 function renderPipelineRunsPage(initialEntry: string) {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/pipelineruns/:tab" element={<PipelineRunsPage />} />
+        <Route path="/pipelineruns/:tab/:runID" element={<PipelineRunsPage />} />
         <Route path="/pipelineruns/:tab/team/*" element={<PipelineRunsPage />} />
       </Routes>
+      <LocationProbe />
     </MemoryRouter>
   );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location" hidden>{location.pathname}{location.search}</span>;
 }

@@ -38,6 +38,8 @@ import {
   parseScopedIdentity,
   parseScopeYamlSafe,
   runWithConcurrencyLimit,
+  scopeBackTeam,
+  scopeDetailRoute,
   type ScopeData,
   type ScopeEntry,
   type ScopePipelineMeta,
@@ -575,12 +577,12 @@ function ScopesPage({
     const normalized = normalizeScopeLabel(scopeLabel);
     selectedScopeRef.current = normalized;
     setSelectedScope(normalized);
-    navigate(`/scopes/${encodeScopeForRoute(normalized)}`);
+    navigate(scopeDetailRoute(normalized, activeTeam, location.search));
   };
 
   const handleBackToList = () => {
     if (selectedScope != null) {
-      navigate(teamScopedRoute('/scopes', parentScopeTeam(selectedScope)));
+      navigate(teamScopedRoute('/scopes', scopeBackTeam(selectedScope, activeTeam)));
       return;
     }
     navigate('/scopes');
