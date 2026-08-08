@@ -118,10 +118,12 @@ filters stay left aligned where they anchor the list, and page-level create
 actions render as consistent 36px blue icon-only plus buttons with accessible labels. Event automation tabs,
 Knowledge Context, and Credentials keep summary
 boxes in the top toolbar when space allows, with tree or tab navigation owning
-duplicated scope filtering. LLM, Agent, and MCP pages keep the default profile
-or MCP tab control on the left, no summary boxes, and compact list-header
-search/create actions without a generic Reload button. Their team tree counts
-include cached team-owned profiles.
+duplicated scope filtering. Knowledge detail keeps the opened document branch
+expanded from its resolved kind/team path and shows the contextual Back target.
+LLM, Agent, and MCP pages keep the default profile or MCP tab control on the
+left, no summary boxes, compact list-header search/create actions without a
+generic Reload button, save-to-detail profile/server forms, and top-toolbar
+delete/test actions. Their team tree counts include cached team-owned profiles.
 System Access uses a compact settings workspace with Basic and Advanced modes,
 top-row summary metrics beside the Basic/Advanced switch, Pipeline Runs-style
 advanced tabs, shared table-first catalogs for every advanced tab, compact
@@ -185,14 +187,24 @@ including escaped JSON inside agent log messages, before writing
 its Pipeline graph card without a nested graph-window frame, and that embedded
 overview must fill the visible graph frame so steps are not clipped by an
 internal SVG viewport. The Flow graph card must end at the graph canvas, with
-source and dependency actions kept in existing non-footer surfaces.
+source and included pipeline/step actions kept in existing non-footer surfaces.
 Pipeline detail must use a compact run-detail-style headline and must not
-reintroduce a KPI-card row above the tabs. Shared graph surfaces must use
-light/dark theme variables for the canvas, SVG nodes, controls, minimap, and
-task reveal rather than forcing the dark palette in light mode. The wiki must
+reintroduce a KPI-card row above the tabs. Pipeline and step detail side rails
+must keep identifiers left-aligned and copyable with minimal internal row lines.
+Pipeline, step, and pipeline-run detail Back actions must move one level back
+to the current team/list context and show that context beside the Back control.
+Shared graph surfaces must use light/dark theme variables for the canvas, SVG
+nodes, controls, minimap, and task reveal rather than forcing the dark palette
+in light mode. The wiki must
 not describe a separate
 trigger-creation modal, separate run modal, or server-side reviewer persistence
 unless those flows are implemented.
+Step detail documentation must mirror the selected-pipeline detail pattern:
+compact header actions for copy/download/access/clone/edit/save, tabbed
+Definition and Used in pipelines panels, YAML validation in the shared YAML card
+title row, editable team/name identity fields during edit mode, a definition
+side summary for identity/source/usage, and usage links that route to the owning
+pipeline without changing AAA, GitOps, monitoring, MCP, API, or CLI contracts.
 
 CLI reference pages must cover both automation commands and the interactive
 operator console. The interactive console currently exposes API catalog calls,
@@ -716,7 +728,9 @@ aggregate filter and must not be used as the persisted resource owner.
 The Scopes detail route renders scope metrics, combined variable/secret search
 and type filters, selected-item value inspection, relationship columns, access
 controls, GitOps encryption, and collapsible runner assignments while keeping
-secret values write-only and using existing AAA/GitOps/MCP-safe contracts.
+the header to a left-aligned Back control plus copyable scope path, preserving
+the selected team/list context for Back navigation, and keeping secret values
+write-only with existing AAA/GitOps/MCP-safe contracts.
 The System Dispatcher workspace separates compact overview metrics,
 runtime-filtered table-first runner fleet operations, route editing/effective
 routing tables, and install command generation. Runner detail sits below the

@@ -34,9 +34,11 @@ import {
 export function useLLMProfiles({
   canManage,
   canManageTeamProfiles = false,
+  onProfileSaved,
 }: {
   canManage: boolean;
   canManageTeamProfiles?: boolean;
+  onProfileSaved?: (profileName: string) => void;
 }) {
   const [payload, setPayload] = useState(emptyLLMProfilesPayload);
   const [teamProfilesPayload, setTeamProfilesPayload] = useState<TeamLLMProfilesResponse | null>(null);
@@ -195,10 +197,11 @@ export function useLLMProfiles({
           }
           setTeamProfilesPayload(result);
           cacheTeamProfilesPayload(result);
-          setEditingName(targetName);
-          setEditingTeamPath(targetTeamPath);
+          setEditingName(null);
+          setEditingTeamPath('');
           setForm(prev => ({ ...prev, name: targetName }));
-          setPanelMode('edit');
+          setPanelMode(null);
+          onProfileSaved?.(targetName);
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Unable to save team LLM profile');
         } finally {
@@ -217,17 +220,18 @@ export function useLLMProfiles({
           await loadTeamProfiles(originalTeamPath);
         }
         setPayload(result.payload);
-        setEditingName(result.name);
+        setEditingName(null);
         setEditingTeamPath('');
         setForm(prev => ({ ...prev, name: result.name }));
-        setPanelMode('edit');
+        setPanelMode(null);
+        onProfileSaved?.(result.name);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to save LLM profile');
       } finally {
         setSaving(false);
       }
     },
-    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, editingName, editingTeamPath, form, loadTeamProfiles, payload.default_profile, payload.profiles]
+    [cacheTeamProfilesPayload, canManage, canManageTeamProfiles, editingName, editingTeamPath, form, loadTeamProfiles, onProfileSaved, payload.default_profile, payload.profiles]
   );
 
   const saveDefaultProfile = useCallback(

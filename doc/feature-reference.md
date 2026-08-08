@@ -701,15 +701,16 @@ already loads:
   Pipeline graph card so operators see one graph frame rather than a nested
   Execution Graph panel, and the overview SVG fills that visible frame so
   centered steps do not disappear behind an internal clipping layer. The Flow
-  card ends at the graph canvas; source metadata and dependency actions remain
-  in the header/definition and Dependencies tab surfaces instead of a detached
-  graph footer. The shared graph canvas and SVG node chrome use light/dark graph
-  theme variables rather than a dark-only palette.
-  Trigger rules, runs, and dependencies use full-width row tables on their
-  dedicated tabs so operators can scan all loaded objects without card limits.
-  Pipeline detail actions for clone, edit, access, YAML copy, and YAML download
-  live beside Execute; editing a pipeline can update YAML, pipeline name, and
-  team path in one save flow.
+  card ends at the graph canvas; source metadata and included-resource actions
+  remain in the header/definition and Includes tab surfaces instead of a
+  detached graph footer. The shared graph canvas and SVG node chrome use
+  light/dark graph theme variables rather than a dark-only palette.
+  Trigger rules, runs, and included pipeline/step resources use full-width row
+  tables on their dedicated tabs so operators can scan all loaded objects
+  without card limits. Pipeline detail actions for clone, edit, access, YAML
+  copy, and YAML download live beside Execute; editing a pipeline can update
+  YAML, pipeline name, and team path in one save flow, and the detail side rail
+  keeps identifiers left-aligned and copyable.
   Modes cover complete review, security, reliability, monitoring, performance,
   maintainability, and pre-execution readiness.
 - **Analyse Run** in run detail reviews run metadata, steps/tasks, approvals,
@@ -972,14 +973,14 @@ Pages present in the current UI:
   The setup wizard appears there as Installation.
   Product Wiki, user profile/theme/logout, and the final version row live as
   separated sidebar footer sections so route headers stay compact.
-- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, ignored-failure warnings with warning run status, expandable scroll-zoom graph exploration with frontmost child dialogs, parent-visible included pipeline logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
+- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details with explicit Back navigation to the current run-list context, ignored-failure warnings with warning run status, expandable scroll-zoom graph exploration with frontmost child dialogs, parent-visible included pipeline logs, rerun, cancel, branch cleanup, and single-line overview rows for all fetched runs with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, fullscreen expanded YAML
   authoring with top-bar validation and collapsed parameter help, tabbed pipeline detail
   with a compact run-detail-style header, title-level Definition YAML validation,
   single-frame embedded dependency graphing, definition side summary,
-  trigger/run/dependency panels, read-only health findings, and Execute handoff
-  to Lab
+  trigger/run/include panels, read-only health findings, copyable identifiers,
+  team-path-aware Back navigation, and Execute handoff to Lab
 - `Pipelines`: YAML parameter help mirrors autocomplete coverage for supported
   pipeline, embedded step, and task directives, including LLM sharing,
   content-sharing, display-options, policy, runtime, and MCP fields
@@ -991,16 +992,20 @@ Pages present in the current UI:
   top-bar validation, collapsed parameter help, snippet insertion, top-toolbar metrics, borderless owner/team
   tree and list navigation, and list scopes derived from trigger manifests
 - `External API` and `Git webhooks`: event automation resource workspaces with top-toolbar metrics and nested detail routes for selected triggers and webhook sources
-- `Scopes`: steps-style team tree and table browsing for scopes, plus a selected-scope detail workspace with summary metrics, combined variable/secret search and type filters, selected-item value inspection, usage relationships, scope use-access controls, GitOps encryption entry points, and collapsible registered runner assignments for the selected scope
+- `Scopes`: steps-style team tree and table browsing for scopes, plus a selected-scope detail workspace with left-aligned contextual Back, copyable scope path, summary metrics, combined variable/secret search and type filters, selected-item value inspection, usage relationships, scope use-access controls, GitOps encryption entry points, and collapsible registered runner assignments for the selected scope
 - `Teams`: team/application hierarchy, team-owned resources, config repository controls, and registered runner assignments for the team scope and subgroup scopes
 - `Lab`: ad-hoc YAML editing, compact copy-light run setup, aligned editor
   workspace with title-level YAML validation, fullscreen expanded pipeline YAML
   toolbox, runtime pool suggestions, preselected pipeline handoff, structured
   right-rail run readiness above included dependencies, and direct run execution
-- `Steps`: reusable step library, fullscreen expanded step/task YAML toolbox with top-bar validation, usage inspection, and step use-access controls
+- `Steps`: reusable step library with pipeline-detail-style selected-step
+  routes, compact hero actions, tabbed definition/usage panels, side summary,
+  fullscreen expanded step/task YAML toolbox with top-bar validation, usage
+  inspection, editable team/name identity fields, copyable identifiers, and step
+  use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
-- `Knowledge Context`: kind/team/document browser with kindless document IDs, top-toolbar document/connection metrics aligned with actions, compact magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, data management, compact dispatcher overview/runners/routing/install tabs, runtime-filtered table-first runner fleet controls with runner detail below the table after selection, route edit/effective-routing tables, runtime pool management, redesigned Access management with Basic/Advanced modes, top-row summary metrics, Pipeline Runs-style advanced tabs, full-width table-first catalogs, sectioned full-height drawer create/edit flows, compact magnifier search, and icon create actions without extra table filters, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
+- `Knowledge Context`: kind/team/document browser with kindless document IDs, selected-detail tree branches kept open from the resolved kind/team path, contextual Back path labels, top-toolbar document/connection metrics aligned with actions, compact magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
+- `System`: config, data management, compact dispatcher overview/runners/routing/install tabs, runtime-filtered table-first runner fleet controls with runner detail below the table after selection, route edit/effective-routing tables, runtime pool management, redesigned Access management with Basic/Advanced modes, top-row summary metrics, Pipeline Runs-style advanced tabs, full-width table-first catalogs, sectioned full-height drawer create/edit flows, compact magnifier search, and icon create actions without extra table filters, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, save-to-detail profile/server forms, top-toolbar delete/test actions, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 

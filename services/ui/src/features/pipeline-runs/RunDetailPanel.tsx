@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, BarChart3, BrainCircuit, FileText, GitCompare, Info, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart3, BrainCircuit, FileText, GitCompare, Info, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
 import { AnalysisModal } from '../analysis/AnalysisModal';
 import { buildRunAnalysis } from '../analysis/model';
 import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
@@ -63,6 +63,7 @@ export function RunDetailView({
   detail,
   loading,
   error,
+  backContextLabel,
   onClose,
   onCancel,
   onCancelOutput,
@@ -84,6 +85,7 @@ export function RunDetailView({
   detail: RunDetail;
   loading: boolean;
   error: string | null;
+  backContextLabel?: string;
   onClose: () => void;
   onCancel: () => void;
   onCancelOutput: (outputId: string) => void;
@@ -258,6 +260,22 @@ export function RunDetailView({
         <div className="p-3 flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-col gap-2">
+              <div className="pipeline-run-detail-back-row">
+                <button
+                  className={ghostAction}
+                  type="button"
+                  onClick={onClose}
+                  aria-label={`Back to ${backContextLabel || 'pipeline runs'}`}
+                >
+                  <ArrowLeft className="h-4 w-4 text-current" aria-hidden="true" />
+                  Back
+                </button>
+                {backContextLabel ? (
+                  <span className="pipeline-run-detail-back-context" title={backContextLabel}>
+                    {backContextLabel}
+                  </span>
+                ) : null}
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xl lg:text-[1.35rem] font-black tracking-tight text-[var(--text-primary)] dark:text-[var(--text-primary)]">{run.pipeline_name}</span>
                 {parentRun && (

@@ -264,6 +264,9 @@ test('moves an edited team agent profile to the global catalog', async () => {
 
   await waitFor(() => expect(apiMocks.saveAgentProfile).toHaveBeenCalledWith(expect.objectContaining({ id: 'security-reviewer' })));
   expect(teamProfileMocks.deleteTeamAgentProfile).toHaveBeenCalledWith('platform/ml', 'security-reviewer');
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Save profile' })).not.toBeInTheDocument());
+  const detailPanel = screen.getByLabelText('Agent profile detail');
+  expect(within(detailPanel).getByRole('heading', { name: 'Security Reviewer' })).toBeVisible();
 });
 
 test('applies the team filter from the route query', async () => {

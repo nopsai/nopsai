@@ -21,6 +21,7 @@ import {
   knowledgeSyncStatusLabel,
   normalizeTeamPath,
   sourceLabel,
+  splitKnowledgePath,
   type KnowledgeConnectionListItem,
   type KnowledgeConnectionTeamSummary,
   type KnowledgeContextListItem,
@@ -43,6 +44,7 @@ type KnowledgeContextWorkspaceProps = {
   search: string;
   collectionDocuments: KnowledgeContextListItem[];
   selectedID: string;
+  selectedTreePath: string;
   selectedDetail: KnowledgeContextDetailViewProps;
   detailLoading: boolean;
   canWriteKnowledge: boolean;
@@ -141,6 +143,7 @@ export function KnowledgeContextWorkspace({
   search,
   collectionDocuments,
   selectedID,
+  selectedTreePath,
   selectedDetail,
   detailLoading,
   canWriteKnowledge,
@@ -324,6 +327,7 @@ export function KnowledgeContextWorkspace({
           listLoading={listLoading}
           listError={listError}
           selectedID={selectedID}
+          selectedTreePath={selectedTreePath}
           onOpenTeam={onOpenTeam}
           selectedConnectionID={activeSelectedConnectionID}
           onSelectConnectionTeam={handleSelectConnectionTeam}
@@ -384,6 +388,7 @@ function KnowledgeBrowserCard({
   listLoading,
   listError,
   selectedID,
+  selectedTreePath,
   selectedConnectionID,
   onOpenTeam,
   onSelectConnectionTeam,
@@ -399,6 +404,7 @@ function KnowledgeBrowserCard({
   listLoading: boolean;
   listError: string | null;
   selectedID: string;
+  selectedTreePath: string;
   selectedConnectionID: string;
   onOpenTeam: (team: string) => void;
   onSelectConnectionTeam: (team: string) => void;
@@ -440,6 +446,7 @@ function KnowledgeBrowserCard({
           treeRoot={treeRoot}
           totalDocuments={totalDocuments}
           selectedID={selectedID}
+          selectedTreePath={selectedTreePath}
           onOpenTeam={onOpenTeam}
           onSelectDocument={onSelectDocument}
         />
@@ -453,6 +460,7 @@ function DocumentRows({
   treeRoot,
   totalDocuments,
   selectedID,
+  selectedTreePath,
   onOpenTeam,
   onSelectDocument,
 }: {
@@ -460,11 +468,16 @@ function DocumentRows({
   treeRoot: KnowledgeTeamNode;
   totalDocuments: number;
   selectedID: string;
+  selectedTreePath: string;
   onOpenTeam: (team: string) => void;
   onSelectDocument: (id: string) => void;
 }) {
   const [nodeOpenOverrides, setNodeOpenOverrides] = useState<Map<string, boolean>>(() => new Map());
-  const selectedPath = selectedID ? knowledgeDocumentTreePathFromID(selectedID) : '';
+  const selectedTreeNodePath = useMemo(
+    () => selectedID ? findKnowledgeDocumentTreePath(treeRoot, selectedID) : '',
+    [selectedID, treeRoot]
+  );
+  const selectedPath = selectedTreeNodePath || selectedTreePath || (selectedID ? knowledgeDocumentTreePathFromID(selectedID) : '');
   const forcedOpenNodeIDs = useMemo(() => {
     const ids = new Set<string>(['root']);
     knowledgeTreeAncestorIDs(activeTeam).forEach(id => ids.add(id));
@@ -523,13 +536,30 @@ function DocumentRows({
           <KnowledgeExplorerLeaf
             key={document.id}
             document={document}
-            selected={selectedID === document.id}
+            selected={knowledgeDocumentIDMatches(document.id, selectedID)}
             onSelectDocument={onSelectDocument}
           />
         ))}
       </ul>
     </>
   );
+}
+
+function findKnowledgeDocumentTreePath(node: KnowledgeTeamNode, selectedID: string): string {
+  if (node.docs.some(document => knowledgeDocumentIDMatches(document.id, selectedID))) return node.fullPath;
+  for (const child of node.children) {
+    const match = findKnowledgeDocumentTreePath(child, selectedID);
+    if (match) return match;
+  }
+  return '';
+}
+
+function knowledgeDocumentIDMatches(documentID: string, selectedID: string): boolean {
+  if (!selectedID) return false;
+  if (documentID === selectedID) return true;
+  const documentPath = splitKnowledgePath(documentID);
+  const selectedPath = splitKnowledgePath(selectedID);
+  return documentPath.name === selectedPath.name && normalizeTeamPath(documentPath.team) === normalizeTeamPath(selectedPath.team);
 }
 
 function KnowledgeExplorerNode({
@@ -600,7 +630,7 @@ function KnowledgeExplorerNode({
             <KnowledgeExplorerLeaf
               key={document.id}
               document={document}
-              selected={selectedID === document.id}
+              selected={knowledgeDocumentIDMatches(document.id, selectedID)}
               onSelectDocument={onSelectDocument}
             />
           ))}

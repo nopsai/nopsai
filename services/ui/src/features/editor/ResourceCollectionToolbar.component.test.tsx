@@ -34,6 +34,7 @@ test('delegates navigation and creation while owning collection search behavior'
   expect(leading).not.toBeNull();
   expect(actions).not.toBeNull();
   expect(leading).toContainElement(screen.getByRole('button', { name: 'Back' }));
+  expect(screen.getByText('platform')).toHaveClass('resource-collection-path');
   expect(actions).toContainElement(screen.getByRole('searchbox', { name: 'Search pipelines' }));
   expect(actions).toContainElement(screen.getByRole('button', { name: 'Create new pipeline' }));
   expect(container.querySelector('.resource-collection-toolbar')).not.toBeNull();
