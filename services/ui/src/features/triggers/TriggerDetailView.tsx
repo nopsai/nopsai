@@ -2,6 +2,7 @@ import type { KeyboardEvent, ReactNode, RefObject, UIEvent } from 'react';
 import { ArrowLeft, FileCode2, GitBranch, Trash2 } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
+import type { YamlEditorTextChangeOptions } from '../editor/ResourceYamlDetailPanel';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import {
   GLOBAL_RESOURCE_TEAM_PATH,
@@ -67,7 +68,7 @@ type TriggerDetailViewProps = {
   onDiscard: () => void;
   onSave: () => void;
   onTriggerDetailsChange: (details: TriggerDetailsFormState) => void;
-  onEditorTextChange: (nextValue: string, cursor: number) => void;
+  onEditorTextChange: (nextValue: string, cursor: number, options?: YamlEditorTextChangeOptions) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
   onMoveSuggestion: (direction: 1 | -1) => void;
   onDismissSuggestion: () => void;
@@ -352,7 +353,6 @@ export function TriggerDetailView({
               isGitSource={isGitSource}
               saving={saving}
               saveBlocked={saveBlocked}
-              autocompleteWidth={340}
               onCopy={onCopy}
               onDownload={onDownload}
               onEdit={onEdit}

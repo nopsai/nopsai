@@ -67,14 +67,28 @@ truth; this file is the source-adjacent placement guide.
   GitOps warnings, reloads, and toast behavior remain consistent.
 - Expanded YAML authoring help is shared by `features/editor`: `yamlToolboxModel.ts`
   owns parameter/snippet/sample model data and indentation-aware cursor insertion,
-  `YamlEditorToolbox.tsx` owns the validation/suggestion/parameter/snippet rail,
+  `YamlEditorFullscreenDialog.tsx` owns full-height expanded framing and top-bar
+  validation, `YamlEditorToolbox.tsx` owns the suggestion/parameter/snippet rail,
   and pages only orchestrate editor state, metadata loading, and persistence.
+  Parameter rows must stay aligned with the directive constants used by pipeline,
+  Lab, and reusable-step autocomplete so every supported pipeline, step, and task
+  key has matching in-editor reference help. Parameter, insertion-structure, and
+  sample groups start collapsed, and expanded autocomplete suggestions use compact
+  single-line rows. Autocomplete must stay editor-passive: Enter and plain arrow
+  keys keep their YAML editing behavior, Tab accepts the highlighted suggestion,
+  Alt+Up/Alt+Down changes the highlighted suggestion, and mouse clicks in the
+  editor should never force a suggestion selection. Expanded validation details
+  should open as a compact overlay from the top-bar status chip so parser errors
+  remain readable without reducing the editor frame height.
 - Pipeline- and step-specific API, model, usage, activity, and permission logic
   stays under `features/pipelines` and `features/steps`.
 - Pipeline detail rendering stays under `features/pipelines/PipelineDetailView.tsx`.
   Tab section rendering lives in `features/pipelines/PipelineDetailSections.tsx`.
   Pure display derivation for source state, graph work-unit counts, run summary,
   and health score helpers lives in `features/pipelines/pipelineDetailPresentation.ts`;
+  Definition-tab YAML validation is surfaced in the shared YAML card header,
+  while the Pipeline side rail stays focused on identity, source/sync, and
+  dependencies.
   route selection, editor orchestration, drafts, identity edit state, and Lab
   execute handoff remain owned by `pages/Pipelines.tsx`.
 - Run final-output preview, copy, download, cancel, and failed-output retry
@@ -311,15 +325,19 @@ truth; this file is the source-adjacent placement guide.
 
 ### Lab
 
-- Dependency preview, variable overrides, session state, run authorization, and
-  run mutation behavior belong under `features/lab`.
+- Dependency preview, run readiness, session state, run authorization, persisted
+  override compatibility, and run mutation behavior belong under `features/lab`.
 - Run submission must re-check resource authorization for the selected pipeline
   and scope before launch.
 - Autocomplete metadata should remain keyed to the active scope and editor
   context.
 - Lab uses the shared fullscreen expanded YAML toolbox for pipeline parameters
-  and snippet insertion while keeping Lab-only session, authorization, and run
-  controls in `features/lab` and `pages/Lab.tsx`.
+  and snippet insertion while keeping Lab-only session, authorization, run
+  controls, right-rail readiness, and included dependencies in `features/lab`
+  and `pages/Lab.tsx`. The Lab page should stay an operational workspace: compact
+  run setup without explanatory hero copy, title-level YAML validation on the
+  Pipeline definition card, an aligned editor/context grid, and a structured
+  context rail instead of marketing-style panels or borrowed trigger list styles.
 
 ### Assistant
 

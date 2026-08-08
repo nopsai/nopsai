@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
+import type { YamlEditorTextChangeOptions } from '../editor/ResourceYamlDetailPanel';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams';
 import type { StepUsageItem } from './api';
@@ -34,7 +35,7 @@ type StepDetailViewProps = {
   onClone: () => void;
   onDiscard: () => void;
   onSave: () => void;
-  onEditorTextChange: (nextValue: string, cursor: number) => void;
+  onEditorTextChange: (nextValue: string, cursor: number, options?: YamlEditorTextChangeOptions) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
   onMoveSuggestion: (direction: 1 | -1) => void;
   onDismissSuggestion: () => void;

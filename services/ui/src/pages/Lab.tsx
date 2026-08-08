@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
-import { Check, Maximize2, Minimize2 } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, Maximize2, Minimize2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeRuntimePoolNames } from '../features/editor/autocomplete';
 import { YamlEditorFullscreenDialog } from '../features/editor/YamlEditorFullscreenDialog';
 import { YamlEditorToolbox } from '../features/editor/YamlEditorToolbox';
 import { insertYamlSnippetAtCursor } from '../features/editor/yamlToolboxModel';
 import { LabDependencyPanel } from '../features/lab/LabDependencyPanel';
-import { LabRunControls } from '../features/lab/LabRunControls';
+import { LabRunControls, LabRunReadinessPanel } from '../features/lab/LabRunControls';
 import { LabSuggestionPortals } from '../features/lab/LabSuggestionPortals';
-import { LabVariableOverrides } from '../features/lab/LabVariableOverrides';
 import {
   fetchLabAutocompleteMetadata,
   fetchLabPipelines,
@@ -68,18 +67,15 @@ function LabPage() {
   const autocompleteFetchRef = useRef<{ fetchedAt: number; loadingPromise: Promise<void> | null }>({ fetchedAt: 0, loadingPromise: null });
   const pipelineHandoffRef = useRef('');
   const {
-    addOverride,
     changePipeline,
     feedback,
     overrides,
-    removeOverride,
     saveSession,
     scopeValue,
     selectedPipelineId,
     setFeedback,
     setScopeValue,
     setYamlText,
-    updateOverride,
     yamlLoading,
     yamlText,
   } = useLabSession();
@@ -679,38 +675,31 @@ function LabPage() {
   }, []);
 
   const expandedSuggestionSlot = (
-    <section className="scope-suggestion-panel yaml-toolbox-suggestion-card" aria-live="polite">
-      <div className="scope-suggestion-heading">
+    <section className="scope-suggestion-panel scope-suggestion-panel--compact yaml-toolbox-suggestion-card" aria-live="polite">
+      <div className="scope-suggestion-heading scope-suggestion-heading--compact">
         <h3 className="scope-suggestion-title">
           {suggestionContext?.title || suggestionCopy.title}
         </h3>
         <p className="scope-suggestion-subtitle">
-          {suggestionCopy.subtitle}
-          {autocompleteMeta.loading ? ' Loading...' : ''}
+          Tab inserts{autocompleteMeta.loading ? ' - Loading...' : ''}
         </p>
       </div>
       <div className="scope-suggestion-body">
         {suggestionItems.length ? (
-          <article className="scope-suggestion-item">
-            <div className="scope-suggestion-scope">
-              <span className="scope-suggestion-scope-label">{suggestionContext?.title || suggestionCopy.title}</span>
-              <span className="scope-suggestion-scope-count">{suggestionItems.length} items</span>
-            </div>
-            <div className="scope-suggestion-variables">
-              {suggestionItems.map(item => (
-                <button
-                  key={`${item.value}-${item.label ?? ''}`}
-                  type="button"
-                  className="scope-suggestion-pill scope-suggestion-pill--action"
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => applySuggestion(item)}
-                >
-                  <span>{item.label ?? item.value}</span>
-                  {item.hint ? <span className="scope-suggestion-hint">{item.hint}</span> : null}
-                </button>
-              ))}
-            </div>
-          </article>
+          <div className="scope-suggestion-list">
+            {suggestionItems.map(item => (
+              <button
+                key={`${item.value}-${item.label ?? ''}`}
+                type="button"
+                className="scope-suggestion-row scope-suggestion-pill scope-suggestion-pill--action"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => applySuggestion(item)}
+              >
+                <span>{item.label ?? item.value}</span>
+                {item.hint ? <span className="scope-suggestion-hint">{item.hint}</span> : null}
+              </button>
+            ))}
+          </div>
         ) : (
           <p className="scope-suggestion-empty">
             {autocompleteMeta.loading ? 'Loading suggestions...' : 'Place the cursor in a YAML key or value to see contextual completions.'}
@@ -792,16 +781,6 @@ function LabPage() {
       {fullscreen ? (
         <YamlEditorToolbox
           resourceKind="pipeline"
-          validationId="lab-validation-status"
-          validationErrors={editorValidationErrors}
-          renderValidationExample={message => {
-            const example = buildValidationExample(message);
-            return example ? (
-              <pre className="validation-box__example">
-                <code>{example}</code>
-              </pre>
-            ) : null;
-          }}
           suggestionSlot={expandedSuggestionSlot}
           onInsertSnippet={insertToolboxSnippet}
         />
@@ -814,21 +793,11 @@ function LabPage() {
   );
 
   return (
-    <div data-page="lab" className="active h-full flex flex-col">
-      <div className="px-4 pt-4 pb-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)]">Scoped pipeline runs</h2>
-            <p className="text-sm text-[var(--text-secondary)] max-w-3xl">
-              Pick a stored pipeline, lock in a scope, and launch it with temporary variables to validate behavior quickly.
-            </p>
-            {pipelinesError && <p className="text-sm text-red-500 mt-2">Failed to load pipelines: {pipelinesError}</p>}
-          </div>
-        </div>
-      </div>
+    <div data-page="lab" className="active lab-page">
+      <div className="lab-page__scroll">
+        <div className="lab-page__body">
+          {pipelinesError ? <p className="lab-page__error">Failed to load pipelines: {pipelinesError}</p> : null}
 
-      <div className="flex-1 overflow-auto px-4 pb-6">
-        <div className="space-y-4">
           <LabRunControls
             pipelines={pipelines}
             pipelinesLoading={pipelinesLoading}
@@ -848,16 +817,19 @@ function LabPage() {
             onRun={() => void handleRun()}
           />
 
-          <div className={`grid grid-cols-1 lg:grid-cols-4 gap-5 ${editorExpanded ? 'lab-workspace-grid--editor-expanded' : ''}`}>
-            <div className="glass-card p-4 space-y-4 rounded-lg shadow-sm ring-1 ring-[var(--border-primary)]/70 lg:col-span-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[var(--text-primary)]">Pipeline definition</h3>
-                    <p className="text-sm text-[var(--text-secondary)]">Edit and validate before you launch.</p>
+          <div className={`lab-workspace-grid ${editorExpanded ? 'lab-workspace-grid--editor-expanded' : ''}`}>
+            <section className="glass-card lab-editor-card" aria-label="Pipeline definition editor">
+              <div className="lab-editor-card__head">
+                <div>
+                  <div className="lab-editor-card__title-row">
+                    <h3>Pipeline definition</h3>
+                    <LabYamlValidationChip issueCount={editorValidationErrors.length} />
+                  </div>
+                  <div className="lab-editor-card__meta" aria-label="YAML editor metadata">
+                    <span>{editorLines.length} lines</span>
                   </div>
                 </div>
-                <div className="flex items-center flex-wrap gap-2">
+                <div className="lab-editor-card__actions">
                   <button
                     type="button"
                     className="glass-button-ghost"
@@ -882,25 +854,26 @@ function LabPage() {
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="lab-editor-card__body">
                 {editorExpanded ? (
                   <div className="resource-yaml-expanded-placeholder">
                     Expanded YAML editor is open.
                   </div>
                 ) : renderLabEditorWorkspace(false)}
               </div>
-            </div>
+            </section>
 
-            <div className="space-y-5">
-              <LabDependencyPanel dependencies={includedDependencies} />
-
-              <LabVariableOverrides
-                overrides={overrides}
-                onAdd={addOverride}
-                onUpdate={updateOverride}
-                onRemove={removeOverride}
+            <aside className="lab-side-stack" aria-label="Lab run context">
+              <LabRunReadinessPanel
+                validationErrorCount={backendValidation.blockingErrorCount}
+                accessLoading={runValidation.loading}
+                accessError={runValidation.error}
+                accessBlocked={runValidationBlocked}
+                accessChecks={runValidation.checks}
               />
-            </div>
+
+              <LabDependencyPanel dependencies={includedDependencies} />
+            </aside>
           </div>
         </div>
       </div>
@@ -909,7 +882,15 @@ function LabPage() {
         <YamlEditorFullscreenDialog
           title="Pipeline definition"
           subtitle="Fullscreen Lab YAML authoring"
-          validationIssueCount={editorValidationErrors.length}
+          validationErrors={editorValidationErrors}
+          renderValidationExample={message => {
+            const example = buildValidationExample(message);
+            return example ? (
+              <pre className="validation-box__example">
+                <code>{example}</code>
+              </pre>
+            ) : null;
+          }}
           onClose={() => setEditorExpanded(false)}
           actions={
             <button
@@ -938,10 +919,28 @@ function LabPage() {
         suggestionCopy={suggestionCopy}
         suggestionItems={suggestionItems}
         autocompleteLoading={autocompleteMeta.loading}
-        showFloatingPanel={!editorExpanded}
+        showFloatingPanel={false}
         onApplySuggestion={applySuggestion}
       />
     </div>
+  );
+}
+
+function LabYamlValidationChip({ issueCount }: { issueCount: number }) {
+  if (!issueCount) {
+    return (
+      <span className="resource-yaml-validation-chip resource-yaml-validation-chip--valid" role="status" aria-live="polite">
+        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+        YAML valid
+      </span>
+    );
+  }
+
+  return (
+    <span className="resource-yaml-validation-chip resource-yaml-validation-chip--invalid" role="status" aria-live="polite">
+      <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+      {`${issueCount} validation issue${issueCount === 1 ? '' : 's'}`}
+    </span>
   );
 }
 
