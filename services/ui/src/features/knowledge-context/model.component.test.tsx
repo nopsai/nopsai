@@ -12,6 +12,7 @@ import {
   encodeKnowledgeID,
   findKnowledgeTeam,
   isGitManagedDocument,
+  knowledgeDocumentTreePath,
   knowledgeContentSource,
   knowledgeTreePathToTeam,
   loadKnowledgeDraft,
@@ -56,6 +57,7 @@ describe('Knowledge Context model', () => {
     expect(findKnowledgeTeam(tree, 'runbook/platform/security').docs).toHaveLength(0);
     expect(findKnowledgeTeam(tree, 'missing')).toBe(tree);
     expect(countTeamDocs(tree)).toBe(1);
+    expect(knowledgeDocumentTreePath(documents[0])).toBe('runbook/platform');
   });
 
   it('builds team options from resource teams and existing knowledge resources', () => {

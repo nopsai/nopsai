@@ -157,6 +157,9 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
   expect(screen.getByRole('button', { name: /edit server/i })).toHaveClass('ai-resource-icon-action');
+  const serverDetailPanel = screen.getByLabelText('MCP server detail');
+  expect(within(serverDetailPanel).getByRole('button', { name: 'Delete server' }).closest('.ai-resource-detail__actions')).toBeTruthy();
+  expect(serverDetailPanel.querySelector('.ai-resource-detail__footer button')).toBeNull();
   expect(screen.getAllByText('/platform/ml')[0]).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: /edit server/i }));
@@ -189,6 +192,9 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getByText('issues_list')).toBeVisible();
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
+  const profileDetailPanel = screen.getByLabelText('MCP profile detail');
+  expect(within(profileDetailPanel).getByRole('button', { name: 'Delete profile' }).closest('.ai-resource-detail__actions')).toBeTruthy();
+  expect(profileDetailPanel.querySelector('.ai-resource-detail__footer button')).toBeNull();
 
   await user.click(screen.getByRole('button', { name: /test profile/i }));
   await waitFor(() => expect(apiMocks.testMCPProfile).toHaveBeenCalledWith('platform/ml/pr-review'));
@@ -258,6 +264,9 @@ test('moves an edited MCP server to the global catalog when no profiles referenc
     'platform/ml/github'
   ));
   expect(apiMocks.deleteMCPServer).toHaveBeenCalledWith('platform/ml/github');
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Save server' })).not.toBeInTheDocument());
+  const detailPanel = screen.getByLabelText('MCP server detail');
+  expect(within(detailPanel).getByRole('heading', { name: 'GitHub MCP' })).toBeVisible();
 });
 
 test('moves an edited team MCP profile to the global catalog', async () => {
@@ -306,6 +315,9 @@ test('moves an edited team MCP profile to the global catalog', async () => {
     'platform/ml/pr-review'
   ));
   expect(teamProfileMocks.deleteTeamMCPProfile).toHaveBeenCalledWith('platform/ml', 'pr-review');
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Save profile' })).not.toBeInTheDocument());
+  const detailPanel = screen.getByLabelText('MCP profile detail');
+  expect(within(detailPanel).getByRole('heading', { name: 'pr-review' })).toBeVisible();
 });
 
 test('applies the team filter and profiles view from the route query', async () => {

@@ -15,7 +15,7 @@ import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
-import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
+import { updateYamlResourceName, useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
 import {
   checkStepPermission,
   deleteStep,
@@ -75,6 +75,14 @@ function buildStepTemplateYaml(name: string) {
   ].join('\n');
 }
 
+function stepIdentityFromIdentifier(id: string) {
+  return splitIdentifier(id);
+}
+
+function buildStepIdentifier(path: string, name: string) {
+  return path ? `${path}/${name}` : name;
+}
+
 function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -99,6 +107,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
+  const [editableIdentity, setEditableIdentity] = useState({ path: '', name: '' });
   const {
     permissionTeam,
     canCreateStepHere,
@@ -401,6 +410,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
     setEditorSuggestion(null);
     setEditorValue(resetYaml);
+    setEditableIdentity(stepIdentityFromIdentifier(detail.id));
     if (normalizeSource(detail.source) === 'draft' && draftScope) {
       upsertStepDraftState({ id: detail.id, yaml: resetYaml });
     }
@@ -441,15 +451,28 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const validation = useMemo(() => {
     if (!isEditing) return { errors: [] };
-    const expectedName = detail ? splitIdentifier(detail.id).name : '';
-    return validateStepYaml(editorValue, { expectedName });
-  }, [detail, editorValue, isEditing]);
+    const expectedName = editableIdentity.name.trim();
+    const yamlForValidation = expectedName ? updateYamlResourceName(editorValue, expectedName) : editorValue;
+    return validateStepYaml(yamlForValidation, { expectedName });
+  }, [editableIdentity.name, editorValue, isEditing]);
+
+  const backendValidationYaml = useMemo(() => {
+    const name = editableIdentity.name.trim();
+    return isEditing && name ? updateYamlResourceName(editorValue, name) : editorValue;
+  }, [editableIdentity.name, editorValue, isEditing]);
+
+  const backendValidationResourceID = useMemo(() => {
+    const name = editableIdentity.name.trim();
+    const path = normalizeRootPath(editableIdentity.path);
+    return name ? buildStepIdentifier(path, name) : detail?.id || '';
+  }, [detail?.id, editableIdentity.name, editableIdentity.path]);
 
   const backendValidation = useBackendYamlValidation({
     enabled: isEditing,
     resource: 'step',
-    yaml: editorValue,
-    resourceID: detail?.id || '',
+    yaml: backendValidationYaml,
+    resourceID: backendValidationResourceID,
+    name: editableIdentity.name.trim(),
   });
 
   const editorValidationErrors = useMemo(
@@ -492,6 +515,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
           const parsed = parseStepYaml(draft.yaml, stepId, 'draft', draft.updatedAt);
           setDetail(parsed);
           setEditorValue(draft.yaml);
+          setEditableIdentity(stepIdentityFromIdentifier(stepId));
           setIsEditing(true);
           return;
         }
@@ -500,6 +524,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         const parsed = parseStepYaml(rawYaml, stepId, normalizedSource, updatedAt);
         setDetail(parsed);
         setEditorValue(rawYaml);
+        setEditableIdentity(stepIdentityFromIdentifier(stepId));
         setIsEditing(false);
       } catch (error) {
         console.error('Failed to fetch step', error);
@@ -600,6 +625,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     if (!selectedId) {
       setDetail(null);
       setEditorValue('');
+      setEditableIdentity({ path: '', name: '' });
       setIsEditing(false);
       setEditorSuggestion(null);
       setUsage([]);
@@ -713,8 +739,15 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const handleStepSaved = useCallback((updated: StepDetail) => {
     setDetail(updated);
     setEditorValue(updated.rawYaml);
+    setEditableIdentity(stepIdentityFromIdentifier(updated.id));
     setIsEditing(false);
   }, []);
+
+  const handleStartEdit = useCallback(() => {
+    if (!detail) return;
+    setEditableIdentity(stepIdentityFromIdentifier(detail.id));
+    setIsEditing(true);
+  }, [detail]);
 
   const handleStepDeleted = useCallback(() => {
     setSelectedId(null);
@@ -731,7 +764,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     openCloneModal,
     openCreateModal,
     openDeleteModal,
-    save: handleSave,
+    save: saveStepResource,
     saving,
     submitFormModal,
     updateFormModal,
@@ -765,7 +798,30 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     buildTemplate: buildStepTemplateYaml,
   });
 
+  const handleSaveStep = useCallback(async () => {
+    if (!detail) return;
+    const name = editableIdentity.name.trim();
+    const path = normalizeRootPath(editableIdentity.path);
+    const nextID = buildStepIdentifier(path, name);
+    if (!name) {
+      addToast('Step name is required.', 'error');
+      return;
+    }
+    if (!STEP_NAME_PATTERN.test(name)) {
+      addToast('Step name can only contain letters, numbers, dots, underscores, and hyphens.', 'error');
+      return;
+    }
+    const nextYaml = updateYamlResourceName(editorValue, name);
+    const saved = await saveStepResource({ resourceID: nextID, rawYaml: nextYaml });
+    if (saved) {
+      setEditorValue(nextYaml);
+      setEditableIdentity({ path, name });
+    }
+  }, [addToast, detail, editableIdentity.name, editableIdentity.path, editorValue, saveStepResource]);
+
   const handleBackToList = () => {
+    setSelectedId(null);
+    selectedIdRef.current = null;
     if (detail) {
       const team = splitIdentifier(detail.id).path;
       navigate(teamScopedRoute('/steps', team));
@@ -784,6 +840,19 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       addToast('Unable to copy YAML.', 'error');
     }
   };
+
+  const handleCopyIdentifier = useCallback(
+    async (identifier: string) => {
+      try {
+        await copyTextToClipboard(identifier);
+        addToast('Identifier copied.', 'success');
+      } catch (error) {
+        console.error('Failed to copy identifier', error);
+        addToast('Unable to copy identifier.', 'error');
+      }
+    },
+    [addToast]
+  );
 
   const handleDownload = () => {
     if (!detail?.rawYaml) return;
@@ -849,16 +918,21 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
               canCreateStepHere={canCreateStepHere}
               saving={saving}
               saveBlocked={backendValidation.isInvalid}
+              editableStepName={editableIdentity.name}
+              editableStepTeam={editableIdentity.path}
               usage={usage}
               usageLoading={usageLoading}
               usageError={usageError}
               onBack={handleBackToList}
               onCopy={() => void handleCopy()}
               onDownload={handleDownload}
-              onEdit={() => setIsEditing(true)}
+              onEdit={handleStartEdit}
               onClone={openCloneModal}
               onDiscard={discardEditorChanges}
-              onSave={() => void handleSave()}
+              onSave={() => void handleSaveStep()}
+              onCopyIdentifier={handleCopyIdentifier}
+              onEditableStepNameChange={value => setEditableIdentity(current => ({ ...current, name: value }))}
+              onEditableStepTeamChange={value => setEditableIdentity(current => ({ ...current, path: value }))}
               onEditorTextChange={handleEditorTextChange}
               onOpenSuggestion={openEditorSuggestion}
               onMoveSuggestion={moveEditorSuggestion}

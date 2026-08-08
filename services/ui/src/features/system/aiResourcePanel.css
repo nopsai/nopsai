@@ -1702,22 +1702,6 @@
   text-align: right;
 }
 
-.ai-resource-delete-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  background: transparent;
-  color: #dc2626;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.ai-resource-delete-link:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 .ai-resource-detail__footer p {
   margin: 0;
   color: var(--text-secondary);

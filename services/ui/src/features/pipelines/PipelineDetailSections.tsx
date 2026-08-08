@@ -1,4 +1,5 @@
 import type { KeyboardEvent, ReactElement, ReactNode, RefObject, UIEvent } from 'react';
+import { Copy } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { YamlEditorTextChangeOptions } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
@@ -6,7 +7,6 @@ import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import type { PipelineAnalysisScope } from '../analysis/model';
 import { analysisCategoryLabel, type AnalysisFinding } from '../analysis/model';
 import { formatPipelineDetailPath, formatPipelineDetailSource } from './pipelineDetailPresentation';
-import { GLOBAL_RESOURCE_TEAM_PATH } from '../../lib/resourceTeams';
 import type { PipelineDependencyReference, PipelineDetail } from './model';
 
 export type DetailTabID = 'flow' | 'definition' | 'triggers' | 'runs' | 'health' | 'dependencies';
@@ -80,6 +80,7 @@ export function PipelineDefinitionPanel({
   onSave,
   onOpenDependency,
   onCopyDependency,
+  onCopyIdentifier,
   onEditorTextChange,
   onOpenSuggestion,
   onMoveSuggestion,
@@ -118,6 +119,7 @@ export function PipelineDefinitionPanel({
   onSave: () => void;
   onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
+  onCopyIdentifier: (identifier: string) => void | Promise<void>;
   onEditorTextChange: (nextValue: string, cursor: number, options?: YamlEditorTextChangeOptions) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
   onMoveSuggestion: (direction: 1 | -1) => void;
@@ -192,6 +194,7 @@ export function PipelineDefinitionPanel({
           dependencies={dependencies}
           onOpenDependency={onOpenDependency}
           onCopyDependency={onCopyDependency}
+          onCopyIdentifier={onCopyIdentifier}
           onEditablePipelineNameChange={onEditablePipelineNameChange}
           onEditablePipelineTeamChange={onEditablePipelineTeamChange}
         />
@@ -210,6 +213,7 @@ function DefinitionSidePanel({
   dependencies,
   onOpenDependency,
   onCopyDependency,
+  onCopyIdentifier,
   onEditablePipelineNameChange,
   onEditablePipelineTeamChange,
 }: {
@@ -222,6 +226,7 @@ function DefinitionSidePanel({
   dependencies: PipelineDependencyReference[];
   onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
+  onCopyIdentifier: (identifier: string) => void | Promise<void>;
   onEditablePipelineNameChange: (value: string) => void;
   onEditablePipelineTeamChange: (value: string) => void;
 }) {
@@ -256,8 +261,9 @@ function DefinitionSidePanel({
           </div>
         ) : (
           <dl className="pipeline-detail-key-values">
-            <KeyValue label="Team" value={detail.path || GLOBAL_RESOURCE_TEAM_PATH} />
+            <KeyValue label="Team" value={formatPipelineDetailPath(detail)} />
             <KeyValue label="Name" value={detail.name || detail.id} />
+            <KeyValue label="Identifier" value={detail.id} onCopy={() => void onCopyIdentifier(detail.id)} />
           </dl>
         )}
       </section>
@@ -267,23 +273,37 @@ function DefinitionSidePanel({
           <KeyValue label="Source" value={sourceState.label} />
           <KeyValue label="State" value={sourceState.description} />
           <KeyValue label="Version" value={detail.version || 'latest'} />
-          <KeyValue label="Path" value={formatPipelineDetailPath(detail)} />
           <KeyValue label="Updated" value={updatedLabel} />
         </dl>
       </section>
       <section className="pipeline-detail-side-panel">
-        <h3>Dependencies</h3>
+        <h3>Includes</h3>
         <DependencyLinks dependencies={dependencies} onOpenDependency={onOpenDependency} onCopyDependency={onCopyDependency} stacked />
       </section>
     </aside>
   );
 }
 
-function KeyValue({ label, value }: { label: string; value: string }) {
+function KeyValue({ label, value, onCopy }: { label: string; value: string; onCopy?: () => void }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{value}</dd>
+      <dd>
+        <span className="pipeline-detail-key-value-content">
+          <span className="pipeline-detail-key-value-text">{value}</span>
+          {onCopy ? (
+            <button
+              type="button"
+              className="pipeline-detail-key-copy"
+              onClick={onCopy}
+              title={`Copy ${label.toLowerCase()}`}
+              aria-label={`Copy ${label.toLowerCase()} ${value}`}
+            >
+              <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          ) : null}
+        </span>
+      </dd>
     </div>
   );
 }
@@ -300,11 +320,11 @@ export function DependencyLinks({
   stacked?: boolean;
 }) {
   if (!dependencies.length) {
-    return <span className="pipeline-detail-muted">No dependencies detected</span>;
+    return <span className="pipeline-detail-muted">No included pipelines or steps detected</span>;
   }
   return (
     <div className={stacked ? 'pipeline-detail-dependency-list' : 'pipeline-detail-dependency-links'}>
-      {!stacked ? <span>Dependencies</span> : null}
+      {!stacked ? <span>Includes</span> : null}
       {dependencies.map(dependency => (
         <button
           key={dependency.raw}

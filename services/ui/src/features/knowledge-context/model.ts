@@ -452,7 +452,7 @@ export function knowledgeDocumentTreePathFromID(id: string): string {
   return parts.join('/');
 }
 
-function knowledgeDocumentTreePath(item: Pick<KnowledgeContextListItem, 'id' | 'kind' | 'team'>): string {
+export function knowledgeDocumentTreePath(item: Pick<KnowledgeContextListItem, 'id' | 'kind' | 'team'>): string {
   const explicitKind = normalizeKnowledgeKindForTree(item.kind);
   const explicitTeam = normalizeTeamPath(item.team || '');
   if (explicitKind) {

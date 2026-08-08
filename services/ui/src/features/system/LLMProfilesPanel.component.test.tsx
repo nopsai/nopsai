@@ -125,6 +125,9 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
   expect(screen.getByRole('button', { name: /edit profile/i })).toHaveClass('ai-resource-icon-action');
+  const llmDetailPanel = screen.getByLabelText('LLM profile detail');
+  expect(within(llmDetailPanel).getByRole('button', { name: 'Delete profile' }).closest('.ai-resource-detail__actions')).toBeTruthy();
+  expect(llmDetailPanel.querySelector('.ai-resource-detail__footer button')).toBeNull();
   expect(screen.getAllByText('Global')[0]).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: /test connection/i }));
@@ -193,6 +196,9 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
       provider_state: { mode: 'disabled' },
     })
   ));
+  await waitFor(() => expect(screen.queryByRole('heading', { name: 'New LLM profile' })).not.toBeInTheDocument());
+  const detailPanel = screen.getByLabelText('LLM profile detail');
+  expect(within(detailPanel).getByRole('heading', { name: 'platform/ml/reasoning' })).toBeVisible();
 });
 
 test('shows scoped catalog LLM profiles for the selected team and saves them as team defaults', async () => {
@@ -311,6 +317,9 @@ test('moves an edited team LLM profile to the global catalog', async () => {
 
   await waitFor(() => expect(apiMocks.saveLLMProfile).toHaveBeenCalledWith(expect.objectContaining({ name: 'reasoning' })));
   expect(teamProfileMocks.deleteTeamLLMProfile).toHaveBeenCalledWith('platform/ml', 'reasoning');
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Save profile' })).not.toBeInTheDocument());
+  const detailPanel = screen.getByLabelText('LLM profile detail');
+  expect(within(detailPanel).getByRole('heading', { name: 'reasoning' })).toBeVisible();
 });
 
 test('applies the team filter from the route query', async () => {

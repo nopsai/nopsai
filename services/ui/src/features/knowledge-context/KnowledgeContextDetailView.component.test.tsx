@@ -36,6 +36,7 @@ function renderDetail(overrides: Partial<Parameters<typeof KnowledgeContextDetai
     syncing: false,
     connections: [],
     teamOptions: ['platform', 'security'],
+    backPath: 'runbook/platform',
     onBackToList: vi.fn(),
     onCopy: vi.fn(),
     onDownload: vi.fn(),
@@ -61,6 +62,7 @@ describe('KnowledgeContextDetailView', () => {
     const { props } = renderDetail();
 
     expect(screen.getByRole('heading', { name: /restart/ })).toBeVisible();
+    expect(screen.getByText('Runbooks / platform')).toBeVisible();
     expect(screen.getByText('ID: platform/restart')).toBeVisible();
     expect(screen.getByText('Document Details')).toBeVisible();
     expect(screen.getByText('System Health')).toBeVisible();

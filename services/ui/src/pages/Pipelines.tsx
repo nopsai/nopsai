@@ -749,7 +749,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const handleBackToList = () => {
     setSelectedId(null);
     selectedIdRef.current = null;
-    navigate('/pipelines');
+    navigate(teamScopedRoute('/pipelines', detail ? splitIdentifier(detail.id).path : ''));
   };
 
   const handleCopy = async () => {
@@ -762,6 +762,19 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       addToast('Unable to copy YAML.', 'error');
     }
   };
+
+  const handleCopyIdentifier = useCallback(
+    async (identifier: string) => {
+      try {
+        await copyTextToClipboard(identifier);
+        addToast('Identifier copied.', 'success');
+      } catch (error) {
+        console.error('Failed to copy identifier', error);
+        addToast('Unable to copy identifier.', 'error');
+      }
+    },
+    [addToast]
+  );
 
   const handleDownload = () => {
     if (!detail?.rawYaml) return;
@@ -877,6 +890,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                   addToast('Unable to copy dependency reference.', 'error');
                 }
               }}
+              onCopyIdentifier={handleCopyIdentifier}
               onOpenRun={runID =>
                 navigate(runID ? `/pipelineruns/recent?run=${encodeURIComponent(runID)}` : '/pipelineruns/recent')
               }

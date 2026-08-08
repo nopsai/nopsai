@@ -55,6 +55,7 @@ function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWo
     search: '',
     collectionDocuments: collectKnowledgeTeamDocs(activeTeamNode),
     selectedID: '',
+    selectedTreePath: '',
     selectedDetail: {
       detail: null,
       editorValue: '',
@@ -194,6 +195,23 @@ describe('KnowledgeContextWorkspace', () => {
     expect(resizeHandle).toHaveAttribute('aria-valuemax', '520');
     expect(resizeHandle).toHaveAttribute('aria-valuenow', '360');
     expect(resizeHandle.parentElement?.style.getPropertyValue('--tree-column-width')).toBe('360px');
+  });
+
+  it('keeps the opened document branch expanded from the selected tree path', () => {
+    renderWorkspace({
+      activeTeam: '',
+      selectedID: 'runbook/platform/restart',
+      selectedTreePath: 'platform',
+    });
+
+    expect(screen.getByRole('button', { name: 'Collapse Runbooks' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Collapse platform' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Open restart' })).toHaveAttribute('aria-current', 'page');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Runbooks' }));
+
+    expect(screen.getByRole('button', { name: 'Collapse Runbooks' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Open restart' })).toBeVisible();
   });
 
   it('renders an empty connection workspace without document team placeholders', () => {

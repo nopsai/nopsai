@@ -175,6 +175,22 @@ export function decodeScopeFromRoute(segments: string[]): string {
   return decoded.join('/');
 }
 
+export function scopeDetailRoute(scope: string, activeTeam = '', search: string | URLSearchParams = ''): string {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : new URLSearchParams(search);
+  const normalizedTeam = normalizeScopeLabel(activeTeam);
+  if (normalizedTeam) {
+    params.set('team', normalizedTeam);
+  } else {
+    params.delete('team');
+  }
+  const query = params.toString();
+  return `/scopes/${encodeScopeForRoute(scope)}${query ? `?${query}` : ''}`;
+}
+
+export function scopeBackTeam(selectedScope: string, activeTeam = ''): string {
+  return normalizeScopeLabel(activeTeam) || parentScopeTeam(selectedScope);
+}
+
 export function buildScopeTree(scopes: ScopeEntry[], teamPaths: string[] = []): ScopeTreeNode {
   const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
   const createNode = (id: string, name: string, fullPath: string): ScopeTreeNode => ({ id, name, fullPath, children: [], scopes: [] });

@@ -9,6 +9,7 @@ import {
   documentTeamPath,
   deriveKnowledgeConnectionName,
   deriveIdentityFromTeam,
+  knowledgeDocumentTreePath,
   knowledgeDocumentTreePathFromID,
   knowledgeContentSource,
   knowledgeConnectionProviderLabel,
@@ -58,6 +59,7 @@ test('builds knowledge trees with empty enterprise team teams', () => {
   assert.equal(runbooks?.children.find(child => child.name === 'global')?.docs[0]?.name, 'overview');
   assert.ok(collectKnowledgeTeamDocs(runbooks).some(document => document.id === 'overview'));
   assert.equal(knowledgeDocumentTreePathFromID('overview'), '');
+  assert.equal(knowledgeDocumentTreePath(documents[0]), 'runbook/platform');
   assert.equal(
     runbooks?.children.find(child => child.name === 'platform')?.children.find(child => child.name === 'security')?.docs.length,
     0
