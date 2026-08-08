@@ -26,6 +26,7 @@ import {
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { formatResourceListUpdatedAt } from '../editor/resourceCollectionModel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
+import type { YamlEditorTextChangeOptions } from '../editor/ResourceYamlDetailPanel';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import { StepsGraph } from '../pipeline-runs/RunGraph';
 import { AnalysisWorkspace } from '../analysis/AnalysisModal';
@@ -96,7 +97,7 @@ type PipelineDetailViewProps = {
   onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
   onOpenRun: (runID: string) => void;
-  onEditorTextChange: (nextValue: string, cursor: number) => void;
+  onEditorTextChange: (nextValue: string, cursor: number, options?: YamlEditorTextChangeOptions) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
   onMoveSuggestion: (direction: 1 | -1) => void;
   onDismissSuggestion: () => void;

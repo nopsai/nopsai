@@ -375,8 +375,12 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   );
 
   const handleEditorTextChange = useCallback(
-    (next: string, cursor: number) => {
+    (next: string, cursor: number, options?: { openSuggestion?: boolean }) => {
       setEditorValue(next);
+      if (options?.openSuggestion === false) {
+        setEditorSuggestion(null);
+        return;
+      }
       openEditorSuggestion(cursor, { text: next });
     },
     [openEditorSuggestion]

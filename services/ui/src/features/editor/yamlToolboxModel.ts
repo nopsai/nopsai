@@ -36,7 +36,6 @@ export type YamlToolboxSample = {
 
 export type YamlToolboxSpec = {
   title: string;
-  invalidHint: string;
   parameterGroups: YamlToolboxParameterGroup[];
   snippetGroups: YamlToolboxSnippetGroup[];
   samples: YamlToolboxSample[];
@@ -58,6 +57,7 @@ const pipelineParameterGroups: YamlToolboxParameterGroup[] = [
     parameters: [
       { key: 'name', description: 'Stable pipeline name.', valueHint: 'letters, numbers, dots, underscores, hyphens' },
       { key: 'version', description: 'Optional schema or release version.', valueHint: 'latest or semantic version' },
+      { key: 'description', description: 'Human-readable pipeline summary.', valueHint: 'plain text or block scalar' },
       { key: 'container_image', description: 'Default image for executable steps.', valueHint: 'image:tag' },
       { key: 'working_directory', description: 'Run workspace directory.', valueHint: '/workspace or relative path under /workspace' },
       { key: 'variables', description: 'Run variable references.', structure: 'variables: [ENVIRONMENT, prod:IMAGE_TAG]' },
@@ -72,6 +72,11 @@ const pipelineParameterGroups: YamlToolboxParameterGroup[] = [
       { key: 'affinity_enabled', description: 'Kubernetes same-node affinity override.', validValues: BOOLEAN_VALUES },
       { key: 'knowledge_context', description: 'Governed knowledge refs.', structure: '- kind: guardrail\n  ref: security/release' },
       { key: 'output', description: 'Final deliverables and dashboard publications.', structure: 'output:\n  items:\n    - name: summary\n      type: markdown' },
+      { key: 'llm_output_sharing', description: 'Default output-history sharing for LLM work.', validValues: BOOLEAN_VALUES },
+      { key: 'llm_content_sharing', description: 'Share workspace files with LLM goals.', validValues: BOOLEAN_VALUES },
+      { key: 'llm_content_include', description: 'Only share matching workspace paths with LLM goals.', structure: 'llm_content_include:\n  - src/**\n  - README.md' },
+      { key: 'llm_content_ignore', description: 'Exclude matching workspace paths from LLM context.', structure: 'llm_content_ignore:\n  - .git\n  - node_modules/**' },
+      { key: 'display_options', description: 'UI rendering preferences for pipeline output.', structure: 'display_options:\n  github_view: list' },
     ],
   },
 ];
@@ -82,6 +87,7 @@ const stepParameterGroup: YamlToolboxParameterGroup = {
   description: 'A step must use exactly one mode: include, tasks, goal, script, or approval.',
   parameters: [
     { key: 'name', description: 'Required unique step name.' },
+    { key: 'description', description: 'Reusable step summary shown in the library.' },
     { key: 'include', description: 'Reusable step or child pipeline reference.', valueHint: 'step:team/shared or pipeline:team/child' },
     { key: 'sync', description: 'Wait for child pipeline completion.', validValues: BOOLEAN_VALUES },
     { key: 'approval', description: 'Human checkpoint.', structure: 'approval:\n  type: production-deploy\n  teams: [platform/prod]' },
@@ -103,6 +109,8 @@ const stepParameterGroup: YamlToolboxParameterGroup = {
     { key: 'runtime_pool', description: 'Step Kubernetes runtime pool override.' },
     { key: 'knowledge_context', description: 'Step-level governed knowledge refs.' },
     { key: 'llm_output_sharing', description: 'Share step LLM output with later LLM history.', validValues: BOOLEAN_VALUES },
+    { key: 'artifacts', description: 'Reusable step artifacts collected after execution.', structure: 'artifacts:\n  - dist/**' },
+    { key: 'access', description: 'Reusable step access metadata.', structure: 'access:\n  teams:\n    - platform' },
   ],
 };
 
@@ -351,7 +359,6 @@ export function getYamlToolboxSpec(kind: YamlEditorResourceKind): YamlToolboxSpe
   if (kind === 'trigger') {
     return {
       title: 'Trigger Toolbox',
-      invalidHint: 'Use the trigger parameters below to fix event rules, pipeline refs, and provider fields.',
       parameterGroups: triggerParameterGroups,
       snippetGroups: triggerSnippetGroups,
       samples: triggerSamples,
@@ -361,7 +368,6 @@ export function getYamlToolboxSpec(kind: YamlEditorResourceKind): YamlToolboxSpe
   if (kind === 'step') {
     return {
       title: 'Step Toolbox',
-      invalidHint: 'Use the step and task parameters below to keep reusable step YAML valid.',
       parameterGroups: [stepParameterGroup, taskParameterGroup],
       snippetGroups: stepSnippetGroups,
       samples: stepSamples,
@@ -370,7 +376,6 @@ export function getYamlToolboxSpec(kind: YamlEditorResourceKind): YamlToolboxSpe
 
   return {
     title: 'Pipeline Toolbox',
-    invalidHint: 'Use the pipeline, step, and task parameters below to repair invalid pipeline YAML.',
     parameterGroups: [...pipelineParameterGroups, stepParameterGroup, taskParameterGroup],
     snippetGroups: pipelineSnippetGroups,
     samples: pipelineSamples,

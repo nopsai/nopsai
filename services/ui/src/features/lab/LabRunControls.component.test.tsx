@@ -2,7 +2,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
-import { LabRunControls } from './LabRunControls';
+import { LabRunControls, LabRunReadinessPanel } from './LabRunControls';
 
 test('coordinates pipeline, scope, and run actions', async () => {
   const onPipelineChange = vi.fn();
@@ -47,4 +47,27 @@ test('coordinates pipeline, scope, and run actions', async () => {
   expect(onScopeChange).toHaveBeenCalledWith('production');
   expect(onRun).toHaveBeenCalledOnce();
   expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/pipelineruns/recent/run-1');
+});
+
+test('renders run readiness as a standalone right-rail panel', () => {
+  render(
+    <LabRunReadinessPanel
+      validationErrorCount={0}
+      accessLoading={false}
+      accessError={null}
+      accessBlocked={false}
+      accessChecks={[
+        {
+          allowed: true,
+          action: 'pipeline.use',
+          resource_type: 'pipeline',
+          resource_id: 'platform/release',
+        },
+      ]}
+    />
+  );
+
+  expect(screen.getByRole('region', { name: 'Run readiness' })).toHaveTextContent('Ready to run');
+  expect(screen.getByText('pipeline platform/release')).toBeInTheDocument();
+  expect(screen.getByText('Available')).toBeInTheDocument();
 });

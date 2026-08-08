@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { Activity } from 'lucide-react';
 
 export type LabRunPipelineOption = {
   id: string;
@@ -47,6 +48,23 @@ function pipelineRunDetailRoute(runId: string) {
   return `/pipelineruns/recent/${encodeURIComponent(runId)}`;
 }
 
+function getReadinessLabel({
+  accessBlocked,
+  accessError,
+  accessLoading,
+  validationErrorCount,
+}: {
+  accessBlocked: boolean;
+  accessError: string | null;
+  accessLoading: boolean;
+  validationErrorCount: number;
+}) {
+  if (validationErrorCount) return 'Cannot run yet';
+  if (accessLoading) return 'Checking access';
+  if (accessError || accessBlocked) return 'Cannot run yet';
+  return 'Ready to run';
+}
+
 export function LabRunControls({
   pipelines,
   pipelinesLoading,
@@ -59,32 +77,24 @@ export function LabRunControls({
   accessLoading,
   accessError,
   accessBlocked,
-  accessChecks,
   feedback,
   onPipelineChange,
   onScopeChange,
   onRun,
 }: LabRunControlsProps) {
-  const runDisabled = runPending || yamlLoading || validationErrorCount > 0 || accessLoading || accessBlocked;
+  const runDisabled = runPending || yamlLoading || validationErrorCount > 0 || accessLoading || accessBlocked || Boolean(accessError);
   const feedbackRunHref = feedback?.runId ? pipelineRunDetailRoute(feedback.runId) : '';
-  const readinessLabel = validationErrorCount
-    ? 'Cannot run yet'
-    : accessLoading
-      ? 'Checking access'
-      : accessError || accessBlocked
-        ? 'Cannot run yet'
-        : 'Ready to run';
 
   return (
-    <div className="glass-card p-4 space-y-4 rounded-lg shadow-sm ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-tertiary)]">
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
-        <div>
-          <label htmlFor="lab-pipeline-select" className="block text-sm font-medium text-[var(--text-secondary)]">
+    <section className="glass-card lab-run-controls" aria-label="Lab run setup">
+      <div className="lab-run-controls__form">
+        <div className="lab-run-controls__field">
+          <label htmlFor="lab-pipeline-select">
             Pipeline
           </label>
           <select
             id="lab-pipeline-select"
-            className="mt-1 block w-full pipelines-input py-2 px-3 text-sm"
+            className="pipelines-input"
             aria-label="Pipeline selection"
             value={selectedPipelineId}
             disabled={pipelinesLoading || yamlLoading}
@@ -99,13 +109,13 @@ export function LabRunControls({
           </select>
         </div>
 
-        <div>
-          <label htmlFor="lab-scope-input" className="block text-sm font-medium text-[var(--text-secondary)]">
+        <div className="lab-run-controls__field">
+          <label htmlFor="lab-scope-input">
             Target scope
           </label>
           <select
             id="lab-scope-input"
-            className="mt-1 block w-full pipelines-input py-2 px-3 text-sm"
+            className="pipelines-input"
             aria-label="Target scope selection"
             value={scopeValue}
             onChange={event => onScopeChange(event.target.value)}
@@ -119,49 +129,22 @@ export function LabRunControls({
           </select>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 justify-start md:justify-end">
+        <div className="lab-run-controls__action">
           <button id="lab-run-btn" type="button" className="glass-button-primary" onClick={() => void onRun()} disabled={runDisabled}>
-            <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h4l1-5 4 10 1-5h4" />
-            </svg>
+            <Activity className="h-4 w-4" aria-hidden="true" />
             <span>{runPending ? 'Running…' : 'Run'}</span>
           </button>
         </div>
       </div>
 
-      <div className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-[var(--text-primary)]">{readinessLabel}</p>
-          {accessLoading ? <span className="text-xs text-[var(--text-secondary)]">Checking…</span> : null}
-        </div>
-        {accessError ? <p className="mt-2 text-sm text-red-500">{accessError}</p> : null}
-        {!accessError && validationErrorCount === 0 ? (
-          <ul className="mt-2 space-y-1 text-sm">
-            {accessChecks.length ? (
-              accessChecks.map((check, index) => (
-                <li
-                  key={`${check.action}-${check.resource_type}-${check.resource_id}-${index}`}
-                  className={check.allowed ? 'text-green-600 dark:text-green-400' : 'text-red-500'}
-                >
-                  <span aria-hidden="true">{check.allowed ? '✓' : '✕'}</span> {formatRunCheck(check)}{' '}
-                  {check.allowed ? 'is available' : 'is not available'}
-                </li>
-              ))
-            ) : (
-              <li className="text-[var(--text-secondary)]">Select a valid pipeline and scope.</li>
-            )}
-          </ul>
-        ) : null}
-      </div>
-
       <div
         id="lab-run-feedback"
-        className={`text-sm ${feedback ? '' : 'hidden'} ${
+        className={`lab-run-controls__feedback ${feedback ? '' : 'hidden'} ${
           feedback?.tone === 'error'
-            ? 'text-red-500'
+            ? 'lab-run-controls__feedback--error'
             : feedback?.tone === 'success'
-              ? 'text-green-500'
-              : 'text-[var(--text-secondary)]'
+              ? 'lab-run-controls__feedback--success'
+              : 'lab-run-controls__feedback--info'
         }`}
       >
         {feedback ? (
@@ -178,6 +161,50 @@ export function LabRunControls({
           </>
         ) : null}
       </div>
-    </div>
+    </section>
+  );
+}
+
+export function LabRunReadinessPanel({
+  validationErrorCount,
+  accessLoading,
+  accessError,
+  accessBlocked,
+  accessChecks,
+}: Pick<
+  LabRunControlsProps,
+  'validationErrorCount' | 'accessLoading' | 'accessError' | 'accessBlocked' | 'accessChecks'
+>) {
+  const readinessLabel = getReadinessLabel({ accessBlocked, accessError, accessLoading, validationErrorCount });
+
+  return (
+    <section className="glass-card lab-run-readiness-panel" aria-label="Run readiness">
+      <div className="lab-run-readiness-panel__head">
+        <div>
+          <h3>{readinessLabel}</h3>
+          <p>{validationErrorCount ? `${validationErrorCount} validation issue${validationErrorCount === 1 ? '' : 's'}` : 'Access and references for this run.'}</p>
+        </div>
+        {accessLoading ? <span>Checking...</span> : null}
+      </div>
+      {accessError ? <p className="lab-run-readiness-panel__error">{accessError}</p> : null}
+      {!accessError && validationErrorCount === 0 ? (
+        <ul className="lab-run-readiness-panel__checks">
+          {accessChecks.length ? (
+            accessChecks.map((check, index) => (
+              <li
+                key={`${check.action}-${check.resource_type}-${check.resource_id}-${index}`}
+                className={check.allowed ? 'lab-run-readiness-panel__check--ok' : 'lab-run-readiness-panel__check--blocked'}
+              >
+                <span className="lab-run-readiness-panel__dot" aria-hidden="true" />
+                <span>{formatRunCheck(check)}</span>
+                <strong>{check.allowed ? 'Available' : 'Blocked'}</strong>
+              </li>
+            ))
+          ) : (
+            <li className="lab-run-readiness-panel__empty">Select a valid pipeline and scope.</li>
+          )}
+        </ul>
+      ) : null}
+    </section>
   );
 }

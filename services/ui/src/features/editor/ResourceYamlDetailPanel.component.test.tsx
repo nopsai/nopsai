@@ -58,6 +58,7 @@ test('renders YAML actions and delegates edit, clone, and copy actions', async (
   );
 
   expect(screen.getByText('Pipeline Definition (YAML)')).toBeInTheDocument();
+  expect(screen.getByText('YAML valid')).toBeInTheDocument();
   expect(document.getElementById(ids.content)).toHaveTextContent(/name:\s*build/);
 
   await user.click(screen.getByRole('button', { name: /copy yaml/i }));
@@ -73,7 +74,9 @@ test('renders edit mode with validation and autocomplete keyboard behavior', asy
   const user = userEvent.setup();
   const onEditorTextChange = vi.fn();
   const onMoveSuggestion = vi.fn();
+  const onDismissSuggestion = vi.fn();
   const onSelectSuggestion = vi.fn();
+  const onAutoIndentEnter = vi.fn();
 
   render(
     <ResourceYamlDetailPanel
@@ -104,22 +107,41 @@ test('renders edit mode with validation and autocomplete keyboard behavior', asy
       onEditorTextChange={onEditorTextChange}
       onOpenSuggestion={vi.fn()}
       onMoveSuggestion={onMoveSuggestion}
-      onDismissSuggestion={vi.fn()}
+      onDismissSuggestion={onDismissSuggestion}
       onSelectSuggestion={onSelectSuggestion}
       onEditorScroll={vi.fn()}
-      onAutoIndentEnter={vi.fn()}
+      onAutoIndentEnter={onAutoIndentEnter}
     />
   );
 
+  expect(screen.getByText('1 issue')).toBeInTheDocument();
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  const normalEditor = screen.getByRole('textbox', { name: /step yaml editor/i });
+  await user.click(normalEditor);
+  fireEvent.change(normalEditor, { target: { value: 'name: build\n', selectionStart: 12 } });
+
+  expect(onDismissSuggestion).toHaveBeenCalled();
+  expect(onEditorTextChange).toHaveBeenLastCalledWith('name: build\n', 12, { openSuggestion: false });
+
   await user.click(screen.getByRole('button', { name: /expand yaml editor/i }));
   expect(screen.getByRole('dialog', { name: /step definition/i })).toHaveClass('yaml-editor-fullscreen-modal');
+  expect(screen.getByText('1 validation issue')).toBeInTheDocument();
+  expect(screen.getByRole('listbox', { name: /suggestions autocomplete/i })).toBeInTheDocument();
   const editor = screen.getByRole('textbox', { name: /step yaml editor/i });
   fireEvent.change(editor, { target: { value: 'name: build\nscript: echo ok', selectionStart: 27 } });
-  await user.type(editor, '{arrowdown}{enter}');
+  await user.keyboard('{ArrowDown}{Enter}');
 
   expect(screen.getByText('Missing task')).toBeInTheDocument();
-  expect(onEditorTextChange).toHaveBeenCalled();
+  expect(onEditorTextChange).toHaveBeenLastCalledWith('name: build\nscript: echo ok', 27, { openSuggestion: true });
+  expect(onMoveSuggestion).not.toHaveBeenCalled();
+  expect(onAutoIndentEnter).toHaveBeenCalled();
+  expect(onSelectSuggestion).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(editor, { key: 'ArrowDown', altKey: true });
   expect(onMoveSuggestion).toHaveBeenCalledWith(1);
+
+  await user.keyboard('{Tab}');
+
   expect(onSelectSuggestion).toHaveBeenCalledWith('script');
 });
 

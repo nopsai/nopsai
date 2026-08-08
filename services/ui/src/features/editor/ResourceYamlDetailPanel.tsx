@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
-import { Copy, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Download, Maximize2, Minimize2 } from 'lucide-react';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import type { ResourceAccessResourceType } from '../../components/ResourceAccessCard';
 import { renderYamlHighlight, renderYamlLines } from '../../lib/yamlRenderer';
@@ -14,6 +14,10 @@ type ResourceYamlAccess = {
   resourceID: string;
   label: string;
 } | null;
+
+export type YamlEditorTextChangeOptions = {
+  openSuggestion?: boolean;
+};
 
 type ResourceYamlDetailPanelProps = {
   resourceKind?: YamlEditorResourceKind;
@@ -45,7 +49,6 @@ type ResourceYamlDetailPanelProps = {
   isGitSource: boolean;
   saving: boolean;
   saveBlocked?: boolean;
-  autocompleteWidth?: number;
   showActions?: boolean;
   onCopy: () => void;
   onDownload: () => void;
@@ -53,7 +56,7 @@ type ResourceYamlDetailPanelProps = {
   onClone: () => void;
   onDiscard: () => void;
   onSave: () => void;
-  onEditorTextChange: (nextValue: string, cursor: number) => void;
+  onEditorTextChange: (nextValue: string, cursor: number, options?: YamlEditorTextChangeOptions) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
   onMoveSuggestion: (direction: 1 | -1) => void;
   onDismissSuggestion: () => void;
@@ -84,7 +87,6 @@ export function ResourceYamlDetailPanel({
   isGitSource,
   saving,
   saveBlocked,
-  autocompleteWidth,
   showActions = true,
   onCopy,
   onDownload,
@@ -144,11 +146,13 @@ export function ResourceYamlDetailPanel({
     return () => window.cancelAnimationFrame(frame);
   }, [activeEditorExpanded, editorRef]);
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>, suggestionsVisible: boolean) => {
     if (event.ctrlKey && event.code === 'Space') {
       event.preventDefault();
       const cursor = event.currentTarget.selectionStart || 0;
-      if (editorSuggestion) {
+      if (!suggestionsVisible) {
+        onDismissSuggestion();
+      } else if (editorSuggestion) {
         onDismissSuggestion();
       } else {
         onOpenSuggestion(cursor, { force: true });
@@ -156,20 +160,20 @@ export function ResourceYamlDetailPanel({
       return;
     }
 
-    if (editorSuggestion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    if (suggestionsVisible && editorSuggestion && event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault();
       onMoveSuggestion(event.key === 'ArrowDown' ? 1 : -1);
       return;
     }
 
-    if (editorSuggestion && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+    if (suggestionsVisible && editorSuggestion && event.key === 'Tab') {
       event.preventDefault();
       const selectedSuggestion = editorSuggestion.items[editorSuggestion.activeIndex];
       if (selectedSuggestion) onSelectSuggestion(selectedSuggestion);
       return;
     }
 
-    if (editorSuggestion && event.key === 'Escape') {
+    if (suggestionsVisible && editorSuggestion && event.key === 'Escape') {
       event.preventDefault();
       onDismissSuggestion();
       return;
@@ -209,34 +213,29 @@ export function ResourceYamlDetailPanel({
             ref={editorRef}
             id={ids.editor}
             aria-label={editorLabel}
-            aria-describedby={ids.validation}
+            aria-describedby={fullscreen ? undefined : ids.validation}
             aria-invalid={validationErrors.length > 0}
             aria-autocomplete="list"
-            aria-controls={editorSuggestion ? ids.autocomplete : undefined}
-            aria-activedescendant={editorSuggestion ? `${ids.autocomplete}-option-${editorSuggestion.activeIndex}` : undefined}
+            aria-controls={fullscreen && editorSuggestion ? ids.autocomplete : undefined}
+            aria-activedescendant={fullscreen && editorSuggestion ? `${ids.autocomplete}-option-${editorSuggestion.activeIndex}` : undefined}
             value={editorValue}
-            onChange={event => onEditorTextChange(event.target.value, event.target.selectionStart || 0)}
-            onClick={event => onOpenSuggestion(event.currentTarget.selectionStart || 0)}
+            onChange={event => onEditorTextChange(event.target.value, event.target.selectionStart || 0, { openSuggestion: fullscreen })}
+            onClick={event => {
+              if (fullscreen) {
+                onOpenSuggestion(event.currentTarget.selectionStart || 0);
+              } else {
+                onDismissSuggestion();
+              }
+            }}
             onScroll={onEditorScroll}
-            onKeyDown={handleKeyDown}
+            onKeyDown={event => handleKeyDown(event, fullscreen)}
             spellCheck={false}
           />
         </div>
-        {!fullscreen && editorSuggestion ? (
-          <EditorAutocompleteMenu
-            id={ids.autocomplete}
-            suggestion={editorSuggestion}
-            loading={autocompleteLoading}
-            width={autocompleteWidth}
-            onSelect={onSelectSuggestion}
-          />
-        ) : null}
       </div>
       {fullscreen ? (
         <YamlEditorToolbox
           resourceKind={resourceKind}
-          validationId={ids.validation}
-          validationErrors={validationErrors}
           suggestionSlot={
             editorSuggestion ? (
               <EditorAutocompleteMenu
@@ -262,8 +261,11 @@ export function ResourceYamlDetailPanel({
 
   return (
     <div className={`glass-card overflow-hidden resource-yaml-detail-card ${activeEditorExpanded ? 'resource-yaml-detail-card--expanded' : ''}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
-        <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+      <div className="resource-yaml-detail-card__head">
+        <div className="resource-yaml-detail-card__title-row">
+          <h3>{title}</h3>
+          <InlineYamlValidationStatus errors={validationErrors} />
+        </div>
         {isEditing && !showActions ? (
           <button
             className="glass-button-ghost"
@@ -346,7 +348,7 @@ export function ResourceYamlDetailPanel({
               <YamlEditorFullscreenDialog
                 title={title}
                 subtitle="Fullscreen YAML authoring"
-                validationIssueCount={validationErrors.length}
+                validationErrors={validationErrors}
                 onClose={closeExpandedEditor}
                 actions={
                   canUpdate ? (
@@ -373,5 +375,24 @@ export function ResourceYamlDetailPanel({
         )}
       </div>
     </div>
+  );
+}
+
+function InlineYamlValidationStatus({ errors }: { errors: YamlValidationError[] }) {
+  if (!errors.length) {
+    return (
+      <span className="resource-yaml-validation-chip resource-yaml-validation-chip--valid" role="status" aria-live="polite">
+        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+        YAML valid
+      </span>
+    );
+  }
+
+  const label = `${errors.length} issue${errors.length === 1 ? '' : 's'}`;
+  return (
+    <span className="resource-yaml-validation-chip resource-yaml-validation-chip--invalid" role="status" aria-live="polite">
+      <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+      {label}
+    </span>
   );
 }

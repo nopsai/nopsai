@@ -1,5 +1,6 @@
 import type { KeyboardEvent, ReactElement, ReactNode, RefObject, UIEvent } from 'react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
+import type { YamlEditorTextChangeOptions } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import type { PipelineAnalysisScope } from '../analysis/model';
@@ -117,7 +118,7 @@ export function PipelineDefinitionPanel({
   onSave: () => void;
   onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
-  onEditorTextChange: (nextValue: string, cursor: number) => void;
+  onEditorTextChange: (nextValue: string, cursor: number, options?: YamlEditorTextChangeOptions) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
   onMoveSuggestion: (direction: 1 | -1) => void;
   onDismissSuggestion: () => void;
@@ -188,7 +189,6 @@ export function PipelineDefinitionPanel({
           isEditing={isEditing}
           editablePipelineName={editablePipelineName}
           editablePipelineTeam={editablePipelineTeam}
-          validationErrorCount={validationErrors.length}
           dependencies={dependencies}
           onOpenDependency={onOpenDependency}
           onCopyDependency={onCopyDependency}
@@ -207,7 +207,6 @@ function DefinitionSidePanel({
   isEditing,
   editablePipelineName,
   editablePipelineTeam,
-  validationErrorCount,
   dependencies,
   onOpenDependency,
   onCopyDependency,
@@ -220,7 +219,6 @@ function DefinitionSidePanel({
   isEditing: boolean;
   editablePipelineName: string;
   editablePipelineTeam: string;
-  validationErrorCount: number;
   dependencies: PipelineDependencyReference[];
   onOpenDependency: (dependency: PipelineDependencyReference) => void;
   onCopyDependency: (identifier: string) => void | Promise<void>;
@@ -268,16 +266,9 @@ function DefinitionSidePanel({
         <dl className="pipeline-detail-key-values">
           <KeyValue label="Source" value={sourceState.label} />
           <KeyValue label="State" value={sourceState.description} />
+          <KeyValue label="Version" value={detail.version || 'latest'} />
           <KeyValue label="Path" value={formatPipelineDetailPath(detail)} />
           <KeyValue label="Updated" value={updatedLabel} />
-        </dl>
-      </section>
-      <section className="pipeline-detail-side-panel">
-        <h3>Validation</h3>
-        <dl className="pipeline-detail-key-values">
-          <KeyValue label="YAML syntax" value={validationErrorCount ? 'Needs review' : 'Valid'} tone={validationErrorCount ? 'danger' : 'success'} />
-          <KeyValue label="Errors" value={String(validationErrorCount)} />
-          <KeyValue label="Version" value={detail.version || 'latest'} />
         </dl>
       </section>
       <section className="pipeline-detail-side-panel">
@@ -288,11 +279,11 @@ function DefinitionSidePanel({
   );
 }
 
-function KeyValue({ label, value, tone }: { label: string; value: string; tone?: 'success' | 'danger' }) {
+function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd className={tone ? `pipeline-detail-key-value--${tone}` : ''}>{value}</dd>
+      <dd>{value}</dd>
     </div>
   );
 }

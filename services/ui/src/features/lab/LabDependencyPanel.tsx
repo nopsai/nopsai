@@ -4,6 +4,15 @@ type LabDependencyPanelProps = {
   dependencies: LabIncludedDependencies;
 };
 
+function splitDependencyLabel(value: string) {
+  const separator = value.indexOf(':');
+  if (separator <= 0) return { kind: 'dependency', target: value };
+  return {
+    kind: value.slice(0, separator),
+    target: value.slice(separator + 1),
+  };
+}
+
 export function LabDependencyPanel({ dependencies }: LabDependencyPanelProps) {
   let content = <p>No included dependencies found.</p>;
   if (dependencies.status === 'no-steps') {
@@ -12,20 +21,27 @@ export function LabDependencyPanel({ dependencies }: LabDependencyPanelProps) {
     content = <p>Unable to parse pipeline YAML.</p>;
   } else if (dependencies.items.length > 0) {
     content = (
-      <ul className="triggers-pipeline-list">
-        {dependencies.items.map(item => (
-          <li key={item} className="triggers-pipeline-item">
-            <span className="triggers-pipeline-name">{item}</span>
-          </li>
-        ))}
+      <ul className="lab-dependency-list">
+        {dependencies.items.map(item => {
+          const dependency = splitDependencyLabel(item);
+          return (
+            <li key={item}>
+              <span>{dependency.kind}</span>
+              <strong>{dependency.target}</strong>
+            </li>
+          );
+        })}
       </ul>
     );
   }
 
   return (
-    <section className="glass-card p-4 space-y-2 rounded-lg shadow-sm ring-1 ring-[var(--border-primary)]/70">
-      <h3 className="text-sm font-semibold text-[var(--text-primary)]">Included dependencies</h3>
-      <div id="lab-includes" className="text-sm text-[var(--text-secondary)] space-y-2" data-empty="No steps defined yet.">
+    <section className="glass-card lab-dependency-panel" aria-label="Included dependencies">
+      <div className="lab-dependency-panel__head">
+        <h3>Included dependencies</h3>
+        {dependencies.items.length ? <span>{dependencies.items.length}</span> : null}
+      </div>
+      <div id="lab-includes" className="lab-dependency-panel__body" data-empty="No steps defined yet.">
         {content}
       </div>
     </section>
