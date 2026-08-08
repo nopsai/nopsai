@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
+import { useState, type KeyboardEvent, type RefObject, type UIEvent } from 'react';
 import { ArrowLeft, Clock3, Copy, Download, FileCode2, Layers3, Save, SquarePen, Workflow, X } from 'lucide-react';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
@@ -93,10 +93,6 @@ export function StepDetailView({
   onAutoIndentEnter,
 }: StepDetailViewProps) {
   const [activeTab, setActiveTab] = useState<StepDetailTabID>('definition');
-
-  useEffect(() => {
-    if (isEditing) setActiveTab('definition');
-  }, [isEditing]);
 
   if (!detail) {
     return (
