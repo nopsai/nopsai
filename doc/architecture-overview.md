@@ -131,12 +131,16 @@ prompt bodies.
 Policy and knowledge revisions in agent prompts are deterministic hashes. The
 agent pins policy snapshots by scope: pipeline at run start, step at step start,
 and task at task start. Effective policy is recomputed as each narrower scope
-begins and includes a merge mode (`restrictive`, `override`, or
-`fail_on_conflict`) plus `policy_precedence_version`. Provider conversation
-state and provider caches are disposable optimizations; NopsAI-owned scoped
-snapshots, logical session IDs, and durable transcripts remain the correctness
-boundary. Emergency policy response cancels active runs instead of mutating
-already-resolved policy snapshots.
+begins and includes `governance_level` plus `governance_contract_version`.
+NopsAI enforces the AI policy judgment before planning or direct execution,
+during action planning, and after the final structured action is selected.
+`advisory` warns, `guarded` blocks clear violations and conflicts, `strict`
+blocks anything except a clear allow, and `exception_based` allows conflicts
+only when an effective approved exception exists.
+Provider conversation state and provider caches are disposable optimizations;
+NopsAI-owned scoped snapshots, logical session IDs, and durable transcripts
+remain the correctness boundary. Emergency policy response cancels active runs
+instead of mutating already-resolved policy snapshots.
 
 Step types:
 

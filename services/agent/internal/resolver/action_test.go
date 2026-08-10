@@ -13,8 +13,10 @@ import (
 )
 
 type fakeActionSession struct {
-	action   *proto.Action
-	requests []*proto.GetActionRequest
+	action         *proto.Action
+	requests       []*proto.GetActionRequest
+	review         *models.PolicyReview
+	reviewRequests []PolicyReviewRequest
 }
 
 func (s *fakeActionSession) ProfileName() string         { return "unit" }
@@ -27,6 +29,13 @@ func (s *fakeActionSession) SuccessfulMCPToolCalls() int { return 0 }
 func (s *fakeActionSession) GetAction(_ context.Context, req *proto.GetActionRequest, _ *workspacectx.Tools) (*proto.Action, error) {
 	s.requests = append(s.requests, req)
 	return s.action, nil
+}
+func (s *fakeActionSession) ReviewPolicy(_ context.Context, req PolicyReviewRequest) (*models.PolicyReview, error) {
+	s.reviewRequests = append(s.reviewRequests, req)
+	if s.review != nil {
+		return s.review, nil
+	}
+	return &models.PolicyReview{Decision: models.PolicyDecisionAllow, Confidence: "high", Reason: "test allows action"}, nil
 }
 
 func TestTaskActionResolverUsesDirectScriptWithoutLLM(t *testing.T) {
@@ -95,6 +104,12 @@ func TestTaskActionResolverValidatesDirectScriptWhenGuardrailContextExists(t *te
 	if len(session.requests) != 1 {
 		t.Fatalf("session requests = %d, want 1", len(session.requests))
 	}
+	if len(session.reviewRequests) != 2 {
+		t.Fatalf("policy review requests = %d, want 2", len(session.reviewRequests))
+	}
+	if session.reviewRequests[0].Phase != PolicyReviewPhaseBefore || session.reviewRequests[1].Phase != PolicyReviewPhaseAfter {
+		t.Fatalf("policy review phases = %#v, want before/after", session.reviewRequests)
+	}
 	if !strings.Contains(session.requests[0].GetGoal(), "Validate this direct script before execution") {
 		t.Fatalf("validation goal = %q, want direct script validation prompt", session.requests[0].GetGoal())
 	}
@@ -131,6 +146,9 @@ func TestTaskActionResolverBlocksDirectScriptGuardrailRefusal(t *testing.T) {
 	}
 	if !result.FailClosed {
 		t.Fatal("result FailClosed = false, want true for blocking direct script refusal")
+	}
+	if len(session.reviewRequests) != 1 {
+		t.Fatalf("policy review requests = %d, want before review only before validation refusal", len(session.reviewRequests))
 	}
 }
 

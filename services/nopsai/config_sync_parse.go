@@ -22,7 +22,7 @@ type configSyncPlan struct {
 	llmProfilePlan                       *gitOpsLLMProfilePlan
 	agentProfilePlan                     *gitOpsAgentProfilePlan
 	mcpRegistryPlan                      *mcpregistry.GitOpsPlan
-	teamAIProfilePlan                    *gitOpsTeamAIProfilePlan
+	teamDefaultsPlans                    map[string]*gitOpsTeamDefaultsPlan
 	authSettingsPlan                     *gitOpsAuthSettingsPlan
 	credentialPlan                       *gitOpsCredentialPlan
 	runtimeSettingsPlan                  *gitOpsRuntimeSettingsPlan
@@ -81,6 +81,11 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		}
 		if _, ok, err := configRepositoryTeamNotificationRoutePath(rel); err != nil {
 			return configSyncPlan{}, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
+		} else if ok {
+			continue
+		}
+		if _, ok, err := configRepositoryTeamDefaultsFileScope(rel); err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid team defaults path '%s': %w", normalized, err)
 		} else if ok {
 			continue
 		}
@@ -194,7 +199,7 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.teamAIProfilePlan, err = parseGitOpsTeamAIProfilePlan(binding, repoCtx, files.teamAIProfiles)
+	plan.teamDefaultsPlans, err = parseGitOpsTeamDefaultsPlans(binding, repoCtx, files.configRepositories)
 	if err != nil {
 		return configSyncPlan{}, err
 	}

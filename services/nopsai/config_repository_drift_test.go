@@ -189,9 +189,8 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 	for _, path := range []string{
 		"access/all.yaml",
 		"access/grants.yaml",
-		"ai-profiles.yaml",
-		"ai-profiles.yml",
 		"notifications.yaml",
+		"config-repositories/teams/team-1/defaults.yaml",
 		"config-repositories/teams/team-1/notifications.yaml",
 		"config-repositories/teams/team-1/structure.yaml",
 		"setting/system/auth.yaml",
@@ -211,9 +210,43 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 	if isConfigRepositoryDriftPath("access/readme.md") {
 		t.Fatal("non-YAML access files should not be included in drift")
 	}
-	for _, path := range []string{"notifications/teams/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
+	for _, path := range []string{"ai-profiles.yaml", "ai-profiles.yml", "defaults.yaml", "defaults.yml", "notifications/teams/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
 		if isConfigRepositoryDriftPath(path) {
 			t.Fatalf("legacy path %q should not be included in drift", path)
+		}
+	}
+}
+
+func TestBuildConfigRepositoryTeamDefaultsExportDocumentIncludesDefaultsOnly(t *testing.T) {
+	doc, ok := buildConfigRepositoryTeamDefaultsExportDocument(
+		"fast",
+		"reviewer",
+		map[string]string{"guardrail": "platform/runtime-safety"},
+	)
+	if !ok {
+		t.Fatal("buildConfigRepositoryTeamDefaultsExportDocument() ok = false, want defaults-only document")
+	}
+	if doc.LLMProfile == nil || *doc.LLMProfile != "fast" {
+		t.Fatalf("llm default = %#v, want fast", doc.LLMProfile)
+	}
+	if doc.AgentProfile == nil || *doc.AgentProfile != "reviewer" {
+		t.Fatalf("agent default = %#v, want reviewer", doc.AgentProfile)
+	}
+	if got := doc.KnowledgeContext["guardrail"]; got != "platform/runtime-safety" {
+		t.Fatalf("guardrail default = %q, want platform/runtime-safety", got)
+	}
+	content, err := marshalConfigRepositoryYAML(doc)
+	if err != nil {
+		t.Fatalf("marshalConfigRepositoryYAML() error = %v", err)
+	}
+	yamlText := string(content)
+	for _, want := range []string{
+		"llm_profile: fast",
+		"agent_profile: reviewer",
+		"guardrail: platform/runtime-safety",
+	} {
+		if !strings.Contains(yamlText, want) {
+			t.Fatalf("exported team defaults YAML missing %q:\n%s", want, yamlText)
 		}
 	}
 }
@@ -235,6 +268,14 @@ func TestConfigRepositoryNotificationRoutePathUsesExplicitTeamPathForTeamRepo(t 
 	got, ok = configRepositoryNotificationRoutePath(repo, "team-1/dev")
 	if !ok || got != "config-repositories/teams/team-1/dev/notifications.yaml" {
 		t.Fatalf("child notification route path = %q, %t; want explicit child path", got, ok)
+	}
+}
+
+func TestConfigRepositoryTeamDefaultsFilePathUsesColocatedTeamPath(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	got, ok := configRepositoryTeamDefaultsFilePath(repo, "team-1/dev")
+	if !ok || got != "config-repositories/teams/team-1/dev/defaults.yaml" {
+		t.Fatalf("team defaults path = %q, %t; want colocated child defaults path", got, ok)
 	}
 }
 

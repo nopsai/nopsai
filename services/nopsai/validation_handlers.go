@@ -443,7 +443,6 @@ func emptyConfigSyncRepositoryFiles() configSyncRepositoryFiles {
 		access:             map[string]string{},
 		knowledge:          map[string]string{},
 		notifications:      map[string]string{},
-		teamAIProfiles:     map[string]string{},
 		setting:            map[string]string{},
 	}
 }
@@ -504,9 +503,6 @@ func addConfigValidationFile(files *configSyncRepositoryFiles, repoCtx configSyn
 			rel, ok := configsync.RelativePath(filePath, repoCtx.basePath)
 			if ok && strings.EqualFold(rel, "notifications.yaml") {
 				files.notifications[filePath] = content
-			}
-			if ok && (strings.EqualFold(rel, "ai-profiles.yaml") || strings.EqualFold(rel, "ai-profiles.yml")) {
-				files.teamAIProfiles[filePath] = content
 			}
 		}
 	}

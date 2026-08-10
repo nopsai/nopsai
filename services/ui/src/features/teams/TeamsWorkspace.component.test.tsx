@@ -131,6 +131,25 @@ const operationsSummary: TeamOperationsSummaryState = {
       team_path: 'platform',
     }],
   },
+  teamDefaults: {
+    team_id: 1,
+    team_path: 'platform',
+    llm_profile: 'fast',
+    agent_profile: 'reviewer',
+    knowledge_context: {
+      runbook: 'platform/restart',
+    },
+  },
+  knowledgeContexts: [{
+    id: 'platform/restart',
+    kind: 'runbook',
+    team: 'platform',
+    name: 'restart',
+    description: 'Restart procedure',
+    visibility: 'team',
+    source: 'git',
+  }],
+  defaultsError: null,
   aiProfilesError: null,
   accessGrants: [{
     id: 'grant-1',
@@ -200,6 +219,9 @@ const rootOperationsSummary: TeamOperationsSummaryState = {
       team_path: '',
     }],
   },
+  teamDefaults: null,
+  knowledgeContexts: [],
+  defaultsError: null,
   aiProfilesError: null,
   accessGrants: [{
     id: 'grant-platform-admin',
@@ -335,6 +357,7 @@ function renderWorkspace(overrides: Partial<Parameters<typeof TeamsWorkspace>[0]
     onEditTeam: vi.fn(),
     onDeleteTeam: vi.fn(),
     onOpenConfig: vi.fn(),
+    onSaveTeamDefaults: vi.fn().mockResolvedValue(undefined),
     operationsSummary,
     resourceCatalog,
     currentUser: {
@@ -384,7 +407,7 @@ describe('TeamsWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Team Activity' })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Activity range' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Applications' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'AI Profiles' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Defaults' })).toBeVisible();
 
     await user.click(screen.getByRole('tab', { name: 'GitOps' }));
     expect(screen.getByRole('heading', { name: 'platform GitOps' })).toBeVisible();
@@ -396,6 +419,12 @@ describe('TeamsWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'platform Notifications' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Configure' })).toBeVisible();
     expect(screen.getByText(/GitOps target:/)).toBeVisible();
+
+    await user.click(screen.getByRole('tab', { name: 'Defaults' }));
+    expect(screen.getByRole('heading', { name: 'Team Defaults' })).toBeVisible();
+    expect(screen.getByLabelText('LLM profile')).toHaveValue('fast');
+    expect(screen.getByLabelText('Agent profile')).toHaveValue('reviewer');
+    expect(screen.getByLabelText('Runbook knowledge')).toHaveValue('platform/restart');
 
     await user.click(screen.getByRole('tab', { name: 'Access' }));
     expect(screen.getByRole('heading', { name: 'platform Access' })).toBeVisible();
@@ -447,7 +476,7 @@ describe('TeamsWorkspace', () => {
     expect(props.onOpenConfig).not.toHaveBeenCalled();
   });
 
-  it('summarizes global AI profiles and platform admins at root', async () => {
+  it('summarizes global defaults and platform admins at root', async () => {
     const user = userEvent.setup();
     renderWorkspace({
       activeTeam: null,
@@ -460,7 +489,7 @@ describe('TeamsWorkspace', () => {
     expect(screen.getByText('Agent Profiles')).toBeVisible();
     expect(screen.queryByText('View scope')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Applications' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'AI Profiles' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Defaults' })).toBeVisible();
     expect(screen.getByRole('region', { name: 'Applications resources' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Open LLM Profiles' })).toHaveTextContent('1');
     await user.click(screen.getByRole('button', { name: 'Open LLM Profiles' }));

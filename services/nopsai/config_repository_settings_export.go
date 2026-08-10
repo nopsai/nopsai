@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"context"
+	"database/sql"
 	"sort"
 	"strings"
 
@@ -20,7 +21,7 @@ type configRepositoryAgentProfilesExportDocument struct {
 	AgentProfiles  []agentProfileForm `yaml:"agent_profiles"`
 }
 
-type configRepositoryTeamAIProfilesExportDocument = teamAIProfilesGitOpsFile
+type configRepositoryTeamDefaultsExportDocument = teamDefaultsGitOpsFile
 
 func (a *App) exportConfigRepositoryLLMProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
 	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
@@ -138,86 +139,78 @@ func (a *App) exportConfigRepositoryMCPRegistry(ctx context.Context, repo models
 	return nil
 }
 
-func (a *App) exportConfigRepositoryTeamAIProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
-	if repo.ScopeType != models.ConfigRepositoryScopeTeam {
-		return nil
-	}
-	record, status, err := a.resolveTeamRecord(ctx, repo.ScopeID, false)
+func (a *App) exportConfigRepositoryTeamDefaults(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
+	records, err := loadTeamPathRecords(ctx, a.db)
 	if err != nil {
-		if status == 404 {
-			return nil
+		return err
+	}
+	teamPaths := make([]string, 0, len(records))
+	recordsByPath := map[string]teamPathRecord{}
+	for _, record := range records {
+		teamPath := strings.Trim(strings.TrimSpace(record.Path), "/")
+		if teamPath == "" || strings.EqualFold(record.Kind, "app") || record.RepositoryFullName != "" || record.RepoURL != "" {
+			continue
 		}
-		return err
+		if !configRepositoryIncludesResource(repo, teamPath, "database", sql.NullInt64{}, false, delegatedScopes) {
+			continue
+		}
+		teamPaths = append(teamPaths, teamPath)
+		recordsByPath[teamPath] = record
 	}
+	sort.Strings(teamPaths)
+	for _, teamPath := range teamPaths {
+		record := recordsByPath[teamPath]
+		llmDefault, err := a.loadTeamProfileSetting(ctx, record.ID, teamLLMDefaultProfileSetting)
+		if err != nil {
+			return err
+		}
+		agentDefault, err := a.loadTeamProfileSetting(ctx, record.ID, teamAgentDefaultProfileSetting)
+		if err != nil {
+			return err
+		}
+		knowledgeDefaults, err := a.loadTeamKnowledgeDefaults(ctx, record)
+		if err != nil {
+			return err
+		}
+		doc, ok := buildConfigRepositoryTeamDefaultsExportDocument(llmDefault, agentDefault, knowledgeDefaults)
+		if !ok {
+			continue
+		}
+		filePath, ok := configRepositoryTeamDefaultsFilePath(repo, teamPath)
+		if !ok {
+			continue
+		}
+		content, err := marshalConfigRepositoryYAML(doc)
+		if err != nil {
+			return err
+		}
+		files[filePath] = string(content)
+	}
+	return nil
+}
 
-	llmDefault, err := a.loadTeamProfileSetting(ctx, record.ID, teamLLMDefaultProfileSetting)
-	if err != nil {
-		return err
-	}
-	_, llmProfiles, err := a.loadTeamLLMProfilesFromDB(ctx, record.ID)
-	if err != nil {
-		return err
-	}
-	agentDefault, err := a.loadTeamProfileSetting(ctx, record.ID, teamAgentDefaultProfileSetting)
-	if err != nil {
-		return err
-	}
-	agentProfiles, err := a.loadTeamAgentProfilesFromDB(ctx, record.ID)
-	if err != nil {
-		return err
-	}
-	mcpProfiles, err := a.loadTeamMCPProfilesFromDB(ctx, record.ID)
-	if err != nil {
-		return err
-	}
-	if len(llmProfiles) == 0 && len(agentProfiles) == 0 && len(mcpProfiles) == 0 && strings.TrimSpace(llmDefault) == "" && strings.TrimSpace(agentDefault) == "" {
-		return nil
-	}
-
-	doc := configRepositoryTeamAIProfilesExportDocument{}
+func buildConfigRepositoryTeamDefaultsExportDocument(
+	llmDefault string,
+	agentDefault string,
+	knowledgeDefaults map[string]string,
+) (configRepositoryTeamDefaultsExportDocument, bool) {
+	doc := configRepositoryTeamDefaultsExportDocument{}
+	hasDefaults := false
 	llmDefault = config.NormalizeLLMProfileName(llmDefault)
 	if llmDefault != "" {
-		doc.LLMDefaultProfile = &llmDefault
+		doc.LLMProfile = &llmDefault
+		hasDefaults = true
 	}
-	llmNames := make([]string, 0, len(llmProfiles))
-	for name := range llmProfiles {
-		llmNames = append(llmNames, name)
-	}
-	sort.Strings(llmNames)
-	for _, name := range llmNames {
-		doc.LLMProfiles = append(doc.LLMProfiles, profileFormFromConfig(name, llmProfiles[name]))
-	}
-
 	agentDefault = normalizeAgentProfileDefault(agentDefault)
 	if agentDefault != "" {
-		doc.AgentDefaultProfile = &agentDefault
+		doc.AgentProfile = &agentDefault
+		hasDefaults = true
 	}
-	agentNames := make([]string, 0, len(agentProfiles))
-	for name := range agentProfiles {
-		agentNames = append(agentNames, name)
+	if len(knowledgeDefaults) > 0 {
+		doc.KnowledgeContext = knowledgeDefaults
+		hasDefaults = true
 	}
-	sort.Strings(agentNames)
-	for _, name := range agentNames {
-		doc.AgentProfiles = append(doc.AgentProfiles, agentProfileFormFromModel(agentProfiles[name]))
-	}
-
-	mcpNames := make([]string, 0, len(mcpProfiles))
-	for name := range mcpProfiles {
-		mcpNames = append(mcpNames, name)
-	}
-	sort.Strings(mcpNames)
-	for _, name := range mcpNames {
-		profile := models.NormalizeMCPProfile(mcpProfiles[name])
-		profile.Name = name
-		doc.MCPProfiles = append(doc.MCPProfiles, profile)
-	}
-
-	content, err := marshalConfigRepositoryYAML(doc)
-	if err != nil {
-		return err
-	}
-	files[configRepositoryTeamAIProfilesPath] = string(content)
-	return nil
+	return doc, hasDefaults
 }
 
 func (a *App) exportConfigRepositoryAuthSettings(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {

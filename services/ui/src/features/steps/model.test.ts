@@ -64,13 +64,13 @@ outputs:
   assert.match(duplicateOutput.errors[0]?.message ?? '', /declared more than once/);
 });
 
-test('validates reusable step policy merge mode directives', () => {
+test('validates reusable step governance level directives', () => {
   const result = validateStepYaml(`
 name: guarded-step
-policy_merge_mode: restrictive
+governance_level: strict
 tasks:
   - name: inspect
-    policy_merge_mode: override
+    governance_level: guarded
     goal: Inspect workspace readiness.
 `);
 

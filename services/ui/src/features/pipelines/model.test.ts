@@ -47,17 +47,17 @@ steps:
   assert.deepEqual(result.errors, []);
 });
 
-test('validates policy merge mode directives without unknown-field errors', () => {
+test('validates governance level directives without unknown-field errors', () => {
   const result = validatePipelineYaml(`
 name: deploy
 container_image: alpine:3.20
-policy_merge_mode: restrictive
+governance_level: strict
 steps:
   - name: build
-    policy_merge_mode: override
+    governance_level: guarded
     tasks:
       - name: summarize
-        policy_merge_mode: fail_on_conflict
+        governance_level: exception_based
         goal: Summarize deployment readiness.
 `);
 

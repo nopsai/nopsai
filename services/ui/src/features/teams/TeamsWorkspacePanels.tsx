@@ -29,6 +29,8 @@ import { formatTeamTimestamp, getLatestRunApplication, getTeamDirectChildren, ge
 import { teamNotificationGitOpsTarget, type NotificationRouteRecord } from './notificationRoutes';
 import type { TeamOperationsSummaryState } from './hooks/useTeamOperationsSummary';
 import type { TeamDetailTabID } from './workspaceModel';
+import { TeamDefaultsPanel } from './TeamDefaultsPanel';
+import type { TeamDefaultsPayload } from './api';
 
 export function TeamChildrenTable({
   title,
@@ -119,6 +121,7 @@ export function TeamTabPanel({
   operationsSummary,
   currentUser,
   onOpenConfig,
+  onSaveTeamDefaults,
 }: {
   activeTab: Exclude<TeamDetailTabID, 'overview'>;
   team: Team | null;
@@ -127,11 +130,32 @@ export function TeamTabPanel({
   operationsSummary: TeamOperationsSummaryState;
   currentUser?: CurrentUser | null;
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
+  onSaveTeamDefaults?: (teamPath: string, defaults: TeamDefaultsPayload) => Promise<void>;
 }) {
   if (activeTab === 'gitops') {
     return (
       <section className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-gitops" aria-labelledby="teams-tab-gitops">
         <TeamGitOpsCard team={team} teams={teams} stats={stats} summary={operationsSummary} onOpenConfig={onOpenConfig} />
+      </section>
+    );
+  }
+
+  if (activeTab === 'defaults') {
+    const teamPath = team ? teamPathForURL(team, teams) : '';
+    const canManageDefaults = Boolean(teamPath && operationsSummary.permissions.some(item => item.action === 'team.update' && item.allowed));
+    return (
+      <section className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-defaults" aria-labelledby="teams-tab-defaults">
+        <TeamDefaultsPanel
+          llmProfiles={operationsSummary.llmProfiles}
+          agentProfiles={operationsSummary.agentProfiles}
+          teamDefaults={operationsSummary.teamDefaults}
+          knowledgeContexts={operationsSummary.knowledgeContexts}
+          loading={operationsSummary.loading}
+          error={operationsSummary.defaultsError}
+          teamPath={teamPath}
+          canManageDefaults={canManageDefaults}
+          onSaveDefaults={onSaveTeamDefaults}
+        />
       </section>
     );
   }

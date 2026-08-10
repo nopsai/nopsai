@@ -239,7 +239,7 @@ func (s *runService) preparePipelineRun(ctx context.Context, req preparePipeline
 		return nil, runPrepError(http.StatusBadRequest, errMsg)
 	}
 
-	_, knowledgeAuthChecks, err := s.app.resolveKnowledgeContextsForRun(ctx, req.RunID, req.CallerType, req.CallerID, req.TriggerSource, req.GitContext, *resolvedPipeline)
+	_, knowledgeAuthChecks, err := s.app.resolveKnowledgeContextsForRun(ctx, req.RunID, req.CallerType, req.CallerID, req.TriggerSource, req.GitContext, *resolvedPipeline, teamID)
 	if err != nil {
 		errMsg := fmt.Sprintf("Knowledge context resolution failed%s: %v", req.ErrorContext, err)
 		authChecks = mergeResourceUseAuthResults(authChecks, knowledgeAuthChecks)

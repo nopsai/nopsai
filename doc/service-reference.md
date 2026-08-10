@@ -512,11 +512,15 @@ Responsibilities:
 - Maintains execution history that later tasks and child pipelines can use.
 - Injects effective pipeline + step + task knowledge context into LLM prompts.
 - Adds deterministic `knowledge_revision`, `policy_revision`,
-  `effective_policy_snapshot_hash`, `policy_merge_mode`, and
-  `policy_precedence_version` metadata to blocking knowledge prompts.
+  `effective_policy_snapshot_hash`, `governance_level`, and
+  `governance_contract_version` metadata to blocking knowledge prompts.
 - Pins policy snapshots by scope and recomputes effective policy as pipeline,
   step, and task scopes start. Emergency policy response uses run cancellation
   instead of live mutation of already-resolved policy.
+- Interprets AI policy decisions through `governance_level`: `advisory` logs
+  policy concerns, `guarded` blocks clear violations and conflicts, `strict`
+  proceeds only on a clear allow, and `exception_based` requires an effective
+  approved exception for conflicts.
 - Logs LLM prompt metadata, hashes, sizes, and token estimates without logging
   prompt bodies.
 - Records prompt/cache/session/revision/retrieval telemetry in AI usage

@@ -201,8 +201,8 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 ## Teams
 
-Teams own applications, GitOps bindings, notification policies, and
-team-scoped AI profiles. The current implementation stores teams and
+Teams own applications, GitOps bindings, notification policies, default
+runtime choices, and team-scoped profiles. The current implementation stores teams and
 applications in the compatibility `teams` table, but clients should use
 `/v1/teams` for team administration.
 
@@ -246,9 +246,11 @@ routes:
 - `POST /v1/teams/{teamID}/config-repository/write`
 - `GET|PUT|DELETE /v1/teams/{teamID}/notifications`
 
-Team-scoped AI profile APIs let delegated team owners define LLM, Agent, and
-MCP profiles without taking over the system-owned catalogs:
+Team-scoped defaults and profile APIs let delegated team owners choose runtime
+defaults and define LLM, Agent, and MCP profile definitions without taking over
+the system-owned catalogs:
 
+- `GET|PUT /v1/teams/{teamID}/defaults`
 - `GET|PUT /v1/teams/{teamID}/llm-profiles`
 - `PUT /v1/teams/{teamID}/llm-profiles/default`
 - `PUT|DELETE /v1/teams/{teamID}/llm-profiles/{profileName}`
@@ -261,11 +263,15 @@ MCP profiles without taking over the system-owned catalogs:
 Reads require `team.read` on the resolved team resource. Mutations require
 `team.update` on the changed team or application. Moving a team or application
 also requires `team.create` on the destination parent scope and rejects
-hierarchy cycles. Team profile rows carry config-repository metadata columns
-and team config repositories import/export root `ai-profiles.yaml`; system
-profile GitOps remains under `setting/system/*` today. Run preparation and
-agent launch merge team profile definitions over the system catalogs when a run
-belongs to that team or one of its applications.
+hierarchy cycles. Team profile definitions are managed through these team APIs;
+system profile GitOps remains under `setting/system/*` today. Team defaults are
+a separate `defaults.yaml` file under `config-repositories/teams/<team>/` with
+`llm_profile`, `agent_profile`, and `knowledge_context` entries keyed by
+knowledge kind. Run preparation and agent launch merge team profile definitions
+over the system catalogs and add team knowledge-kind defaults when a run belongs
+to that team or one of its applications. The team Defaults
+endpoint stores the same `llm_profile`, `agent_profile`, and
+`knowledge_context` shape.
 
 ## Dashboards
 
@@ -715,7 +721,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET|POST|PUT|DELETE /v1/monitoring/views` manages owner-scoped saved views. Updating a config-repo-managed view stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps.
 - `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. Updating a config-repo-managed alert rule stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
 - `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.
-- Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Agent-reported metadata may include `prompt_sha256`, `prompt_bytes`, `estimated_input_tokens`, `cached_input_tokens`, `uncached_input_tokens`, `cache_write_tokens`, `stable_prefix_tokens`, `dynamic_context_tokens`, `static_context_sha256`, `static_context_cache_key`, `cache_identity_sha256`, `prompt_schema_version`, `execution_mode`, `logical_session_id`, `provider_state_id`, `provider_state_supported`, `provider_state_used`, `provider_state_mode`, `prompt_cache_supported`, `prompt_cache_hit`, `prompt_cache_mode`, `history_revision`, `workspace_revision`, `knowledge_revision`, `policy_revision`, `effective_policy_snapshot_hash`, `policy_merge_mode`, `policy_precedence_version`, `shared_file_count`, `shared_file_bytes`, `workspace_tool_call_count`, and `workspace_tool_result_bytes`; prompt bodies and shared file contents are not stored in AI usage events. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
+- Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Agent-reported metadata may include `prompt_sha256`, `prompt_bytes`, `estimated_input_tokens`, `cached_input_tokens`, `uncached_input_tokens`, `cache_write_tokens`, `stable_prefix_tokens`, `dynamic_context_tokens`, `static_context_sha256`, `static_context_cache_key`, `cache_identity_sha256`, `prompt_schema_version`, `execution_mode`, `logical_session_id`, `provider_state_id`, `provider_state_supported`, `provider_state_used`, `provider_state_mode`, `prompt_cache_supported`, `prompt_cache_hit`, `prompt_cache_mode`, `history_revision`, `workspace_revision`, `knowledge_revision`, `policy_revision`, `effective_policy_snapshot_hash`, `governance_level`, `governance_contract_version`, `shared_file_count`, `shared_file_bytes`, `workspace_tool_call_count`, and `workspace_tool_result_bytes`; prompt bodies and shared file contents are not stored in AI usage events. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
 - Agents record declared task runtime outputs with `POST /v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs` using an agent service JWT. Normal run-detail/API responses expose only output metadata (`name`, `sensitive`, `size_bytes`) on task rows; values remain run-state/internal data, and sensitive values are encrypted before persistence. The handler writes an audit log entry with output names and sizes but never output values. Hosted MCP run-log reads see the same audit metadata and no plaintext runtime output values.
 - Sync child pipeline includes resolve declared parent-visible outputs with `POST /v1/internal/runs/{childRunID}/task-outputs/resolve` using an agent service JWT. The request includes the parent run ID, parent step name, and output names; `nopsai` verifies the child run belongs to that parent step before returning only those requested values to the parent agent. Sensitive values are decrypted only for this internal runtime handoff and remain excluded from normal run-detail/API and hosted MCP responses.
 - `GET /v1/internal/runs/{runID}/policy-revision` remains available for diagnostics and audit. It returns `run_start_policy_revision`, `current_policy_revision`, `blocking_context_count`, and the current blocking knowledge snapshots used to calculate the revision. Active agent runs use their pinned scope snapshots as the correctness boundary; emergency policy response cancels the run instead of mutating policy in place.
@@ -1868,7 +1874,7 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and team-scoped repos may define pipeline schedules under `schedules/`.
 - System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`. System/global repos support `knowledge/<kind>/<document>.md` for global documents; team-scoped repos keep the legacy `knowledge/<kind>/<document>.md` meaning the bound team.
 - System- and team-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`; team repos keep the bound team path explicit.
-- The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
+- The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs and are merged into run launch for runs owned by that team. Team runtime defaults are managed through `/v1/teams/{teamID}/defaults` and `config-repositories/teams/<team>/defaults.yaml`, including one managed knowledge document ref per knowledge kind. If a team has no enabled team config repo, its defaults remain owned by the nearest parent/global config repo.
 - The system/global repo may define mandatory local login and one enabled external identity provider under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
 - The system/global repo may define GitHub App IDs, credential references, and installations under `setting/git-apps/github.yaml`. The legacy `setting/system/github.yaml` file is read for one release to migrate `github_installation_id` into the first installation record, but exports stop writing it.
 - The system/global repo may define runtime runner defaults, dispatcher routing, and `runner_registry_credentials` under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.

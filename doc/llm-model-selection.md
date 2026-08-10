@@ -170,28 +170,28 @@ Team-scoped LLM profile storage and REST APIs are available at
 `team.read` or `team.update` on the team resource. The **LLM Profiles** page
 loads those team-owned rows when a concrete team is selected in the profile
 tree or `?team=` query, and the top default selector updates that team's
-`llm_default_profile`. The selected-team view also includes system-catalog
+LLM default. The selected-team view also includes system-catalog
 profiles whose slash-scoped names belong to that team, such as
 `platform/ml/chatgpt`; those profiles can be selected as the team default
-without copying them into the team-local table. The Teams area is a read-only
-summary for these defaults and links into the scoped profile page.
+without copying them into the team-local table. The Teams area summarizes these
+profiles and its **Defaults** tab lets users with `team.update` select the team
+LLM default alongside the Agent and knowledge-kind defaults.
 
-Team config repositories can manage the same team-owned LLM entries in root
-`ai-profiles.yaml`:
+Config repositories manage team defaults in a separate team defaults file:
 
 ```yaml
-llm_default_profile: release-review
-llm_profiles:
-  - name: release-review
-    provider: openai
-    model: gpt-4.1
-    credential_ref: credential://team/platform/llm/openai
-    allowed_scopes: ["platform/prod"]
-    prompt_cache:
-      mode: auto
-    provider_state:
-      mode: disabled
+# config-repositories/teams/platform/defaults.yaml
+llm_profile: release-review
+knowledge_context:
+  guardrail: runtime-output-safety
+  runbook: release-checklist
 ```
+
+`llm_profile`, `agent_profile`, and `knowledge_context` are the team GitOps
+shape for runtime defaults in `defaults.yaml`. If a team has no enabled team
+config repo, the nearest parent/global config repo exports that team's
+`config-repositories/teams/<team>/defaults.yaml`. Team-owned LLM profile
+definitions are managed through the team UI/API.
 
 Run preparation and agent launch merge team profiles over the system catalog
 when the run belongs to that team.
@@ -200,7 +200,7 @@ LLM profiles accept optional `prompt_cache` and `provider_state` feature
 preferences. `mode: auto` lets NopsAI use a supported provider optimization,
 `mode: disabled` keeps the request stateless, and `mode: required` fails closed
 when the selected provider adapter cannot satisfy the feature. NopsAI still
-owns the logical session, scoped context, transcript, policy precedence, and
+owns the logical session, scoped context, transcript, governance contract, and
 cache identity; provider caches and continuation state are treated as
 replaceable transport optimizations.
 
@@ -252,14 +252,19 @@ least-specific:
 1. Task `llm_profile`
 2. Step `llm_profile`
 3. Pipeline `llm_profile`
-4. `llm_default_profile`
+4. Owning team LLM default
+5. System/global default profile
 
-For team-owned pipeline runs, `llm_default_profile` first uses the default
-configured on the owning team. If the team has no default, runtime validation
-and launch inherit the system/global default profile; they never borrow a
-viewer preference or another team's default. Team overview shows the configured
-default and links to the team-scoped profile page, where users with
-`team.update` on that team can change the default from the top selector.
+For team-owned pipeline runs, the owning-team default is configured through the
+Teams **Defaults** tab or `llm_profile` in the team's `defaults.yaml` GitOps
+file.
+If the team has no default, runtime validation and launch inherit the
+system/global default profile; they never borrow a viewer preference or another
+team's default. Team overview shows the configured default and links to the
+team-scoped profile page, where users with
+`team.update` on that team can change the default from the top selector. The
+Teams workspace also has a **Defaults** tab where the same users can select the
+team LLM default directly.
 
 Step-level conditions use the resolved step profile. Task-level goals use the
 resolved task profile. Script-only tasks can declare `llm_profile`, but it only

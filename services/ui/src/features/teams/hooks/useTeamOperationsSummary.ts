@@ -4,12 +4,16 @@ import { normalizeConfigRepositoryProvider } from '../../../lib/configRepository
 import {
   fetchTeamAgentProfiles,
   fetchTeamConfigRepository,
+  fetchTeamDefaults,
   fetchTeamLLMProfiles,
   fetchTeamMCPProfiles,
   type TeamAgentProfilesResponse,
+  type TeamDefaultsResponse,
   type TeamLLMProfilesResponse,
   type TeamMCPProfilesResponse,
 } from '../api';
+import { fetchKnowledgeContexts } from '../../knowledge-context/api';
+import type { KnowledgeContextListItem } from '../../knowledge-context/model';
 import { fetchAgentProfiles } from '../../system/agent-profiles/api';
 import { fetchLLMProfiles } from '../../system/llm-profiles/api';
 import { fetchMCPRegistry } from '../../system/mcp/api';
@@ -47,6 +51,9 @@ export type TeamOperationsSummaryState = {
   llmProfiles: TeamLLMProfilesResponse | null;
   agentProfiles: TeamAgentProfilesResponse | null;
   mcpProfiles: TeamMCPProfilesResponse | null;
+  teamDefaults: TeamDefaultsResponse | null;
+  knowledgeContexts: KnowledgeContextListItem[];
+  defaultsError: string | null;
   aiProfilesError: string | null;
   accessGrants: AccessGrantRecord[];
   accessGrantsError: string | null;
@@ -80,6 +87,9 @@ function createEmptySummary(teamPath = '', loading = false): TeamOperationsSumma
     llmProfiles: null,
     agentProfiles: null,
     mcpProfiles: null,
+    teamDefaults: null,
+    knowledgeContexts: [],
+    defaultsError: null,
     aiProfilesError: null,
     accessGrants: [],
     accessGrantsError: null,
@@ -371,11 +381,13 @@ export function useTeamOperationsSummary({
   teams,
   fetchJson,
   checkAccessPermission,
+  refreshKey = 0,
 }: {
   team: Team | null;
   teams: Team[];
   fetchJson: FetchJson;
   checkAccessPermission: (action: string, resourceType: string, resourceID: string) => Promise<boolean>;
+  refreshKey?: number;
 }) {
   const teamPath = useMemo(() => (team ? teamPathForURL(team, teams) : ''), [team, teams]);
   const [summary, setSummary] = useState<TeamOperationsSummaryState>(() => createEmptySummary(teamPath, !team));
@@ -415,8 +427,13 @@ export function useTeamOperationsSummary({
           llmProfiles: resultValue(llmResult, null),
           agentProfiles: resultValue(agentResult, null),
           mcpProfiles: resultValue(mcpResult, null),
+          teamDefaults: null,
+          knowledgeContexts: [],
+          defaultsError: [llmResult, agentResult]
+            .map(result => resultError(result, 'Unable to load global defaults'))
+            .find(Boolean) || null,
           aiProfilesError: [llmResult, agentResult, mcpResult]
-            .map(result => resultError(result, 'Unable to load global AI profiles'))
+            .map(result => resultError(result, 'Unable to load global profiles'))
             .find(Boolean) || null,
           accessGrants: mergeGlobalAccessGrants(
             resultValue(accessGrantsResult, []),
@@ -450,6 +467,8 @@ export function useTeamOperationsSummary({
         llmResult,
         agentResult,
         mcpResult,
+        defaultsResult,
+        knowledgeResult,
         catalogLLMResult,
         catalogAgentResult,
         globalMCPResult,
@@ -461,6 +480,8 @@ export function useTeamOperationsSummary({
         fetchTeamLLMProfiles(teamPath),
         fetchTeamAgentProfiles(teamPath),
         fetchTeamMCPProfiles(teamPath),
+        fetchTeamDefaults(teamPath),
+        fetchKnowledgeContexts(),
         fetchLLMProfiles(),
         fetchAgentProfiles(),
         fetchMCPRegistry().then(globalMCPProfilesSummary),
@@ -492,8 +513,13 @@ export function useTeamOperationsSummary({
           teamCatalogAgentProfilesSummary(resultValue(catalogAgentResult, null), teamPath, teamAgentProfiles?.team_id ?? 0)
         ),
         mcpProfiles: mergeTeamMCPProfiles(resultValue(mcpResult, null), resultValue(globalMCPResult, null)),
+        teamDefaults: resultValue(defaultsResult, null),
+        knowledgeContexts: resultValue(knowledgeResult, []),
+        defaultsError: [defaultsResult, knowledgeResult, llmResult, agentResult, catalogLLMResult, catalogAgentResult]
+          .map(result => resultError(result, 'Unable to load team defaults'))
+          .find(Boolean) || null,
         aiProfilesError: [llmResult, agentResult, mcpResult, catalogLLMResult, catalogAgentResult, globalMCPResult]
-          .map(result => resultError(result, 'Unable to load AI profiles'))
+          .map(result => resultError(result, 'Unable to load profiles'))
           .find(Boolean) || null,
         accessGrants: resultValue(accessGrantsResult, []),
         accessGrantsError: resultError(accessGrantsResult, 'Unable to load access grants'),
@@ -506,7 +532,7 @@ export function useTeamOperationsSummary({
     return () => {
       cancelled = true;
     };
-  }, [checkAccessPermission, fetchJson, team, teamPath, teams]);
+  }, [checkAccessPermission, fetchJson, refreshKey, team, teamPath, teams]);
 
   if (summary.teamPath === teamPath) {
     return summary;

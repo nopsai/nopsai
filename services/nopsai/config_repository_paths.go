@@ -41,6 +41,37 @@ func configRepositoryNotificationRoutePath(repo models.ConfigRepository, teamPat
 	return filepath.ToSlash(filepath.Join("config-repositories", "teams", normalizedTeam, "notifications.yaml")), true
 }
 
+func configRepositoryTeamDefaultsFilePath(repo models.ConfigRepository, teamPath string) (string, bool) {
+	if _, ok := configsync.RelativeResourceIdentifier(repo, teamPath); !ok {
+		return "", false
+	}
+	normalizedTeam := strings.Trim(strings.TrimSpace(teamPath), "/")
+	if normalizedTeam == "" {
+		return "", false
+	}
+	return filepath.ToSlash(filepath.Join("config-repositories", "teams", normalizedTeam, configRepositoryTeamDefaultsPath)), true
+}
+
+func configRepositoryTeamDefaultsFileScope(rel string) (string, bool, error) {
+	path := strings.Trim(strings.ReplaceAll(filepath.ToSlash(rel), "\\", "/"), "/")
+	if path == "" || !isYAMLFile(path) {
+		return "", false, nil
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 3 || !strings.EqualFold(parts[0], "teams") {
+		return "", false, nil
+	}
+	fileName := strings.ToLower(parts[len(parts)-1])
+	if fileName != "defaults.yaml" && fileName != "defaults.yml" {
+		return "", false, nil
+	}
+	teamPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+	if _, err := configsync.CleanPathSegments(teamPath, false); err != nil {
+		return "", true, err
+	}
+	return teamPath, true, nil
+}
+
 func configRepositoryScopeFilePath(repo models.ConfigRepository, scope, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
 	return configsync.ScopeFilePath(repo, scope, sourcePath, managed, configRepoID, configRepositoryDriftPathOptions())
 }
@@ -58,9 +89,6 @@ func configRepositoryRelativeGitPath(basePath, filePath string) (string, bool) {
 }
 
 func isConfigRepositoryDriftPath(filePath string) bool {
-	if isGitOpsTeamAIProfilesPath(filePath) {
-		return true
-	}
 	return configsync.IsDriftPath(filePath, configRepositoryDriftPathOptions())
 }
 

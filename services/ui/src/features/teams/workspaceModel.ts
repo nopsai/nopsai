@@ -1,11 +1,12 @@
 import type { Team } from '../../lib/teamModels.js';
 import { isAppTeam } from '../../lib/teamModels.js';
 
-export type TeamDetailTabID = 'overview' | 'gitops' | 'notifications' | 'access';
+export type TeamDetailTabID = 'overview' | 'gitops' | 'defaults' | 'notifications' | 'access';
 
 export const teamDetailTabs: Array<{ id: TeamDetailTabID; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'gitops', label: 'GitOps' },
+  { id: 'defaults', label: 'Defaults' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'access', label: 'Access' },
 ];

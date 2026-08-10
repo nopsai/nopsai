@@ -41,7 +41,6 @@ type configSyncRepositoryFiles struct {
 	access             map[string]string
 	knowledge          map[string]string
 	notifications      map[string]string
-	teamAIProfiles     map[string]string
 	setting            map[string]string
 }
 
@@ -84,8 +83,7 @@ func fetchConfigSyncRepositoryFiles(ctx context.Context, reader configSyncGitRea
 	}
 
 	files := configSyncRepositoryFiles{
-		notifications:  map[string]string{},
-		teamAIProfiles: map[string]string{},
+		notifications: map[string]string{},
 	}
 	directoryResults, err := fetchConfigRepositoryDirectories(ctx, reader, repoCtx.branch, []configRepositoryDirectoryRequest{
 		{path: repoCtx.dirs.pipeline, resource: "pipeline definitions"},
@@ -121,12 +119,8 @@ func fetchConfigSyncRepositoryFiles(ctx context.Context, reader configSyncGitRea
 
 	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 		rootRoutePath := configsync.RepoJoinPath(repoCtx.basePath, "notifications.yaml")
-		rootAIProfilesPath := configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yaml")
-		rootAIProfilesYMLPath := configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yml")
 		optionalResults, err := fetchConfigRepositoryOptionalFiles(ctx, reader, repoCtx.branch, []configRepositoryOptionalFileRequest{
 			{path: rootRoutePath, resource: "notification route", notFoundErr: errNotificationGitOpsNotFound},
-			{path: rootAIProfilesPath, resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
-			{path: rootAIProfilesYMLPath, resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
 		})
 		if err != nil {
 			return configSyncRepositoryFiles{}, err
@@ -137,8 +131,6 @@ func fetchConfigSyncRepositoryFiles(ctx context.Context, reader configSyncGitRea
 			}
 			if idx == 0 {
 				files.notifications[result.path] = result.content
-			} else {
-				files.teamAIProfiles[result.path] = result.content
 			}
 		}
 	}

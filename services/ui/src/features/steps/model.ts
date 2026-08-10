@@ -29,7 +29,7 @@ export const STEP_DIRECTIVES = [
   'outputs',
   'ignore_failure',
   'agent_profile',
-  'policy_merge_mode',
+  'governance_level',
   'runtime_pool',
   'llm_output_sharing',
   'artifacts',
@@ -44,13 +44,13 @@ export const TASK_DIRECTIVES = [
   'outputs',
   'ignore_failure',
   'llm_output_sharing',
-  'policy_merge_mode',
+  'governance_level',
   'variables',
   'knowledge_context',
 ];
 
-const STEP_ALLOWED_KEYS = new Set(STEP_DIRECTIVES);
-const TASK_ALLOWED_KEYS = new Set(TASK_DIRECTIVES);
+const STEP_ALLOWED_KEYS = new Set([...STEP_DIRECTIVES, 'policy_merge_mode']);
+const TASK_ALLOWED_KEYS = new Set([...TASK_DIRECTIVES, 'policy_merge_mode']);
 
 export type ValidationError = {
   message: string;

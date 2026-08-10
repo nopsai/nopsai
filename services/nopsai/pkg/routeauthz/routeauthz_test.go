@@ -1069,6 +1069,22 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "team-1/platform",
 		},
 		{
+			name:       "team defaults read uses team read",
+			method:     http.MethodGet,
+			path:       "/v1/teams/team-1%2Fplatform/defaults",
+			wantAction: "team.read",
+			wantType:   "team",
+			wantID:     "team-1/platform",
+		},
+		{
+			name:       "team defaults update uses team update",
+			method:     http.MethodPut,
+			path:       "/v1/teams/team-1/defaults",
+			wantAction: "team.update",
+			wantType:   "team",
+			wantID:     "team-1",
+		},
+		{
 			name:       "team MCP profile read uses team read",
 			method:     http.MethodGet,
 			path:       "/v1/teams/team-1/mcp-profiles/github-readonly",
