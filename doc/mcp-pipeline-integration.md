@@ -123,18 +123,13 @@ system registry. Team-scoped MCP profile storage and REST APIs are available at
 `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}` for callers with
 `team.read` or `team.update` on the team resource. Team profiles compose approved
 system MCP servers. Run preparation and agent launch merge team profiles over
-the system catalog when the run belongs to that team. Team config repositories
-manage team-owned profiles in root `ai-profiles.yaml`:
+the system catalog when the run belongs to that team. Team-owned MCP profile
+definitions are managed through the team UI/API.
 
-```yaml
-mcp_profiles:
-  - name: github-pr-readonly
-    description: Read-only GitHub PR context
-    enabled: true
-    servers:
-      - server: github
-        tools: ["*"]
-```
+LLM, Agent, and knowledge-kind defaults live in
+`config-repositories/teams/<team>/defaults.yaml`. MCP entries remain profile
+definitions selected explicitly by pipelines, steps, or tasks; there is no
+team-wide MCP runtime default selector.
 
 Create the referenced bearer token under **Credentials** or sync its
 encrypted envelope from `setting/system/credentials.yaml`. GitOps owns the

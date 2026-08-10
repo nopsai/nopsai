@@ -55,10 +55,14 @@ func decodeActionResponse(raw string) (*models.Action, error) {
 
 func decodeActionJSON(actionJSON string) (*models.Action, error) {
 	var actionWrapper struct {
-		Action models.Action `json:"action"`
+		PolicyReview *models.PolicyReview `json:"policy_review,omitempty"`
+		Action       models.Action        `json:"action"`
 	}
 	if err := json.Unmarshal([]byte(actionJSON), &actionWrapper); err != nil {
 		return nil, err
+	}
+	if actionWrapper.Action.PolicyReview == nil {
+		actionWrapper.Action.PolicyReview = actionWrapper.PolicyReview
 	}
 	if err := validateAction(actionWrapper.Action); err != nil {
 		return nil, err
@@ -68,6 +72,17 @@ func decodeActionJSON(actionJSON string) (*models.Action, error) {
 }
 
 func validateAction(action models.Action) error {
+	if action.PolicyReview != nil {
+		action.PolicyReview.Decision = models.NormalizePolicyDecision(action.PolicyReview.Decision)
+		if !models.SupportedPolicyDecision(action.PolicyReview.Decision) {
+			return fmt.Errorf("policy_review.decision must be one of %q, %q, %q, or %q",
+				models.PolicyDecisionAllow,
+				models.PolicyDecisionBlock,
+				models.PolicyDecisionConflict,
+				models.PolicyDecisionUncertain,
+			)
+		}
+	}
 	switch action.Type {
 	case models.ActionTypeExecuteCommand:
 		if action.CommandAction == nil || strings.TrimSpace(action.CommandAction.Command) == "" {

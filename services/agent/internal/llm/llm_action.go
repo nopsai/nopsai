@@ -23,6 +23,9 @@ func (c *LLMClient) GetActionWithAgentProfile(ctx context.Context, req *proto.Ge
 	if err != nil {
 		return nil, err
 	}
+	if err := c.enforceDuringPolicyReview(req, actionModel); err != nil {
+		return nil, err
+	}
 	return actionModelToProto(actionModel)
 }
 
@@ -68,6 +71,9 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 	for toolCallCount := 0; toolCallCount <= maxMCPToolCallsPerAction; toolCallCount++ {
 		actionModel, err := c.getActionModel(ctx, c.buildPromptWithTools(req, toolTranscript, mcpToolPrompt(mcpRuntime), workspaceTranscript, workspaceToolPrompt(workspaceTools), agentProfile), goalSession)
 		if err != nil {
+			return nil, err
+		}
+		if err := c.enforceDuringPolicyReview(req, actionModel); err != nil {
 			return nil, err
 		}
 		if actionModel.Type == models.ActionTypeCallWorkspaceTool {
@@ -167,6 +173,38 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 		toolTranscript += formatMCPToolResultTranscript(serverName, toolName, toolAction.Arguments, result)
 	}
 	return nil, fmt.Errorf("MCP tool call loop ended without a final action")
+}
+
+func (c *LLMClient) enforceDuringPolicyReview(req *proto.GetActionRequest, actionModel *models.Action) error {
+	if req == nil || actionModel == nil || !policyReviewRequired(req.GetKnowledgeContext()) {
+		return nil
+	}
+	interpretation := interpretPromptPolicyReview(req.GetKnowledgeContext(), actionModel.PolicyReview)
+	logEvent := log.Info().
+		Str("governance_level", governanceLevelFromPrompt(req.GetKnowledgeContext())).
+		Str("policy_decision", interpretation.Decision).
+		Str("action_type", actionModel.Type)
+	if actionModel.PolicyReview != nil {
+		if confidence := strings.TrimSpace(actionModel.PolicyReview.Confidence); confidence != "" {
+			logEvent = logEvent.Str("policy_confidence", confidence)
+		}
+		if len(actionModel.PolicyReview.Refs) > 0 {
+			logEvent = logEvent.Strs("policy_refs", actionModel.PolicyReview.Refs)
+		}
+	}
+	if c != nil && c.profile != "" {
+		logEvent = logEvent.Str("llm_profile", c.profile)
+	}
+	if !interpretation.Allowed {
+		logEvent.Msg("During policy review blocked action")
+		return governancePolicyError("during", req.GetKnowledgeContext(), actionModel.PolicyReview)
+	}
+	if interpretation.Warning {
+		logEvent.Msg("During policy review allowed action with warning")
+		return nil
+	}
+	logEvent.Msg("During policy review allowed action")
+	return nil
 }
 
 func mcpToolPrompt(mcpRuntime *MCPTaskRuntime) string {

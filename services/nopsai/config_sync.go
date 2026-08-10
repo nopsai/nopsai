@@ -33,6 +33,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"agent_profiles_synced":          0,
 		"mcp_servers_synced":             0,
 		"mcp_profiles_synced":            0,
+		"team_defaults_synced":           0,
+		"team_knowledge_defaults_synced": 0,
 		"knowledge_contexts_synced":      0,
 		"auth_teams_seeded":              0,
 		"auth_settings_synced":           0,
@@ -106,6 +108,8 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("agent_profiles_synced", details["agent_profiles_synced"]).
 		Int("mcp_servers_synced", details["mcp_servers_synced"]).
 		Int("mcp_profiles_synced", details["mcp_profiles_synced"]).
+		Int("team_defaults_synced", details["team_defaults_synced"]).
+		Int("team_knowledge_defaults_synced", details["team_knowledge_defaults_synced"]).
 		Int("auth_teams_seeded", details["auth_teams_seeded"]).
 		Int("auth_settings_synced", details["auth_settings_synced"]).
 		Int("credentials_synced", details["credentials_synced"]).

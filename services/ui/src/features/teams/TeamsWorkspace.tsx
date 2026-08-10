@@ -64,6 +64,7 @@ import {
   type TeamLinkedResourceKind,
   type TeamResourceCatalogState,
 } from './resourceCatalogModel';
+import type { TeamDefaultsPayload } from './api';
 import './teams.css';
 
 export function TeamsWorkspace({
@@ -77,6 +78,7 @@ export function TeamsWorkspace({
   onEditTeam,
   onDeleteTeam,
   onOpenConfig,
+  onSaveTeamDefaults,
   operationsSummary,
   resourceCatalog,
   runnerStatus,
@@ -94,6 +96,7 @@ export function TeamsWorkspace({
   onEditTeam: (team: Team) => void;
   onDeleteTeam: (team: Team) => void;
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
+  onSaveTeamDefaults?: (teamPath: string, defaults: TeamDefaultsPayload) => Promise<void>;
   operationsSummary: TeamOperationsSummaryState;
   resourceCatalog: TeamResourceCatalogState;
   runnerStatus?: DispatcherStatusState | null;
@@ -218,6 +221,7 @@ export function TeamsWorkspace({
               operationsSummary={operationsSummary}
               currentUser={currentUser}
               onOpenConfig={onOpenConfig}
+              onSaveTeamDefaults={onSaveTeamDefaults}
             />
           )}
           {showChildrenTable ? (

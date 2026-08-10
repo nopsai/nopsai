@@ -72,6 +72,7 @@ type Step interface {
 	GetVariables() map[string]string
 	GetOutputs() []TaskOutput
 	GetKnowledgeContext() []KnowledgeContextRef
+	GetGovernanceLevel() string
 	GetPolicyMergeMode() string
 
 	// Type assertion helpers
@@ -99,7 +100,8 @@ type BaseStep struct {
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	Outputs          []TaskOutput          `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
-	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
+	GovernanceLevel  string                `yaml:"governance_level,omitempty" json:"governance_level,omitempty"`
+	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"` // Deprecated: use GovernanceLevel.
 }
 
 // GetName returns the step's name.
@@ -147,7 +149,10 @@ func (s *BaseStep) GetOutputs() []TaskOutput { return s.Outputs }
 // GetKnowledgeContext returns the step's requested knowledge context.
 func (s *BaseStep) GetKnowledgeContext() []KnowledgeContextRef { return s.KnowledgeContext }
 
-// GetPolicyMergeMode returns the step's policy merge mode override.
+// GetGovernanceLevel returns the step's governance level override.
+func (s *BaseStep) GetGovernanceLevel() string { return s.GovernanceLevel }
+
+// GetPolicyMergeMode returns the legacy policy merge mode override.
 func (s *BaseStep) GetPolicyMergeMode() string { return s.PolicyMergeMode }
 
 // Default type assertion implementations
@@ -528,6 +533,13 @@ func (ps PipelineStep) GetKnowledgeContext() []KnowledgeContextRef {
 	return ps.Step.GetKnowledgeContext()
 }
 
+func (ps PipelineStep) GetGovernanceLevel() string {
+	if ps.Step == nil {
+		return ""
+	}
+	return ps.Step.GetGovernanceLevel()
+}
+
 func (ps PipelineStep) GetPolicyMergeMode() string {
 	if ps.Step == nil {
 		return ""
@@ -702,6 +714,12 @@ func (ps *PipelineStep) SetKnowledgeContext(context []KnowledgeContextRef) {
 	}
 }
 
+func (ps *PipelineStep) SetGovernanceLevel(value string) {
+	if base := ps.baseStep(); base != nil {
+		base.GovernanceLevel = value
+	}
+}
+
 func (ps *PipelineStep) SetPolicyMergeMode(value string) {
 	if base := ps.baseStep(); base != nil {
 		base.PolicyMergeMode = value
@@ -815,7 +833,8 @@ type Pipeline struct {
 	RuntimePool       string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	AffinityEnabled   *bool                 `yaml:"affinity_enabled,omitempty" json:"affinity_enabled,omitempty"`
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
-	PolicyMergeMode   string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
+	GovernanceLevel   string                `yaml:"governance_level,omitempty" json:"governance_level,omitempty"`
+	PolicyMergeMode   string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"` // Deprecated: use GovernanceLevel.
 	Output            PipelineOutput        `yaml:"output,omitempty" json:"output,omitempty"`
 	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
@@ -899,7 +918,8 @@ type Task struct {
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	Outputs          []TaskOutput          `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
-	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
+	GovernanceLevel  string                `yaml:"governance_level,omitempty" json:"governance_level,omitempty"`
+	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"` // Deprecated: use GovernanceLevel.
 }
 
 func (t *Task) UnmarshalYAML(value *yaml.Node) error {
@@ -976,8 +996,18 @@ type WorkspaceToolAction struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
+// PolicyReview is the AI's policy judgment for a proposed action. NopsAI owns
+// governance_level and interprets this decision before execution.
+type PolicyReview struct {
+	Decision   string   `json:"decision"`
+	Confidence string   `json:"confidence,omitempty"`
+	Reason     string   `json:"reason,omitempty"`
+	Refs       []string `json:"refs,omitempty"`
+}
+
 // Action is the structured command returned by the LLM Agent to the Agent.
 type Action struct {
+	PolicyReview        *PolicyReview        `json:"policy_review,omitempty"`
 	Type                string               `json:"type"`
 	CommandAction       *CommandAction       `json:"command_action,omitempty"`
 	FileAction          *FileAction          `json:"file_action,omitempty"`

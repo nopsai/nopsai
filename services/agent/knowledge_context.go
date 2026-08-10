@@ -15,11 +15,15 @@ import (
 
 const knowledgeContextsRuntimeEnv = "NOPSAI_KNOWLEDGE_CONTEXTS"
 
-const strictKnowledgeContextActionInstruction = "If the requested action conflicts with guardrails or policies, do not execute it. " +
-	"Before returning any action, inspect the exact structured action you are about to return. " +
-	"If the action is EXECUTE_COMMAND, inspect the generated command_action.command text, including shell command text, scripts, arguments, and any stdout/stderr-producing operation. " +
-	"Guardrails and policies apply to the user's goal and to generated commands, file writes, MCP/tool actions, and their arguments. " +
-	"If any generated action would violate a guardrail or policy from the knowledge context, return RETURN_ANSWER instead with a short explanation that names the conflicting guardrail or policy; the agent will treat that response as a task failure."
+const governanceContractInstruction = "NopsAI owns governance_level and decides whether your policy_review.decision can proceed. " +
+	"History is not policy truth; it only describes what already happened. Current effective knowledge is authoritative. " +
+	"Before planning or execution, review the current goal or direct script against effective policies and guardrails. " +
+	"During planning, include policy_review next to the action you propose. " +
+	"After choosing an action, inspect the exact final structured action before execution. " +
+	"If the action is EXECUTE_COMMAND, inspect command_action.command, including shell text, scripts, arguments, and stdout/stderr-producing operations. " +
+	"Policies and guardrails apply to goals, generated commands, file writes, MCP/tool actions, and their arguments. " +
+	"Use policy_review.decision values allow, block, conflict, or uncertain. " +
+	"Opposite policies conflict only when both are effective for the same decision."
 
 type knowledgeContextScope string
 
@@ -65,7 +69,7 @@ func buildEffectiveKnowledgeContextPrompt(pipeline *models.Pipeline, step *model
 	if len(selected) == 0 {
 		return ""
 	}
-	return formatScopedKnowledgeContextPrompt(selected, models.EffectivePolicyMergeMode(pipeline, step, task))
+	return formatScopedKnowledgeContextPrompt(selected, models.EffectiveGovernanceLevel(pipeline, step, task))
 }
 
 func selectEffectiveKnowledgeContexts(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) []models.KnowledgeContextSnapshot {
@@ -97,7 +101,6 @@ func selectScopedEffectiveKnowledgeContexts(pipeline *models.Pipeline, step *mod
 	}
 
 	refs := scopedKnowledgeContextRefs(pipeline, step, task)
-	mode := models.EffectivePolicyMergeMode(pipeline, step, task)
 
 	seen := map[string]int{}
 	var selected []scopedKnowledgeContextSnapshot
@@ -126,7 +129,7 @@ func selectScopedEffectiveKnowledgeContexts(pipeline *models.Pipeline, step *mod
 			Key:        key,
 		}
 		if existingIdx, ok := seen[key]; ok {
-			if mode == models.PolicyMergeModeOverride && item.ScopeOrder >= selected[existingIdx].ScopeOrder {
+			if item.ScopeOrder >= selected[existingIdx].ScopeOrder {
 				selected[existingIdx] = item
 			}
 			continue
@@ -180,72 +183,82 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 			Key:        knowledgeContextSnapshotKey(snapshot),
 		})
 	}
-	return formatScopedKnowledgeContextPrompt(scoped, models.PolicyMergeModeRestrictive)
+	return formatScopedKnowledgeContextPrompt(scoped, models.GovernanceLevelStrict)
 }
 
-func formatScopedKnowledgeContextPrompt(snapshots []scopedKnowledgeContextSnapshot, mergeMode string) string {
+func formatScopedKnowledgeContextPrompt(snapshots []scopedKnowledgeContextSnapshot, governanceLevel string) string {
 	var builder strings.Builder
-	hasStrict := false
+	hasGovernance := false
 	rawSnapshots := make([]models.KnowledgeContextSnapshot, 0, len(snapshots))
+	var blocking []scopedKnowledgeContextSnapshot
+	var other []scopedKnowledgeContextSnapshot
 	for _, item := range snapshots {
 		rawSnapshots = append(rawSnapshots, item.Snapshot)
-		switch normalizeKnowledgeRuntimeValue(item.Snapshot.Kind) {
-		case "guardrail", "policy":
-			hasStrict = true
+		if models.KnowledgeContextKindIsBlocking(item.Snapshot.Kind) {
+			hasGovernance = true
+			blocking = append(blocking, item)
+		} else {
+			other = append(other, item)
 		}
 	}
-	mergeMode = models.NormalizePolicyMergeMode(mergeMode)
-	if hasStrict {
-		builder.WriteString("NopsAI Knowledge Snapshot\n")
+	governanceLevel = models.NormalizeGovernanceLevel(governanceLevel)
+	if hasGovernance {
+		builder.WriteString("NopsAI Governance Contract\n")
 		builder.WriteString("knowledge_revision: ")
 		builder.WriteString(knowledgeContextRevision(rawSnapshots, false))
 		builder.WriteString("\npolicy_revision: ")
 		builder.WriteString(knowledgeContextRevision(rawSnapshots, true))
 		builder.WriteString("\neffective_policy_snapshot_hash: ")
-		builder.WriteString(effectivePolicySnapshotHash(snapshots, mergeMode))
-		builder.WriteString("\npolicy_merge_mode: ")
-		builder.WriteString(mergeMode)
-		builder.WriteString("\npolicy_precedence_version: ")
-		builder.WriteString(models.PolicyPrecedenceVersion)
+		builder.WriteString(effectivePolicySnapshotHash(snapshots, governanceLevel))
+		builder.WriteString("\ngovernance_level: ")
+		builder.WriteString(governanceLevel)
+		builder.WriteString("\ngovernance_contract_version: ")
+		builder.WriteString(models.GovernanceContractVersion)
 		builder.WriteString("\n\n")
-		builder.WriteString(policyMergeInstruction(mergeMode))
-		builder.WriteString("\n\n")
-		builder.WriteString(strictKnowledgeContextActionInstruction)
+		builder.WriteString(governanceContractInstruction)
 		builder.WriteString("\n\n")
 	}
-	for _, item := range snapshots {
-		snapshot := item.Snapshot
-		title := strings.TrimSpace(snapshot.Name)
-		if title == "" {
-			title = firstNonEmptyKnowledgeLabel(snapshot.Ref, snapshot.Path, snapshot.Kind)
+	if len(blocking) > 0 {
+		builder.WriteString("Effective Policies And Guardrails\n\n")
+		for _, item := range blocking {
+			writeKnowledgeContextPromptItem(&builder, item)
 		}
-		labelParts := []string{strings.ToUpper(strings.TrimSpace(snapshot.Kind)), title}
-		builder.WriteString("### ")
-		builder.WriteString(strings.Join(nonEmptyKnowledgeParts(labelParts...), " - "))
-		builder.WriteString("\n")
-		meta := knowledgeContextMetadataForScope(snapshot, item.Scope)
-		if len(meta) > 0 {
-			builder.WriteString(strings.Join(meta, " | "))
+	}
+	if len(other) > 0 {
+		if builder.Len() > 0 {
 			builder.WriteString("\n")
 		}
-		builder.WriteString(strings.TrimSpace(snapshot.Content))
-		builder.WriteString("\n\n")
+		builder.WriteString("Other Effective Knowledge\n\n")
+		for _, item := range other {
+			writeKnowledgeContextPromptItem(&builder, item)
+		}
 	}
 	return strings.TrimSpace(builder.String())
 }
 
-func policyMergeInstruction(mergeMode string) string {
-	switch models.NormalizePolicyMergeMode(mergeMode) {
-	case models.PolicyMergeModeOverride:
-		return "Policy precedence is task > step > pipeline. In override mode, a narrower scope replaces a broader policy only when both policies have the same identity; unrelated policies from broader scopes still apply."
-	case models.PolicyMergeModeFailOnConflict:
-		return "Policy precedence is task > step > pipeline. In fail_on_conflict mode, if policy or guardrail instructions are incompatible, return RETURN_ANSWER with a short conflict explanation instead of choosing an executable or file-changing action."
-	default:
-		return "Policy precedence is task > step > pipeline. In restrictive mode, narrower policies may add restrictions but cannot weaken broader pipeline or step policies; apply the stricter requirement when instructions differ."
+func writeKnowledgeContextPromptItem(builder *strings.Builder, item scopedKnowledgeContextSnapshot) {
+	if builder == nil {
+		return
 	}
+	snapshot := item.Snapshot
+	title := strings.TrimSpace(snapshot.Name)
+	if title == "" {
+		title = firstNonEmptyKnowledgeLabel(snapshot.Ref, snapshot.Path, snapshot.Kind)
+	}
+	labelParts := []string{strings.ToUpper(strings.TrimSpace(snapshot.Kind)), title}
+	builder.WriteString("### ")
+	builder.WriteString(strings.Join(nonEmptyKnowledgeParts(labelParts...), " - "))
+	builder.WriteString("\n")
+	meta := knowledgeContextMetadataForScope(snapshot, item.Scope)
+	if len(meta) > 0 {
+		builder.WriteString(strings.Join(meta, " | "))
+		builder.WriteString("\n")
+	}
+	builder.WriteString(strings.TrimSpace(snapshot.Content))
+	builder.WriteString("\n\n")
 }
 
-func effectivePolicySnapshotHash(snapshots []scopedKnowledgeContextSnapshot, mergeMode string) string {
+func effectivePolicySnapshotHash(snapshots []scopedKnowledgeContextSnapshot, governanceLevel string) string {
 	type policyHashItem struct {
 		Scope                 string `json:"scope"`
 		Kind                  string `json:"kind"`
@@ -258,12 +271,12 @@ func effectivePolicySnapshotHash(snapshots []scopedKnowledgeContextSnapshot, mer
 		Required              bool   `json:"required"`
 	}
 	payload := struct {
-		MergeMode         string           `json:"policy_merge_mode"`
-		PrecedenceVersion string           `json:"policy_precedence_version"`
-		Items             []policyHashItem `json:"items"`
+		GovernanceLevel           string           `json:"governance_level"`
+		GovernanceContractVersion string           `json:"governance_contract_version"`
+		Items                     []policyHashItem `json:"items"`
 	}{
-		MergeMode:         models.NormalizePolicyMergeMode(mergeMode),
-		PrecedenceVersion: models.PolicyPrecedenceVersion,
+		GovernanceLevel:           models.NormalizeGovernanceLevel(governanceLevel),
+		GovernanceContractVersion: models.GovernanceContractVersion,
 	}
 	for _, item := range snapshots {
 		snapshot := item.Snapshot
@@ -336,6 +349,14 @@ func knowledgeContextViolationFailureReason(action *proto.Action, pipeline *mode
 	}
 	answer := strings.TrimSpace(answerAction.Answer)
 	if answer == "" || !answerLooksLikeKnowledgeContextRejection(answer, blockingKinds) {
+		return "", blockingKinds, false
+	}
+	review := &models.PolicyReview{
+		Decision: models.PolicyDecisionBlock,
+		Reason:   answer,
+		Refs:     blockingKinds,
+	}
+	if interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(pipeline, step, task), review, false); interpretation.Allowed {
 		return "", blockingKinds, false
 	}
 	return answer, blockingKinds, true

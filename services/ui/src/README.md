@@ -198,7 +198,7 @@ truth; this file is the source-adjacent placement guide.
   team/application overview rendering, GitOps/notification summaries, read-only
   access summaries, resource tables, empty states, and table copy helpers.
 - `features/teams/hooks/useTeamOperationsSummary.ts` owns selected-team
-  GitOps, notification, AI profile, and access-grant summary orchestration.
+  GitOps, notification, defaults/profile, and access-grant summary orchestration.
 - `features/teams/hooks/useTeamResourceCatalog.ts` owns selected-scope catalog
   loading for pipelines, steps, trigger sources, schedules, knowledge context,
   scopes, and credentials. API responses remain permission-filtered by their
@@ -206,9 +206,9 @@ truth; this file is the source-adjacent placement guide.
   are included inside team scopes so teams can discover shared resources without
   duplicating ownership. The Teams overview shows those resource types as
   category boxes in the Resources section and lists individual items in
-  profile-style summaries below the boxes. Applications and AI profile rows are composed in
+  profile-style summaries below the boxes. Applications and profile/default rows are composed in
   `TeamsWorkspace.tsx` from the selected team scope and operations summary so
-  the top-level tab strip does not duplicate Applications or AI Profiles.
+  the top-level tab strip does not duplicate Applications.
 - Team overview merges the previous activity signal into the overview card:
   it shows Applications, owners, and latest application run context, without a
   separate range selector, repository count, or repeated activity card.

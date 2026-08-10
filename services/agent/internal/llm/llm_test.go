@@ -311,6 +311,45 @@ func TestDecodeActionResponseAcceptsWorkspaceToolAction(t *testing.T) {
 	}
 }
 
+func TestDecodeActionResponseAcceptsTopLevelPolicyReview(t *testing.T) {
+	raw := `{"policy_review":{"decision":"allow","confidence":"high","reason":"static command","refs":["team/runtime-output-safety"]},"action":{"type":"EXECUTE_COMMAND","command_action":{"command":"echo hello"}}}`
+
+	action, err := decodeActionResponse(raw)
+	if err != nil {
+		t.Fatalf("decodeActionResponse() error = %v", err)
+	}
+	if action.PolicyReview == nil || action.PolicyReview.Decision != models.PolicyDecisionAllow {
+		t.Fatalf("policy review = %#v", action.PolicyReview)
+	}
+	if action.CommandAction == nil || action.CommandAction.Command != "echo hello" {
+		t.Fatalf("command action = %#v", action.CommandAction)
+	}
+}
+
+func TestDuringPolicyReviewEnforcesGovernanceLevel(t *testing.T) {
+	client := &LLMClient{}
+	action := &models.Action{
+		PolicyReview: &models.PolicyReview{Decision: models.PolicyDecisionBlock, Reason: "violates runtime-output-safety"},
+		Type:         models.ActionTypeExecuteCommand,
+		CommandAction: &models.CommandAction{
+			Command: "env",
+		},
+	}
+
+	err := client.enforceDuringPolicyReview(&proto.GetActionRequest{
+		KnowledgeContext: "NopsAI Governance Contract\ngovernance_level: strict",
+	}, action)
+	if err == nil || !IsNonRetryableGoalResolutionError(err) {
+		t.Fatalf("strict enforcement error = %v, want non-retryable block", err)
+	}
+
+	if err := client.enforceDuringPolicyReview(&proto.GetActionRequest{
+		KnowledgeContext: "NopsAI Governance Contract\ngovernance_level: advisory",
+	}, action); err != nil {
+		t.Fatalf("advisory enforcement error = %v, want warning-only allow", err)
+	}
+}
+
 func TestDecodeActionResponseFailsWithoutValidAction(t *testing.T) {
 	raw := "The file visible in the shared workspace is: test-app/Dockerfile."
 	if _, err := decodeActionResponse(raw); err == nil {

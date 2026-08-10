@@ -37,7 +37,7 @@ Current runtime resolution order:
 
 1. Step `agent_profile`
 2. Pipeline `agent_profile`
-3. Owning team `agent_default_profile`
+3. Owning team Agent default
 4. System `default_profile`
 
 Tasks must not define `agent_profile`. Use step-level profiles when different
@@ -47,9 +47,9 @@ steps when they need different personas.
 For team-owned pipeline runs, no explicit `agent_profile` plus no owning-team
 default inherits the system/global default profile. The runtime does not borrow
 a default from the current viewer or another team. Team overview shows the
-configured default and links to the team-scoped Agent Profiles page, where users
-with `team.update` on that team can change the owning team's default from the
-top selector.
+configured default, and the Teams **Defaults** tab lets users with
+`team.update` on that team select the owning team's Agent default alongside the
+LLM and knowledge-kind defaults.
 
 ## GitOps Configuration
 
@@ -83,17 +83,16 @@ default_profile: sre
 Only system/global config repositories may define system Agent Profiles.
 Team-scoped Agent Profile storage and REST APIs are available for delegated
 ownership, and run preparation/agent launch merge team profiles over the system
-catalog when the run belongs to that team. Team config repositories manage
-team-owned profiles in root `ai-profiles.yaml`:
+catalog when the run belongs to that team. Config repositories manage team
+defaults in a separate team defaults file:
 
 ```yaml
-agent_default_profile: release-reviewer
-agent_profiles:
-  - id: release-reviewer
-    display_name: Release Reviewer
-    enabled: true
-    instructions: Review release risk, rollback readiness, and audit evidence.
+# config-repositories/teams/platform/ml/defaults.yaml
+agent_profile: release-reviewer
 ```
+
+Team-owned Agent Profile definitions are managed through the team UI/API. They
+are not imported or exported by team config repositories.
 
 ## UI And API
 
@@ -101,11 +100,11 @@ The UI manages system profiles under **Agent Profiles** when **Global** or
 **All teams** is selected. When a concrete team is selected in the profile tree
 or `?team=` query, the same page loads team-owned profiles from the team API and
 system-catalog profiles whose slash-scoped IDs belong to that team. The top
-default selector updates that team's `agent_default_profile` and can point at
+default selector updates that team's Agent default and can point at
 either a team-local profile or a scoped catalog profile such as
-`platform/ml/reviewer`. The Teams area shows profile/default summaries and
-links to the scoped Agent Profiles page; it does not edit profile defaults
-directly.
+`platform/ml/reviewer`. The Teams area also exposes a **Defaults** tab where
+users with `team.update` can select the team Agent default without leaving the
+team workspace.
 
 System routes:
 

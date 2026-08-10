@@ -295,7 +295,73 @@ access:
 	}
 }
 
-func TestParseConfigSyncPlanLoadsTeamAIProfiles(t *testing.T) {
+func TestParseConfigSyncPlanLoadsColocatedTeamDefaults(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+		RepoURL:   "https://github.com/acme/platform-config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
+		configRepositories: map[string]string{
+			"config-repositories/teams/platform/ml/defaults.yaml": `
+llm_profile: chatgpt
+agent_profile: reviewer
+knowledge_context:
+  guardrail: runtime-output-safety
+`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	defaults := plan.teamDefaultsPlans["platform/ml"]
+	if defaults == nil {
+		t.Fatalf("teamDefaultsPlans = %#v, want platform/ml defaults", plan.teamDefaultsPlans)
+	}
+	if defaults.llmDefaultProfile == nil || *defaults.llmDefaultProfile != "chatgpt" {
+		t.Fatalf("llm default = %#v, want chatgpt", defaults.llmDefaultProfile)
+	}
+	if defaults.agentDefaultProfile == nil || *defaults.agentDefaultProfile != "reviewer" {
+		t.Fatalf("agent default = %#v, want reviewer", defaults.agentDefaultProfile)
+	}
+	if got := defaults.knowledgeDefaults["guardrail"]; got != "platform/ml/runtime-output-safety" {
+		t.Fatalf("guardrail default = %q, want platform/ml/runtime-output-safety", got)
+	}
+}
+
+func TestParseConfigSyncPlanNormalizesTeamRepoDefaultsPath(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "platform",
+		RepoURL:   "https://github.com/acme/platform-config",
+		BasePath:  "config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
+		configRepositories: map[string]string{
+			"config/config-repositories/teams/ml/defaults.yaml": `
+agent_profile: reviewer
+`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	if defaults := plan.teamDefaultsPlans["platform/ml"]; defaults == nil || defaults.teamPath != "platform/ml" {
+		t.Fatalf("teamDefaultsPlans = %#v, want platform/ml defaults", plan.teamDefaultsPlans)
+	}
+}
+
+func TestParseConfigSyncPlanRejectsDuplicateTeamDefaults(t *testing.T) {
 	binding := models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
@@ -307,50 +373,13 @@ func TestParseConfigSyncPlanLoadsTeamAIProfiles(t *testing.T) {
 		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
 	}
 
-	files := configSyncRepositoryFiles{
-		teamAIProfiles: map[string]string{
-			"config/ai-profiles.yaml": `
-llm_default_profile: review
-llm_profiles:
-  - name: review
-    provider: openai
-    model: gpt-4.1
-    credential_ref: ref://secret/llm-openai
-agent_default_profile: release-reviewer
-agent_profiles:
-  - id: release-reviewer
-    display_name: Release Reviewer
-    instructions: Review release risk.
-mcp_profiles:
-  - name: readonly-github
-    enabled: true
-    servers:
-      - server: github
-        tools: ["*"]
-`,
+	_, err = (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
+		configRepositories: map[string]string{
+			"config/config-repositories/teams/team-1/defaults.yaml": "llm_profile: review\n",
+			"config/config-repositories/teams/team-1/defaults.yml":  "agent_profile: reviewer\n",
 		},
-	}
-
-	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, files)
-	if err != nil {
-		t.Fatalf("parseConfigSyncPlan() error = %v", err)
-	}
-	if plan.teamAIProfilePlan == nil {
-		t.Fatalf("teamAIProfilePlan = nil, want parsed plan")
-	}
-	if plan.teamAIProfilePlan.teamPath != "team-1" {
-		t.Fatalf("team path = %q, want team-1", plan.teamAIProfilePlan.teamPath)
-	}
-	if plan.teamAIProfilePlan.llmDefaultProfile == nil || *plan.teamAIProfilePlan.llmDefaultProfile != "review" {
-		t.Fatalf("llm default = %#v, want review", plan.teamAIProfilePlan.llmDefaultProfile)
-	}
-	if _, ok := plan.teamAIProfilePlan.llmProfiles["review"]; !ok {
-		t.Fatalf("llm profiles = %#v, want review", plan.teamAIProfilePlan.llmProfiles)
-	}
-	if plan.teamAIProfilePlan.agentDefaultProfile == nil || *plan.teamAIProfilePlan.agentDefaultProfile != "release-reviewer" {
-		t.Fatalf("agent default = %#v, want release-reviewer", plan.teamAIProfilePlan.agentDefaultProfile)
-	}
-	if _, ok := plan.teamAIProfilePlan.mcpProfiles["readonly-github"]; !ok {
-		t.Fatalf("mcp profiles = %#v, want readonly-github", plan.teamAIProfilePlan.mcpProfiles)
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate team defaults") {
+		t.Fatalf("parseConfigSyncPlan() error = %v, want duplicate team defaults error", err)
 	}
 }

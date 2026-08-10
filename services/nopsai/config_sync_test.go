@@ -1093,6 +1093,10 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		"team-1/service-api": {record: repositoryTriggerRecord{RepositoryName: "team-1/service-api", TeamPath: "data-team"}},
 		"data-team/owned":    {record: repositoryTriggerRecord{RepositoryName: "data-team/owned", TeamPath: "prod"}},
 	}
+	teamDefaultsPlans := map[string]*gitOpsTeamDefaultsPlan{
+		"data-team/dev": {teamPath: "data-team/dev"},
+		"platform":      {teamPath: "platform"},
+	}
 
 	filterDelegatedConfigResources(
 		[]string{"data-team"},
@@ -1103,6 +1107,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		externalTriggers,
 		gitWebhookSources,
 		map[string]storedNotificationRoute{},
+		teamDefaultsPlans,
 		map[string]storedKnowledgeContext{},
 		generalScopeVars,
 		repoScopeVars,
@@ -1158,6 +1163,12 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	if _, ok := triggers["data-team/owned"]; !ok {
 		t.Fatal("expected trigger whose explicit team is outside delegated scope to remain")
+	}
+	if _, ok := teamDefaultsPlans["data-team/dev"]; ok {
+		t.Fatal("expected delegated team defaults to be filtered")
+	}
+	if _, ok := teamDefaultsPlans["platform"]; !ok {
+		t.Fatal("expected unrelated team defaults to remain")
 	}
 }
 

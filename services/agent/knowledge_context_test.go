@@ -19,19 +19,22 @@ func TestFormatKnowledgeContextPromptExplainsBlockingFailure(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"conflicts with guardrails or policies",
-		"Before returning any action, inspect the exact structured action",
-		"inspect the generated command_action.command text",
-		"Guardrails and policies apply to the user's goal and to generated commands",
-		"return RETURN_ANSWER instead",
-		"agent will treat that response as a task failure",
-		"NopsAI Knowledge Snapshot",
+		"NopsAI owns governance_level",
+		"History is not policy truth",
+		"Before planning or execution",
+		"During planning, include policy_review",
+		"inspect the exact final structured action",
+		"inspect command_action.command",
+		"Policies and guardrails apply to goals, generated commands",
+		"Use policy_review.decision values allow, block, conflict, or uncertain",
+		"Opposite policies conflict only when both are effective for the same decision",
+		"NopsAI Governance Contract",
 		"knowledge_revision:",
 		"policy_revision:",
 		"effective_policy_snapshot_hash:",
-		"policy_merge_mode: restrictive",
-		"policy_precedence_version:",
-		"narrower policies may add restrictions but cannot weaken broader pipeline or step policies",
+		"governance_level: strict",
+		"governance_contract_version:",
+		"Effective Policies And Guardrails",
 		"runtime-output-safety",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -40,9 +43,9 @@ func TestFormatKnowledgeContextPromptExplainsBlockingFailure(t *testing.T) {
 	}
 }
 
-func TestBuildEffectiveKnowledgeContextPromptUsesScopedRestrictivePolicies(t *testing.T) {
+func TestBuildEffectiveKnowledgeContextPromptUsesScopedStrictPolicies(t *testing.T) {
 	pipeline := &models.Pipeline{
-		PolicyMergeMode: models.PolicyMergeModeRestrictive,
+		GovernanceLevel: models.GovernanceLevelStrict,
 		KnowledgeContext: []models.KnowledgeContextRef{
 			{Kind: "policy", Ref: "team/deployment-approvals"},
 		},
@@ -64,9 +67,9 @@ func TestBuildEffectiveKnowledgeContextPromptUsesScopedRestrictivePolicies(t *te
 	prompt := buildEffectiveKnowledgeContextPrompt(pipeline, step, task, snapshots)
 
 	for _, want := range []string{
-		"policy_merge_mode: restrictive",
-		"Policy precedence is task > step > pipeline",
-		"cannot weaken broader pipeline or step policies",
+		"governance_level: strict",
+		"governance_contract_version:",
+		"Effective Policies And Guardrails",
 		"scope: pipeline",
 		"scope: step",
 		"scope: task",
@@ -98,9 +101,9 @@ func TestPolicySnapshotHashChangesWhenTaskPolicyStarts(t *testing.T) {
 	}
 }
 
-func TestOverridePolicyMergeUsesNarrowestDuplicateScope(t *testing.T) {
+func TestDuplicateKnowledgeContextUsesNarrowestScope(t *testing.T) {
 	pipeline := &models.Pipeline{
-		PolicyMergeMode: models.PolicyMergeModeOverride,
+		GovernanceLevel: models.GovernanceLevelGuarded,
 		KnowledgeContext: []models.KnowledgeContextRef{
 			{Kind: "policy", Ref: "team/release"},
 		},
@@ -114,10 +117,10 @@ func TestOverridePolicyMergeUsesNarrowestDuplicateScope(t *testing.T) {
 	prompt := buildEffectiveKnowledgeContextPrompt(pipeline, step, task, snapshots)
 
 	if strings.Contains(prompt, "scope: pipeline") {
-		t.Fatalf("override prompt should replace duplicate broader scope:\n%s", prompt)
+		t.Fatalf("prompt should replace duplicate broader scope:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "scope: task") || !strings.Contains(prompt, "policy_merge_mode: override") {
-		t.Fatalf("override prompt missing task scoped policy:\n%s", prompt)
+	if !strings.Contains(prompt, "scope: task") || !strings.Contains(prompt, "governance_level: guarded") {
+		t.Fatalf("prompt missing task scoped policy:\n%s", prompt)
 	}
 }
 

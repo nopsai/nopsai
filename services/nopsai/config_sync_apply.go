@@ -53,7 +53,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	llmProfilePlan := plan.llmProfilePlan
 	agentProfilePlan := plan.agentProfilePlan
 	mcpRegistryPlan := plan.mcpRegistryPlan
-	teamAIProfilePlan := plan.teamAIProfilePlan
+	teamDefaultsPlans := plan.teamDefaultsPlans
 	authSettingsPlan := plan.authSettingsPlan
 	credentialPlan := plan.credentialPlan
 	runtimeSettingsPlan := plan.runtimeSettingsPlan
@@ -94,17 +94,6 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 				credentialMetadata("api_key", "LLM API key for "+name, llmProfilePlan.sourcePath),
 			); err != nil {
 				return fmt.Errorf("prepare LLM credential metadata for %q: %w", name, err)
-			}
-		}
-	}
-	if teamAIProfilePlan != nil {
-		for name, profile := range teamAIProfilePlan.llmProfiles {
-			if err := a.ensureCredentialReferenceMetadata(
-				ctx,
-				profile.CredentialRef,
-				credentialMetadata("api_key", "Team LLM API key for "+name, teamAIProfilePlan.sourcePath),
-			); err != nil {
-				return fmt.Errorf("prepare team LLM credential metadata for %q: %w", name, err)
 			}
 		}
 	}
@@ -207,7 +196,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	if err != nil {
 		return err
 	}
-	filterDelegatedConfigResources(overrideScopes, pipelines, steps, schedules, dashboards, externalTriggers, gitWebhookSources, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
+	filterDelegatedConfigResources(overrideScopes, pipelines, steps, schedules, dashboards, externalTriggers, gitWebhookSources, notificationRoutes, teamDefaultsPlans, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	if err := mergeRepositoryTriggerApplicationsIntoStructure(configRepositoryPipelineRunStructure, triggers); err != nil {
 		return fmt.Errorf("failed to prepare repository trigger applications: %w", err)
@@ -228,8 +217,8 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	}
 
 	// Teams are the root dependency for team-owned GitOps resources. Dashboards,
-	// notification routes, team AI profiles, access grants, and dashboard source
-	// bindings resolve team paths while this transaction is still applying.
+	// notification routes, defaults, access grants, and dashboard source bindings
+	// resolve team paths while this transaction is still applying.
 	// Teams do not have source metadata, so sync only upserts and never prunes
 	// user-created teams.
 	if len(effectivePipelineRunStructure) > 0 {
@@ -1192,13 +1181,12 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	if err := a.syncAccessConfiguration(ctx, tx, binding, accessPlan, commitSHA, details); err != nil {
 		return err
 	}
-	if teamAIProfilePlan != nil {
-		if err := a.persistTeamAIProfilesToTx(ctx, tx, binding, teamAIProfilePlan, commitSHA); err != nil {
-			return fmt.Errorf("failed to sync team AI profiles from '%s': %w", teamAIProfilePlan.sourcePath, err)
+	for _, defaultsPlan := range sortedTeamDefaultsPlans(teamDefaultsPlans) {
+		if err := a.persistTeamDefaultsToTx(ctx, tx, defaultsPlan); err != nil {
+			return fmt.Errorf("failed to sync team defaults from '%s': %w", defaultsPlan.sourcePath, err)
 		}
-		details["team_llm_profiles_synced"] = len(teamAIProfilePlan.llmProfiles)
-		details["team_agent_profiles_synced"] = len(teamAIProfilePlan.agentProfiles)
-		details["team_mcp_profiles_synced"] = len(teamAIProfilePlan.mcpProfiles)
+		details["team_defaults_synced"]++
+		details["team_knowledge_defaults_synced"] += len(defaultsPlan.knowledgeDefaults)
 	}
 	if llmProfilePlan != nil {
 		if err := persistLLMProfilesToTx(ctx, tx, llmProfilePlan.defaultProfile, llmProfilePlan.profiles); err != nil {

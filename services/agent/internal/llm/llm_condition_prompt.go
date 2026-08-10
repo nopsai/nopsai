@@ -145,15 +145,17 @@ func (c *LLMClient) buildPromptWithTools(req *proto.GetActionRequest, mcpTranscr
 	promptTemplate := `%s
 
 Your task is to achieve a user's goal by choosing the correct action from a toolkit.
-You must only respond with a single JSON object. Inside this object, there should be a single key "action" which contains the action to perform.
+You must only respond with a single JSON object. Inside this object, include "policy_review" and "action".
+policy_review.decision must be one of "allow", "block", "conflict", or "uncertain". The action must be the operation to perform or a RETURN_ANSWER explaining why NopsAI cannot proceed.
+NopsAI owns governance_level and will decide whether your policy_review.decision can proceed.
 If Working Directory Contents includes a NopsAI File Identity block, treat its sha256 and workspace_revision as the current file identity for that prompt. File replacements based on stale identity are rejected by the agent, so read the file again through an approved action or tool when you need fresher content.
 
 Here are the available actions:
-1. **EXECUTE_COMMAND**: {"action": {"type": "EXECUTE_COMMAND", "command_action": {"command": "your-bash-command-here"}}}
-2. **REPLACE_FILE**: {"action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
-3. **RETURN_ANSWER**: {"action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question."}}}
-4. **CALL_MCP_TOOL**: {"action": {"type": "CALL_MCP_TOOL", "mcp_tool_action": {"server": "server-name", "tool": "tool_name", "arguments": {}}}}
-5. **CALL_WORKSPACE_TOOL**: {"action": {"type": "CALL_WORKSPACE_TOOL", "workspace_tool_action": {"tool": "read_file", "arguments": {"path": "relative/path.txt"}}}}
+1. **EXECUTE_COMMAND**: {"policy_review": {"decision": "allow", "confidence": "high", "reason": "The command complies with effective policies.", "refs": []}, "action": {"type": "EXECUTE_COMMAND", "command_action": {"command": "your-bash-command-here"}}}
+2. **REPLACE_FILE**: {"policy_review": {"decision": "allow", "confidence": "high", "reason": "The file replacement complies with effective policies.", "refs": []}, "action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
+3. **RETURN_ANSWER**: {"policy_review": {"decision": "block", "confidence": "high", "reason": "The requested action conflicts with effective policy.", "refs": ["team/policy-ref"]}, "action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question or the policy reason NopsAI cannot proceed."}}}
+4. **CALL_MCP_TOOL**: {"policy_review": {"decision": "allow", "confidence": "high", "reason": "The tool call complies with effective policies.", "refs": []}, "action": {"type": "CALL_MCP_TOOL", "mcp_tool_action": {"server": "server-name", "tool": "tool_name", "arguments": {}}}}
+5. **CALL_WORKSPACE_TOOL**: {"policy_review": {"decision": "allow", "confidence": "high", "reason": "The workspace read complies with effective policies.", "refs": []}, "action": {"type": "CALL_WORKSPACE_TOOL", "workspace_tool_action": {"tool": "read_file", "arguments": {"path": "relative/path.txt"}}}}
 ---
 %s
 ---

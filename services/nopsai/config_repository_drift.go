@@ -170,8 +170,6 @@ func (a *App) loadConfigRepositoryGitFiles(ctx context.Context, repo models.Conf
 	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
 		optionalResults, err := fetchConfigRepositoryOptionalFiles(ctx, client, branch, []configRepositoryOptionalFileRequest{
 			{path: configsync.RepoJoinPath(repo.BasePath, "notifications.yaml"), resource: "notification route", notFoundErr: errNotificationGitOpsNotFound},
-			{path: configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yaml"), resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
-			{path: configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yml"), resource: "team AI profiles", notFoundErr: errTeamAIProfilesGitOpsNotFound},
 		})
 		if err != nil {
 			return nil, err
@@ -334,7 +332,7 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryTeamAIProfiles(ctx, repo, files); err != nil {
+	if err := a.exportConfigRepositoryTeamDefaults(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryAuthSettings(ctx, repo, files); err != nil {

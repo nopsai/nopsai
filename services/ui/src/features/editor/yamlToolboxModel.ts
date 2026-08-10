@@ -47,7 +47,9 @@ export type YamlSnippetInsertResult = {
 };
 
 const BOOLEAN_VALUES = ['true', 'false'];
-const POLICY_VALUES = ['restrictive', 'override', 'fail_on_conflict'];
+const GOVERNANCE_VALUES = ['advisory', 'guarded', 'strict', 'exception_based'];
+const GOVERNANCE_DESCRIPTION =
+  'AI governance enforcement: advisory warns, guarded blocks clear violations/conflicts, strict requires allow, exception_based requires approved exceptions for conflicts.';
 
 const pipelineParameterGroups: YamlToolboxParameterGroup[] = [
   {
@@ -67,7 +69,7 @@ const pipelineParameterGroups: YamlToolboxParameterGroup[] = [
       { key: 'agent_profile', description: 'Pipeline-level AI persona.', valueHint: 'approved agent profile name' },
       { key: 'llm_profile', description: 'Pipeline-level model profile.', valueHint: 'approved LLM profile name' },
       { key: 'mcp_profiles', description: 'Approved MCP tool profiles for LLM goals.', structure: 'mcp_profiles: [github-readonly]' },
-      { key: 'policy_merge_mode', description: 'Policy conflict behavior.', validValues: POLICY_VALUES },
+      { key: 'governance_level', description: GOVERNANCE_DESCRIPTION, validValues: GOVERNANCE_VALUES },
       { key: 'runtime_pool', description: 'Kubernetes runtime pool default. Docker ignores it.', valueHint: 'configured runtime pool name' },
       { key: 'affinity_enabled', description: 'Kubernetes same-node affinity override.', validValues: BOOLEAN_VALUES },
       { key: 'knowledge_context', description: 'Governed knowledge refs.', structure: '- kind: guardrail\n  ref: security/release' },
@@ -105,7 +107,7 @@ const stepParameterGroup: YamlToolboxParameterGroup = {
     { key: 'agent_profile', description: 'Step persona override.' },
     { key: 'llm_profile', description: 'Step model profile override.' },
     { key: 'mcp_profiles', description: 'Additional MCP profiles for goal tasks.', structure: 'mcp_profiles: [github-readonly]' },
-    { key: 'policy_merge_mode', description: 'Policy conflict behavior.', validValues: POLICY_VALUES },
+    { key: 'governance_level', description: GOVERNANCE_DESCRIPTION, validValues: GOVERNANCE_VALUES },
     { key: 'runtime_pool', description: 'Step Kubernetes runtime pool override.' },
     { key: 'knowledge_context', description: 'Step-level governed knowledge refs.' },
     { key: 'llm_output_sharing', description: 'Share step LLM output with later LLM history.', validValues: BOOLEAN_VALUES },
@@ -127,7 +129,7 @@ const taskParameterGroup: YamlToolboxParameterGroup = {
     { key: 'ignore_failure', description: 'Treat this task failure as ignored.', validValues: BOOLEAN_VALUES },
     { key: 'llm_profile', description: 'Most-specific model profile for a goal task.' },
     { key: 'mcp_profiles', description: 'Additional MCP profiles for this goal task.', structure: 'mcp_profiles: [github-readonly]' },
-    { key: 'policy_merge_mode', description: 'Policy conflict behavior.', validValues: POLICY_VALUES },
+    { key: 'governance_level', description: GOVERNANCE_DESCRIPTION, validValues: GOVERNANCE_VALUES },
     { key: 'variables', description: 'Task-local variable overrides.', structure: 'variables:\n  TEST_SUITE: smoke' },
     { key: 'knowledge_context', description: 'Task-level governed knowledge refs.' },
     { key: 'llm_output_sharing', description: 'Share this task output with later LLM history.', validValues: BOOLEAN_VALUES },

@@ -23,11 +23,21 @@ type ActionSession interface {
 	MCPToolCount() int
 	RequiresMCPToolCall() bool
 	SuccessfulMCPToolCalls() int
+	ReviewPolicy(context.Context, PolicyReviewRequest) (*models.PolicyReview, error)
 	GetAction(context.Context, *proto.GetActionRequest, *workspacectx.Tools) (*proto.Action, error)
 }
 
 type ActionSessionResolver func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error)
 type DirectoryLister func(*zerolog.Logger, string, []string, []string) map[string]string
+
+type PolicyReviewRequest struct {
+	Phase            string
+	Goal             string
+	History          string
+	Variables        map[string]string
+	KnowledgeContext string
+	ProposedAction   *proto.Action
+}
 
 type ActionSessionResolutionStage string
 
@@ -146,6 +156,20 @@ func (scriptActionResolver) Resolve(ctx context.Context, req ActionRequest) Acti
 
 func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, script string) ActionResult {
 	if !req.LLMEnabled || req.SessionResolver == nil {
+		interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), nil, false)
+		if interpretation.Allowed {
+			if req.Logger != nil {
+				req.Logger.Warn().
+					Str("governance_level", models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task)).
+					Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
+					Msg("Cannot validate direct script against blocking knowledge context because LLM is disabled; governance allows continuing with warning")
+			}
+			return ActionResult{
+				Action:        commandAction(script),
+				ActionSummary: script,
+				Goal:          goal,
+			}
+		}
 		if req.Logger != nil {
 			req.Logger.Error().
 				Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
@@ -190,6 +214,16 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 		llmTimeout = 2 * time.Minute
 	}
 
+	var llmDurationMs int64
+	proposedAction := commandAction(script)
+	if duration, failure, failed := runActionPolicyReview(parentCtx, req, session, PolicyReviewPhaseBefore, directScriptReviewGoal(goal, script), proposedAction); failed {
+		failure.LLMDurationMs = duration
+		failure.LLMDurationSet = true
+		return failure
+	} else {
+		llmDurationMs += duration
+	}
+
 	actionReq := req.Context.BuildActionRequest(
 		directScriptValidationGoal(goal, script),
 		req.History,
@@ -207,74 +241,219 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 		validationAction, callErr = session.GetAction(attemptCtx, actionReq, nil)
 		return callErr
 	}, 3, time.Second, req.StopRetry)
-	llmDurationMs := time.Since(actionStart).Milliseconds()
+	llmDurationMs += time.Since(actionStart).Milliseconds()
 	if err != nil {
-		if req.Logger != nil {
-			req.Logger.Error().Err(err).Msg("Direct script guardrail validation failed")
+		interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), nil, false)
+		if interpretation.Allowed {
+			if req.Logger != nil {
+				req.Logger.Warn().Err(err).Msg("Direct script guardrail validation was unavailable; governance allows continuing with warning")
+			}
+		} else {
+			if req.Logger != nil {
+				req.Logger.Error().Err(err).Msg("Direct script guardrail validation failed")
+			}
+			return ActionResult{
+				Goal:             goal,
+				LLMDurationMs:    llmDurationMs,
+				LLMDurationSet:   true,
+				Failed:           true,
+				FailClosed:       interpretation.FailClosed,
+				FinalizeStatus:   "failure",
+				FinalizeExitCode: 1,
+			}
 		}
-		return ActionResult{
-			Goal:             goal,
-			LLMDurationMs:    llmDurationMs,
-			LLMDurationSet:   true,
-			Failed:           true,
-			FailClosed:       true,
-			FinalizeStatus:   "failure",
-			FinalizeExitCode: 1,
-		}
-	}
-
-	if answer := validationAction.GetAnswerAction(); answer != nil {
+	} else if answer := validationAction.GetAnswerAction(); answer != nil {
 		reason := strings.TrimSpace(answer.Answer)
 		if reason == "" {
 			reason = "Direct script blocked by guardrail or policy."
 		}
-		if req.Logger != nil {
-			req.Logger.Error().
-				Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
-				Msgf("Knowledge context blocked direct script: %s", req.Context.MaskText(reason, req.Secrets))
+		review := &models.PolicyReview{Decision: models.PolicyDecisionBlock, Reason: reason, Refs: req.BlockingKnowledgeKinds}
+		interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), review, false)
+		if interpretation.Allowed {
+			if req.Logger != nil {
+				req.Logger.Warn().
+					Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
+					Msgf("Knowledge context warned on direct script: %s", req.Context.MaskText(reason, req.Secrets))
+			}
+		} else {
+			if req.Logger != nil {
+				req.Logger.Error().
+					Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
+					Msgf("Knowledge context blocked direct script: %s", req.Context.MaskText(reason, req.Secrets))
+			}
+			return ActionResult{
+				Goal:             goal,
+				LLMDurationMs:    llmDurationMs,
+				LLMDurationSet:   true,
+				Failed:           true,
+				FailClosed:       interpretation.FailClosed,
+				FinalizeStatus:   "failure",
+				FinalizeExitCode: 1,
+			}
 		}
-		return ActionResult{
-			Goal:             goal,
-			LLMDurationMs:    llmDurationMs,
-			LLMDurationSet:   true,
-			Failed:           true,
-			FailClosed:       true,
-			FinalizeStatus:   "failure",
-			FinalizeExitCode: 1,
+	} else {
+		allowedCommand := ""
+		if cmd := validationAction.GetCommandAction(); cmd != nil {
+			allowedCommand = cmd.Command
+		}
+		if strings.TrimSpace(allowedCommand) != strings.TrimSpace(script) {
+			interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), nil, false)
+			if interpretation.Allowed {
+				if req.Logger != nil {
+					req.Logger.Warn().
+						Str("validation_action", actionSummary(validationAction)).
+						Msg("Direct script guardrail validation did not return the exact script command; governance allows continuing with warning")
+				}
+			} else {
+				if req.Logger != nil {
+					req.Logger.Error().
+						Str("validation_action", actionSummary(validationAction)).
+						Msg("Direct script guardrail validation did not return the exact script command")
+				}
+				return ActionResult{
+					Goal:             goal,
+					LLMDurationMs:    llmDurationMs,
+					LLMDurationSet:   true,
+					Failed:           true,
+					FailClosed:       interpretation.FailClosed,
+					FinalizeStatus:   "failure",
+					FinalizeExitCode: 1,
+				}
+			}
 		}
 	}
 
-	allowedCommand := ""
-	if cmd := validationAction.GetCommandAction(); cmd != nil {
-		allowedCommand = cmd.Command
-	}
-	if strings.TrimSpace(allowedCommand) != strings.TrimSpace(script) {
-		if req.Logger != nil {
-			req.Logger.Error().
-				Str("validation_action", actionSummary(validationAction)).
-				Msg("Direct script guardrail validation did not return the exact script command")
-		}
-		return ActionResult{
-			Goal:             goal,
-			LLMDurationMs:    llmDurationMs,
-			LLMDurationSet:   true,
-			Failed:           true,
-			FailClosed:       true,
-			FinalizeStatus:   "failure",
-			FinalizeExitCode: 1,
-		}
+	if duration, failure, failed := runActionPolicyReview(parentCtx, req, session, PolicyReviewPhaseAfter, goal, proposedAction); failed {
+		failure.LLMDurationMs = llmDurationMs + duration
+		failure.LLMDurationSet = true
+		return failure
+	} else {
+		llmDurationMs += duration
 	}
 
 	return ActionResult{
-		Action: &proto.Action{
-			Type:    "EXECUTE_COMMAND",
-			Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: script}},
-		},
+		Action:         proposedAction,
 		ActionSummary:  script,
 		Goal:           goal,
 		LLMDurationMs:  llmDurationMs,
 		LLMDurationSet: true,
 	}
+}
+
+const (
+	PolicyReviewPhaseBefore = "before"
+	PolicyReviewPhaseAfter  = "after"
+)
+
+func runActionPolicyReview(ctx context.Context, req ActionRequest, session ActionSession, phase, goal string, proposedAction *proto.Action) (int64, ActionResult, bool) {
+	if len(req.BlockingKnowledgeKinds) == 0 || session == nil {
+		return 0, ActionResult{}, false
+	}
+	start := time.Now()
+	var review *models.PolicyReview
+	err := withRetry(func() error {
+		attemptCtx, cancel := context.WithTimeout(ctx, effectiveLLMTimeout(req.LLMTimeout))
+		defer cancel()
+		var callErr error
+		review, callErr = session.ReviewPolicy(attemptCtx, PolicyReviewRequest{
+			Phase:            phase,
+			Goal:             goal,
+			History:          req.History,
+			Variables:        req.Context.PromptVariables(),
+			KnowledgeContext: req.KnowledgePrompt,
+			ProposedAction:   proposedAction,
+		})
+		return callErr
+	}, 3, time.Second, req.StopRetry)
+	durationMs := time.Since(start).Milliseconds()
+
+	level := models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task)
+	interpretation := models.InterpretPolicyReview(level, review, false)
+	if err != nil {
+		interpretation = models.InterpretPolicyReview(level, nil, false)
+		if req.Logger != nil {
+			req.Logger.Warn().
+				Err(err).
+				Str("governance_level", level).
+				Str("policy_review_phase", strings.TrimSpace(phase)).
+				Str("policy_decision", interpretation.Decision).
+				Msg("AI policy review was unavailable")
+		}
+	} else {
+		logActionPolicyReview(req.Logger, level, phase, review, interpretation)
+	}
+
+	if interpretation.Allowed {
+		return durationMs, ActionResult{}, false
+	}
+	reason := strings.TrimSpace(interpretation.Reason)
+	if err != nil {
+		reason = fmt.Sprintf("AI policy review was unavailable: %v", err)
+	} else if reason == "" {
+		reason = "policy review did not allow the action"
+	}
+	if req.Logger != nil {
+		req.Logger.Error().
+			Str("governance_level", level).
+			Str("policy_review_phase", strings.TrimSpace(phase)).
+			Str("policy_decision", interpretation.Decision).
+			Msgf("Governance blocked action: %s", req.Context.MaskText(reason, req.Secrets))
+	}
+	return durationMs, ActionResult{
+		Goal:             taskGoal(req.Step, req.Task),
+		Failed:           true,
+		FailClosed:       interpretation.FailClosed,
+		FinalizeStatus:   "failure",
+		FinalizeExitCode: 1,
+	}, true
+}
+
+func logActionPolicyReview(logger *zerolog.Logger, level, phase string, review *models.PolicyReview, interpretation models.GovernanceInterpretation) {
+	if logger == nil {
+		return
+	}
+	evt := logger.Info().
+		Str("governance_level", level).
+		Str("policy_review_phase", strings.TrimSpace(phase)).
+		Str("policy_decision", interpretation.Decision)
+	if review != nil {
+		if confidence := strings.TrimSpace(review.Confidence); confidence != "" {
+			evt = evt.Str("policy_confidence", confidence)
+		}
+		if len(review.Refs) > 0 {
+			evt = evt.Strs("policy_refs", review.Refs)
+		}
+	}
+	switch {
+	case !interpretation.Allowed:
+		evt.Msg("AI policy review blocked action")
+	case interpretation.Warning:
+		evt.Msg("AI policy review allowed action with warning")
+	default:
+		evt.Msg("AI policy review allowed action")
+	}
+}
+
+func effectiveLLMTimeout(value time.Duration) time.Duration {
+	if value <= 0 {
+		return 2 * time.Minute
+	}
+	return value
+}
+
+func commandAction(command string) *proto.Action {
+	return &proto.Action{
+		Type:    "EXECUTE_COMMAND",
+		Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: command}},
+	}
+}
+
+func directScriptReviewGoal(goal, script string) string {
+	trimmedGoal := strings.TrimSpace(goal)
+	if trimmedGoal == "" {
+		trimmedGoal = "Execute a direct script task."
+	}
+	return fmt.Sprintf("%s\n\nDirect script proposed for execution:\n%s", trimmedGoal, script)
 }
 
 func directScriptValidationGoal(goal, script string) string {
@@ -357,6 +536,15 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 		llmTimeout = 2 * time.Minute
 	}
 
+	var llmDurationMs int64
+	if duration, failure, failed := runActionPolicyReview(actionParentCtx, req, session, PolicyReviewPhaseBefore, goal, nil); failed {
+		failure.LLMDurationMs = duration
+		failure.LLMDurationSet = true
+		return failure
+	} else {
+		llmDurationMs += duration
+	}
+
 	var action *proto.Action
 	actionStart := time.Now()
 	err := withRetry(func() error {
@@ -373,7 +561,7 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 		}
 		return nil
 	}, 3, time.Second, req.StopRetry)
-	llmDurationMs := time.Since(actionStart).Milliseconds()
+	llmDurationMs += time.Since(actionStart).Milliseconds()
 
 	if err != nil {
 		if req.runStopping() {
@@ -403,6 +591,7 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 		if req.Logger != nil {
 			req.Logger.Warn().Err(err).Msg("GetAction failed after retries; attempting one final retry")
 		}
+		retryStart := time.Now()
 		attemptCtx, cancel := context.WithTimeout(actionParentCtx, llmTimeout)
 		action, err = session.GetAction(attemptCtx, actionReq, workspaceTools)
 		cancel()
@@ -410,7 +599,7 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 			action = nil
 			err = fmt.Errorf("MCP tool call is required before executing a final action")
 		}
-		llmDurationMs = time.Since(actionStart).Milliseconds()
+		llmDurationMs += time.Since(retryStart).Milliseconds()
 		if err != nil {
 			if req.Logger != nil {
 				req.Logger.Error().Err(err).Msg("Failed to get action from LLM. Shutting down")
@@ -429,6 +618,14 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 		req.Logger.Info().
 			Int("mcp_successful_tool_calls", session.SuccessfulMCPToolCalls()).
 			Msgf("MCP tool calls completed before final action (count=%d)", session.SuccessfulMCPToolCalls())
+	}
+
+	if duration, failure, failed := runActionPolicyReview(actionParentCtx, req, session, PolicyReviewPhaseAfter, goal, action); failed {
+		failure.LLMDurationMs = llmDurationMs + duration
+		failure.LLMDurationSet = true
+		return failure
+	} else {
+		llmDurationMs += duration
 	}
 
 	filePrecondition := replaceFilePrecondition(action, sharedFileIdentities, workspaceRevision)

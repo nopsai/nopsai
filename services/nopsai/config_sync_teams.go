@@ -116,6 +116,7 @@ func filterDelegatedConfigResources(
 	externalTriggers map[string]storedExternalTrigger,
 	gitWebhookSources map[string]storedGitWebhookSource,
 	notificationRoutes map[string]storedNotificationRoute,
+	teamDefaultsPlans map[string]*gitOpsTeamDefaultsPlan,
 	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
 	repoScopeVars map[repoScopeVarKey]storedScopeVar,
@@ -168,6 +169,11 @@ func filterDelegatedConfigResources(
 	for key, route := range notificationRoutes {
 		if configsync.ResourceUnderAnyScope(notificationRouteResourceScope(route), overrideScopes) {
 			delete(notificationRoutes, key)
+		}
+	}
+	for key, plan := range teamDefaultsPlans {
+		if plan != nil && configsync.ResourceUnderAnyScope(plan.teamPath, overrideScopes) {
+			delete(teamDefaultsPlans, key)
 		}
 	}
 	for key, knowledge := range knowledgeContexts {

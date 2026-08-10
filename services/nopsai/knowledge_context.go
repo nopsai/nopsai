@@ -1273,11 +1273,19 @@ func collectPipelineKnowledgeContextRefs(pipeline models.Pipeline) []pipelineKno
 	return refs
 }
 
-func (a *App) resolveKnowledgeContextsForRun(ctx context.Context, runID uuid.UUID, callerType, callerID, triggerSource string, gitContext map[string]string, pipeline models.Pipeline) ([]models.KnowledgeContextSnapshot, []ResourceUseAuthResult, error) {
+func (a *App) resolveKnowledgeContextsForRun(ctx context.Context, runID uuid.UUID, callerType, callerID, triggerSource string, gitContext map[string]string, pipeline models.Pipeline, teamID *int) ([]models.KnowledgeContextSnapshot, []ResourceUseAuthResult, error) {
 	if !models.PipelineLLMEnabled(&pipeline) {
 		return nil, nil, nil
 	}
-	refs := collectPipelineKnowledgeContextRefs(pipeline)
+	defaultRefs, err := a.effectiveKnowledgeDefaultRefsForTeam(ctx, teamID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load team knowledge defaults: %w", err)
+	}
+	refs := make([]pipelineKnowledgeContextRef, 0, len(defaultRefs))
+	for _, ref := range defaultRefs {
+		refs = append(refs, pipelineKnowledgeContextRef{Ref: ref, Location: "team defaults"})
+	}
+	refs = append(refs, collectPipelineKnowledgeContextRefs(pipeline)...)
 	if len(refs) == 0 {
 		return nil, nil, nil
 	}

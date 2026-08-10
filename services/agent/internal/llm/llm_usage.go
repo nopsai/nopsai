@@ -26,8 +26,8 @@ type Usage struct {
 	WorkspaceRevision           uint64
 	KnowledgeRevision           string
 	PolicyRevision              string
-	PolicyMergeMode             string
-	PolicyPrecedenceVersion     string
+	GovernanceLevel             string
+	GovernanceContractVersion   string
 	EffectivePolicySnapshotHash string
 	CacheIdentitySHA256         string
 	PromptSchemaVersion         string
@@ -149,8 +149,8 @@ func usageFromTokenDetailsWithClient(owner *LLMClient, provider, model, profile,
 		WorkspaceRevision:           promptMeta.WorkspaceRevision,
 		KnowledgeRevision:           promptMeta.KnowledgeRevision,
 		PolicyRevision:              promptMeta.PolicyRevision,
-		PolicyMergeMode:             promptMeta.PolicyMergeMode,
-		PolicyPrecedenceVersion:     promptMeta.PolicyPrecedenceVersion,
+		GovernanceLevel:             promptMeta.GovernanceLevel,
+		GovernanceContractVersion:   promptMeta.GovernanceContractVersion,
 		EffectivePolicySnapshotHash: promptMeta.EffectivePolicySnapshotHash,
 		CacheIdentitySHA256:         promptMeta.CacheIdentitySHA256,
 		SharedFileCount:             promptMeta.SharedFileCount,
@@ -217,11 +217,11 @@ func mergeCompletionMetadata(usage *Usage, metadata completionMetadata) {
 	if usage.PromptSchemaVersion == "" {
 		usage.PromptSchemaVersion = metadata.PromptSchemaVersion
 	}
-	if usage.PolicyMergeMode == "" {
-		usage.PolicyMergeMode = metadata.PolicyMergeMode
+	if usage.GovernanceLevel == "" {
+		usage.GovernanceLevel = metadata.GovernanceLevel
 	}
-	if usage.PolicyPrecedenceVersion == "" {
-		usage.PolicyPrecedenceVersion = metadata.PolicyPrecedenceVersion
+	if usage.GovernanceContractVersion == "" {
+		usage.GovernanceContractVersion = metadata.GovernanceContractVersion
 	}
 	if usage.EffectivePolicySnapshotHash == "" {
 		usage.EffectivePolicySnapshotHash = metadata.EffectivePolicySnapshotHash

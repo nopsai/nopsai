@@ -146,6 +146,20 @@ export type TeamMCPProfilesResponse = {
   profiles: TeamMCPProfile[];
 };
 
+export type TeamDefaultsResponse = {
+  team_id: number;
+  team_path: string;
+  llm_profile?: string;
+  agent_profile?: string;
+  knowledge_context: Record<string, string>;
+};
+
+export type TeamDefaultsPayload = {
+  llm_profile?: string;
+  agent_profile?: string;
+  knowledge_context?: Record<string, string>;
+};
+
 export type TeamItemUpdatePayload = {
   name: string;
   description?: string;
@@ -328,6 +342,18 @@ export function upsertTeamMCPProfile(
 
 export function deleteTeamMCPProfile(teamID: number | string, profileName: string): Promise<void> {
   return requestTeamsJson<void>(`${teamRoute(teamID)}/mcp-profiles/${encodeURIComponent(profileName)}`, { method: 'DELETE' });
+}
+
+export function fetchTeamDefaults(teamID: number | string): Promise<TeamDefaultsResponse> {
+  return requestTeamsJson<TeamDefaultsResponse>(`${teamRoute(teamID)}/defaults`);
+}
+
+export function updateTeamDefaults(teamID: number | string, payload: TeamDefaultsPayload): Promise<TeamDefaultsResponse> {
+  return requestTeamsJson<TeamDefaultsResponse>(`${teamRoute(teamID)}/defaults`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 }
 
 function teamRoute(teamID: number | string): string {

@@ -1,7 +1,7 @@
 # Team And Resource Ownership Design
 
 This document is a target design for separating teams from Pipeline Runs and
-for adding team-scoped AI profile ownership. It is intentionally written as a
+for adding team-scoped defaults and profile ownership. It is intentionally written as a
 migration plan because the current implementation still uses `teams` as a
 mixed team/application tree and `pipeline_runs.team_id` as the run owner.
 
@@ -21,7 +21,11 @@ Team
   -> GitOps configuration
   -> notification policies
   -> access ownership
-  -> team AI profiles
+  -> defaults
+     -> LLM profile
+     -> Agent profile
+     -> each knowledge kind
+  -> profiles
      -> LLM profiles
      -> Agent profiles
      -> MCP profiles
@@ -56,9 +60,14 @@ storage table:
   notification routes as the only public team hierarchy API.
 - Team-scoped LLM, Agent, and MCP profile tables and APIs are available under
   `/v1/teams/{teamID}/...` with team-scoped AAA checks.
-- Team config repositories can import/export root `ai-profiles.yaml` files,
-  and the Teams settings modal has an AI Profiles tab for permission-gated
-  LLM, Agent, and MCP profile editing.
+- Team profile definitions are managed through team UI/API. Config repositories
+  import/export team runtime defaults in
+  `config-repositories/teams/<team>/defaults.yaml`. If a team has no enabled
+  team config repository, those defaults remain part of the nearest
+  parent/global config repo. The Teams workspace has a Defaults tab where users
+  with `team.update` can select the team LLM, Agent, and knowledge-kind
+  defaults. Full profile editing remains on the scoped LLM, Agent, and MCP
+  profile pages.
 - The generated CLI API catalog includes the new team route metadata, so
   `nopsai api request`, `api describe`, and `api routes` stay compatible.
 
@@ -186,7 +195,7 @@ Applications
 GitOps
 Notifications
 Access
-AI Profiles
+Defaults
 Resources
 ```
 
@@ -211,7 +220,7 @@ should not appear under pipelines, triggers, steps, scopes, or knowledge by
 default. Administrative users can get an explicit "show empty teams" option if
 needed.
 
-## Team-Scoped AI Profiles
+## Team-Scoped Defaults And Profiles
 
 The current docs and code treat LLM, Agent, and MCP profiles as system-owned
 catalogs. The target model should keep a system catalog but allow team-scoped
@@ -226,6 +235,21 @@ System admin:
 
 Team admin:
   owns team defaults and team profile aliases inside approved boundaries.
+```
+
+Team defaults are deliberately generic and rendered one subject per row:
+
+```text
+LLM profile
+Agent profile
+architecture knowledge
+guardrail knowledge
+policy knowledge
+adr knowledge
+guideline knowledge
+runbook knowledge
+reference knowledge
+example knowledge
 ```
 
 ### Profile Storage
@@ -246,8 +270,8 @@ mcp_profiles.scope_id nullable
 UNIQUE(scope_type, scope_id, lower(name))
 ```
 
-Team-owned profiles should support `source`, `config_repo_id`, and
-`config_source_path` exactly like team-owned resources.
+Team-owned profiles are stored as team-scoped rows and edited through the team
+UI/API.
 
 ### Resolution
 
@@ -291,8 +315,7 @@ team to register endpoints for its own namespace.
 
 ## GitOps Layout
 
-Support a new canonical layout while importing legacy team files during
-migration:
+Use the canonical team layout:
 
 ```text
 config-repositories/
@@ -300,8 +323,20 @@ config-repositories/
     payments/
       structure.yaml
       notifications.yaml
-ai-profiles.yaml
+      defaults.yaml
 ```
+
+Canonical team `defaults.yaml`:
+
+```yaml
+llm_profile: release-review
+agent_profile: payments-sre
+knowledge_context:
+  guardrail: runtime-output-safety
+  runbook: release-checklist
+```
+
+Team profile definitions stay in team UI/API-managed storage.
 
 Example:
 
@@ -331,11 +366,12 @@ spec:
   defaults:
     llmProfile: release-review
     agentProfile: payments-sre
-    mcpProfiles:
-      - github-pr-readonly
+    knowledgeContext:
+      guardrail: payments/runtime-safety
+      runbook: payments/release
 ```
 
-Team-scoped AI profiles live beside the team:
+Team-scoped profiles live beside the team:
 
 ```yaml
 llm_profiles:
@@ -536,25 +572,26 @@ routes perform handler-level AAA checks against the resolved team resource.
 - Change run resolution so repository-triggered runs never auto-create teams.
 - Add ownership snapshots to new runs.
 
-### Phase 4: Team AI Profiles
+### Phase 4: Team Defaults And Profiles
 
 - Add scoped profile storage and policy validation.
-- Add team GitOps import/export for `ai-profiles.yaml`.
-- Add team profile tabs and permission-gated forms.
+- Add team GitOps import/export for
+  `config-repositories/teams/<team>/defaults.yaml` runtime defaults.
+- Add team Defaults tab and permission-gated profile forms.
 - Update runtime profile resolution and hosted MCP profile reads.
 - Add monitoring dimensions for profile scope and team.
 
 Status: scoped storage, validation, REST APIs, routeauthz mappings, frontend
 API helpers, runtime launch resolution, CLI catalog metadata, team GitOps
-import/export, and profile editor tabs are implemented. Monitoring dimensions
-remain future work.
+import/export, profile editor tabs, the Teams Defaults tab, and team-owned
+knowledge-kind defaults are implemented. Monitoring dimensions remain future
+work.
 
 ### Phase 5: Canonical GitOps Rename
 
 - Support `teams/<team>/team.yaml` as canonical.
 - Reject non-team config repository hierarchy files.
-- Export drift in the new canonical format.
-- Deprecate legacy team layout after a documented transition window.
+- Export drift in the canonical format.
 
 ## Test Coverage
 
@@ -562,16 +599,16 @@ Required coverage before enabling the new path by default:
 
 - unit tests for team/application normalization, profile resolution, and
   policy validation
-- API handler tests for team CRUD, app CRUD, GitOps, notifications, and AI
-  profiles
+- API handler tests for team CRUD, app CRUD, GitOps, notifications, defaults,
+  and profiles
 - routeauthz and AAA policy tests for every new action
 - migration/backfill tests from `teams.kind = 'team'|'app'`
 - run ownership resolution tests proving runs do not create teams/apps
 - config sync and drift tests for `teams/<team>/team.yaml` and
-  `ai-profiles.yaml`
+  `config-repositories/teams/<team>/defaults.yaml`
 - UI component tests for Teams tabs and Pipeline Runs removal of admin actions
 - e2e coverage for create team, assign app, configure GitOps, configure
-  profiles, run pipeline, and inspect monitoring
+  defaults/profiles, run pipeline, and inspect monitoring
 - hosted MCP tests for team visibility, profile reads, proposal tools, and
   mutation confirmation
 
@@ -588,8 +625,9 @@ The redesign is done when:
 6. Resources and runs have stable `team_id` ownership.
 7. Team rename/move does not break run history, notifications, GitOps, access,
    or profile resolution.
-8. Team admins can manage allowed LLM, Agent, and MCP profiles for their team.
+8. Team admins can manage allowed LLM, Agent, and MCP profiles plus runtime
+   defaults for their team.
 9. System admins retain global policy, provider/server registry, defaults, and
    deny control.
-10. GitOps drift/write can round-trip team structure and team AI profiles.
+10. GitOps drift/write can round-trip team structure and team-scoped profiles.
 11. Monitoring, hosted MCP, and CLI route metadata are team-aware.
