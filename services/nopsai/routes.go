@@ -113,6 +113,8 @@ func (a *App) registerTeamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/teams/{teamID}/notifications", a.handleTeamNotificationRoute)
 	mux.HandleFunc("PUT /v1/teams/{teamID}/notifications", a.handleTeamNotificationRoute)
 	mux.HandleFunc("DELETE /v1/teams/{teamID}/notifications", a.handleTeamNotificationRoute)
+	mux.HandleFunc("GET /v1/teams/{teamID}/defaults", a.handleTeamDefaults)
+	mux.HandleFunc("PUT /v1/teams/{teamID}/defaults", a.handleTeamDefaults)
 	mux.HandleFunc("GET /v1/teams/{teamID}/llm-profiles", a.handleListTeamLLMProfiles)
 	mux.HandleFunc("PUT /v1/teams/{teamID}/llm-profiles", a.handleReplaceTeamLLMProfiles)
 	mux.HandleFunc("PUT /v1/teams/{teamID}/llm-profiles/default", a.handleSetTeamDefaultLLMProfile)

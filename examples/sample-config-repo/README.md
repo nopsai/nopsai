@@ -113,7 +113,7 @@ webhook sources, scopes,
 knowledge contexts, run team/config-repository structure, notification routes,
 access manifests, Agent Profiles, LLM profiles, MCP registry files, auth
 settings, mail settings, data cleanup schedules, runtime settings, team
-`ai-profiles.yaml` files, and encrypted credential envelopes.
+defaults files, and encrypted credential envelopes.
 Pipeline run records themselves are runtime audit state, so they are not
 exported as Git-owned objects. For pipeline, reusable step, scope, and knowledge context Access dialog
 changes, the generated diff updates the embedded `access:` block in that
@@ -147,10 +147,9 @@ external-triggers/     Authenticated external trigger endpoints
 git-webhook-sources/   GitLab, Bitbucket, Gitea, and generic Git event sources
 scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
-config-repositories/   Team config repo bindings, team structure, and colocated notifications
+config-repositories/   Team config repo bindings, team structure, colocated notifications, and defaults
 access/                Users, service accounts, advanced roles, policies, and basic role grants
 setting/               System settings such as auth, mail, data cleanup, Agent Profiles, LLM, MCP, runtime settings, and encrypted credentials
-ai-profiles.yaml       Team-owned LLM, Agent, and MCP profiles in team config repositories
 ```
 
 Scope files use separate `variables:` and `secrets:` sections. Variables must be

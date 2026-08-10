@@ -355,6 +355,8 @@ var generatedRoutes = []Route{
 	newRoute("POST", "/v1/teams/{teamID}/config-repository/sync/cancel"),
 	newRoute("POST", "/v1/teams/{teamID}/config-repository/validate"),
 	newRoute("POST", "/v1/teams/{teamID}/config-repository/write"),
+	newRoute("GET", "/v1/teams/{teamID}/defaults"),
+	newRoute("PUT", "/v1/teams/{teamID}/defaults"),
 	newRoute("GET", "/v1/teams/{teamID}/llm-profiles"),
 	newRoute("PUT", "/v1/teams/{teamID}/llm-profiles"),
 	newRoute("PUT", "/v1/teams/{teamID}/llm-profiles/default"),

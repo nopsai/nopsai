@@ -156,6 +156,24 @@ func (s *agentActionSession) SuccessfulMCPToolCalls() int {
 	return s.runtime.SuccessfulToolCalls()
 }
 
+func (s *agentActionSession) ReviewPolicy(ctx context.Context, req resolver.PolicyReviewRequest) (*models.PolicyReview, error) {
+	if s == nil || s.client == nil {
+		return nil, fmt.Errorf("LLM action client is not initialized")
+	}
+	collector := llmruntime.NewUsageCollector()
+	callCtx := llmruntime.ContextWithUsageCollector(ctx, collector)
+	review, err := s.client.ReviewPolicyWithAgentProfile(callCtx, llmruntime.PolicyReviewRequest{
+		Phase:            req.Phase,
+		Goal:             req.Goal,
+		History:          req.History,
+		Variables:        req.Variables,
+		KnowledgeContext: req.KnowledgeContext,
+		ProposedAction:   req.ProposedAction,
+	}, s.promptProfile)
+	reportCollectedAIUsage(context.Background(), s.usageReporter, "policy_review_"+req.Phase, s.stepName, s.taskName, s.agentProfile, collector.Snapshot())
+	return review, err
+}
+
 func (s *agentActionSession) GetAction(ctx context.Context, req *proto.GetActionRequest, workspaceTools *workspacectx.Tools) (*proto.Action, error) {
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("LLM action client is not initialized")

@@ -83,12 +83,12 @@ func TestPromptMetadataIncludesStableIdentityAndSize(t *testing.T) {
 }
 
 func TestPromptMetadataExtractsContextRevisionsAndRetrievalStats(t *testing.T) {
-	prompt := `NopsAI Knowledge Snapshot
+	prompt := `NopsAI Governance Contract
 knowledge_revision: knowledge123
 policy_revision: policy456
 effective_policy_snapshot_hash: effective789
-policy_merge_mode: restrictive
-policy_precedence_version: 2026-07-20.v1
+governance_level: strict
+governance_contract_version: 2026-08-10.v1
 ---
 **Working Directory Contents:**
 --- File: README.md ---
@@ -120,8 +120,8 @@ Workspace tool result: tool=read_file arguments={"path":"README.md"} result={"wo
 		t.Fatalf("knowledge/policy revisions = %q/%q", meta.KnowledgeRevision, meta.PolicyRevision)
 	}
 	if meta.EffectivePolicySnapshotHash != "effective789" ||
-		meta.PolicyMergeMode != "restrictive" ||
-		meta.PolicyPrecedenceVersion != "2026-07-20.v1" {
+		meta.GovernanceLevel != "strict" ||
+		meta.GovernanceContractVersion != "2026-08-10.v1" {
 		t.Fatalf("policy metadata = %#v", meta)
 	}
 	if meta.SharedFileCount != 1 || meta.SharedFileBytes <= 0 {
@@ -129,6 +129,21 @@ Workspace tool result: tool=read_file arguments={"path":"README.md"} result={"wo
 	}
 	if meta.WorkspaceToolCallCount != 1 || meta.WorkspaceToolResultBytes <= 0 {
 		t.Fatalf("workspace tool stats = %d/%d", meta.WorkspaceToolCallCount, meta.WorkspaceToolResultBytes)
+	}
+}
+
+func TestPromptMetadataAcceptsLegacyPolicyMergeMetadata(t *testing.T) {
+	prompt := `NopsAI Knowledge Snapshot
+knowledge_revision: knowledge123
+policy_revision: policy456
+effective_policy_snapshot_hash: effective789
+policy_merge_mode: restrictive
+policy_precedence_version: 2026-07-20.v1`
+
+	meta := newPromptMetadata(nil, prompt)
+
+	if meta.GovernanceLevel != "restrictive" || meta.GovernanceContractVersion != "2026-07-20.v1" {
+		t.Fatalf("legacy policy metadata = %#v", meta)
 	}
 }
 

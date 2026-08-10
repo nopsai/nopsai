@@ -54,11 +54,11 @@ func TestValidatePipelineAllowsScriptOnlyWhenLLMDisabled(t *testing.T) {
 	}
 }
 
-func TestValidatePipelineRejectsInvalidPolicyMergeMode(t *testing.T) {
+func TestValidatePipelineRejectsInvalidGovernanceLevel(t *testing.T) {
 	p := &models.Pipeline{
 		Name:            "invalid-policy-mode",
 		ContainerImage:  "ubuntu:latest",
-		PolicyMergeMode: "loose",
+		GovernanceLevel: "loose",
 		Steps: []models.PipelineStep{
 			{
 				Step: &models.TaskStep{
@@ -70,8 +70,8 @@ func TestValidatePipelineRejectsInvalidPolicyMergeMode(t *testing.T) {
 	}
 
 	err := ValidatePipeline(p)
-	if err == nil || !strings.Contains(err.Error(), "policy_merge_mode") {
-		t.Fatalf("ValidatePipeline() error = %v, want policy_merge_mode error", err)
+	if err == nil || !strings.Contains(err.Error(), "governance_level") {
+		t.Fatalf("ValidatePipeline() error = %v, want governance_level error", err)
 	}
 }
 

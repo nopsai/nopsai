@@ -27,12 +27,12 @@ Your task is to choose an action.
 - TOKEN: [redacted]
 ---
 **Knowledge Context:**
-NopsAI Knowledge Snapshot
+NopsAI Governance Contract
 knowledge_revision: knowledge123
 policy_revision: policy123
 effective_policy_snapshot_hash: effective123
-policy_merge_mode: restrictive
-policy_precedence_version: 2026-07-20.v1
+governance_level: strict
+governance_contract_version: 2026-08-10.v1
 ---
 **Working Directory Contents:**
 --- File: README.md ---

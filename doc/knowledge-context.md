@@ -20,11 +20,31 @@ Use `knowledge_context` at any of these levels:
 At execution time, the effective context is:
 
 ```text
+owning team knowledge defaults
 pipeline knowledge_context
 + step knowledge_context
 + task knowledge_context
 = context injected for the current task
 ```
+
+Team defaults are configured from **Teams -> Defaults**. The panel shows one
+selector row per subject: `LLM profile`, `Agent profile`, then one selector for
+each supported knowledge kind. A knowledge default is always a managed
+team-owned document of that kind.
+
+Config repositories set the same knowledge defaults in the team defaults file:
+
+```yaml
+# config-repositories/teams/platform/ml/defaults.yaml
+knowledge_context:
+  guardrail: runtime-output-safety
+  policy: deployment-approval
+  runbook: release-checklist
+```
+
+Each value is resolved relative to the owning team unless it already includes
+that team path. A default may be cleared by setting the kind to an empty string;
+omitted kinds are left unchanged during GitOps sync.
 
 Example:
 
@@ -358,6 +378,8 @@ expanded pipeline:
 
 - managed `ref` entries are checked with `knowledge_context.use`
 - repo-local `path` entries are loaded from the run repository and commit
+- owning-team knowledge defaults are resolved before explicit pipeline, step,
+  and task knowledge refs
 - duplicates are resolved once, with `required: true` winning over optional
 - resolved content is stored in `pipeline_run_knowledge_contexts`
 
@@ -376,21 +398,29 @@ Current Goal
 
 When selected knowledge includes blocking guardrails or policies, the knowledge
 section starts with deterministic `knowledge_revision`, `policy_revision`,
-`effective_policy_snapshot_hash`, `policy_merge_mode`, and
-`policy_precedence_version` lines. The policy revision is based only on
+`effective_policy_snapshot_hash`, `governance_level`, and
+`governance_contract_version` lines. The policy revision is based only on
 selected blocking policy/guardrail documents, while the knowledge revision
 covers all selected knowledge. The effective policy snapshot hash also includes
-scope, merge mode, and precedence-version metadata for cache identity.
+scope, governance level, and governance-contract metadata for cache identity.
 
 Policy snapshots are pinned when their scope starts: pipeline policies at run
 start, step policies when the step starts, and task policies when the task
-starts. The effective policy is recomputed as the agent enters a narrower scope.
-The default merge mode is `restrictive`, so task or step policies may add
-requirements but cannot weaken broader policy. `override` replaces broader
-policy only for the same policy identity, and `fail_on_conflict` instructs the
-agent to stop with `RETURN_ANSWER` when blocking policies are incompatible.
-Emergency policy response is handled by cancelling the active run rather than
-mutating already-resolved snapshots.
+starts. The effective policy is recomputed as the agent enters a narrower
+scope. `governance_level` tells NopsAI how strongly to enforce the AI policy
+judgment: `advisory`, `guarded`, `strict`, or `exception_based`. The agent runs
+AI policy checks before planning or direct execution, during action planning,
+and after the final structured action is selected. Opposite policies only
+conflict when they are effective for the same decision. Emergency policy
+response is handled by cancelling the active run rather than mutating
+already-resolved snapshots.
+
+| Governance level | Meaning |
+| --- | --- |
+| `advisory` | The AI evaluates policy and NopsAI records warnings, but policy concerns normally do not stop execution. |
+| `guarded` | Clear AI policy violations or conflicts block the action. Uncertainty is warning-level. |
+| `strict` | Only a clear allow proceeds. Violations, conflicts, uncertainty, missing reviews, or unsupported decisions fail closed. |
+| `exception_based` | Allows proceed normally, but conflicts require an effective approved exception. Violations, uncertainty, and missing reviews fail closed. |
 
 Workspace file contents appear in `Working Directory Contents` only when the
 pipeline explicitly sets `llm_content_sharing: true`. If omitted or false, the
@@ -541,6 +571,7 @@ Core API endpoints:
 ```bash
 curl http://localhost:8080/v1/knowledge-contexts
 curl http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+curl http://localhost:8080/v1/teams/platform/defaults
 
 curl -X PUT \
   -H "Content-Type: application/json" \

@@ -3,7 +3,14 @@ import { RefreshCw, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import { useAuth } from '../auth/AuthContext';
-import { createTeamItem, fetchTeams, requestTeamsJson, updateTeamItem } from '../features/teams/api';
+import {
+  createTeamItem,
+  fetchTeams,
+  requestTeamsJson,
+  updateTeamDefaults,
+  type TeamDefaultsPayload,
+  updateTeamItem,
+} from '../features/teams/api';
 import { EditTeamItemModal, TeamConfigRepositoryModal, NewTeamItemModal, type NewTeamItemKind, type TeamItemEditPayload } from '../features/teams/TeamSettingsModals';
 import { TeamsStatusPanel, TeamsWorkspace } from '../features/teams/TeamsWorkspace';
 import { useDispatcherStatusSnapshot } from '../features/system/dispatcher/useDispatcherStatusSnapshot';
@@ -51,6 +58,7 @@ export default function TeamsPage() {
   const [editTeam, setEditTeam] = useState<Team | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editPending, setEditPending] = useState(false);
+  const [operationsRefreshKey, setOperationsRefreshKey] = useState(0);
 
   const activeTeamValue = useMemo(
     () => normalizeTeamURLValue(extractTeamPathFromRoute(location.pathname, 'teams') || new URLSearchParams(location.search).get('team')),
@@ -96,9 +104,15 @@ export default function TeamsPage() {
     teams,
     fetchJson,
     checkAccessPermission,
+    refreshKey: operationsRefreshKey,
   });
   const resourceCatalog = useTeamResourceCatalog({ teamPath: resourceCatalogPath });
   const runnerAssignments = useDispatcherStatusSnapshot({ enabled: teamsLoaded });
+
+  const saveTeamDefaults = useCallback(async (teamPath: string, defaults: TeamDefaultsPayload) => {
+    await updateTeamDefaults(teamPath, defaults);
+    setOperationsRefreshKey(value => value + 1);
+  }, []);
 
   const loadTeams = useCallback(async () => {
     setTeamsLoaded(false);
@@ -318,6 +332,7 @@ export default function TeamsPage() {
           onEditTeam={openEditModal}
           onDeleteTeam={team => void deleteTeamItem(team)}
           onOpenConfig={config.openTeamConfigRepository}
+          onSaveTeamDefaults={saveTeamDefaults}
           operationsSummary={operationsSummary}
           resourceCatalog={resourceCatalog}
           runnerStatus={runnerAssignments.status}

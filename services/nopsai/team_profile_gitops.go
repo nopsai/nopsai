@@ -11,163 +11,169 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
-	"nopsai/services/nopsai/internal/mcpregistry"
 
 	"github.com/jackc/pgx/v5"
 	"gopkg.in/yaml.v3"
 )
 
-const configRepositoryTeamAIProfilesPath = "ai-profiles.yaml"
+const configRepositoryTeamDefaultsPath = "defaults.yaml"
 
-var errTeamAIProfilesGitOpsNotFound = errors.New("team AI profile GitOps file not found")
-
-type teamAIProfilesGitOpsFile struct {
-	LLMDefaultProfile   *string             `json:"llm_default_profile,omitempty" yaml:"llm_default_profile,omitempty"`
-	LLMProfiles         []llmProfileForm    `json:"llm_profiles,omitempty" yaml:"llm_profiles,omitempty"`
-	AgentDefaultProfile *string             `json:"agent_default_profile,omitempty" yaml:"agent_default_profile,omitempty"`
-	AgentProfiles       []agentProfileForm  `json:"agent_profiles,omitempty" yaml:"agent_profiles,omitempty"`
-	MCPProfiles         []models.MCPProfile `json:"mcp_profiles,omitempty" yaml:"mcp_profiles,omitempty"`
+type teamDefaultsGitOpsFile struct {
+	LLMProfile       *string           `json:"llm_profile,omitempty" yaml:"llm_profile,omitempty"`
+	AgentProfile     *string           `json:"agent_profile,omitempty" yaml:"agent_profile,omitempty"`
+	KnowledgeContext map[string]string `json:"knowledge_context,omitempty" yaml:"knowledge_context,omitempty"`
 }
 
-type gitOpsTeamAIProfilePlan struct {
+type gitOpsTeamDefaultsPlan struct {
 	teamPath            string
 	sourcePath          string
 	llmDefaultProfile   *string
-	llmProfiles         map[string]config.LLMProfile
 	agentDefaultProfile *string
-	agentProfiles       map[string]models.AgentProfile
-	mcpProfiles         map[string]models.MCPProfile
+	knowledgeDefaults   map[string]string
 }
 
-type gitOpsTeamAIProfileFileCandidate struct {
-	sourcePath string
-	content    string
-}
+func parseGitOpsTeamDefaultsPlans(binding models.ConfigRepository, repoCtx configSyncRepositoryContext, configRepositoryFiles map[string]string) (map[string]*gitOpsTeamDefaultsPlan, error) {
+	plans := map[string]*gitOpsTeamDefaultsPlan{}
+	addPlan := func(plan *gitOpsTeamDefaultsPlan) error {
+		key := strings.ToLower(strings.Trim(plan.teamPath, "/"))
+		if existing, exists := plans[key]; exists {
+			return fmt.Errorf("duplicate team defaults for team '%s' in '%s' and '%s'", plan.teamPath, existing.sourcePath, plan.sourcePath)
+		}
+		plans[key] = plan
+		return nil
+	}
 
-func parseGitOpsTeamAIProfilePlan(binding models.ConfigRepository, repoCtx configSyncRepositoryContext, files map[string]string) (*gitOpsTeamAIProfilePlan, error) {
-	candidates := []gitOpsTeamAIProfileFileCandidate{}
-	for path, content := range files {
-		normalized := filepath.ToSlash(path)
-		rel, ok := configRepositoryRelativeGitPath(repoCtx.basePath, normalized)
-		if !ok || !isGitOpsTeamAIProfilesPath(rel) {
+	configRepositoryDir := filepath.ToSlash(strings.Trim(repoCtx.dirs.configRepository, "/"))
+	for rawPath, content := range configRepositoryFiles {
+		normalized := filepath.ToSlash(rawPath)
+		rel, ok := configsync.RelativePath(normalized, configRepositoryDir)
+		if !ok {
 			continue
 		}
-		candidates = append(candidates, gitOpsTeamAIProfileFileCandidate{
-			sourcePath: normalized,
-			content:    content,
-		})
-	}
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-	if binding.ScopeType != models.ConfigRepositoryScopeTeam {
-		return nil, fmt.Errorf("team AI profiles can only be configured from a team config repository")
-	}
-	if len(candidates) > 1 {
-		paths := make([]string, 0, len(candidates))
-		for _, candidate := range candidates {
-			paths = append(paths, candidate.sourcePath)
+		teamPath, ok, err := configRepositoryTeamDefaultsFileScope(rel)
+		if err != nil {
+			return nil, fmt.Errorf("invalid team defaults path '%s': %w", normalized, err)
 		}
-		sort.Strings(paths)
-		return nil, fmt.Errorf("multiple team AI profile GitOps files found: %s", strings.Join(paths, ", "))
+		if !ok {
+			continue
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			teamPath, err = configsync.NormalizePathForTeam(repoCtx.boundTeam, teamPath)
+			if err != nil {
+				return nil, fmt.Errorf("invalid team defaults path '%s': %w", normalized, err)
+			}
+		}
+		teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam && !configsync.ResourceUnderScope(teamPath, repoCtx.boundTeam) {
+			return nil, fmt.Errorf("team defaults '%s' targets team '%s' outside bound team '%s'", normalized, teamPath, repoCtx.boundTeam)
+		}
+		plan, err := parseGitOpsTeamDefaultsFile(content, normalized, teamPath)
+		if err != nil {
+			return nil, err
+		}
+		if err := addPlan(plan); err != nil {
+			return nil, err
+		}
 	}
-	teamPath := strings.Trim(strings.TrimSpace(repoCtx.boundTeam), "/")
-	if teamPath == "" {
-		teamPath = strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
-	}
-	return parseGitOpsTeamAIProfileFile(candidates[0].content, candidates[0].sourcePath, teamPath)
+	return plans, nil
 }
 
-func parseGitOpsTeamAIProfileFile(content, sourcePath, teamPath string) (*gitOpsTeamAIProfilePlan, error) {
-	var file teamAIProfilesGitOpsFile
+func parseGitOpsTeamDefaultsFile(content, sourcePath, teamPath string) (*gitOpsTeamDefaultsPlan, error) {
+	var file teamDefaultsGitOpsFile
 	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
-		return nil, fmt.Errorf("failed to parse team AI profile GitOps file '%s': %w", sourcePath, err)
+		return nil, fmt.Errorf("failed to parse team defaults GitOps file '%s': %w", sourcePath, err)
 	}
+	sourceKind := "team defaults GitOps file"
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
 	if teamPath == "" {
-		return nil, fmt.Errorf("team AI profile GitOps file '%s' is missing a team scope", sourcePath)
+		return nil, fmt.Errorf("team defaults GitOps file '%s' is missing a team scope", sourcePath)
 	}
 
-	llmProfiles := map[string]config.LLMProfile{}
-	for _, form := range file.LLMProfiles {
-		name := config.NormalizeLLMProfileName(form.Name)
-		if name == "" {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' contains an LLM profile without a name", sourcePath)
-		}
-		if _, exists := llmProfiles[name]; exists {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' defines LLM profile %q more than once", sourcePath, name)
-		}
-		profile := profileConfigFromForm(form)
-		if status, message := validateLLMProfileDefinition(name, profile); status != "valid" {
-			return nil, fmt.Errorf("invalid LLM profile in team AI profile GitOps file '%s': %s", sourcePath, message)
-		}
-		for _, scope := range profile.AllowedScopes {
-			if strings.TrimSpace(scope) == "" {
-				continue
-			}
-			if _, err := configsync.CleanPathSegments(scope, false); err != nil {
-				return nil, fmt.Errorf("invalid allowed scope %q for LLM profile %q in team AI profile GitOps file '%s': %w", scope, name, sourcePath, err)
-			}
-		}
-		llmProfiles[name] = profile
+	llmDefault, _, err := mergeGitOpsDefaultValue(nil, "", file.LLMProfile, "llm_profile", sourcePath, sourceKind, normalizeOptionalLLMDefault)
+	if err != nil {
+		return nil, err
 	}
-
-	agentProfiles := map[string]models.AgentProfile{}
-	for _, form := range file.AgentProfiles {
-		profile := agentProfileFromForm(form, "gitops")
-		profile.ID = models.NormalizeAgentProfileID(profile.ID)
-		if profile.ID == "" {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' contains an agent profile without an id", sourcePath)
-		}
-		if _, exists := agentProfiles[profile.ID]; exists {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' defines agent profile %q more than once", sourcePath, profile.ID)
-		}
-		if err := validateAgentProfileDefinition(profile); err != nil {
-			return nil, fmt.Errorf("invalid agent profile in team AI profile GitOps file '%s': %w", sourcePath, err)
-		}
-		agentProfiles[profile.ID] = profile
+	agentDefault, _, err := mergeGitOpsDefaultValue(nil, "", file.AgentProfile, "agent_profile", sourcePath, sourceKind, normalizeOptionalAgentDefault)
+	if err != nil {
+		return nil, err
 	}
-
-	mcpProfiles := map[string]models.MCPProfile{}
-	for _, profile := range file.MCPProfiles {
-		name := models.NormalizeMCPProfileName(profile.Name)
-		if name == "" {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' contains an MCP profile without a name", sourcePath)
-		}
-		if _, exists := mcpProfiles[name]; exists {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' defines MCP profile %q more than once", sourcePath, name)
-		}
-		profile.Name = name
-		mcpProfiles[name] = models.NormalizeMCPProfile(profile)
+	knowledgeDefaults := map[string]string(nil)
+	knowledgeDefaults, err = mergeGitOpsKnowledgeDefaults(knowledgeDefaults, file.KnowledgeContext, "knowledge_context", sourcePath, sourceKind, teamPath)
+	if err != nil {
+		return nil, err
 	}
-
-	llmDefault := normalizeOptionalLLMDefault(file.LLMDefaultProfile)
 	if llmDefault != nil && *llmDefault != "" {
-		if _, ok := llmProfiles[*llmDefault]; !ok {
-			defaultTeamPath := aiResourceTeamPath(*llmDefault)
-			if defaultTeamPath != "" && !strings.EqualFold(defaultTeamPath, teamPath) {
-				return nil, fmt.Errorf("team AI profile GitOps file '%s' sets LLM default profile %q outside team %q", sourcePath, *llmDefault, teamPath)
-			}
+		defaultTeamPath := aiResourceTeamPath(*llmDefault)
+		if defaultTeamPath != "" && !strings.EqualFold(defaultTeamPath, teamPath) {
+			return nil, fmt.Errorf("team defaults GitOps file '%s' sets LLM default profile %q outside team %q", sourcePath, *llmDefault, teamPath)
 		}
 	}
-	agentDefault := normalizeOptionalAgentDefault(file.AgentDefaultProfile)
 	if agentDefault != nil && *agentDefault != "" {
-		if profile, ok := agentProfiles[*agentDefault]; ok && !profile.Enabled {
-			return nil, fmt.Errorf("team AI profile GitOps file '%s' sets disabled agent profile %q as default", sourcePath, *agentDefault)
+		defaultTeamPath := aiResourceTeamPath(*agentDefault)
+		if defaultTeamPath != "" && !strings.EqualFold(defaultTeamPath, teamPath) {
+			return nil, fmt.Errorf("team defaults GitOps file '%s' sets agent default profile %q outside team %q", sourcePath, *agentDefault, teamPath)
 		}
 	}
-	if len(llmProfiles) == 0 && len(agentProfiles) == 0 && len(mcpProfiles) == 0 && llmDefault == nil && agentDefault == nil {
-		return nil, fmt.Errorf("team AI profile GitOps file '%s' must define at least one profile or default", sourcePath)
+	if llmDefault == nil && agentDefault == nil && len(knowledgeDefaults) == 0 {
+		return nil, fmt.Errorf("team defaults GitOps file '%s' must define at least one default", sourcePath)
 	}
-	return &gitOpsTeamAIProfilePlan{
+	return &gitOpsTeamDefaultsPlan{
 		teamPath:            teamPath,
 		sourcePath:          sourcePath,
 		llmDefaultProfile:   llmDefault,
-		llmProfiles:         llmProfiles,
 		agentDefaultProfile: agentDefault,
-		agentProfiles:       agentProfiles,
-		mcpProfiles:         mcpProfiles,
+		knowledgeDefaults:   knowledgeDefaults,
 	}, nil
+}
+
+func mergeGitOpsDefaultValue(current *string, currentLabel string, incoming *string, incomingLabel string, sourcePath string, sourceKind string, normalize func(*string) *string) (*string, string, error) {
+	normalized := normalize(incoming)
+	if normalized == nil {
+		return current, currentLabel, nil
+	}
+	if current != nil && *current != *normalized {
+		return nil, "", fmt.Errorf("%s '%s' sets conflicting defaults in %s and %s", sourceKind, sourcePath, currentLabel, incomingLabel)
+	}
+	return normalized, incomingLabel, nil
+}
+
+func mergeGitOpsKnowledgeDefaults(current map[string]string, incoming map[string]string, incomingLabel string, sourcePath string, sourceKind string, teamPath string) (map[string]string, error) {
+	if incoming == nil {
+		return current, nil
+	}
+	if current == nil {
+		current = map[string]string{}
+	}
+	for rawKind, rawRef := range incoming {
+		kind, err := normalizeKnowledgeContextKind(rawKind)
+		if err != nil {
+			return nil, fmt.Errorf("%s '%s' has invalid %s kind %q: %w", sourceKind, sourcePath, incomingLabel, rawKind, err)
+		}
+		canonical, err := normalizeGitOpsKnowledgeDefaultRef(kind, teamPath, rawRef)
+		if err != nil {
+			return nil, fmt.Errorf("%s '%s' has invalid %s.%s default %q: %w", sourceKind, sourcePath, incomingLabel, kind, rawRef, err)
+		}
+		if existing, ok := current[kind]; ok && existing != canonical {
+			return nil, fmt.Errorf("%s '%s' sets conflicting %s knowledge defaults in multiple locations", sourceKind, sourcePath, kind)
+		}
+		current[kind] = canonical
+	}
+	return current, nil
+}
+
+func normalizeGitOpsKnowledgeDefaultRef(kind, teamPath, rawRef string) (string, error) {
+	rawRef = strings.TrimSpace(rawRef)
+	if rawRef == "" {
+		return "", nil
+	}
+	_, refTeam, name, err := teamKnowledgeDefaultRefParts(kind, teamPath, rawRef)
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(refTeam, teamPath) {
+		return "", fmt.Errorf("knowledge default must reference a %s document owned by %s", kind, teamPath)
+	}
+	return buildKnowledgeDocumentIdentifier(refTeam, name), nil
 }
 
 func normalizeOptionalLLMDefault(raw *string) *string {
@@ -186,39 +192,133 @@ func normalizeOptionalAgentDefault(raw *string) *string {
 	return &value
 }
 
-func isGitOpsTeamAIProfilesPath(path string) bool {
-	switch strings.Trim(filepath.ToSlash(path), "/") {
-	case "ai-profiles.yaml", "ai-profiles.yml":
-		return true
-	default:
-		return false
-	}
-}
-
-func (a *App) persistTeamAIProfilesToTx(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, plan *gitOpsTeamAIProfilePlan, commitSHA string) error {
+func (a *App) persistTeamDefaultsToTx(ctx context.Context, tx pgx.Tx, plan *gitOpsTeamDefaultsPlan) error {
 	if plan == nil {
 		return nil
 	}
-	teamID, err := resolveTeamAIProfileTeamID(ctx, tx, plan.teamPath)
+	teamID, err := resolveTeamDefaultsTeamID(ctx, tx, plan.teamPath)
 	if err != nil {
 		return err
 	}
-	if err := a.persistGitOpsTeamLLMProfilesToTx(ctx, tx, teamID, binding.ID, plan, commitSHA); err != nil {
-		return err
+	record := teamPathRecord{ID: teamID, Path: plan.teamPath}
+	if plan.llmDefaultProfile != nil {
+		profiles, err := loadTeamLLMProfilesForDefaultWithRunner(ctx, tx, teamID)
+		if err != nil {
+			return fmt.Errorf("load team LLM profiles for defaults: %w", err)
+		}
+		canonical, ok := canonicalTeamLLMDefaultProfileValue(record, *plan.llmDefaultProfile, profiles, a.getConfigSnapshot().EffectiveLLMProfiles())
+		if !ok {
+			return fmt.Errorf("team defaults GitOps file '%s' sets unknown LLM default profile %q", plan.sourcePath, *plan.llmDefaultProfile)
+		}
+		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamLLMDefaultProfileSetting, canonical); err != nil {
+			return err
+		}
 	}
-	if err := a.persistGitOpsTeamAgentProfilesToTx(ctx, tx, teamID, binding.ID, plan, commitSHA); err != nil {
-		return err
+	if plan.agentDefaultProfile != nil {
+		profiles, err := loadTeamAgentProfilesForDefaultWithRunner(ctx, tx, teamID)
+		if err != nil {
+			return fmt.Errorf("load team agent profiles for defaults: %w", err)
+		}
+		effectiveProfiles, _, err := a.effectiveAgentProfiles(ctx)
+		if err != nil {
+			return fmt.Errorf("load agent profiles for team default validation: %w", err)
+		}
+		canonical, ok := canonicalTeamAgentDefaultProfileValue(record, *plan.agentDefaultProfile, profiles, effectiveProfiles)
+		if !ok {
+			return fmt.Errorf("team defaults GitOps file '%s' sets unknown or disabled agent default profile %q", plan.sourcePath, *plan.agentDefaultProfile)
+		}
+		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamAgentDefaultProfileSetting, canonical); err != nil {
+			return err
+		}
 	}
-	if err := a.persistGitOpsTeamMCPProfilesToTx(ctx, tx, teamID, binding.ID, plan, commitSHA); err != nil {
-		return err
+	if len(plan.knowledgeDefaults) > 0 {
+		kinds := make([]string, 0, len(plan.knowledgeDefaults))
+		for kind := range plan.knowledgeDefaults {
+			kinds = append(kinds, kind)
+		}
+		sort.Strings(kinds)
+		for _, kind := range kinds {
+			rawRef := plan.knowledgeDefaults[kind]
+			canonical, ok, err := canonicalTeamKnowledgeDefaultWithRunner(ctx, tx, record, kind, rawRef)
+			if err != nil {
+				return fmt.Errorf("validate %s knowledge default from '%s': %w", kind, plan.sourcePath, err)
+			}
+			if !ok {
+				return fmt.Errorf("team defaults GitOps file '%s' sets unknown %s knowledge default %q", plan.sourcePath, kind, rawRef)
+			}
+			if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamKnowledgeDefaultSettingKey(kind), canonical); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-func resolveTeamAIProfileTeamID(ctx context.Context, tx pgx.Tx, teamPath string) (int, error) {
+func loadTeamLLMProfilesForDefaultWithRunner(ctx context.Context, runner queryRunner, teamID int) (map[string]config.LLMProfile, error) {
+	rows, err := runner.Query(ctx, `
+		SELECT name
+		FROM team_llm_profiles
+		WHERE team_id = $1
+	`, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	profiles := map[string]config.LLMProfile{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		name = config.NormalizeLLMProfileName(name)
+		if name != "" {
+			profiles[name] = config.LLMProfile{}
+		}
+	}
+	return profiles, rows.Err()
+}
+
+func loadTeamAgentProfilesForDefaultWithRunner(ctx context.Context, runner queryRunner, teamID int) (map[string]models.AgentProfile, error) {
+	rows, err := runner.Query(ctx, `
+		SELECT id, enabled
+		FROM team_agent_profiles
+		WHERE team_id = $1
+	`, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	profiles := map[string]models.AgentProfile{}
+	for rows.Next() {
+		var profile models.AgentProfile
+		if err := rows.Scan(&profile.ID, &profile.Enabled); err != nil {
+			return nil, err
+		}
+		profile.ID = models.NormalizeAgentProfileID(profile.ID)
+		if profile.ID != "" {
+			profiles[profile.ID] = profile
+		}
+	}
+	return profiles, rows.Err()
+}
+
+func sortedTeamDefaultsPlans(plans map[string]*gitOpsTeamDefaultsPlan) []*gitOpsTeamDefaultsPlan {
+	out := make([]*gitOpsTeamDefaultsPlan, 0, len(plans))
+	for _, plan := range plans {
+		if plan != nil {
+			out = append(out, plan)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].teamPath) < strings.ToLower(out[j].teamPath)
+	})
+	return out
+}
+
+func resolveTeamDefaultsTeamID(ctx context.Context, tx pgx.Tx, teamPath string) (int, error) {
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
 	if teamPath == "" {
-		return 0, fmt.Errorf("team AI profile scope is required")
+		return 0, fmt.Errorf("team defaults scope is required")
 	}
 	var (
 		teamID int
@@ -228,130 +328,25 @@ func resolveTeamAIProfileTeamID(ctx context.Context, tx pgx.Tx, teamPath string)
 		SELECT id, COALESCE(kind, 'team') FROM teams WHERE name = $1
 	`, teamPath).Scan(&teamID, &kind); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("team AI profiles reference missing team '%s'", teamPath)
+			records, recordsErr := loadTeamPathRecords(ctx, tx)
+			if recordsErr != nil {
+				return 0, fmt.Errorf("failed to resolve team defaults owner '%s': %w", teamPath, recordsErr)
+			}
+			for _, record := range records {
+				if record.Path != teamPath {
+					continue
+				}
+				if strings.EqualFold(record.Kind, "app") {
+					return 0, fmt.Errorf("team defaults must be attached to a team, not application '%s'", teamPath)
+				}
+				return record.ID, nil
+			}
+			return 0, fmt.Errorf("team defaults reference missing team '%s'", teamPath)
 		}
-		return 0, fmt.Errorf("failed to resolve team AI profile owner '%s': %w", teamPath, err)
+		return 0, fmt.Errorf("failed to resolve team defaults owner '%s': %w", teamPath, err)
 	}
 	if strings.EqualFold(kind, "app") {
-		return 0, fmt.Errorf("team AI profiles must be attached to a team, not application '%s'", teamPath)
+		return 0, fmt.Errorf("team defaults must be attached to a team, not application '%s'", teamPath)
 	}
 	return teamID, nil
-}
-
-func (a *App) persistGitOpsTeamLLMProfilesToTx(ctx context.Context, tx pgx.Tx, teamID int, configRepoID int64, plan *gitOpsTeamAIProfilePlan, commitSHA string) error {
-	names := make([]string, 0, len(plan.llmProfiles))
-	for name := range plan.llmProfiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM team_llm_profiles
-			WHERE team_id = $1 AND managed_by_config_repo = TRUE AND config_repo_id = $2
-		`, teamID, configRepoID); err != nil {
-			return fmt.Errorf("clear GitOps team LLM profiles: %w", err)
-		}
-	} else if _, err := tx.Exec(ctx, `
-		DELETE FROM team_llm_profiles
-		WHERE team_id = $1 AND managed_by_config_repo = TRUE AND config_repo_id = $2 AND name != ALL($3::text[])
-	`, teamID, configRepoID, names); err != nil {
-		return fmt.Errorf("prune GitOps team LLM profiles: %w", err)
-	}
-	for _, name := range names {
-		if err := upsertTeamLLMProfileTxWithSource(ctx, tx, teamID, name, plan.llmProfiles[name], "gitops", plan.sourcePath, commitSHA, configRepoID, true); err != nil {
-			return err
-		}
-	}
-	if plan.llmDefaultProfile != nil {
-		canonical, ok := canonicalTeamLLMDefaultProfileValue(teamPathRecord{ID: teamID, Path: plan.teamPath}, *plan.llmDefaultProfile, plan.llmProfiles, a.getConfigSnapshot().EffectiveLLMProfiles())
-		if !ok {
-			return fmt.Errorf("team AI profile GitOps file '%s' sets unknown LLM default profile %q", plan.sourcePath, *plan.llmDefaultProfile)
-		}
-		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamLLMDefaultProfileSetting, canonical); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (a *App) persistGitOpsTeamAgentProfilesToTx(ctx context.Context, tx pgx.Tx, teamID int, configRepoID int64, plan *gitOpsTeamAIProfilePlan, commitSHA string) error {
-	ids := make([]string, 0, len(plan.agentProfiles))
-	for id := range plan.agentProfiles {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	if len(ids) == 0 {
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM team_agent_profiles
-			WHERE team_id = $1 AND managed_by_config_repo = TRUE AND config_repo_id = $2
-		`, teamID, configRepoID); err != nil {
-			return fmt.Errorf("clear GitOps team agent profiles: %w", err)
-		}
-	} else if _, err := tx.Exec(ctx, `
-		DELETE FROM team_agent_profiles
-		WHERE team_id = $1 AND managed_by_config_repo = TRUE AND config_repo_id = $2 AND id != ALL($3::text[])
-	`, teamID, configRepoID, ids); err != nil {
-		return fmt.Errorf("prune GitOps team agent profiles: %w", err)
-	}
-	for _, id := range ids {
-		if err := upsertTeamAgentProfileTx(ctx, tx, teamID, plan.agentProfiles[id], "gitops", plan.sourcePath, commitSHA, configRepoID, true); err != nil {
-			return err
-		}
-	}
-	if plan.agentDefaultProfile != nil {
-		effectiveProfiles, _, err := a.effectiveAgentProfiles(ctx)
-		if err != nil {
-			return fmt.Errorf("load agent profiles for team default validation: %w", err)
-		}
-		canonical, ok := canonicalTeamAgentDefaultProfileValue(teamPathRecord{ID: teamID, Path: plan.teamPath}, *plan.agentDefaultProfile, plan.agentProfiles, effectiveProfiles)
-		if !ok {
-			return fmt.Errorf("team AI profile GitOps file '%s' sets unknown or disabled agent default profile %q", plan.sourcePath, *plan.agentDefaultProfile)
-		}
-		if err := persistTeamProfileSettingTx(ctx, tx, teamID, teamAgentDefaultProfileSetting, canonical); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (a *App) persistGitOpsTeamMCPProfilesToTx(ctx context.Context, tx pgx.Tx, teamID int, configRepoID int64, plan *gitOpsTeamAIProfilePlan, commitSHA string) error {
-	servers, err := a.loadMCPServersFromDB(ctx)
-	if err != nil {
-		return fmt.Errorf("load MCP servers for team profile validation: %w", err)
-	}
-	if len(servers) == 0 {
-		servers = a.getConfigSnapshot().EffectiveMCPServers()
-	}
-	toolsByServer, err := a.loadMCPToolsByServer(ctx)
-	if err != nil {
-		return fmt.Errorf("load MCP tools for team profile validation: %w", err)
-	}
-	names := make([]string, 0, len(plan.mcpProfiles))
-	for name, profile := range plan.mcpProfiles {
-		profile.Name = name
-		if err := mcpregistry.ValidateProfileDefinition(profile, servers, toolsByServer); err != nil {
-			return fmt.Errorf("invalid team MCP profile in '%s': %w", plan.sourcePath, err)
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM team_mcp_profiles
-			WHERE team_id = $1 AND managed_by_config_repo = TRUE AND config_repo_id = $2
-		`, teamID, configRepoID); err != nil {
-			return fmt.Errorf("clear GitOps team MCP profiles: %w", err)
-		}
-	} else if _, err := tx.Exec(ctx, `
-		DELETE FROM team_mcp_profiles
-		WHERE team_id = $1 AND managed_by_config_repo = TRUE AND config_repo_id = $2 AND name != ALL($3::text[])
-	`, teamID, configRepoID, names); err != nil {
-		return fmt.Errorf("prune GitOps team MCP profiles: %w", err)
-	}
-	for _, name := range names {
-		if err := upsertTeamMCPProfileTx(ctx, tx, teamID, plan.mcpProfiles[name], "gitops", plan.sourcePath, commitSHA, configRepoID, true); err != nil {
-			return err
-		}
-	}
-	return nil
 }

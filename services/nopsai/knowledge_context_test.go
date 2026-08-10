@@ -165,6 +165,40 @@ func TestKnowledgeContextRefToPartsRejectsRetiredGlobalAliases(t *testing.T) {
 	}
 }
 
+func TestTeamKnowledgeDefaultRefPartsUsesTeamOwnedDocuments(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		wantTeam string
+		wantName string
+		wantErr  bool
+	}{
+		{name: "local name", raw: "runtime-safety", wantTeam: "platform/ml", wantName: "runtime-safety"},
+		{name: "team document id", raw: "platform/ml/runtime-safety", wantTeam: "platform/ml", wantName: "runtime-safety"},
+		{name: "kind prefixed local id", raw: "guardrail/runtime-safety", wantTeam: "platform/ml", wantName: "runtime-safety"},
+		{name: "wrong kind", raw: "runbook/runtime-safety", wantErr: true},
+		{name: "global path", raw: "global/runtime-safety", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kind, team, name, err := teamKnowledgeDefaultRefParts("guardrail", "platform/ml", tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("teamKnowledgeDefaultRefParts(%q) error = nil, want error", tt.raw)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("teamKnowledgeDefaultRefParts(%q) error = %v", tt.raw, err)
+			}
+			if kind != "guardrail" || team != tt.wantTeam || name != tt.wantName {
+				t.Fatalf("parts = (%q, %q, %q), want guardrail %q %q", kind, team, name, tt.wantTeam, tt.wantName)
+			}
+		})
+	}
+}
+
 func TestParseGitOpsKnowledgeContextsMarkdownFrontMatterDocument(t *testing.T) {
 	plan := newAccessSyncPlan()
 	files := map[string]string{

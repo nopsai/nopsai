@@ -828,6 +828,9 @@ func (s *fakeActionSession) MCPProfiles() []string       { return []string{"gite
 func (s *fakeActionSession) MCPToolCount() int           { return 1 }
 func (s *fakeActionSession) RequiresMCPToolCall() bool   { return false }
 func (s *fakeActionSession) SuccessfulMCPToolCalls() int { return 0 }
+func (s *fakeActionSession) ReviewPolicy(context.Context, resolver.PolicyReviewRequest) (*models.PolicyReview, error) {
+	return &models.PolicyReview{Decision: models.PolicyDecisionAllow, Confidence: "high", Reason: "test allows action"}, nil
+}
 func (s *fakeActionSession) GetAction(context.Context, *proto.GetActionRequest, *workspacectx.Tools) (*proto.Action, error) {
 	return s.action, s.err
 }

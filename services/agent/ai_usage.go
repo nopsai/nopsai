@@ -88,11 +88,11 @@ func aiUsageReportFromLLMUsage(feature, stepName, taskName, agentProfile string,
 	if policyRevision := strings.TrimSpace(usage.PolicyRevision); policyRevision != "" {
 		metadata["policy_revision"] = policyRevision
 	}
-	if policyMergeMode := strings.TrimSpace(usage.PolicyMergeMode); policyMergeMode != "" {
-		metadata["policy_merge_mode"] = policyMergeMode
+	if governanceLevel := strings.TrimSpace(usage.GovernanceLevel); governanceLevel != "" {
+		metadata["governance_level"] = governanceLevel
 	}
-	if policyPrecedenceVersion := strings.TrimSpace(usage.PolicyPrecedenceVersion); policyPrecedenceVersion != "" {
-		metadata["policy_precedence_version"] = policyPrecedenceVersion
+	if governanceContractVersion := strings.TrimSpace(usage.GovernanceContractVersion); governanceContractVersion != "" {
+		metadata["governance_contract_version"] = governanceContractVersion
 	}
 	if effectivePolicyHash := strings.TrimSpace(usage.EffectivePolicySnapshotHash); effectivePolicyHash != "" {
 		metadata["effective_policy_snapshot_hash"] = effectivePolicyHash

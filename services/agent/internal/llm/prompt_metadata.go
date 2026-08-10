@@ -24,8 +24,8 @@ type promptMetadata struct {
 	WorkspaceRevision           uint64
 	KnowledgeRevision           string
 	PolicyRevision              string
-	PolicyMergeMode             string
-	PolicyPrecedenceVersion     string
+	GovernanceLevel             string
+	GovernanceContractVersion   string
 	EffectivePolicySnapshotHash string
 	CacheIdentitySHA256         string
 	SharedFileCount             int
@@ -51,8 +51,8 @@ func newPromptMetadata(owner *LLMClient, prompt string) promptMetadata {
 		WorkspaceRevision:           maxMetadataUint64(prompt, "workspace_revision"),
 		KnowledgeRevision:           firstMetadataLineValue(prompt, "knowledge_revision"),
 		PolicyRevision:              firstMetadataLineValue(prompt, "policy_revision"),
-		PolicyMergeMode:             firstMetadataLineValue(prompt, "policy_merge_mode"),
-		PolicyPrecedenceVersion:     firstMetadataLineValue(prompt, "policy_precedence_version"),
+		GovernanceLevel:             firstNonEmpty(firstMetadataLineValue(prompt, "governance_level"), firstMetadataLineValue(prompt, "policy_merge_mode")),
+		GovernanceContractVersion:   firstNonEmpty(firstMetadataLineValue(prompt, "governance_contract_version"), firstMetadataLineValue(prompt, "policy_precedence_version")),
 		EffectivePolicySnapshotHash: firstMetadataLineValue(prompt, "effective_policy_snapshot_hash"),
 		SharedFileCount:             sharedFileCount,
 		SharedFileBytes:             sharedFileBytes,
@@ -100,11 +100,11 @@ func addPromptMetadata(event *zerolog.Event, meta promptMetadata) *zerolog.Event
 	if meta.PolicyRevision != "" {
 		event = event.Str("policy_revision", meta.PolicyRevision)
 	}
-	if meta.PolicyMergeMode != "" {
-		event = event.Str("policy_merge_mode", meta.PolicyMergeMode)
+	if meta.GovernanceLevel != "" {
+		event = event.Str("governance_level", meta.GovernanceLevel)
 	}
-	if meta.PolicyPrecedenceVersion != "" {
-		event = event.Str("policy_precedence_version", meta.PolicyPrecedenceVersion)
+	if meta.GovernanceContractVersion != "" {
+		event = event.Str("governance_contract_version", meta.GovernanceContractVersion)
 	}
 	if meta.EffectivePolicySnapshotHash != "" {
 		event = event.Str("effective_policy_snapshot_hash", meta.EffectivePolicySnapshotHash)

@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"strings"
 	"testing"
 
 	"nopsai/config"
@@ -193,22 +194,66 @@ func TestCanonicalTeamAgentDefaultProfileValueRejectsDisabledScopedCatalogProfil
 	}
 }
 
-func TestParseGitOpsTeamAIProfileFileAllowsCatalogResolvedLLMDefault(t *testing.T) {
-	plan, err := parseGitOpsTeamAIProfileFile("llm_default_profile: chatgpt\n", "ai-profiles.yaml", "platform/ml")
+func TestParseGitOpsTeamDefaultsFileAllowsCatalogResolvedLLMDefault(t *testing.T) {
+	plan, err := parseGitOpsTeamDefaultsFile("llm_profile: chatgpt\n", "defaults.yaml", "platform/ml")
 	if err != nil {
-		t.Fatalf("parseGitOpsTeamAIProfileFile() error = %v", err)
+		t.Fatalf("parseGitOpsTeamDefaultsFile() error = %v", err)
 	}
 	if plan.llmDefaultProfile == nil || *plan.llmDefaultProfile != "chatgpt" {
 		t.Fatalf("llm default = %#v, want chatgpt", plan.llmDefaultProfile)
 	}
-	if len(plan.llmProfiles) != 0 {
-		t.Fatalf("llm profiles = %#v, want none", plan.llmProfiles)
+}
+
+func TestParseGitOpsTeamDefaultsFileRejectsLLMDefaultOutsideTeam(t *testing.T) {
+	_, err := parseGitOpsTeamDefaultsFile("llm_profile: platform/security/chatgpt\n", "defaults.yaml", "platform/ml")
+	if err == nil {
+		t.Fatal("parseGitOpsTeamDefaultsFile() error = nil, want outside-team default error")
 	}
 }
 
-func TestParseGitOpsTeamAIProfileFileRejectsLLMDefaultOutsideTeam(t *testing.T) {
-	_, err := parseGitOpsTeamAIProfileFile("llm_default_profile: platform/security/chatgpt\n", "ai-profiles.yaml", "platform/ml")
+func TestParseGitOpsTeamDefaultsFileLoadsDefaults(t *testing.T) {
+	content := `
+llm_profile: chatgpt
+agent_profile: reviewer
+knowledge_context:
+  guardrail: runtime-output-safety
+  runbook: runbook/platform/ml/restart-service
+`
+	plan, err := parseGitOpsTeamDefaultsFile(content, "defaults.yaml", "platform/ml")
+	if err != nil {
+		t.Fatalf("parseGitOpsTeamDefaultsFile() error = %v", err)
+	}
+	if plan.llmDefaultProfile == nil || *plan.llmDefaultProfile != "chatgpt" {
+		t.Fatalf("llm default = %#v, want chatgpt", plan.llmDefaultProfile)
+	}
+	if plan.agentDefaultProfile == nil || *plan.agentDefaultProfile != "reviewer" {
+		t.Fatalf("agent default = %#v, want reviewer", plan.agentDefaultProfile)
+	}
+	if got := plan.knowledgeDefaults["guardrail"]; got != "platform/ml/runtime-output-safety" {
+		t.Fatalf("guardrail default = %q, want platform/ml/runtime-output-safety", got)
+	}
+	if got := plan.knowledgeDefaults["runbook"]; got != "platform/ml/restart-service" {
+		t.Fatalf("runbook default = %q, want platform/ml/restart-service", got)
+	}
+}
+
+func TestParseGitOpsTeamDefaultsFileRejectsKnowledgeDefaultOutsideTeam(t *testing.T) {
+	content := `
+knowledge_context:
+  guardrail: platform/security/runtime-output-safety
+`
+	_, err := parseGitOpsTeamDefaultsFile(content, "defaults.yaml", "platform/ml")
 	if err == nil {
-		t.Fatal("parseGitOpsTeamAIProfileFile() error = nil, want outside-team default error")
+		t.Fatal("parseGitOpsTeamDefaultsFile() error = nil, want outside-team default error")
+	}
+	if !strings.Contains(err.Error(), "owned by platform/ml") {
+		t.Fatalf("parseGitOpsTeamDefaultsFile() error = %v, want owner validation", err)
+	}
+}
+
+func TestParseGitOpsTeamDefaultsFileRejectsLegacyDefaultKeys(t *testing.T) {
+	_, err := parseGitOpsTeamDefaultsFile("llm_default_profile: chatgpt\n", "defaults.yaml", "platform/ml")
+	if err == nil || !strings.Contains(err.Error(), "must define at least one default") {
+		t.Fatalf("parseGitOpsTeamDefaultsFile() error = %v, want legacy key rejection", err)
 	}
 }

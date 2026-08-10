@@ -58,8 +58,8 @@ type CacheIdentity struct {
 	MCPPermissionHash           string `json:"mcp_permission_hash,omitempty"`
 	KnowledgeRevision           string `json:"knowledge_revision,omitempty"`
 	PolicyRevision              string `json:"policy_revision,omitempty"`
-	PolicyMergeMode             string `json:"policy_merge_mode,omitempty"`
-	PolicyPrecedenceVersion     string `json:"policy_precedence_version,omitempty"`
+	GovernanceLevel             string `json:"governance_level,omitempty"`
+	GovernanceContractVersion   string `json:"governance_contract_version,omitempty"`
 	EffectivePolicySnapshotHash string `json:"effective_policy_snapshot_hash,omitempty"`
 	VariablesHash               string `json:"variables_hash,omitempty"`
 	PipelineFileSetHash         string `json:"pipeline_file_set_hash,omitempty"`
@@ -78,8 +78,8 @@ type completionMetadata struct {
 	ExecutionMode               string
 	CacheIdentitySHA256         string
 	PromptSchemaVersion         string
-	PolicyMergeMode             string
-	PolicyPrecedenceVersion     string
+	GovernanceLevel             string
+	GovernanceContractVersion   string
 	EffectivePolicySnapshotHash string
 	StablePrefixTokens          int64
 	DynamicContextTokens        int64
@@ -221,8 +221,8 @@ func completionMetadataFromRequest(req CompletionRequest, capabilities ProviderC
 		ExecutionMode:               executionMode,
 		CacheIdentitySHA256:         req.CacheIdentity.Hash(),
 		PromptSchemaVersion:         req.PromptSchemaVersion,
-		PolicyMergeMode:             meta.PolicyMergeMode,
-		PolicyPrecedenceVersion:     meta.PolicyPrecedenceVersion,
+		GovernanceLevel:             meta.GovernanceLevel,
+		GovernanceContractVersion:   meta.GovernanceContractVersion,
 		EffectivePolicySnapshotHash: meta.EffectivePolicySnapshotHash,
 		StablePrefixTokens:          stableTokens,
 		DynamicContextTokens:        dynamicTokens,
@@ -236,8 +236,8 @@ func NewCacheIdentity(owner *LLMClient, prompt string) CacheIdentity {
 		PromptPrecedenceVersion:     CompletionPromptSchemaVersion,
 		KnowledgeRevision:           meta.KnowledgeRevision,
 		PolicyRevision:              meta.PolicyRevision,
-		PolicyMergeMode:             meta.PolicyMergeMode,
-		PolicyPrecedenceVersion:     meta.PolicyPrecedenceVersion,
+		GovernanceLevel:             meta.GovernanceLevel,
+		GovernanceContractVersion:   meta.GovernanceContractVersion,
 		EffectivePolicySnapshotHash: meta.EffectivePolicySnapshotHash,
 		AgentProfileHash:            hashPromptSection(prompt, "", "\n\nYour task"),
 		VariablesHash:               hashPromptSection(prompt, "**Variables:**", "---\n**Knowledge Context:**"),

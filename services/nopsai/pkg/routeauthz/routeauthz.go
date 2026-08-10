@@ -730,12 +730,13 @@ func isTeamScopedProfilePath(path string) bool {
 	return strings.Contains(path, "/llm-profiles") ||
 		strings.Contains(path, "/agent-profiles") ||
 		strings.Contains(path, "/mcp-profiles") ||
-		strings.Contains(path, "/mcp/profiles")
+		strings.Contains(path, "/mcp/profiles") ||
+		strings.HasSuffix(path, "/defaults")
 }
 
 func teamIDFromProfilePath(path string) string {
 	teamID := strings.TrimPrefix(strings.TrimSpace(path), "/v1/teams/")
-	for _, marker := range []string{"/llm-profiles", "/agent-profiles", "/mcp-profiles", "/mcp/profiles"} {
+	for _, marker := range []string{"/llm-profiles", "/agent-profiles", "/mcp-profiles", "/mcp/profiles", "/defaults"} {
 		if index := strings.Index(teamID, marker); index >= 0 {
 			teamID = teamID[:index]
 			break
