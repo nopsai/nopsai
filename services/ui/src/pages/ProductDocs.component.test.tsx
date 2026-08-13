@@ -1,21 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ProductDocsPage from './ProductDocs';
 
-function renderDocs(initialEntry = '/docs', options: { withPageWrapper?: boolean } = {}) {
-  const docs = (
+function renderWiki(initialEntry = '/docs') {
+  return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/docs/*" element={<ProductDocsPage />} />
       </Routes>
-    </MemoryRouter>
-  );
-  return render(
-    options.withPageWrapper
-      ? <div id="page-content-wrapper">{docs}</div>
-      : docs,
+    </MemoryRouter>,
   );
 }
 
@@ -28,122 +23,122 @@ describe('ProductDocsPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders a calm documentation shell with route-backed navigation', () => {
-    renderDocs();
+  it('opens on a landing page with task-based entry points instead of an article', () => {
+    renderWiki();
 
-    expect(screen.getByRole('heading', { name: 'NopsAI Documentation' })).toBeVisible();
-    expect(screen.getByText('Current implementation, grounded in repository sources')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'What NopsAI Is' })).toBeVisible();
-    expect(screen.getByLabelText('Search documentation')).toBeVisible();
-    expect(screen.getByText('Page details')).toBeVisible();
-    expect(screen.queryByText('Source Priority')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'NopsAI wiki' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Start with what you need' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /I am writing a pipeline/ })).toBeVisible();
+    expect(screen.getAllByRole('link', { name: 'All YAML directives' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('heading', { name: 'Field reference' })).not.toBeInTheDocument();
   });
 
-  it('opens a reference field without using a wide configuration table', async () => {
+  it('groups the sidebar by reader intent', () => {
+    renderWiki();
+
+    const nav = screen.getByRole('navigation', { name: 'Wiki pages' });
+    expect(within(nav).getByText('Learn the product')).toBeVisible();
+    expect(within(nav).getByText('Build automation')).toBeVisible();
+    expect(within(nav).getByText('Run the platform')).toBeVisible();
+    expect(within(nav).getByText('Look something up')).toBeVisible();
+  });
+
+  it('renders a reference article with a scannable field table', () => {
+    renderWiki('/docs/automation/pipeline-schema');
+
+    expect(screen.getByRole('heading', { name: 'Pipeline YAML schema' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Field reference' })).toBeVisible();
+
+    const table = screen.getAllByRole('table')[0];
+    expect(within(table).getByRole('columnheader', { name: 'Directive' })).toBeVisible();
+    expect(within(table).getByRole('columnheader', { name: 'Required' })).toBeVisible();
+    expect(within(table).getByRole('columnheader', { name: 'Default' })).toBeVisible();
+    const governance = within(table).getByRole('button', { name: /^governance_level/ });
+    expect(governance).toBeVisible();
+    expect(within(table).getAllByText('strict').length).toBeGreaterThan(0);
+  });
+
+  it('expands a field row to show rules, allowed values, and evidence', async () => {
     const user = userEvent.setup();
-    renderDocs('/docs/installation/docker-compose');
+    renderWiki('/docs/automation/pipeline-schema');
 
-    expect(screen.getByRole('heading', { name: 'Docker Compose' })).toBeVisible();
-    const fieldSummary = screen.getByText('SYSTEM_LOGS_DOCKER_HOST');
-    expect(fieldSummary).toBeVisible();
-    await user.click(fieldSummary);
-    expect(screen.getByText('tcp://docker-socket-proxy:2375')).toBeVisible();
-    expect(screen.queryByRole('columnheader', { name: 'Field path' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^governance_level/ }));
+
+    expect(screen.getByText('Allowed')).toBeVisible();
+    expect(screen.getByText('exception_based')).toBeVisible();
+    expect(screen.getByText(/pkg\/models\/policy_merge\.go/)).toBeVisible();
   });
 
-  it('returns ranked field-level search results and opens the matching article', async () => {
+  it('never renders placeholder metadata for an undocumented field', () => {
+    renderWiki('/docs/automation/step-task-directives');
+
+    expect(screen.queryByText('Not documented')).not.toBeInTheDocument();
+    expect(screen.queryByText('Metadata incomplete')).not.toBeInTheDocument();
+    expect(screen.queryByText(/have not yet been documented/)).not.toBeInTheDocument();
+  });
+
+  it('leads a tutorial with prerequisites and numbered steps', () => {
+    renderWiki('/docs/get-started/first-script-pipeline');
+
+    expect(screen.getByRole('heading', { name: 'What you will do' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Before you start' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Steps' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Write the pipeline' })).toBeVisible();
+  });
+
+  it('renders the generated directive index with working filters', async () => {
     const user = userEvent.setup();
-    renderDocs();
+    renderWiki('/docs/reference/directive-index');
 
-    fireEvent.change(screen.getByLabelText('Search documentation'), { target: { value: 'steps[].llm_profile' } });
+    const filter = screen.getByPlaceholderText(/^Search \d+ directives$/);
+    expect(screen.getByText(/^\d+ of \d+$/)).toBeVisible();
 
-    const result = screen.getByText('steps[].llm_profile').closest('button');
-    expect(result).toBeTruthy();
-    await user.click(result as HTMLElement);
-
-    expect(screen.getByRole('heading', { name: 'Step and Task Directives' })).toBeVisible();
-    expect(screen.getAllByText('steps[].llm_profile').length).toBeGreaterThan(0);
+    await user.type(filter, 'dashboard.mode');
+    const table = screen.getAllByRole('table')[0];
+    expect(within(table).getByText('output.items[].dashboard.mode')).toBeVisible();
+    expect(within(table).queryByText('cron_expression')).not.toBeInTheDocument();
   });
 
-  it('starts a selected article at the top of the page', async () => {
+  it('renders the generated API index with method and access columns', () => {
+    renderWiki('/docs/reference/api-index');
+
+    const table = screen.getAllByRole('table')[0];
+    expect(within(table).getByRole('columnheader', { name: 'Method' })).toBeVisible();
+    expect(within(table).getByRole('columnheader', { name: 'Access' })).toBeVisible();
+    expect(within(table).getByText('/v1/setup/preflight')).toBeVisible();
+  });
+
+  it('searches article prose, not only titles', async () => {
     const user = userEvent.setup();
-    const originalRAF = window.requestAnimationFrame;
-    const scrollTo = vi.mocked(window.scrollTo);
-    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
-      callback(0);
-      return 0;
-    };
+    renderWiki();
 
-    try {
-      renderDocs('/docs/installation/docker-compose');
-      scrollTo.mockClear();
+    await user.type(screen.getByLabelText('Search the wiki'), 'ejected');
 
-      await user.click(screen.getByRole('button', { name: 'Kubernetes and Helm' }));
-
-      expect(screen.getByRole('heading', { name: 'Kubernetes and Helm' })).toBeVisible();
-      expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'auto' });
-    } finally {
-      window.requestAnimationFrame = originalRAF;
-      scrollTo.mockRestore();
-    }
+    const results = await screen.findByRole('list', { name: 'Search results' });
+    expect(within(results).getAllByRole('button').length).toBeGreaterThan(0);
   });
 
-  it('scrolls the authenticated app content wrapper when changing articles', async () => {
+  it('navigates to a field anchor when a search result is selected', async () => {
     const user = userEvent.setup();
-    const originalRAF = window.requestAnimationFrame;
-    const scrollTo = vi.mocked(window.scrollTo);
-    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
-      callback(0);
-      return 0;
-    };
+    renderWiki();
 
-    try {
-      renderDocs('/docs/installation/docker-compose', { withPageWrapper: true });
-      const wrapper = document.getElementById('page-content-wrapper') as HTMLElement;
-      const wrapperScrollTo = vi.fn();
-      Object.defineProperty(wrapper, 'scrollTo', { configurable: true, value: wrapperScrollTo });
-      scrollTo.mockClear();
+    await user.type(screen.getByLabelText('Search the wiki'), 'governance_level');
+    const results = await screen.findByRole('list', { name: 'Search results' });
+    await user.click(within(results).getAllByRole('button')[0]);
 
-      await user.click(screen.getByRole('button', { name: 'Kubernetes and Helm' }));
-
-      expect(screen.getByRole('heading', { name: 'Kubernetes and Helm' })).toBeVisible();
-      await waitFor(() => {
-        expect(wrapperScrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'auto' });
-      });
-      expect(scrollTo).not.toHaveBeenCalled();
-    } finally {
-      window.requestAnimationFrame = originalRAF;
-    }
+    expect(screen.getByRole('heading', { name: 'Pipeline YAML schema' })).toBeVisible();
   });
 
-  it('labels unverified field metadata instead of presenting inferred values as facts', async () => {
-    const user = userEvent.setup();
-    renderDocs('/docs/automation/pipeline-schema');
+  it('offers previous and next navigation across section boundaries', () => {
+    renderWiki('/docs/start/run-lifecycle');
 
-    const nameField = screen.getByText('name', { selector: 'code' });
-    await user.click(nameField);
-
-    expect(screen.getAllByText('Metadata incomplete').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/has not been explicitly verified/i).length).toBeGreaterThan(0);
+    const pager = screen.getByRole('navigation', { name: 'Wiki pagination' });
+    expect(within(pager).getByText('Install locally with Docker Compose')).toBeVisible();
   });
 
-  it('renders implementation evidence without outbound documentation links', async () => {
-    renderDocs('/docs/getting-started/first-script-pipeline');
+  it('falls back to the landing page for an unknown article path', () => {
+    renderWiki('/docs/start/does-not-exist');
 
-    const user = userEvent.setup();
-    await user.click(screen.getByText('Implementation evidence', { selector: 'summary' }));
-
-    expect(screen.getByText('runtime-flows.md')).toBeVisible();
-    expect(screen.getByText('doc/runtime-flows.md')).toBeVisible();
-    expect(screen.queryByRole('link', { name: /runtime-flows\.md/i })).not.toBeInTheDocument();
-  });
-
-  it('does not present placeholder operational tasks as complete runbooks', () => {
-    renderDocs('/docs/security-reference/troubleshooting');
-
-    expect(screen.getByRole('heading', { name: 'Operational guidance' })).toBeVisible();
-    expect(screen.getByText('Related operational tasks')).toBeVisible();
-    expect(screen.getByText(/detailed runbook steps have not yet been documented/i)).toBeVisible();
-    expect(screen.queryByText('Diagnostic commands')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'NopsAI wiki' })).toBeVisible();
   });
 });

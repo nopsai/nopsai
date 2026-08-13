@@ -1,0 +1,132 @@
+import type { WikiSection } from '../types.js';
+
+export const startSection: WikiSection = {
+  id: 'start',
+  title: 'Start here',
+  group: 'learn',
+  owner: 'Platform engineering',
+  description: 'What the product is, the vocabulary it uses, and what actually happens when a run executes.',
+  articles: [
+    {
+      id: 'what-nopsai-is',
+      title: 'What NopsAI is',
+      docType: 'concept',
+      audiences: ['new-user', 'administrator', 'developer'],
+      summary:
+        'NopsAI is a self-hosted automation control plane that executes YAML-defined workflows through Docker or Kubernetes runners.',
+      keywords: ['overview', 'introduction', 'product', 'what is'],
+      keyFacts: [
+        'A pipeline can combine deterministic shell scripts, LLM-backed goals, reusable steps, child pipelines, and human approval gates in one graph.',
+        'Runtime variables, encrypted secrets, governed Knowledge Context, LLM Profiles, Agent Profiles, and MCP Profiles are all resolved before a step executes.',
+        'Runs start manually, from a schedule, from a GitHub App event, from a Git webhook source, from an external API trigger, or from a parent pipeline.',
+        'Final deliverables can be Markdown, JSON, HTML, PDF, Excel, or a dashboard publication, and are stored separately from raw task logs.',
+        'Everything is self-hosted: there is no NopsAI-operated cloud component in the current repository.',
+      ],
+      details: [
+        'The product is GitOps-friendly by design. Pipelines, steps, schedules, triggers, scopes, knowledge, dashboards, and access can all live in a configuration repository, while durable execution, audit, credential, monitoring, and setup state stay in PostgreSQL.',
+        'LLM-backed work runs inside the per-run agent. There is no separate always-on LLM service; the agent calls the provider selected by the resolved LLM Profile.',
+        'The UI, CLI, REST API, hosted MCP surface, and runners all pass through the same authentication, authorization, and audit boundaries. No interface has a private path around AAA.',
+      ],
+      limits: [
+        'The repository defines no cloud-provider-specific infrastructure automation. Cloud installs treat NopsAI as a portable Kubernetes workload.',
+      ],
+      related: ['control-execution-plane', 'run-lifecycle', 'concepts-glossary', 'install-local-docker-compose'],
+      sources: [
+        { repositoryPath: 'doc/architecture-overview.md', purpose: 'Component map and deployment shape.' },
+        { repositoryPath: 'doc/feature-reference.md', purpose: 'Functional capabilities exposed by the codebase and UI.' },
+      ],
+    },
+    {
+      id: 'concepts-glossary',
+      title: 'Concepts and glossary',
+      docType: 'reference',
+      audiences: ['new-user', 'automation-author', 'operator'],
+      summary: 'The terms NopsAI uses, and what each one does and does not control.',
+      keywords: ['terminology', 'vocabulary', 'definitions', 'glossary'],
+      keyFacts: [
+        '**Pipeline** — a named YAML workflow made of steps. The unit you run, schedule, and trigger.',
+        '**Step** — one node in the pipeline graph. Exactly one execution mode: `include`, `tasks`, `goal`, `script`, or `approval`.',
+        '**Task** — a unit inside a multi-task step. Defines exactly one of `goal` or `script`.',
+        '**Run** — one execution of a pipeline, with its own logs, outputs, approvals, and audit trail.',
+        '**Scope** — the namespace that resolves runtime variables and secrets for a run.',
+        '**Team path** — the ownership boundary (`platform/payments`) used for access, notifications, and GitOps authority.',
+        '**Runner** — a Docker or Kubernetes worker that accepts assigned runs from the dispatcher.',
+        '**Agent** — the per-run process a runner starts; it drives step containers or pods and reports status back.',
+        '**Agent Profile** — persona and prompt instructions. Controls how the AI behaves, not what it may access.',
+        '**LLM Profile** — provider, model, endpoint, credential reference, and generation settings.',
+        '**MCP Profile** — the allowlist of external MCP servers and tools available to LLM goal work.',
+        '**Knowledge Context** — documents injected into prompts. `guardrail` and `policy` kinds also block execution.',
+        '**AAA** — the authorization service that decides whether the original caller may use each selected resource.',
+        '**GitOps** — configuration repositories that own resource definitions; UI and API edits create database overrides.',
+      ],
+      details: [
+        'The AI control layers are deliberately separate. An Agent Profile cannot grant provider access, an LLM Profile cannot change the persona, an MCP Profile cannot widen AAA permissions, and Knowledge Context cannot by itself authorize a runtime resource.',
+        'Scope and team path are different axes. Scope answers "which variables and secrets resolve for this run"; team path answers "who owns this resource and who gets notified".',
+      ],
+      related: ['ai-control-layers', 'variables-secrets-scopes', 'teams-and-ownership'],
+      sources: [
+        { repositoryPath: 'doc/decision-architecture.md', purpose: 'Why the separation between control layers exists.' },
+      ],
+    },
+    {
+      id: 'control-execution-plane',
+      title: 'Control plane and execution plane',
+      docType: 'concept',
+      audiences: ['administrator', 'operator', 'developer'],
+      summary:
+        'The API, AAA, dispatcher, git-bot, UI, PostgreSQL, Gotenberg, and socket proxy form the control plane; runners and per-run agents form the execution plane.',
+      keywords: ['architecture', 'components', 'services', 'topology'],
+      keyFacts: [
+        '`nopsai-api` owns REST APIs, validation, orchestration, setup, monitoring, credentials, notifications, GitOps, auth integration, and run records.',
+        '`aaa` owns authorization decisions, policy checks, ACL expansion, filtering, and decision audit records.',
+        '`dispatcher` owns runner registration, queueing, routing, capacity selection, and job assignment over gRPC.',
+        '`git-bot` owns GitHub App webhooks, repository access, check runs, and GitHub-specific integration.',
+        'Runners start one agent per assigned run; the agent then starts step containers or pods and reports status back.',
+        'Gotenberg renders PDF final outputs. The Docker socket proxy exposes only the allow-listed reads System Logs needs.',
+      ],
+      details: [
+        'The API submits jobs to the dispatcher. Runners hold long-lived outbound connections to the dispatcher, which keeps registration and capacity visible to the control plane without inbound access to the runner.',
+        'Docker runners create containers and named Docker volumes. Kubernetes runners create an agent pod, a PVC-backed workspace, and step pods in their namespace.',
+        'UI and CLI are entry points only. They call authenticated REST routes and never talk directly to AAA, the dispatcher, PostgreSQL, or runners.',
+        'During cold starts, setup preflight keeps `/healthz` unready while retrying a database that is still starting. `/livez` stays process-alive, and normal API startup resumes automatically once PostgreSQL is reachable.',
+      ],
+      limits: [
+        'Kubernetes emptyDir is not used for shared run workspaces; the agent owns a PVC instead.',
+        'Docker runners ignore Kubernetes runtime pools and affinity settings.',
+      ],
+      related: ['run-lifecycle', 'runners-and-dispatcher', 'helm-kubernetes'],
+      sources: [
+        { repositoryPath: 'doc/service-reference.md', purpose: 'What each service owns and which files to read.' },
+        { repositoryPath: 'services/nopsai/routes.go', purpose: 'The REST surface the control plane exposes.' },
+      ],
+    },
+    {
+      id: 'run-lifecycle',
+      title: 'How a run executes',
+      docType: 'concept',
+      audiences: ['automation-author', 'operator', 'developer'],
+      summary: 'From trigger to final deliverable: validation, authorization, dispatch, agent execution, and finalization.',
+      keywords: ['lifecycle', 'execution', 'flow', 'dispatch', 'sequence'],
+      keyFacts: [
+        'Validation happens before anything is queued: schema, structural limits, dependency graph, profile references, and scope access are all checked up front.',
+        'AAA authorizes the original caller for every referenced resource, not just the pipeline.',
+        'The dispatcher selects a runner by scope, capacity, and reachability, then assigns the run over gRPC.',
+        'The agent resolves variables, secrets, knowledge, and profiles, then executes the graph respecting `depends_on`.',
+        'Approval steps pause the run durably and release runner capacity instead of holding it.',
+        'Final outputs are generated after execution finishes and stored separately from raw task logs.',
+      ],
+      details: [
+        'Dependency order comes from the graph, not from list position. A step or task starts as soon as every dependency has completed, so independent branches run concurrently up to runner capacity.',
+        'Runtime output references such as `$steps.<step>.<task>.outputs.<name>` are valid when the graph guarantees the producer runs first. A direct `depends_on` edge is not required if a transitive upstream path already provides that ordering.',
+        'A failed step normally fails the run. With `ignore_failure`, the failure is recorded as `failure (ignored)`, the step renders as a warning, and an otherwise successful run finishes with status `warning`.',
+        'Approval and explicit policy or guardrail enforcement failures always fail closed, regardless of `ignore_failure`.',
+        'Blocking Knowledge Context (`policy` and `guardrail`) is pinned by scope at run start, then recomputed as pipeline, step, and task scopes begin. Emergency policy response cancels active runs rather than mutating already-resolved policy.',
+      ],
+      related: ['pipeline-schema', 'step-task-directives', 'approvals', 'pipeline-runs'],
+      sources: [
+        { repositoryPath: 'doc/runtime-flows.md', purpose: 'Step-by-step execution flows for each entry point.' },
+        { repositoryPath: 'services/nopsai/pkg/validation/pipeline.go', purpose: 'The validation performed before a run is accepted.' },
+      ],
+    },
+  ],
+};

@@ -1,8 +1,52 @@
 # NopsAI Product Wiki Source Map
 
 This document is the repository-side source map for the in-app product wiki at
-`services/ui/src/pages/ProductDocs.tsx` and its data model at
-`services/ui/src/features/product-docs/model.ts`.
+`services/ui/src/pages/ProductDocs.tsx`.
+
+## Where The Content Lives
+
+Content is authored TypeScript data, split by domain so a gap is visible rather
+than buried in one large file:
+
+```text
+services/ui/src/features/product-docs/
+├── content/types.ts            Content model and helpers
+├── content/index.ts            Section assembly, lookups, summary, link validation
+├── content/fields/             Field data, one module per domain
+│   ├── pipeline.ts             Pipeline top-level directives and structural limits
+│   ├── step-task.ts            Step modes, common step directives, task directives, approvals
+│   ├── output.ts               Final output and dashboard publication directives
+│   ├── events.ts               Git trigger manifests, schedules, external triggers
+│   ├── ai.ts                   LLM/Agent/MCP profiles, Knowledge Context, governance levels
+│   ├── environment.ts          Every environment variable, grouped by owning service
+│   └── api.ts                  Every REST route with area and access class
+├── content/sections/           One module per wiki section
+├── indexes.ts                  Derived directive/environment/API indexes
+├── search.ts                   Full-body search index
+├── blocks.ts                   Which blocks a page renders and in what order
+└── Wiki*.tsx                   Rendering
+```
+
+## No Fabricated Content
+
+The content model has no inference and no generation. Earlier revisions derived
+runbooks from a title string, source entries from a `relatedDocs` path, and
+field type/required/default from prose, which produced pages that looked
+complete while telling the reader "Not documented" and "detailed runbook steps
+have not yet been documented".
+
+The rules that replaced that:
+
+- `WikiField` requires `type`, `required`, `defaultValue`, `description`,
+  `example`, and `scope`. There is no placeholder value.
+- A runbook is published only when it carries symptoms, initial checks,
+  diagnostics, resolution, and required access.
+- A source entry is an authored `{ repositoryPath, purpose }` pair, never a
+  generic sentence derived from a file name.
+- A block with no data is not rendered at all.
+
+`content.test.ts` enforces each of these, and `indexes.test.ts` enforces that
+every index row resolves to a real article and a real anchor.
 
 The wiki is intentionally grounded in the current repository implementation. It
 should not describe future-state infrastructure, storage, autoscaling, or
@@ -283,73 +327,101 @@ credential references, AAA ownership, and runtime IdP-managed identity state.
 
 ## Wiki Sections
 
-The in-app wiki is organized for operators and enterprise users rather than as
-a flat feature catalog.
+The wiki is organised in four groups by reader intent, not as a flat feature
+catalog. `/docs` is a landing page with task-based entry points and search;
+articles live at `/docs/<section>/<article>`.
 
 ```text
-Product and Architecture
-├── What NopsAI is
-├── Control plane and execution plane
-└── Normal run lifecycle
+Learn the product
+├── Start here
+│   ├── What NopsAI is
+│   ├── Concepts and glossary
+│   ├── Control plane and execution plane
+│   └── How a run executes
+└── Get started
+    ├── Install locally with Docker Compose
+    ├── Complete the first-install wizard
+    ├── Create and run your first script pipeline
+    ├── Create your first AI-assisted pipeline
+    ├── Connect a Git repository
+    ├── Trigger a pipeline from Git
+    ├── Add an approval checkpoint
+    └── Create a final deliverable
 
-Getting Started
-├── Install locally with Docker Compose
-├── Complete the first-install wizard
-├── Create and run your first script pipeline
-├── Create your first AI-assisted pipeline
-├── Connect a Git repository
-├── Trigger a pipeline from Git
-├── Add an approval checkpoint
-└── Create a final deliverable
+Build automation
+├── Authoring pipelines
+│   ├── Pipeline YAML schema
+│   ├── Step and task directives
+│   ├── Runtime outputs and dependencies
+│   ├── Approval checkpoints
+│   ├── Reusable steps and child pipelines
+│   ├── Variables, secrets, and scopes
+│   └── Final deliverables
+├── Triggers and schedules
+│   ├── How runs start
+│   ├── Git trigger manifests
+│   ├── Git webhook sources
+│   ├── Schedules
+│   └── External API triggers
+└── AI, knowledge, and governance
+    ├── The AI control layers
+    ├── Agent Profiles
+    ├── LLM Profiles
+    ├── MCP servers and profiles
+    ├── Knowledge Context
+    └── Governance levels
 
-Installation
-├── First-install wizard
-│   └── Locks normal authenticated routes and APIs until setup is completed once
-├── Required environment and service URLs
-├── Docker Compose
-├── Kubernetes and Helm
-└── Additional runners
+Run the platform
+├── Install and deploy
+│   ├── Supported deployment models
+│   ├── First-install setup
+│   ├── Environment and service configuration
+│   ├── Docker Compose deployment
+│   ├── Kubernetes and Helm deployment
+│   ├── Runners and the dispatcher
+│   ├── Private registry authentication
+│   ├── Networking and exposure
+│   └── Storage and persistence
+├── Administration
+│   ├── Teams and resource ownership
+│   ├── Access control and AAA
+│   ├── Authentication and SSO
+│   ├── Tokens and service accounts
+│   ├── Credentials and secrets store
+│   ├── GitOps and configuration repositories
+│   ├── Notifications
+│   └── Backups and data cleanup
+└── Operate
+    ├── Pipeline runs
+    ├── Pipeline logs and redaction
+    ├── System logs
+    ├── Monitoring and metrics
+    ├── Analysis reviewers and AI Evaluation
+    ├── Team dashboards
+    └── Release integrity and updates
 
-Platform Administration
-├── Networking and exposure
-├── Storage and persistence
-├── Configuration authority and GitOps
-├── Credentials, secrets, and variables
-└── Authentication, AAA, teams, scopes, and SSO fixtures
-
-Automation Authoring
-├── Pipeline YAML schema
-├── Step and task directives
-├── Approvals, reusable steps, and child pipelines
-├── Git triggers and Git webhook sources
-└── Schedules and external triggers
-
-AI, MCP, and Knowledge
-├── AI control layers
-├── LLM Profiles
-├── External and hosted MCP
-├── Knowledge Context
-└── Final deliverables
-
-Operations
-├── Monitoring and metrics
-├── Pipeline Logs and System Logs
-├── Analysis reviewers
-├── Notifications
-├── Backups, cleanup, and restore boundary
-└── Release integrity and compatibility
-
-Interfaces
-├── REST API
-├── CLI
-└── Hosted NopsAI MCP interface
-
-Security and Reference
-├── Production hardening checklist
-├── Troubleshooting index
-├── Browser console troubleshooting
-└── Confirmed gaps and limits
+Look something up
+├── Interfaces
+│   ├── REST API
+│   ├── Command-line interface
+│   ├── Assistant chat
+│   └── Hosted NopsAI MCP endpoint
+└── Reference and limits
+    ├── All YAML directives          (generated index)
+    ├── All environment variables    (generated index)
+    ├── All REST endpoints           (generated index)
+    ├── Production hardening checklist
+    ├── Troubleshooting index
+    ├── Browser console warnings
+    └── Confirmed gaps and limits
 ```
+
+The three index pages carry no field data of their own. They aggregate every
+documented field and route across the whole wiki, so an index can never drift
+from the page that explains the entry. Adding a directive to a section module
+adds it to the index automatically; a directive missing from an index is a
+genuine documentation gap.
+
 
 ## Reference Depth Standard
 
