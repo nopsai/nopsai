@@ -1,0 +1,16 @@
+title: Service Health
+description: Platform service health, refreshed by pipeline final outputs.
+visibility: team
+sections:
+  - section_key: service-health
+    title: Service Health
+    description: Latest request, error, and latency evidence.
+    display_order: 10
+sources:
+  - section_key: service-health
+    pipeline_id: platform/service-health-dashboard
+    output_name: Service health
+    entry_key: service-health
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 10

@@ -91,6 +91,26 @@ for image_name in "${image_names[@]}"; do
 done
 require_text "repository: postgres" "$temp_dir/chart-values.yaml" "the PostgreSQL image repository"
 
+# The packaged chart version is the only version an operator must change: every
+# NopsAI image tag has to follow the chart appVersion without extra values edits.
+helm template nopsai "$chart_file" \
+  --namespace nopsai \
+  --set secrets.existingSecret=nopsai-secrets \
+  >"$temp_dir/chart-rendered.yaml"
+for image_name in "${image_names[@]}"; do
+  case "$image_name" in
+    nopsai-docker-runner) continue ;;
+  esac
+  require_text \
+    "ghcr.io/nopsai/$image_name:$actual" \
+    "$temp_dir/chart-rendered.yaml" \
+    "the $image_name tag inherited from the chart appVersion"
+done
+if grep -F "ghcr.io/nopsai/nopsai-api:dev" "$temp_dir/chart-rendered.yaml" >/dev/null; then
+  printf 'packaged chart rendered development image tags\n' >&2
+  exit 1
+fi
+
 container_dockerfiles=(
   Dockerfile
   container/Dockerfile.aaa

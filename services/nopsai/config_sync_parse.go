@@ -27,6 +27,7 @@ type configSyncPlan struct {
 	credentialPlan                       *gitOpsCredentialPlan
 	runtimeSettingsPlan                  *gitOpsRuntimeSettingsPlan
 	githubSettingsPlan                   *gitOpsGitHubSettingsPlan
+	assistantSettingsPlan                *gitOpsAssistantSettingsPlan
 	mailSettingsPlan                     *gitOpsMailSettingsPlan
 	dataManagementPlan                   *gitOpsDataManagementPlan
 	schedules                            map[string]storedSchedule
@@ -225,6 +226,13 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		return configSyncPlan{}, err
 	}
 	plan.githubSettingsPlan, err = parseGitOpsGitHubSettingsPlan(
+		binding,
+		gitOpsRuntimeSettingsDirectory{root: settingDir, files: files.setting},
+	)
+	if err != nil {
+		return configSyncPlan{}, err
+	}
+	plan.assistantSettingsPlan, err = parseGitOpsAssistantSettingsPlan(
 		binding,
 		gitOpsRuntimeSettingsDirectory{root: settingDir, files: files.setting},
 	)

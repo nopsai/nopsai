@@ -1,0 +1,22 @@
+# Runtime and runner defaults for the whole platform.
+# Assistant settings live in setting/system/assistant.yaml, and GitHub App
+# settings live in setting/git-apps/github.yaml.
+
+log_level: info
+environment: production
+public_url: https://nopsai.example.com
+dispatcher_grpc_address: dispatcher:9090
+
+# Defaults used when the UI generates a new runner install command.
+runtime: docker
+runner_id: runner-general
+runner_scopes: dev,prod
+runner_capacity: 2
+
+# Send production work to the production runner and everything else to the
+# general runner.
+dispatcher_routing:
+  prod:
+    - runner-prod-1
+  "*":
+    - runner-general

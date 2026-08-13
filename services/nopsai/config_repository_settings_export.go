@@ -296,6 +296,13 @@ func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository
 		return err
 	}
 	files["setting/git-apps/github.yaml"] = string(githubContent)
+
+	assistantDoc := buildAssistantSettingsGitOpsFile(cfg)
+	assistantContent, err := marshalConfigRepositoryYAML(assistantDoc)
+	if err != nil {
+		return err
+	}
+	files[configRepositoryAssistantSettingsPath] = string(assistantContent)
 	return nil
 }
 

@@ -1,0 +1,6 @@
+variables:
+  API_VERSION: "2026.05"
+  IMAGE_NAME: "ghcr.io/acme/service-api:stable"
+  DEPLOY_TARGET: "production"
+secrets:
+  DEPLOY_TOKEN:

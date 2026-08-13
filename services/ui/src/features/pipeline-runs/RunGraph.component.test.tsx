@@ -145,7 +145,32 @@ test('embedded presentation renders the graph canvas without nested graph chrome
   expect(screen.getByRole('region', { name: 'Pipeline graph' })).toHaveAttribute('data-presentation', 'embedded');
   expect(screen.queryByText('Execution Graph')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Search graph nodes')).toBeVisible();
+  expect(screen.getByLabelText('Filter graph by status')).toBeVisible();
   expect(screen.getByRole('button', { name: /Reveal build step/ })).toBeVisible();
+});
+
+test('pipeline definition graphs hide the step status filter but keep node search', () => {
+  render(
+    <StepsGraph
+      steps={graphSteps}
+      selectedStep={null}
+      onSelectStep={() => undefined}
+      childRuns={[]}
+      hideStatusLegend
+      hideStatusFilter
+      ariaLabel="Pipeline graph"
+      presentation="embedded"
+      pipelineDefinition={{
+        steps: [
+          { name: 'build', tasks: [{ name: 'compile' }] },
+          { name: 'deploy', tasks: [{ name: 'publish' }] },
+        ],
+      }}
+    />
+  );
+
+  expect(screen.queryByLabelText('Filter graph by status')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Search graph nodes')).toBeVisible();
 });
 
 test('auto-reveals a selected step and supports graph zoom and pan controls', async () => {

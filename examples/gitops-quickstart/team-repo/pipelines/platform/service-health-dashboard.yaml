@@ -1,0 +1,29 @@
+name: service-health-dashboard
+version: "1.0.0"
+description: Publish service health evidence to the platform dashboard.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 10m
+output:
+  items:
+    # A dashboard final output writes into dashboards/platform/service-health.yaml.
+    - name: Service health
+      type: dashboard
+      when: success
+      dashboard:
+        ref: platform/service-health
+        section: service-health
+        entry_key: service-health
+        mode: replace
+        preset: auto
+        ttl: 24h
+      prompt: |
+        Publish the service health evidence to the dashboard. Show request and
+        error counts, p95 latency against the target, and the most important
+        follow-up. Choose the clearest structure for this evidence.
+steps:
+  - name: collect-evidence
+    script: |
+      #!/bin/sh
+      set -e
+      echo 'dashboard_evidence={"service":"service-api","window":"last_15m","status":"success","requests_total":1250,"errors":10,"p95_latency_ms":182,"slo_p95_latency_ms":250,"follow_up":"Watch the error rate during the next deploy window."}'

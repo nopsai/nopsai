@@ -1,0 +1,8 @@
+name: notify
+image: alpine:3.20
+variables:
+  NOTIFY_CHANNEL: platform-releases
+script: |
+  #!/bin/sh
+  set -e
+  echo "Notifying $NOTIFY_CHANNEL that the run finished."

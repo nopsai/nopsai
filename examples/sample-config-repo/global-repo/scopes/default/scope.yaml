@@ -1,4 +1,0 @@
-variables:
-  GLOBAL_REGION: "eu-west-1"
-secrets:
-  GLOBAL_DEPLOY_TOKEN:

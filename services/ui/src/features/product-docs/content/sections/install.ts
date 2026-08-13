@@ -160,6 +160,7 @@ export const installSection: WikiSection = {
         '`topology.dispatcherGRPCAddress` defaults to `dispatcher:9090` and is injected into API and runner pods.',
         'Cross-namespace runners normally need `dispatcher.<platform-namespace>.svc.cluster.local:9090`.',
         'Private registries work through explicit `imagePullSecrets`.',
+        'The chart version is the only version to change: NopsAI image tags resolve from `global.releaseVersion`, and an empty value falls back to the chart `appVersion`. Per-image `tag` and `digest` values stay available as intentional overrides.',
       ],
       details: [
         'Keeping step pods on a no-RBAC service account is what stops workload code from calling the Kubernetes API. Do not merge the two accounts to simplify a chart values file.',

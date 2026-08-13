@@ -1,0 +1,41 @@
+name: release-notes
+version: "1.0.0"
+description: Use an LLM goal task with team knowledge to draft release notes.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 15m
+llm_enabled: true
+# Profiles are registered in the global repo under setting/system.
+llm_profile: standard
+agent_profile: release-manager
+# Knowledge Context documents ground the model in team rules.
+knowledge_context:
+  - kind: architecture
+    ref: platform/service-architecture
+    required: true
+  - kind: guardrail
+    ref: platform/release-safety
+    required: true
+output:
+  items:
+    - name: Release notes
+      type: markdown
+      when: success
+      prompt: |
+        Write release notes for this run. Include what changed, the risk level,
+        and the rollback action if the release misbehaves.
+steps:
+  - name: collect-changes
+    script: |
+      #!/bin/sh
+      set -e
+      echo "change: add retry to checkout API"
+      echo "change: raise request timeout to 30s"
+
+  # A goal step describes the outcome and lets the agent decide the commands.
+  - name: summarize-changes
+    goal: |
+      Read the collected change lines from the previous step and group them into
+      user-facing improvements and internal changes.
+    depends_on:
+      - collect-changes

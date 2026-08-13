@@ -440,6 +440,7 @@ export function PipelineDetailView({
                       stepStatusColorOverride="#14b8a6"
                       taskStatusColorOverride="#38bdf8"
                       hideStatusLegend
+                      hideStatusFilter
                       ariaLabel="Pipeline graph"
                       presentation="embedded"
                     />

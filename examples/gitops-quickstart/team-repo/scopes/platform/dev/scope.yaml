@@ -1,0 +1,8 @@
+# Values injected into runs that select the dev scope.
+variables:
+  API_VERSION: "2026.05-dev"
+  IMAGE_NAME: "ghcr.io/acme/service-api:dev"
+  DEPLOY_TARGET: "development"
+secrets:
+  # Declared here, resolved from the credential store; no values in Git.
+  DEPLOY_TOKEN:

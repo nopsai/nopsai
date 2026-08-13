@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "v1",
+  "target": "kubernetes",
+  "version": "0.22.1",
+  "cliVersion": "0.22.0",
+  "releaseName": "nopsai",
+  "namespace": "nopsai",
+  "chartReference": "oci://ghcr.io/nopsai/charts/nopsai",
+  "chartVersion": "0.22.1",
+  "images": {
+    "aaa": "ghcr.io/nopsai/nopsai-aaa:0.22.1",
+    "agent": "ghcr.io/nopsai/nopsai-agent:0.22.1",
+    "api": "ghcr.io/nopsai/nopsai-api:0.22.1",
+    "dispatcher": "ghcr.io/nopsai/nopsai-dispatcher:0.22.1",
+    "gitBot": "ghcr.io/nopsai/nopsai-git-bot:0.22.1",
+    "k8sRunner": "ghcr.io/nopsai/nopsai-k8s-runner:0.22.1",
+    "runner": "ghcr.io/nopsai/nopsai-docker-runner:0.22.1",
+    "ui": "ghcr.io/nopsai/nopsai-ui:0.22.1"
+  },
+  "valuesFiles": [
+    "/var/folders/dc/xz_bt3h95y9fm767k4_fx9000000gn/T/TestKubernetesUpgradeRecordsDeployedVersionInValues4260928113/001/values.yaml"
+  ],
+  "valuesHash": "sha256:1a7abff53ce2b0ac016716cbc1547d486a0bab582fbb3763d3e809295e4d60f0",
+  "deployedAt": "2026-07-21T12:00:00Z"
+}

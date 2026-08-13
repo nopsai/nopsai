@@ -1,0 +1,9 @@
+name: nightly-service-health
+description: Refresh the service health dashboard every night.
+pipeline: service-health-dashboard
+schedule_kind: cron
+cron_expression: "0 2 * * *"
+timezone: UTC
+enabled: true
+scope: prod
+run_team_path: platform

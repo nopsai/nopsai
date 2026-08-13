@@ -482,7 +482,7 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 		},
 	}
 
-	if err := app.applySystemSettingsGitOpsPlans(context.Background(), models.ConfigRepository{ID: 17}, plan, githubPlan, "commit-a"); err != nil {
+	if err := app.applySystemSettingsGitOpsPlans(context.Background(), models.ConfigRepository{ID: 17}, systemSettingsGitOpsPlans{runtime: plan, github: githubPlan}, "commit-a"); err != nil {
 		t.Fatalf("applySystemSettingsGitOpsPlans() error = %v", err)
 	}
 

@@ -40,8 +40,7 @@ Existing focused docs:
 - [git-webhook-sources.md](./git-webhook-sources.md): GitLab, Bitbucket, Gitea, and generic source configuration, security, GitOps, payload normalization, path filters, and operations.
 - [git-apps.md](./git-apps.md): GitHub App multi-installation management, GitOps schema, git-bot routing, AAA, monitoring, and MCP boundaries.
 - [../examples/sso/README.md](../examples/sso/README.md): Runnable SSO example fixtures for local Keycloak and multi-provider IdP scenario testing.
-- [../examples/sample-config-repo/README.md](../examples/sample-config-repo/README.md): Full GitOps sample config repository layout.
-- [../examples/sample-pipeline/README.md](../examples/sample-pipeline/README.md): Standalone pipeline and trigger YAML examples.
+- [../examples/gitops-quickstart/README.md](../examples/gitops-quickstart/README.md): The GitOps sample with a global config repository, a team config repository, and one pipeline per feature area.
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.
 - [mcp-pipeline-integration.md](./mcp-pipeline-integration.md): MCP integration details.
 - [mcp-feature-coverage.md](./mcp-feature-coverage.md): Hosted MCP feature coverage, user-scoped permissions, and enterprise automation boundaries.

@@ -10,16 +10,19 @@ vi.mock('../pipeline-runs/RunGraph', () => ({
     onSelectStep,
     presentation,
     ariaLabel,
+    hideStatusFilter,
   }: {
     steps: Array<{ name: string }>;
     onSelectStep: (step: string | null) => void;
     presentation?: string;
     ariaLabel?: string;
+    hideStatusFilter?: boolean;
   }) => (
     <button
       type="button"
       data-aria-label={ariaLabel}
       data-presentation={presentation}
+      data-hide-status-filter={hideStatusFilter ? 'true' : 'false'}
       onClick={() => onSelectStep(steps[0]?.name || null)}
     >
       Graph with {steps.length} steps
@@ -147,6 +150,7 @@ test('keeps pipeline detail actions and tab callbacks wired after redesign', asy
   expect(screen.queryByLabelText('Pipeline summary')).not.toBeInTheDocument();
   expect(screen.getByText('Graph with 2 steps')).toHaveAttribute('data-presentation', 'embedded');
   expect(screen.getByText('Graph with 2 steps')).toHaveAttribute('data-aria-label', 'Pipeline graph');
+  expect(screen.getByText('Graph with 2 steps')).toHaveAttribute('data-hide-status-filter', 'true');
 
   await user.click(screen.getByRole('tab', { name: 'Definition' }));
   await user.click(screen.getByLabelText('Copy identifier platform/release'));

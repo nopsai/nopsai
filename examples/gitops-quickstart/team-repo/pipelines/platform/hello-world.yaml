@@ -1,0 +1,12 @@
+name: hello-world
+version: "1.0.0"
+description: Smallest possible pipeline. Start here to confirm a runner works.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 5m
+steps:
+  - name: greet
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Hello from NopsAI"

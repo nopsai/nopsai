@@ -1,0 +1,10 @@
+# SMTP settings for notification mail. The password is a credential reference,
+# never a literal secret.
+enabled: true
+from: nopsai@example.com
+smtp:
+  host: smtp.example.com
+  port: 587
+  start_tls: true
+  username: nopsai@example.com
+  password_credential_ref: credential://system/mail/smtp-primary
