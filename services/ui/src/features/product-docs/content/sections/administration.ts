@@ -147,7 +147,8 @@ export const administrationSection: WikiSection = {
       keywords: ['gitops', 'config repository', 'sync', 'drift', 'desired state', 'override'],
       keyFacts: [
         'GitOps can manage `pipelines/`, `steps/`, `schedules/`, `triggers/`, `external-triggers/`, `git-webhook-sources/`, `dashboards/`, `scopes/`, `knowledge/`, `access/`, `config-repositories/`, `setting/git-apps/`, and `setting/system/`.',
-        'Canonical system files: `credentials.yaml`, `runner.yaml`, `auth.yaml`, `mail.yaml`, `data-management.yaml`, `llm_profile.yaml`, `mcp.yaml`, `agent-profiles.yaml`, plus `setting/git-apps/github.yaml`.',
+        'Canonical system files: `credentials.yaml`, `runner.yaml`, `assistant.yaml`, `auth.yaml`, `mail.yaml`, `data-management.yaml`, `llm_profile.yaml`, `mcp.yaml`, `agent-profiles.yaml`, plus `setting/git-apps/github.yaml`.',
+        '`setting/system/assistant.yaml` owns the assistant block. Sync fails with a migration error when `assistant:` is still in `setting/system/runner.yaml`.',
         'UI or API edits to GitOps-managed resources create database overrides. The next sync can replace or recreate them unless the change is pushed back.',
         'Sync applies dependency roots first: team hierarchy from `config-repositories/`, then team-owned dashboards and notification routes, then pipeline dashboard outputs.',
         'Long-running syncs can be canceled. If no worker is registered but the row is still `running`, cancellation marks it `canceled` so operators can retry without editing the database.',
@@ -170,6 +171,7 @@ export const administrationSection: WikiSection = {
             'setting/git-apps/github.yaml',
             'setting/system/credentials.yaml',
             'setting/system/runner.yaml',
+            'setting/system/assistant.yaml',
             'setting/system/auth.yaml',
             'setting/system/mail.yaml',
             'setting/system/data-management.yaml',
@@ -181,7 +183,7 @@ export const administrationSection: WikiSection = {
       ],
       related: ['teams-and-ownership', 'credentials', 'schedules', 'dashboards'],
       sources: [
-        { repositoryPath: 'examples/sample-config-repo/README.md', purpose: 'Full GitOps sample repository layout.' },
+        { repositoryPath: 'examples/gitops-quickstart/README.md', purpose: 'GitOps sample repository layout.' },
         { repositoryPath: 'services/nopsai/config_sync_apply.go', purpose: 'Apply order and upsert behavior.' },
       ],
     },

@@ -1,4 +1,0 @@
-basic_roles:
-  - user: bob
-    role: developer
-    resource_type: team

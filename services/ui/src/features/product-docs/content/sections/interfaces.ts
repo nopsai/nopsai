@@ -69,9 +69,10 @@ export const interfacesSection: WikiSection = {
       keyFacts: [
         'The CLI drives the same authenticated REST API as the UI. It has no private path.',
         'Contexts hold the API URL and credentials so one binary can target several installations.',
-        'The interactive console exposes API catalog calls, raw API requests, route listing and descriptions, context management, token login and logout, install generation, platform doctor, platform release, completion generation, guide topics, help, and exit.',
+        'The interactive console exposes API catalog calls, raw API requests, route listing and descriptions, context management, token login and logout, install generation, platform doctor, platform release, platform upgrade, completion generation, guide topics, help, and exit.',
         '`nopsai install docker-compose` and `nopsai install kubernetes` generate version-pinned install files.',
         '`nopsai update --version <x.y.z>` downloads the exact OCI archive and `SHA256SUMS`, verifies the checksum, then replaces the local binary.',
+        '`nopsai platform upgrade docker-compose|kubernetes --version <x.y.z>` upgrades an installed platform. It keeps the secrets install generated, is forward-only, and prints the verified release changelog with the required actions before applying.',
         'Interactive actions show the equivalent `nopsai ...` command as a final preview before anything is sent or changed.',
       ],
       details: [
@@ -95,6 +96,16 @@ export const interfacesSection: WikiSection = {
           language: 'bash',
           code: 'nopsai install docker-compose --version 1.4.2',
           expectedOutput: 'Generated Compose files and locks with exact versions rather than floating tags.',
+        },
+        {
+          title: 'Review and apply a platform upgrade',
+          language: 'bash',
+          code: [
+            'nopsai update --version 1.5.0',
+            'nopsai platform upgrade docker-compose --version 1.5.0 --plan',
+            'nopsai platform upgrade docker-compose --version 1.5.0 --run',
+          ].join('\n'),
+          expectedOutput: 'The plan prints the changelog and required actions; a series upgrade needs --accept-series-upgrade before it applies.',
         },
       ],
       related: ['api', 'release-integrity', 'deployment-models'],

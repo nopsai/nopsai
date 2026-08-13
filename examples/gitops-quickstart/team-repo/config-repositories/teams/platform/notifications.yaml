@@ -1,0 +1,30 @@
+# Where run notifications for this team are delivered.
+enabled: true
+routes:
+  - name: failed runs
+    enabled: true
+    recipients:
+      include:
+        teams:
+          - same_team
+    events:
+      failure: true
+      approval_requested: true
+      approval_rejected: true
+      cancelled: true
+      success: false
+      pending: false
+      running: false
+      waiting_approval: false
+      approval_approved: false
+      skipped: false
+    filters:
+      pipelines:
+        include:
+          - platform/*
+    delivery:
+      channels:
+        - mail
+      throttle:
+        dedupe_window: 10m
+        max_per_run: 5

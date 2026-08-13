@@ -1,0 +1,23 @@
+# Nopsai AI Assistant settings. This file owns the assistant block only;
+# runner and dispatcher settings stay in setting/system/runner.yaml.
+
+assistant:
+  enabled: true
+  provider: gemini
+  model: gemini-2.5-pro
+  credential_ref: credential://system/assistant/api-key
+  timeout: 60s
+  conversation_retention_days: 30
+  docs_enabled: true
+  memory:
+    enabled: true
+    scope: conversation
+  features:
+    docs: true
+    pipeline_debugging: true
+    config_generation: true
+    statistics_insights: true
+    # Keep action execution off until an operator reviews assistant actions.
+    action_execution: false
+  actions:
+    require_confirmation: true

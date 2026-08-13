@@ -261,7 +261,7 @@ CLI reference pages must cover both automation commands and the interactive
 operator console. The interactive console currently exposes API catalog calls,
 raw API requests, route listing, route descriptions, context management,
 token login/logout, install generation, platform doctor, platform release,
-completion generation, guide topics, help, and exit. Keep the in-app wiki,
+platform upgrade, completion generation, guide topics, help, and exit. Keep the in-app wiki,
 `doc/cli.md`, and `internal/cli/command/interactive_*.go` aligned when this
 surface changes. Repository-owned platform release automation lives in
 `.nopsai/nopsai-platform-release.yaml`; keep release pipeline docs and tests on
@@ -289,6 +289,28 @@ CLIs support `nopsai update --version <major.minor.patch>`; the updater
 downloads the exact OCI package archive and `SHA256SUMS`, verifies the checksum,
 then replaces the local binary. Enterprise mirrors can override the package,
 repository, or asset base URL without changing the archive naming contract.
+
+The Helm chart keeps the platform version in one place: NopsAI image tags
+resolve from `global.releaseVersion`, and an empty value falls back to the chart
+`appVersion` that release packaging stamps, so deploying a chart version moves
+every NopsAI image without per-image tag edits. Per-image `tag` and `digest`
+values remain intentional overrides, and third-party images such as PostgreSQL
+and Gotenberg keep explicit tags. CLI deploys also pass
+`--set-string global.releaseVersion=<version>` so a stale pin in a values file
+cannot hold images behind the deployed chart.
+
+`nopsai update` moves the CLI; `nopsai platform upgrade` moves an installed
+platform. The upgrade reads the install or deployment lock written by
+`nopsai install`, keeps every secret that install generated, rewrites only the
+version and image pins for Docker Compose, and reuses the recorded Helm release,
+namespace, chart, and values files for Kubernetes. Upgrades are forward-only and
+refuse a platform version outside the range the running CLI supports, so the CLI
+is always updated first. The plan prints the checksum-verified
+`nopsai-changelog-<version>.md` asset and a required-action checklist; an upgrade
+that crosses a compatibility series (the major number, or the minor number below
+`1.0.0`) prints the full changelog, turns the changelog `Breaking` entries into
+required actions, and refuses to apply until it is re-run with
+`--accept-series-upgrade`.
 
 The live terminal layout uses centered Contextual Zen screens
 with fixed home-style header/footer chrome, breadcrumb text above nested menus,
@@ -943,12 +965,19 @@ Canonical system files include:
 - `setting/system/credentials.yaml`
 - `setting/git-apps/github.yaml`
 - `setting/system/runner.yaml`
+- `setting/system/assistant.yaml`
 - `setting/system/auth.yaml`
 - `setting/system/mail.yaml`
 - `setting/system/data-management.yaml`
 - `setting/system/llm_profile.yaml`
 - `setting/system/mcp.yaml`
 - `setting/system/agent-profiles.yaml`
+
+`setting/system/assistant.yaml` owns the Nopsai AI Assistant block. Runner
+settings and assistant settings are separate files so runtime operations and
+assistant enablement can be reviewed independently; a sync fails with a
+migration error when `assistant:` is still present in
+`setting/system/runner.yaml`.
 
 `setting/git-apps/github.yaml` is app-scoped. It contains the GitHub App ID,
 credential references, and one or more installations. Internal service URLs such

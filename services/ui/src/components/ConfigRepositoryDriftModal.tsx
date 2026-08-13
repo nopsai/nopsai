@@ -54,7 +54,7 @@ function DriftCodePane({
   paneRef?: Ref<HTMLDivElement>;
   onScroll?: (event: UIEvent<HTMLDivElement>) => void;
 }) {
-  const scrollClassName = 'h-[52vh] min-h-[360px] max-h-[620px] overflow-auto';
+  const scrollClassName = 'h-[46vh] min-h-[220px] overflow-auto lg:h-auto lg:max-h-none lg:min-h-0 lg:flex-1';
   if (lines.length === 0) {
     return (
       <div ref={paneRef} onScroll={onScroll} className={`${scrollClassName} p-3 font-mono text-xs text-[var(--text-secondary)]`}>
@@ -167,8 +167,8 @@ export function ConfigRepositoryDriftModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
-          <div className="flex flex-wrap gap-2 text-xs">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5 lg:overflow-hidden">
+          <div className="flex shrink-0 flex-wrap gap-2 text-xs">
             {(['added', 'modified', 'deleted', 'unchanged'] as const).map(status => (
               <span key={status} className={`rounded-full border px-2 py-1 font-medium ${statusTone(status)}`}>
                 {status}: {summary[status] ?? 0}
@@ -212,12 +212,12 @@ export function ConfigRepositoryDriftModal({
           )}
 
           {changedItems.length > 0 && (
-            <div className="grid min-h-[520px] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.7fr)]">
-              <div className="overflow-hidden rounded-lg border border-[var(--border-primary)]">
-                <div className="border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+            <div className="grid min-h-[520px] grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.7fr)]">
+              <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--border-primary)]">
+                <div className="shrink-0 border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                   Files
                 </div>
-                <div className="max-h-[700px] overflow-y-auto">
+                <div className="max-h-[320px] min-h-0 overflow-y-auto lg:max-h-none lg:flex-1">
                   {changedItems.map(item => (
                     <button
                       key={item.path}
@@ -233,8 +233,8 @@ export function ConfigRepositoryDriftModal({
               </div>
 
               {selected && (
-                <div className="min-w-0 rounded-lg border border-[var(--border-primary)]">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-primary)] px-3 py-2">
+                <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-[var(--border-primary)]">
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-primary)] px-3 py-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[var(--text-primary)]" title={selected.path}>{selected.path}</p>
                       <p className="text-xs text-[var(--text-secondary)]">
@@ -244,9 +244,9 @@ export function ConfigRepositoryDriftModal({
                     </div>
                     <span className={`rounded-full border px-2 py-1 text-xs font-medium ${statusTone(selected.status)}`}>{selected.status}</span>
                   </div>
-                  <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
-                    <div className="min-w-0 border-b border-[var(--border-primary)] lg:border-b-0 lg:border-r">
-                      <div className="border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                  <div className="grid min-h-0 grid-cols-1 gap-0 lg:flex-1 lg:grid-cols-2">
+                    <div className="flex min-h-0 min-w-0 flex-col border-b border-[var(--border-primary)] lg:border-b-0 lg:border-r">
+                      <div className="shrink-0 border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                         Git
                       </div>
                       <DriftCodePane
@@ -257,8 +257,8 @@ export function ConfigRepositoryDriftModal({
                         onScroll={syncGitToNopsai}
                       />
                     </div>
-                    <div className="min-w-0">
-                      <div className="border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    <div className="flex min-h-0 min-w-0 flex-col">
+                      <div className="shrink-0 border-b border-[var(--border-primary)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                         Nopsai
                       </div>
                       <DriftCodePane

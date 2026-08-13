@@ -1,0 +1,11 @@
+# Scheduled cleanup of runtime history.
+cleanup_schedules:
+  - name: Weekly run retention
+    description: Keep the most recent terminal runs and back up before deleting.
+    enabled: true
+    target: runs
+    mode: keep_last
+    keep_last: 30
+    backup_before_cleanup: true
+    cron_expression: "0 2 * * 0"
+    timezone: UTC

@@ -1,8 +1,0 @@
-variables:
-  API_VERSION: "2026.05-dev"
-  DEPLOY_TARGET: "development"
-  RELEASE_CHANNEL: "canary"
-  nopsai/test-app/TEST_SCOPE: "ghcr.io/team-1/service-api:dev"
-secrets:
-  GEMINI_API_KEY:
-  nopsai/test-app/DEPLOY_TOKEN:

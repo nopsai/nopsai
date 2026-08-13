@@ -75,7 +75,7 @@ Supported pipeline features:
 
 Example coverage:
 
-- `examples/sample-pipeline/5-pipeline.yaml` demonstrates LLM goals, scripts, secret usage, volumes, conditions, child pipelines, reusable-step inclusion, and knowledge context.
+- `examples/gitops-quickstart/team-repo/pipelines/platform/` demonstrates a minimal pipeline, variables with reusable steps, scope secrets with a human approval, an LLM goal task with Knowledge Context, and a dashboard final output.
 
 Final output example:
 
@@ -389,7 +389,8 @@ GitOps-style configuration sync supports:
 - `setting/system/agent-profiles.yaml` -> system Agent Profile persona registry and default profile setting from a global config repo
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
 - `setting/git-apps/github.yaml` -> GitHub App IDs, credential references, and installation records from a global config repo
-- `setting/system/runner.yaml` -> runner install defaults, runtime defaults, dispatcher routing, and assistant settings from a global config repo
+- `setting/system/runner.yaml` -> runner install defaults, runtime defaults, and dispatcher routing from a global config repo
+- `setting/system/assistant.yaml` -> Nopsai AI Assistant provider, model, credential reference, feature flags, and memory settings from a global config repo
 - `setting/system/data-management.yaml` -> scheduled data cleanup definitions from a global config repo
 - `setting/system/credentials.yaml` -> encrypted system credential envelopes from a global config repo
 
@@ -408,7 +409,7 @@ The context is metadata-only and does not scrape rendered page text, logs,
 secrets, credentials, or arbitrary query parameters.
 
 Assistant model configuration is separate from pipeline execution profiles.
-When `assistant.provider` is set in `setting/system/runner.yaml`, the UI shows a
+When `assistant.provider` is set in `setting/system/assistant.yaml`, the UI shows a
 dedicated `assistant` picker profile backed by that provider/model/credential.
 If no assistant provider is configured, the assistant remains backward
 compatible with existing LLM profiles. `GET /v1/assistant/config` exposes only

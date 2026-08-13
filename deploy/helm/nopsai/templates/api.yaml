@@ -64,7 +64,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/release: {{ printf "%s:%s" .Values.global.releaseVersion .Values.global.sourceCommit | sha256sum }}
+        checksum/release: {{ printf "%s:%s" (include "nopsai.releaseVersion" .) .Values.global.sourceCommit | sha256sum }}
         {{- with .Values.global.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -81,7 +81,7 @@ spec:
       serviceAccountName: {{ include "nopsai.apiServiceAccountName" . }}
       containers:
         - name: api
-          image: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.api.image "defaultTag" .Values.global.releaseVersion) | quote }}
+          image: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.api.image "defaultTag" (include "nopsai.releaseVersion" .)) | quote }}
           imagePullPolicy: {{ .Values.api.imagePullPolicy }}
           ports:
             - name: http
@@ -110,7 +110,7 @@ spec:
             - {name: SYSTEM_LOGS_KUBERNETES_CONTAINER, value: {{ . | quote }}}
             {{- end }}
             {{- end }}
-            - {name: AGENT_IMAGE, value: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.agent.image "defaultTag" .Values.global.releaseVersion) | quote }}}
+            - {name: AGENT_IMAGE, value: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.agent.image "defaultTag" (include "nopsai.releaseVersion" .)) | quote }}}
             {{- if .Values.gotenberg.enabled }}
             - {name: FINAL_OUTPUT_PDF_RENDERER_URL, value: {{ include "nopsai.topology.gotenbergURL" . | quote }}}
             {{- end }}

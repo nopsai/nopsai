@@ -126,4 +126,46 @@ describe('ConfigRepositoryDriftModal', () => {
     expect(gitPane.scrollTop).toBe(80);
     expect(gitPane.scrollLeft).toBe(12);
   });
+
+  it('keeps the file list and diff panes inside their own scroll areas', () => {
+    render(
+      <ConfigRepositoryDriftModal
+        title="Platform config"
+        drift={{
+          can_push: true,
+          base_branch: 'main',
+          push_branch: 'nopsai/ui-changes',
+          summary: { added: 0, modified: 2, deleted: 0, unchanged: 0 },
+          items: Array.from({ length: 24 }, (_, index) => ({
+            path: `pipelines/pipeline-${index}.yaml`,
+            status: 'modified' as const,
+            git_content: Array.from({ length: 200 }, (_, line) => `key_${line}: git`).join('\n'),
+            desired_content: Array.from({ length: 200 }, (_, line) => `key_${line}: nopsai`).join('\n'),
+          })),
+        }}
+        loading={false}
+        error={null}
+        pushing={false}
+        pushResult={null}
+        canPush
+        onClose={vi.fn()}
+        onRefresh={vi.fn(async () => undefined)}
+        onPush={vi.fn(async () => undefined)}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Platform config' });
+    const body = dialog.querySelector('.lg\\:overflow-hidden');
+    expect(body).not.toBeNull();
+
+    const fileList = screen.getAllByRole('button', { name: /pipelines\/pipeline-0\.yaml/ })[0].parentElement;
+    expect(fileList?.className).toContain('overflow-y-auto');
+    expect(fileList?.className).toContain('lg:flex-1');
+
+    for (const label of ['Git highlighted drift', 'Nopsai highlighted drift']) {
+      const pane = screen.getByLabelText(label);
+      expect(pane.className).toContain('overflow-auto');
+      expect(pane.className).toContain('lg:flex-1');
+    }
+  });
 });

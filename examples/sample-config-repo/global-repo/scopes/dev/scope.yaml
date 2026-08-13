@@ -1,6 +1,0 @@
-variables:
-  PLATFORM_SCOPE: "development"
-  nopsai/test-app/TEST_SCOPE: "ghcr.io/acme/service-api:dev"
-secrets:
-  GEMINI_API_KEY:
-  nopsai/test-app/DEPLOY_TOKEN:

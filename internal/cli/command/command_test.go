@@ -3,6 +3,8 @@ package command
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1383,4 +1385,53 @@ func executeCommand(dependencies Dependencies, args ...string) (string, error) {
 	command.SetArgs(args)
 	err := command.Execute()
 	return output.String(), err
+}
+
+func TestPlatformUpgradePlanShowsChangelogAndBlocksSeriesUpgrade(t *testing.T) {
+	outputDir := filepath.Join(t.TempDir(), "install")
+	installDependencies := testDependencies(nil, nil)
+	installDependencies.BuildInfo = commandBuildInfo(commandTestVersion)
+	if _, err := executeCommand(installDependencies,
+		"install", "docker-compose", "--version", commandTestVersion, "--output-dir", outputDir,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	targetVersion := commandVersionWithPatchOffset(commandTestVersion, 1)
+	changelog := "# NopsAI " + targetVersion + "\n\n## Breaking\n\n- move assistant settings out of runner.yaml (`abc123`)\n"
+	assetServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "SHA256SUMS"):
+			digest := sha256.Sum256([]byte(changelog))
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(digest[:]), cliplatform.ChangelogAssetName(targetVersion))
+		case strings.HasSuffix(r.URL.Path, cliplatform.ChangelogAssetName(targetVersion)):
+			fmt.Fprint(w, changelog)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer assetServer.Close()
+
+	dependencies := testDependencies(assetServer.Client(), map[string]string{"NOPSAI_CHANGELOG_BASE_URL": assetServer.URL})
+	dependencies.BuildInfo = commandBuildInfo(commandTestVersion)
+	output, err := executeCommand(dependencies,
+		"platform", "upgrade", "docker-compose", "--version", targetVersion, "--output-dir", outputDir, "--plan",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Planned NopsAI docker-compose upgrade from " + commandTestVersion + " to " + targetVersion,
+		"Breaking change: move assistant settings out of runner.yaml",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("upgrade plan output = %q, missing %q", output, want)
+		}
+	}
+
+	if _, err := executeCommand(dependencies,
+		"platform", "upgrade", "docker-compose", "--version", commandTestVersion, "--output-dir", outputDir,
+	); err == nil || !strings.Contains(err.Error(), "not newer than the installed version") {
+		t.Fatalf("downgrade error = %v, want a forward-only upgrade error", err)
+	}
 }

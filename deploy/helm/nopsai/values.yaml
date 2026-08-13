@@ -1,5 +1,8 @@
 global:
-  releaseVersion: dev
+  # Tag used for every NopsAI image whose per-image tag is empty. Leave it empty
+  # to inherit the chart appVersion, which release packaging stamps with the
+  # release version, so moving the chart version moves every NopsAI image.
+  releaseVersion: ""
   sourceCommit: unknown
   platformID: ""
   environment: production

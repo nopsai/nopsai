@@ -1,0 +1,14 @@
+# Declares the platform team and binds it to its own config repository.
+# Everything under the platform/ path is owned by that repository after sync.
+description: Platform team workspace
+config:
+  provider: github
+  repo_url: https://github.com/acme/nopsai-config-platform.git
+  branch: main
+  base_path: ""
+  enabled: true
+  write_enabled: true
+  write_branch: nopsai/platform-ui
+apps:
+  - name: service-api
+    repo_url: https://github.com/acme/service-api

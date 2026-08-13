@@ -5,8 +5,7 @@ This directory contains runnable or copyable examples. Keep examples here so
 
 | Path | Purpose |
 | --- | --- |
-| `sample-config-repo/` | Full GitOps sample with global and team config repositories, pipelines, scopes, triggers, dashboards, access grants, identity-provider settings, MCP, mail, runner, and credential-reference examples. |
-| `sample-pipeline/` | Standalone pipeline and trigger YAML examples for testing pipeline schema features without adopting the full GitOps sample repository. |
+| `gitops-quickstart/` | The single GitOps sample: a global config repository and one team config repository covering settings, access, knowledge, pipelines, reusable steps, scopes, schedules, triggers, notifications, and a dashboard. |
 | `sso/` | Local Keycloak and multi-provider IdP fixtures for SSO integration testing. |
 
 ## Ownership Boundary

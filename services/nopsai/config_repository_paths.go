@@ -17,6 +17,7 @@ const (
 	configRepositoryLLMProfilesPath           = "setting/system/llm_profile.yaml"
 	configRepositoryAgentProfilesPath         = "setting/system/agent-profiles.yaml"
 	configRepositoryMCPRegistryPath           = "setting/system/mcp.yaml"
+	configRepositoryAssistantSettingsPath     = "setting/" + assistantSettingsGitOpsPath
 	configRepositoryMailSettingsPath          = "setting/system/mail.yaml"
 	configRepositoryDataManagementPath        = "setting/system/data-management.yaml"
 	configRepositoryCredentialsPath           = "setting/system/credentials.yaml"
@@ -96,6 +97,7 @@ func isConfigRepositorySettingsDriftPath(rel string) bool {
 	return isGitOpsAuthSettingsRelativePath(rel) ||
 		isGitOpsRuntimeSettingsRelativePath(rel) ||
 		isGitOpsGitHubSettingsRelativePath(rel) ||
+		isGitOpsAssistantSettingsRelativePath(rel) ||
 		isGitOpsMailSettingsRelativePath(rel) ||
 		isGitOpsDataManagementRelativePath(rel) ||
 		isGitOpsCredentialsRelativePath(rel) ||

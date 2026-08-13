@@ -1,0 +1,8 @@
+# Local login stays enabled so operators keep a break-glass path while SSO is
+# configured.
+local_enabled: true
+
+oidc:
+  enabled: false
+  auto_create_users: true
+  providers: {}

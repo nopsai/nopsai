@@ -497,6 +497,9 @@ func (i Installer) DeployKubernetesValues(ctx context.Context, options Kubernete
 	for _, valuesFile := range options.ValuesFiles {
 		args = append(args, "--values", valuesFile)
 	}
+	// The deployed chart version and the NopsAI image tags must never diverge, so
+	// the requested version always wins over a release version pinned in values.
+	args = append(args, "--set-string", "global.releaseVersion="+version)
 	args = append(args, "--create-namespace")
 	if options.Wait {
 		args = append(args, "--wait")

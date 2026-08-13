@@ -4,7 +4,7 @@ app.kubernetes.io/name: nopsai
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-nopsai.io/release-version: {{ .Values.global.releaseVersion | quote }}
+nopsai.io/release-version: {{ include "nopsai.releaseVersion" . | quote }}
 nopsai.io/platform-id: {{ include "nopsai.platformID" . | quote }}
 {{- end }}
 
@@ -12,6 +12,18 @@ nopsai.io/platform-id: {{ include "nopsai.platformID" . | quote }}
 app.kubernetes.io/name: nopsai
 app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
+{{/*
+nopsai.releaseVersion resolves the one version that drives every NopsAI image
+tag. It is global.releaseVersion when set, otherwise the chart appVersion, which
+release packaging stamps with the release version. Changing the chart version is
+therefore enough to move every NopsAI image.
+*/}}
+{{- define "nopsai.releaseVersion" -}}
+{{- $global := default dict .Values.global -}}
+{{- $configured := default "" (index $global "releaseVersion") -}}
+{{- default .Chart.AppVersion $configured -}}
 {{- end }}
 
 {{- define "nopsai.platformID" -}}
@@ -40,7 +52,7 @@ nopsai
 {{ printf "%s@%s" $image.repository $image.digest }}
 {{- else -}}
 {{- $tag := default .defaultTag $image.tag -}}
-{{- $tag = required "global.releaseVersion is required when image tag is empty" $tag -}}
+{{- $tag = required "set global.releaseVersion or the chart appVersion when an image tag is empty" $tag -}}
 {{ printf "%s:%s" $image.repository $tag }}
 {{- end -}}
 {{- end }}

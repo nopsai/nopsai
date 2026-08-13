@@ -1,0 +1,5 @@
+# Team-owned role grants. The global repository owns platform-wide roles.
+basic_roles:
+  - user: bob
+    role: developer
+    resource_type: team

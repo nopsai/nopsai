@@ -185,66 +185,83 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	}
 }
 
-func TestSampleVariableFeatureExerciseValidates(t *testing.T) {
+func TestQuickstartSampleResourcesValidate(t *testing.T) {
 	repoRoot := filepath.Join("..", "..", "..", "..")
-	parentPath := filepath.Join(repoRoot, "examples", "sample-config-repo", "team-1-repo", "pipelines", "team-1", "variable-feature-exercise.yaml")
-	childPath := filepath.Join(repoRoot, "examples", "sample-config-repo", "team-1-repo", "pipelines", "team-1", "variable-feature-child.yaml")
-	reusableStepPath := filepath.Join(repoRoot, "examples", "sample-config-repo", "team-1-repo", "steps", "team-1", "shared", "variable-defaults.yaml")
+	teamRepo := filepath.Join(repoRoot, "examples", "gitops-quickstart", "team-repo")
 
-	parent := readSamplePipeline(t, parentPath)
-	if err := ValidatePipeline(&parent); err != nil {
-		t.Fatalf("ValidatePipeline(parent) error = %v", err)
+	pipelines := map[string]models.Pipeline{}
+	pipelineDir := filepath.Join(teamRepo, "pipelines", "platform")
+	entries, err := os.ReadDir(pipelineDir)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error = %v", pipelineDir, err)
 	}
-	if models.PipelineLLMEnabled(&parent) {
-		t.Fatal("variable feature exercise should keep LLM disabled")
-	}
-	requireVariables(t, parent.Variables,
-		"API_VERSION",
-		"DEPLOY_TARGET",
-		"default:GLOBAL_REGION",
-		"team-1/prod:REGISTRY",
-		"team-1/dev:RELEASE_CHANNEL",
-	)
-	parentSteps := stepsByName(parent.Steps)
-	requireDependsOn(t, parentSteps["reusable-step-variable-merge"].GetDependsOn(), "collect-runtime-values.produce")
-	requireDependsOn(t, parentSteps["child-pipeline-variable-overrides"].GetDependsOn(), "collect-runtime-values.produce", "reusable-step-variable-merge")
-	if got := parentSteps["reusable-step-variable-merge"].GetVariables()["RELEASE_MANIFEST"]; got != "$steps.collect-runtime-values.produce.outputs.release_manifest" {
-		t.Fatalf("reusable include RELEASE_MANIFEST = %q, want runtime output ref", got)
-	}
-	if got := parentSteps["child-pipeline-variable-overrides"].GetVariables()["CHILD_ACCESS_TOKEN"]; got != "$steps.collect-runtime-values.produce.outputs.access_token" {
-		t.Fatalf("child include CHILD_ACCESS_TOKEN = %q, want sensitive runtime output ref", got)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		pipeline := readSamplePipeline(t, filepath.Join(pipelineDir, entry.Name()))
+		if err := ValidatePipeline(&pipeline); err != nil {
+			t.Fatalf("ValidatePipeline(%s) error = %v", entry.Name(), err)
+		}
+		if pipeline.Name != strings.TrimSuffix(entry.Name(), ".yaml") {
+			t.Fatalf("%s pipeline name = %q, want the file name", entry.Name(), pipeline.Name)
+		}
+		if pipeline.Description == "" {
+			t.Fatalf("%s should describe what the sample demonstrates", entry.Name())
+		}
+		pipelines[pipeline.Name] = pipeline
 	}
 
-	collectTasks := parentSteps["collect-runtime-values"].GetTasks()
-	if len(collectTasks) != 2 {
-		t.Fatalf("collect-runtime-values tasks = %d, want 2", len(collectTasks))
-	}
-	requireTaskOutputs(t, collectTasks[0].Outputs, "release_manifest", "image_tag", "IMAGE_TAG", "task_target", "access_token")
-	if !taskOutputSensitive(collectTasks[0].Outputs, "access_token") {
-		t.Fatal("access_token output should be marked sensitive")
-	}
-	if got := collectTasks[0].Variables["DEPLOY_TARGET"]; got != "task-overridden-target" {
-		t.Fatalf("producer task DEPLOY_TARGET = %q, want task override", got)
-	}
-	if got := parentSteps["collect-runtime-values"].GetVariables()["DEPLOY_TARGET"]; got != "step-overridden-target" {
-		t.Fatalf("collect step DEPLOY_TARGET = %q, want step override", got)
+	for _, name := range []string{
+		"hello-world",
+		"build-and-test",
+		"deploy-service",
+		"release-notes",
+		"service-health-dashboard",
+	} {
+		if _, ok := pipelines[name]; !ok {
+			t.Fatalf("quickstart sample is missing pipeline %q", name)
+		}
 	}
 
-	child := readSamplePipeline(t, childPath)
-	if err := ValidatePipeline(&child); err != nil {
-		t.Fatalf("ValidatePipeline(child) error = %v", err)
-	}
-	requireVariables(t, child.Variables, "CHILD_RELEASE_MANIFEST", "CHILD_IMAGE_TAG", "CHILD_ACCESS_TOKEN", "CHILD_LITERAL")
+	buildSteps := stepsByName(pipelines["build-and-test"].Steps)
+	requireDependsOn(t, buildSteps["build-image"].GetDependsOn(), "test")
+	requireVariables(t, pipelines["build-and-test"].Variables, "API_VERSION", "IMAGE_NAME")
 
-	reusableStep := readSampleStep(t, reusableStepPath)
-	if got := reusableStep.GetVariables()["RETRY_COUNT"]; got != "2" {
-		t.Fatalf("reusable step RETRY_COUNT = %q, want default value", got)
+	deploySteps := stepsByName(pipelines["deploy-service"].Steps)
+	approval, ok := deploySteps["approve-deployment"].AsApprovalStep()
+	if !ok {
+		t.Fatal("deploy-service should demonstrate a human approval step")
 	}
-	if got := reusableStep.GetVariables()["REUSABLE_MODE"]; got != "default-mode" {
-		t.Fatalf("reusable step REUSABLE_MODE = %q, want default value", got)
+	if len(approval.Approval.Teams) != 1 || approval.Approval.Teams[0] != "platform" {
+		t.Fatalf("approval teams = %#v, want the platform team", approval.Approval.Teams)
 	}
-	if err := ValidateReusableStep(&reusableStep); err != nil {
-		t.Fatalf("ValidateReusableStep(variable defaults) error = %v", err)
+	requireSecrets(t, deploySteps["deploy"].GetSecrets(), "DEPLOY_TOKEN")
+
+	releaseNotes := pipelines["release-notes"]
+	if !models.PipelineLLMEnabled(&releaseNotes) {
+		t.Fatal("release-notes should demonstrate an LLM-backed goal task")
+	}
+	if len(releaseNotes.KnowledgeContext) != 2 {
+		t.Fatalf("release-notes knowledge context = %#v, want architecture and guardrail documents", releaseNotes.KnowledgeContext)
+	}
+
+	stepDir := filepath.Join(teamRepo, "steps", "platform", "shared")
+	stepEntries, err := os.ReadDir(stepDir)
+	if err != nil {
+		t.Fatalf("os.ReadDir(%q) error = %v", stepDir, err)
+	}
+	if len(stepEntries) == 0 {
+		t.Fatal("quickstart sample should ship reusable steps")
+	}
+	for _, entry := range stepEntries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		step := readSampleStep(t, filepath.Join(stepDir, entry.Name()))
+		if err := ValidateReusableStep(&step); err != nil {
+			t.Fatalf("ValidateReusableStep(%s) error = %v", entry.Name(), err)
+		}
 	}
 }
 

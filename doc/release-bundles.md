@@ -191,6 +191,14 @@ GitOps-readable release lock after success. Generated NopsAI image tags are
 blank by default so they inherit `global.releaseVersion`; use per-image tags or
 digests only for intentional overrides.
 
+The version is a single value in every path. When `global.releaseVersion` is
+empty, NopsAI image tags fall back to the chart `appVersion`, so plain
+`helm upgrade --install ... --version <release>` moves the whole platform. CLI
+deploys additionally pass `--set-string global.releaseVersion=<version>` so the
+deployed chart version and the image tags can never diverge, and
+`nopsai platform upgrade kubernetes` rewrites the pinned `global.releaseVersion`
+in the values files that record one after a successful deploy.
+
 ## Advanced Manifest Deploys
 
 `nopsai platform release kubernetes` remains available for advanced internal

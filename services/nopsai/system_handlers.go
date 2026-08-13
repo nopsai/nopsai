@@ -89,32 +89,54 @@ func applyRuntimeProcessSettings(cfg config.Config, payload systemConfigPayload)
 	}
 }
 
-func (a *App) applyRuntimeSettingsGitOpsPlan(ctx context.Context, binding models.ConfigRepository, plan *gitOpsRuntimeSettingsPlan, commitSHA string) error {
-	return a.applySystemSettingsGitOpsPlans(ctx, binding, plan, nil, commitSHA)
+// systemSettingsGitOpsPlans groups the system-scoped settings files that share
+// one runtime settings snapshot: runner runtime settings, the GitHub App file,
+// and the assistant file.
+type systemSettingsGitOpsPlans struct {
+	runtime   *gitOpsRuntimeSettingsPlan
+	github    *gitOpsGitHubSettingsPlan
+	assistant *gitOpsAssistantSettingsPlan
 }
 
-func (a *App) applySystemSettingsGitOpsPlans(ctx context.Context, binding models.ConfigRepository, runtimePlan *gitOpsRuntimeSettingsPlan, githubPlan *gitOpsGitHubSettingsPlan, commitSHA string) error {
-	sourcePaths := make([]string, 0, 2)
+func (p systemSettingsGitOpsPlans) empty() bool {
+	return p.runtime == nil && p.github == nil && p.assistant == nil
+}
+
+func (a *App) applyRuntimeSettingsGitOpsPlan(ctx context.Context, binding models.ConfigRepository, plan *gitOpsRuntimeSettingsPlan, commitSHA string) error {
+	return a.applySystemSettingsGitOpsPlans(ctx, binding, systemSettingsGitOpsPlans{runtime: plan}, commitSHA)
+}
+
+func (a *App) applySystemSettingsGitOpsPlans(ctx context.Context, binding models.ConfigRepository, plans systemSettingsGitOpsPlans, commitSHA string) error {
+	sourcePaths := make([]string, 0, 3)
 	applied := false
 	var cfg config.Config
 
-	if runtimePlan != nil {
-		next, err := a.applySystemConfig(runtimePlan.payload)
+	if plans.runtime != nil {
+		next, err := a.applySystemConfig(plans.runtime.payload)
 		if err != nil {
 			return err
 		}
 		cfg = next
-		applyRuntimeProcessSettings(cfg, runtimePlan.payload)
-		sourcePaths = append(sourcePaths, runtimePlan.sourcePath)
+		applyRuntimeProcessSettings(cfg, plans.runtime.payload)
+		sourcePaths = append(sourcePaths, plans.runtime.sourcePath)
 		applied = true
 	}
-	if githubPlan != nil {
-		next, err := a.applySystemConfig(githubPlan.payload)
+	if plans.github != nil {
+		next, err := a.applySystemConfig(plans.github.payload)
 		if err != nil {
 			return err
 		}
 		cfg = next
-		sourcePaths = append(sourcePaths, githubPlan.sourcePath)
+		sourcePaths = append(sourcePaths, plans.github.sourcePath)
+		applied = true
+	}
+	if plans.assistant != nil {
+		next, err := a.applySystemConfig(plans.assistant.payload)
+		if err != nil {
+			return err
+		}
+		cfg = next
+		sourcePaths = append(sourcePaths, plans.assistant.sourcePath)
 		applied = true
 	}
 	if !applied {
@@ -124,8 +146,8 @@ func (a *App) applySystemSettingsGitOpsPlans(ctx context.Context, binding models
 	if err := a.persistRuntimeSettingsSnapshot(ctx, cfg, "git", &configRepoID, strings.Join(sourcePaths, ", "), commitSHA, true); err != nil {
 		return err
 	}
-	if runtimePlan != nil {
-		if err := a.applyRunnerRegistryCredentialsGitOpsPlan(ctx, binding, runtimePlan, commitSHA); err != nil {
+	if plans.runtime != nil {
+		if err := a.applyRunnerRegistryCredentialsGitOpsPlan(ctx, binding, plans.runtime, commitSHA); err != nil {
 			return err
 		}
 	}
@@ -136,7 +158,14 @@ func (a *App) applyGitHubSettingsGitOpsPlan(ctx context.Context, binding models.
 	if plan == nil {
 		return nil
 	}
-	return a.applySystemSettingsGitOpsPlans(ctx, binding, nil, plan, commitSHA)
+	return a.applySystemSettingsGitOpsPlans(ctx, binding, systemSettingsGitOpsPlans{github: plan}, commitSHA)
+}
+
+func (a *App) applyAssistantSettingsGitOpsPlan(ctx context.Context, binding models.ConfigRepository, plan *gitOpsAssistantSettingsPlan, commitSHA string) error {
+	if plan == nil {
+		return nil
+	}
+	return a.applySystemSettingsGitOpsPlans(ctx, binding, systemSettingsGitOpsPlans{assistant: plan}, commitSHA)
 }
 
 func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
