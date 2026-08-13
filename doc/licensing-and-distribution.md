@@ -12,6 +12,12 @@ Agreement, evaluation agreement, partner agreement, or another written agreement
 with the rights holder. Managed deployment or operation in customer-controlled
 infrastructure is governed by a separate services schedule or statement of work.
 
+The Commercial Software Licence Agreement is drafted in
+[../legal/commercial-software-licence-agreement.md](../legal/commercial-software-licence-agreement.md),
+with the per-deal Order Form as Schedule 1 and a support-material data
+processing agreement as Schedule 2. It is a draft pending review by a Dutch
+technology lawyer and must not be sent to a customer before that review.
+
 The root `LICENSE` file is a proprietary notice. It is not a replacement for the
 customer agreement, order form, support terms, data-processing terms, or managed
 services schedule.

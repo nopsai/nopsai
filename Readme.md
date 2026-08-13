@@ -7,700 +7,256 @@
 
 # NopsAI
 
-NopsAI is a self-hosted, Git-aware automation platform for running AI-assisted
-pipelines with enterprise-grade control over configuration, access, runtime
-isolation, and auditability.
+NopsAI is a self-hosted automation control plane. You define pipelines in YAML,
+mix deterministic shell steps with LLM-backed goals and human approval gates,
+and NopsAI resolves the configuration, authorizes the caller against every
+resource the run touches, and executes the work on Docker or Kubernetes runners
+— recording the whole lifecycle.
 
-It combines a CI/CD-style execution model with LLM-native pipeline steps:
-operators define reusable pipelines, scripts, goals, scopes, secrets, access
-rules, and project knowledge; NopsAI resolves the runtime context, dispatches the
-work to Docker-backed runners, and records the full execution lifecycle in a
-central control plane.
+It is CI/CD-shaped, but the configuration, access, and AI controls are built for
+production operations: encrypted secrets, scoped variables, governed knowledge
+documents, per-run isolation, GitOps-managed definitions, and a full audit
+trail.
 
-## Why NopsAI
+Everything runs on your infrastructure. There is no NopsAI-operated service.
 
-Modern engineering teams need automation that is both flexible enough for
-LLM-assisted work and governed enough for production operations. NopsAI is built
-around that balance:
+## What a pipeline looks like
 
-- GitHub, GitLab, Bitbucket, Gitea, generic Git events, and manual UI/API runs
-  enter a centralized control plane.
-- Pipelines can mix deterministic scripts with LLM-backed goals.
-- Secrets, variables, knowledge documents, scopes, and access rules are resolved
-  before dispatch.
-- Work executes inside per-run agents and step containers on registered runners.
-- Product roles and low-level AAA policy checks protect both configuration and
-  runtime resource usage.
-- GitOps configuration lets teams keep operational definitions reviewable,
-  versioned, and reproducible.
+```yaml
+name: release-service
+container_image: alpine/git:latest
+llm_profile: standard
+steps:
+  - name: build
+    script: make build && make test
 
-## Core Capabilities
+  - name: release-notes
+    depends_on: [build]
+    goal: Read the commits since the last tag and write release notes to /workspace/NOTES.md.
 
-| Area | What NopsAI Provides |
-| --- | --- |
-| AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
-| GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
-| Generic Git webhooks | Managed GitLab, Bitbucket, Gitea, and generic sources with credential-backed authentication, repository allowlists, normalized events, changed-file filters, delivery idempotency, rate limits, and audit history. |
-| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, data cleanup schedules, runtime runner/dispatcher settings, runner registry credential assignments, and team config repository bindings from Git. |
-| Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited team grants, AAA checks, deny-before-allow evaluation, and audit logs. |
-| Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
-| Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
-| Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, private registry auth assignments, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
-| Nopsai AI Assistant | Docked and full-page assistant that uses existing LLM profiles, conversation memory, current-page route context, and permission-bound hosted MCP tools to analyze runs, draft/validate pipeline YAML, synthesize answers with configured providers, inspect platform context, and keep changes proposal-only for GitOps review. |
-| First-install bootstrap | UI wizard for empty databases, generated runtime configuration, starter repository teams, starter templates, user bootstrap, and setup guardrails. |
-| MCP integration | System-managed MCP server and profile registry with optional profile examples and scope-aware enablement. |
+  - name: production-gate
+    depends_on: [release-notes]
+    approval:
+      type: production-release
+      teams: [platform/sre]
+      timeout: 24h
 
-## Architecture
+  - name: deploy
+    depends_on: [production-gate]
+    script: ./deploy.sh
 
-NopsAI uses a control-plane/data-plane architecture.
-
-```text
-Git providers / UI / API
-    |
-    v
-git-bot or nopsai API
-    |
-    v
-nopsai control plane
-  - auth
-  - authorization
-  - config resolution
-  - run records
-  - secrets and variables
-  - knowledge snapshots
-    |
-    +--> aaa policy service
-    |
-    v
-dispatcher
-    |
-    v
-docker-runner or k8s-runner
-    |
-    v
-agent container
-    |
-    v
-step containers + optional child pipelines
+output:
+  items:
+    - name: Release summary
+      type: markdown
+      when: always
+      prompt: Summarize the release, its approvals, and anything that failed.
 ```
 
-### Services
+Four things worth noticing:
 
-- `services/nopsai`: Main REST API, control-plane state, authentication,
-  authorization integration, config sync, run creation, and system management.
-- `services/aaa`: Internal policy decision service for access checks, filters,
-  introspection, inheritance, and authorization audit records.
-- `services/git-bot`: GitHub App edge service for webhook verification,
-  repository content access, GitHub check runs, and GitHub status updates.
-- `services/dispatcher`: Scheduling hub between the control plane and runners.
-- `services/docker-runner`: Docker runner implementation. In the local Compose stack
-  this runs as the `docker-runner` service and starts agent containers for
-  assigned jobs.
-- `services/agent`: Per-run orchestrator that executes pipeline logic, talks to
-  the configured LLM provider, runs step containers, and streams status/logs.
-- `services/ui`: Operator UI for runs, pipelines, triggers, Git webhook sources, scopes, access,
-  knowledge context, system settings, and first-install setup.
-- `cmd/nopsai-cli`: User-facing `nopsai` operator CLI for the default
-  interactive home, contexts, authentication, guided/generated invocation of
-  every registered API, exact streaming/download transport, built-in guides,
-  completion files, and platform diagnostics/deployment. The API server builds
-  separately as `nopsai-api`.
-- `db/init.sql`: Postgres schema for durable runtime, configuration, auth,
-  access, setup, and audit state.
+- **Steps run in dependency order, not list order.** Independent branches run
+  concurrently up to runner capacity.
+- **`goal:` is an LLM-backed step.** It resolves through the named LLM Profile,
+  and AAA still decides whether the caller may use that profile.
+- **`approval:` is a durable checkpoint.** The run pauses and releases runner
+  capacity rather than holding it, and survives a restart.
+- **`output:` runs after execution.** Deliverables can be Markdown, JSON, HTML,
+  PDF, Excel, or a dashboard publication.
 
-See [doc/architecture-overview.md](doc/architecture-overview.md) and
-[doc/service-reference.md](doc/service-reference.md) for a deeper system view.
+More examples live in [`examples/`](examples/README.md).
 
-## How A Run Works
+## Quick start
 
-1. A user starts a run from the UI/API, a pipeline schedule becomes due, GitHub
-   sends an event to `git-bot`, or another Git provider posts to a managed Git
-   Webhook Source.
-2. `nopsai` authenticates the request and maps the route to an authorization
-   decision.
-3. Pipeline definitions, reusable steps, schedules, trigger rules, variables, secrets, and
-   knowledge context are resolved from the database or Git-backed sources.
-4. Runtime access checks verify that the caller can use referenced pipelines,
-   steps, scopes, variables, secrets, and knowledge documents.
-5. A durable run record is created in Postgres.
-6. The dispatcher selects an eligible runner by scope, capacity, affinity, and
-   dispatch state.
-7. The runner starts a per-run agent container or Kubernetes agent pod.
-8. The agent executes script tasks or asks the configured LLM profile to resolve
-   goal-based tasks into executable work.
-9. Logs, task status, step status, final status, and GitHub check updates flow
-   back through the control plane.
-
-## First Install
-
-NopsAI includes a first-install wizard for turning a fresh database into a
-working workspace. Before login, the UI checks `/v1/setup/preflight` and shows
-required database, master-key, and JWT guidance when the authenticated API is
-not ready yet. After the bootstrap admin clears any first-login password
-requirement, the UI
-opens **System > Setup** once when setup is incomplete. After completion,
-**System > Setup** stays available for reviewing runtime env blocks, GitOps
-downloads, generated file previews, and setup guidance.
-
-After starting the stack, open the UI and go to **System > Setup**. The wizard
-uses one guided setup path: required readiness and runtime steps must be
-completed, while GitOps, repository teams, AI, MCP examples, and user
-bootstrap can be skipped and configured later.
-
-The wizard can:
-
-- guide the operator through setup in a step-by-step modal
-- check database, admin, local secret, git-bot service configuration, access,
-  LLM, MCP, demo pipeline, and runner readiness
-- generate missing local keys and tokens
-- create or connect the global GitOps config repository
-- preview starter GitOps templates
-- create one or two starter repository teams and generate trigger/config
-  entries for selected repositories
-- seed starter resources directly into the database for the introduction
-- configure a default LLM profile with one API key field
-- seed disabled MCP examples
-- seed local users with team role assignment and forced password change
-- produce final runtime variables and GitOps file guidance
-- block insecure bootstrap defaults
-
-Read the full operator guide in
-[doc/first-install-wizard.md](doc/first-install-wizard.md).
-
-## Quick Start With Docker Compose
-
-Prerequisites:
-
-- Docker Engine or Docker Desktop with Compose support
-- A Docker runtime available to the runner
-- Postgres is provided by `docker-compose.yaml`
-- A GitHub App for webhook-driven automation
-- An LLM provider supported by the configured LLM profile, including LM Studio,
-  Gemini, OpenAI, Anthropic, Groq, Mistral, OpenRouter, Ollama, or Azure OpenAI
-
-For a published release, use the matching CLI as the installer:
+### From a published release
 
 ```bash
 nopsai install
 ```
 
-The wizard lets you choose Docker Compose or Kubernetes, then generates the
-required files itself from the selected NopsAI version. For Docker Compose it
-writes `nopsai-install/docker-compose.yaml`, `nopsai-install/.env`,
-`nopsai-install/db/init.sql`, and a non-secret `.nopsai/install.lock`, then
-starts the stack when you choose that option. For Kubernetes it writes editable
-Helm values that reference the versioned OCI chart and image tags. Use
-`nopsai install docker-compose --version <version> --run` as the automation
-shortcut, or rerun with `--force` only when you intentionally want to replace
-generated files. The installer prompts for the bootstrap administrator email
-and password; Docker Compose writes the chosen or generated password to `.env`,
-while Kubernetes values reference an existing Secret key. Keep `.env` out of
-Git; it contains generated local secrets.
+The wizard asks for Docker Compose or Kubernetes and generates the install files
+for the version you select — a Compose file, `.env`, and database seed, or Helm
+values referencing the versioned OCI chart. See [doc/cli.md](doc/cli.md).
 
-For local development from this checkout:
+### From this checkout
 
-1. Review `config.yml` and `docker-compose.yaml`.
-
-   The checked-in `config.yml` and `.env` files are bootstrap placeholders.
-   Product/runtime settings are managed from the UI and GitOps; `config.yml`
-   keeps only local defaults needed before GitOps is loaded, including the
-   Nopsai AI Assistant being enabled. The checked-in Compose file does not ship
-   fallback credentials; set `POSTGRES_PASSWORD`, `DATABASE_URL`,
-   `SERVICE_JWT_SIGNING_KEY`, `NOPSAI_MASTER_KEY`, `JWT_SIGNING_KEY`,
-   `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD`, and `AAA_SHARED_INTERNAL_TOKEN` from your
-   shell or deployment secret manager before startup. Published ports bind to
-   `127.0.0.1` by default through `NOPSAI_BIND_ADDRESS`.
-
-2. Start the stack.
-
-   ```bash
-   docker compose -f docker-compose.yaml up --build
-   ```
-
-3. Open the UI.
-
-   ```text
-   UI:       http://localhost
-   API:      http://localhost:8080
-   git-bot:  http://localhost:8081
-   Postgres: localhost:5432
-   ```
-
-4. Sign in with the local development bootstrap administrator.
-
-   ```text
-   Email:    admin@example.com
-   Password: admin
-   ```
-
-   This explicit default is only for the checked-out local development Compose
-   file. Generated production installs require a chosen or generated bootstrap
-   password instead. Change `admin/admin` immediately in local development; the
-   setup wizard reports it as an insecure state.
-
-5. Run **System > Setup** after changing the first admin password.
-
-6. Verify the git-bot runtime settings. Configure GitHub App IDs and credential
-   references in **System > Config** or `setting/system/github.yaml`, store
-   encrypted private-key and webhook secret envelopes through **Credentials** or
-   `setting/system/credentials.yaml`, and set the public
-   webhook URL on the GitHub App.
-
-7. Create one or two starter repository teams, apply setup, and run the starter
-   `setup/first-run` pipeline to verify runner, agent, logs, and UI. If setup
-   seeded an LLM profile, the starter pipeline also includes the optional AI
-   smoke step.
-
-To stop and remove local state:
+The checked-in Compose file ships no fallback credentials. Set the bootstrap
+secrets first — Compose fails fast if any are missing:
 
 ```bash
-docker compose -f docker-compose.yaml down -v
+cat >> .env <<'EOF'
+POSTGRES_PASSWORD=<generated>
+DATABASE_URL=postgres://nopsai:<generated>@db:5432/nopsai?sslmode=disable
+NOPSAI_MASTER_KEY=<generated>
+JWT_SIGNING_KEY=<generated>
+SERVICE_JWT_SIGNING_KEY=<different generated value>
+AAA_SHARED_INTERNAL_TOKEN=<generated>
+NOPSAI_BOOTSTRAP_ADMIN_PASSWORD=<generated>
+EOF
+
+docker compose up -d --build
 ```
 
-For a published version, use `nopsai install docker-compose --version <version>`
-or `nopsai install kubernetes --version <version>` instead of rebuilding from a
-moving branch. The CLI generates the matching Compose file or Helm values from
-that version and the published OCI chart. Supply production secrets through your
-secret manager before promoting beyond evaluation.
+`JWT_SIGNING_KEY` and `SERVICE_JWT_SIGNING_KEY` must be different values, so a
+user token cannot impersonate a service.
 
-## Configuration Model
+| Surface | Address |
+| --- | --- |
+| UI | http://localhost |
+| API | http://localhost:8080 |
+| git-bot | http://localhost:8081 |
+| dispatcher (gRPC) | localhost:9091 |
+| Postgres | localhost:5432 |
 
-NopsAI supports both database-managed and Git-managed configuration.
+Published ports bind to `127.0.0.1` by default through `NOPSAI_BIND_ADDRESS`.
 
-GitOps sync can import:
+Sign in as `NOPSAI_BOOTSTRAP_ADMIN_EMAIL` (default `admin@example.com`) with the
+`NOPSAI_BOOTSTRAP_ADMIN_PASSWORD` you set. The first login forces a password
+rotation. Then run **System > Setup**, and use the starter `setup/first-run`
+pipeline to confirm the runner, agent, logs, and UI all work end to end.
 
-- `pipelines/`: pipeline definitions
-- `steps/`: reusable step definitions
-- `schedules/`: one-time and recurring pipeline schedules
-- `triggers/`: repository trigger overrides
-- `external-triggers/`: API-triggered pipeline launch definitions
-- `git-webhook-sources/`: reusable authenticated Git webhook receivers
-- `dashboards/`: team-owned dashboard definitions, source bindings, and refresh schedules
-- `scopes/`: scoped variables and GitOps secret keys
-- `knowledge/`: managed knowledge documents
-- `access/`: users, roles, policies, bindings, and basic product role grants
-- `config-repositories/`: global and team config repository bindings, per-team hierarchy, and notification routing
-- `setting/system/auth.yaml`: mandatory local login and external identity-provider settings from the global config repo
-- `setting/system/github.yaml`: GitHub App IDs, credential references, and git-bot URLs from the global config repo
-- `setting/system/mail.yaml`: mail notification SMTP settings from the global config repo
-- `setting/system/data-management.yaml`: scheduled data cleanup rules from the global config repo
-- `setting/system/llm_profile.yaml`: system LLM profile registry
-- `setting/system/mcp.yaml`: MCP server and profile registry
-- `setting/system/runner.yaml`: runner install defaults, runtime defaults, dispatcher routing, runner registry credential assignments, and assistant settings from the global config repo
-- `setting/system/credentials.yaml`: encrypted system credential envelopes from the global config repo
+To stop and drop local state:
 
-Team-scoped config repositories use the same top-level resource directories as
-the global repo and keep the team path explicit. For example,
-`steps/team-1/shared/checkout.yaml` in the `team-1` config repository owns the
-reusable step `team-1/shared/checkout`; team-owned pipelines, reusable steps,
-schedules, triggers, scopes, knowledge documents, dashboards, and notification
-routes should live in the closest enabled team config repository. Likewise,
-`scopes/team-1/dev/scope.yaml` in the `team-1` config repository owns variables,
-secrets, and embedded scope access for `team-1/dev`;
-`knowledge/guideline/team-1/go-style.md` owns the knowledge context
-`guideline/team-1/go-style`. Drift/export
-canonicalizes legacy managed source paths, so stale files with a duplicated or
-missing team segment are reported as file moves instead of staying pinned by old
-database metadata.
-
-Config sync applies dependency roots first: team hierarchy from
-`config-repositories/` is upserted before dashboards, notification routes, and
-other team-owned resources resolve team paths. Dashboard GitOps runs before
-pipeline upserts so dashboard files can create targets and pipeline dashboard
-outputs can attach source bindings in the same sync.
-Sync and drift checks fetch remote GitOps directories and file contents with
-bounded concurrency, then parse and apply from the complete repository snapshot
-so ownership checks and dependency ordering remain deterministic.
-If a sync worker stalls or the process exits while a repository is marked
-running, admins and team owners can cancel the sync from the UI/API; stale
-running rows are marked `canceled` so the repository can be synced again.
-
-Runtime settings GitOps is limited to operational defaults such as runner ID,
-runner scopes, runner capacity, dispatcher address, agent image/network
-defaults, timeouts, `dispatcher_routing`, `runner_registry_credentials`, and the
-minimal `assistant` block. GitHub App IDs, git-bot URLs, and
-GitHub credential references live in `setting/system/github.yaml`; they are not
-accepted from `setting/system/runner.yaml`. Keep database URLs, master keys, and
-service JWT bootstrap keys in deployment secrets. Store operational integration
-credential values as encrypted envelopes in `setting/system/credentials.yaml` or
-write them through **Credentials** and let drift export the encrypted form.
-System credentials are visible and mutable only to NopsAI admins. Team
-credentials are created from the same page by selecting the owning team, which
-emits `credential://team/<team path>/...` references and is authorized through
-the matching team grants. Feature files such as auth, GitHub, mail, LLM, MCP,
-runner, and Git webhook sources store only stable credential references. During
-config sync, referenced credentials are reused when they already exist; missing
-references are created as pending metadata so an admin can add or rotate the
-value without changing GitOps files. UI/API-created Git webhook sources can
-omit the credential reference; NopsAI creates a random webhook credential value
-and shows it once, while supplied existing credential references are reused
-unchanged.
-Runtime settings saved from the UI or synced from GitOps are stored in the
-database as the durable source of truth. `config.yml`, `.env`, Docker Compose
-environment blocks, and deployment secrets are bootstrap inputs only. On
-restart, the database copy is loaded before NopsAI connects to the dispatcher,
-so GitOps changes do not require a second sync. Services can read versioned
-snapshots from `GET /internal/v1/runtime-config/{service}` or long-poll
-`GET /internal/v1/runtime-config/{service}/watch?version=<n>`. Dispatcher
-routing changes made from the UI or synced from GitOps are published through
-`nopsai` and picked up by the live dispatcher without a restart. Registered
-runners also contribute their advertised scopes to the live effective routing
-view, so a newly connected scoped runner can receive matching work while the
-configured `dispatcher_routing` map remains GitOps-owned.
-Runner ejection is an explicit runtime control that removes the dispatcher
-registration, removes the runner from configured dispatcher routing, blocks the
-same runner ID from registering again, and disconnects any live runner stream.
-If GitOps later syncs a route that still names an ejected runner, the runtime
-blocklist keeps that runner ID out of live dispatcher routing; remove the entry
-from the config repository to keep declarative routing clean.
-
-SSO settings live under **System > Access > Identity Providers** and can be
-declared in the global config repository at `setting/system/auth.yaml`. GitOps
-sync keeps local login enabled, manages external-provider enablement,
-auto-create/linking defaults, domain mappings, providers, Keycloak
-entitlement-sync mappings, and their
-`client_credential_ref`, `admin_client_credential_ref`, and
-`admin_password_credential_ref` bindings. Plaintext values remain write-only in
-the API/UI; encrypted versions can be synced in
-`setting/system/credentials.yaml`.
-NopsAI team sync treats the product team path as canonical and mirrors each
-runtime team path into an AAA auth-team subject. GitOps resource access checks
-also accept team paths from the effective team structure being synced. OIDC
-`team_mapping` entries populate membership in those mirrored auth teams and
-infer least-privilege viewer grants on the same product team path when that
-team exists; use `basic_role_mapping` to raise a mapped team to developer or
-owner.
-Only one external identity provider can be enabled at a time; IdP sync owns only
-IdP-sourced grants and leaves local UI/API/GitOps grants intact.
-Runnable SSO examples live under `examples/sso`: `keycloak/` for a real local
-Keycloak realm and `idp-test-pack/` for mock Entra ID, Okta, Google, Keycloak,
-and GitHub scenario configs that can be copied into `setting/system/auth.yaml`
-for a test run.
-
-Mail notification settings live under **System > Config** and can be
-declared in the global config repository at `setting/system/mail.yaml`. GitOps
-stores only SMTP host, port, sender, username, TLS mode, and
-`password_credential_ref`. Plaintext SMTP passwords stay out of feature files;
-encrypted versions can be synced in `setting/system/credentials.yaml`.
-
-Pipeline mail is sent as multipart HTML with a plain-text fallback. It includes
-the pipeline and run status, failed step/task, step and task progress, repository
-metadata, deep links, and a short redacted error excerpt. Configure
-`public_url` in **System > Config** or `setting/system/runner.yaml` with the
-browser-reachable NopsAI URL to enable **View run** links and the default
-`/brand/nopsai-app-icon.png` mail mark. Footer branding can be configured
-with `notification_mail_logo_url`, `notification_mail_website_url`,
-`notification_mail_support_url`, and `notification_mail_footer_address`. Use
-absolute `http` or `https` URLs; invalid or missing URLs are omitted rather
-than emitted as broken links.
-
-The **Send test** action uses a matching branded multipart message. It confirms
-the SMTP endpoint, TLS mode, authentication configuration, sender, recipient,
-environment, and generation time without including passwords or secret values.
-
-Team notification routing lives next to the team config repository controls.
-The global repo defines `config-repositories/teams/<team>/notifications.yaml`;
-a team repo uses the same explicit `config-repositories/teams/<team>/notifications.yaml`
-path for its bound team. Each policy can
-contain one or more named routes that select recipients (`same_team`, explicit
-users, teams, and excludes), event types such as
-`failure`, `success`, `pending`, `waiting_approval`, approval decisions, and
-`cancelled`, plus optional pipeline/repo/branch filters and mail delivery
-throttling. Policies apply to their team subtree; the closest policy in the
-run team's ancestry wins, so an application-specific policy overrides its
-parent team policy. Schedules and external triggers can set `run_team_path`
-from the Teams hierarchy when the runtime notification team should
-differ from the target pipeline's team.
-
-Team-owned create flows authorize against the explicit team scope before the
-resource exists. The UI surfaces empty teams from `/v1/access/teams` for
-pipelines, steps, and scopes, and trigger/external-trigger/webhook-source
-preflight checks can pass `team_path` or `run_team_path` to
-`/v1/access/effective-permissions` so an inherited team owner can create the
-first resource in that team without requiring a seed pipeline, trigger, or
-scope.
-
-Scope files keep variables and secrets in separate sections. Define every
-plaintext scoped variable under `variables:`; flat top-level variable entries are
-not supported. Put secret keys under `secrets:` and use either an encrypted value
-generated by NopsAI or `null`/an empty value as a placeholder. If a GitOps secret
-value is not valid for this NopsAI instance's master key, the secret key is
-imported with no value. Repository-scoped entries use `owner/repo/NAME`; team
-config repositories also accept canonical nested keys such as
-`team-1/owner/repo/NAME`.
-
-```yaml
-variables:
-  API_URL: "https://api.example.com"
-secrets:
-  GEMINI_API_KEY: null
-  acme/service-api/DEPLOY_TOKEN: "encrypted-value-from-nopsai"
+```bash
+docker compose down -v
 ```
 
-Use the scope page GitOps encryption dialog or
-`POST /v1/secrets/encrypt` to encrypt a value before committing it to GitOps.
-The caller needs `secret.write_value` on `secret:*`.
+Compose is for evaluation and development. For anything shared, work through
+the production hardening checklist in the wiki first.
 
-See [examples/sample-config-repo/README.md](examples/sample-config-repo/README.md) for a
-working GitOps layout.
+## Documentation
 
-## Pipeline Example
+**In the app.** Every install ships a Product Wiki at `/docs`, covering the
+platform in depth with complete indexes of every YAML directive, environment
+variable, and REST endpoint. It is the fastest way to answer "what does this
+directive do?" or "which endpoint is that?".
 
-Pipelines are declarative YAML definitions. A pipeline can combine reusable
-steps, scripts, and LLM-backed goals. Omit the AI step or set
-`llm_enabled: false` for script-only pipelines that should run before any LLM
-profile exists:
+**In this repository.** [`doc/`](doc/README.md) holds the code-grounded
+documentation set:
 
-```yaml
-name: first-run
-version: "1.0.0"
-description: Verify that NopsAI can run a starter job and optional AI step.
-container_image: alpine:3.20
-timeout: 10m
-llm_profile: standard
-variables:
-  - dev:NOPSAI_SETUP_PROFILE
-steps:
-  - name: announce
-    include: step:setup/announce
+| I want to… | Read |
+| --- | --- |
+| Understand the system | [architecture-overview.md](doc/architecture-overview.md), [service-reference.md](doc/service-reference.md) |
+| Know why it is built this way | [decision-architecture.md](doc/decision-architecture.md) |
+| Trace what happens during a run | [runtime-flows.md](doc/runtime-flows.md) |
+| Write pipelines | [feature-reference.md](doc/feature-reference.md), [examples/](examples/README.md) |
+| Call the API | [api.md](doc/api.md) |
+| Use the CLI | [cli.md](doc/cli.md) |
+| Set up access and identity | [access-control.md](doc/access-control.md), [jwt-authentication.md](doc/jwt-authentication.md) |
+| Manage secrets | [credential-management.md](doc/credential-management.md) |
+| Configure Git integration | [git-apps.md](doc/git-apps.md), [git-webhook-sources.md](doc/git-webhook-sources.md) |
+| Configure AI | [llm-model-selection.md](doc/llm-model-selection.md), [agent-profiles.md](doc/agent-profiles.md), [knowledge-context.md](doc/knowledge-context.md), [mcp-pipeline-integration.md](doc/mcp-pipeline-integration.md) |
+| Deploy to Kubernetes | [kubernetes-runner.md](doc/kubernetes-runner.md), [release-bundles.md](doc/release-bundles.md) |
+| Harden for production | [enterprise-gates.md](doc/enterprise-gates.md) |
+| Operate it | [system-logs.md](doc/system-logs.md), [dashboards.md](doc/dashboards.md) |
 
-  - name: runner-smoke
-    image: alpine:3.20
-    script: |
-      #!/bin/sh
-      set -e
-      echo "NopsAI runner is executing"
-    depends_on:
-      - announce
+## Architecture
 
-  - name: ai-smoke
-    goal: Return one short sentence confirming the setup smoke test reached the agent.
-    ignore_failure: true
-    depends_on:
-      - runner-smoke
+A control plane owns state and decisions; an execution plane runs the work.
+
+```mermaid
+flowchart TB
+  subgraph ENTRY["Entry points"]
+    USERS["Browser · CLI · API clients"]
+    GIT["Git providers<br/>GitHub · GitLab · Bitbucket · Gitea"]
+    UI["Operator UI"]
+    GITBOT["git-bot"]
+  end
+
+  subgraph CONTROL["Durable control plane"]
+    API["nopsai API<br/>validation · orchestration · run records"]
+    AAA["aaa<br/>authorization decisions"]
+    PG[("PostgreSQL<br/>durable state")]
+    GOT["gotenberg<br/>PDF rendering"]
+    PROXY["docker-socket-proxy<br/>allow-listed reads only"]
+  end
+
+  subgraph EXEC["Ephemeral execution plane"]
+    DISP["dispatcher<br/>routing · capacity · assignment"]
+    RUNNER["Docker / Kubernetes runner"]
+    AGENT["Per-run agent"]
+    STEPS["Step containers or pods"]
+  end
+
+  subgraph EXT["External providers"]
+    LLM["LLM providers"]
+    MCP["MCP servers"]
+  end
+
+  USERS -->|REST| UI
+  UI -->|authenticated REST| API
+  GIT -->|signed webhooks| GITBOT
+  GITBOT -->|validated events| API
+  GIT -->|signed webhooks| API
+
+  API <-->|authorize caller| AAA
+  API --> PG
+  AAA --> PG
+  API -->|render PDF| GOT
+  API -->|system logs| PROXY
+
+  API -->|SubmitJob gRPC| DISP
+  RUNNER -.->|runner dials out| DISP
+  DISP -->|assigns runs over that stream| RUNNER
+  RUNNER -->|starts one per run| AGENT
+  AGENT -->|Docker / Kubernetes API| STEPS
+  AGENT -->|status · logs · outputs · approvals| API
+  AGENT -->|provider HTTP| LLM
+  AGENT -->|tool calls| MCP
 ```
 
-See [doc/feature-reference.md](doc/feature-reference.md) and
-[examples/sample-pipeline](examples/sample-pipeline) for broader examples.
+Two things the picture is meant to make obvious:
 
-## Security And Governance
+- **Runners dial out.** The runner opens the long-lived stream to the dispatcher
+  and work is assigned back over it, so a runner never needs inbound network
+  access.
+- **Only the control plane is durable.** Runners, agents, and step containers are
+  disposable; everything that must survive a restart is in PostgreSQL.
 
-NopsAI is designed for controlled self-hosted operation:
+| Service | Owns |
+| --- | --- |
+| `services/nopsai` | REST API, validation, orchestration, config sync, run records, setup |
+| `services/aaa` | Authorization decisions, policy checks, ACL expansion, decision audit |
+| `services/dispatcher` | Runner registration, queueing, routing, capacity, job assignment |
+| `services/git-bot` | GitHub App webhooks, repository access, check runs |
+| `services/agent` | Per-run orchestration, LLM calls, step execution, log streaming |
+| `services/docker-runner`, `services/k8s-runner` | Runner implementations |
+| `services/ui` | Operator UI and the in-app wiki |
+| `cmd/nopsai-cli` | Operator CLI and interactive console |
 
-- Local authentication with access tokens, refresh tokens, password changes,
-  login rate limits, and personal access tokens.
-- Product roles: `viewer`, `developer`, `owner`, and `admin`.
-- AAA-backed authorization with deny-before-allow semantics.
-- Team access inheritance for child resources.
-- Runtime resource-use checks for manual runs, Git-triggered runs, and child
-  pipelines.
-- Resource visibility modes for reusable pipelines, steps, scopes, and
-  knowledge context.
-- Encrypted secret values using the configured master key.
-- Strict scope isolation for scoped secrets and variables.
-- Secret masking in agent logs and execution history while preserving
-  non-sensitive runtime evidence such as environment names, versions, image
-  references, and declared non-sensitive outputs.
-- Audit logging for denied requests and sensitive allowed operations.
-- Internal service authentication for dispatcher and runner/agent callbacks.
-- Production setup guardrails that reject unsafe direct bootstrap behavior.
-
-For details, read:
-
-- [doc/access-control.md](doc/access-control.md)
-- [doc/jwt-authentication.md](doc/jwt-authentication.md)
-- [doc/knowledge-context.md](doc/knowledge-context.md)
-
-## GitHub App Requirements
-
-NopsAI's GitHub automation is implemented through `git-bot`.
-
-Required GitHub App events:
-
-- `push`
-- `pull_request`
-- `check_run`
-- `check_suite`
-- `ping`
-
-Required GitHub App permissions:
-
-- `contents`: read and write
-- `metadata`: read
-- `pull_requests`: read
-- `checks`: read and write
-
-Manage GitHub App ID, installation ID, private-key credential reference, webhook
-credential reference, and internal git-bot URLs in **System > Config** or
-`setting/system/github.yaml`. Store encrypted private key and webhook secret
-versions in **Credentials** or `setting/system/credentials.yaml`; the
-runtime settings snapshot exposes only non-secret IDs and credential references.
-
-For local webhook simulation, see [doc/triggering.md](doc/triggering.md).
-
-## Git Webhook Sources
-
-Non-GitHub providers can post repository events directly to
-`/v1/git/webhooks/{sourceID}`. Sources support GitLab, Bitbucket, Gitea, and a
-normalized generic payload with HMAC/static-token authentication, repository
-allowlists, source rate limits, delivery idempotency, and delivery audit.
-
-Generic providers reuse the provider-neutral trigger matcher, including
-`include_paths` and `exclude_paths`, but do not create GitHub checks. In v1,
-their trigger overrides and pipeline definitions must already be synchronized
-into NopsAI through GitOps or the management APIs.
-
-See [doc/git-webhook-sources.md](doc/git-webhook-sources.md).
-
-## LLM And MCP
-
-LLM-driven work is configured through system LLM profiles. Profiles can be
-managed in the UI/API or through the global config repository at
-`setting/system/llm_profile.yaml`.
-Team-scoped profiles use slash-separated IDs such as
-`platform/ml/reviewer`; users with matching team product grants can open the
-LLM, Agent Profile, and MCP topics, see only subjects they can read/use/manage,
-and create their own team-scoped subjects without seeing other teams' subjects.
-Global default profile changes remain global-system operations. Team defaults
-are changed from the LLM or Agent Profile page after selecting a concrete team;
-the selected-team profile view includes matching slash-scoped catalog profiles
-as well as team-local rows, and the Teams area shows the configured defaults
-with links to that scoped profile view.
-
-Supported profile concepts include:
-
-- provider selection for Gemini, LM Studio, OpenAI, Anthropic, Groq, Mistral,
-  OpenRouter, Ollama, and Azure OpenAI
-- model name
-- base URL for local/provider-compatible endpoints
-- API key credential reference
-- allowed scopes
-- request timeout, maximum tokens, temperature, and provider-specific options
-- optional reasoning controls where supported by the provider path
-
-MCP servers and MCP profiles can be managed through system configuration at
-`setting/system/mcp.yaml`. The setup wizard can seed disabled MCP examples so
-operators can review and enable them deliberately.
-MCP server and profile IDs follow the same optional team path convention as LLM
-and agent profiles, and the MCP page lets operators adjust that placement during
-create or edit. A team owner can manage `team/path/server` resources while
-global MCP subjects stay hidden unless separately granted.
-
-The Nopsai AI Assistant exposes Nopsai itself through a first-party hosted MCP
-endpoint at `POST /v1/mcp`. Tools are filtered through AAA, audited, and kept
-read/proposal-only for generated YAML, trigger changes, and schedule changes;
-applying changes remains an explicit API/GitOps approval workflow. Assistant
-message turns use the selected or default LLM profile for final synthesis when
-the profile is valid for the conversation scope, and fall back to deterministic
-tool summaries when the provider or credential is unavailable. Docked chats add
-bounded current-page metadata such as the route, selected resource ID, tab, and
-team/scope so page-local questions can resolve "this" without scraping rendered
-page content. The composer shows that attached context and lets the user remove
-it before sending.
-
-See:
-
-- [doc/llm-model-selection.md](doc/llm-model-selection.md)
-- [doc/mcp-pipeline-integration.md](doc/mcp-pipeline-integration.md)
-
-## Production Checklist
-
-Before production use:
-
-- Replace bootstrap database credentials and local admin credentials.
-- Generate strong values for all signing, webhook, dispatcher, AAA, and master
-  key settings.
-- Keep secrets out of Git and out of container images.
-- Require GitHub webhook signature verification.
-- Configure a GitHub App with the required events and permissions.
-- Connect a global GitOps config repository and make it the source of truth for
-  production resources.
-- Use GitOps from **System > Setup** as the source of truth before onboarding
-  production automation.
-- Configure platform registry pull secrets in infrastructure, and use
-  `docker_config_json` credentials only for deliberately assigned runner image
-  pull access.
-- Review product role grants and team inheritance.
-- Restrict runner scopes and capacity according to environment.
-- Review Scope and Team runner assignment panels after registering or moving a
-  scoped runner.
-- Remove stale runner registrations from **System > Dispatcher** to clear
-  dispatcher status. Stop the underlying Docker process or scale down the
-  Kubernetes Deployment before replacing a live runner with the same name; use
-  `ejected_runner_ids` only when a runner ID must stay revoked. Existing
-  revocations can be cleared from **System > Config > Revoked runner IDs**,
-  and runner install generation clears a stale revocation for the requested
-  replacement runner ID.
-- Open runner process logs from **System > Dispatcher** when the runner
-  advertises a `runner:<runner-id>` source. Registered runners appear in
-  System Logs and are marked unavailable until the configured provider can
-  access that Docker host or Kubernetes namespace. Generated Docker Compose and
-  Helm installs enable hybrid provider lists, but cross-runtime runner logs
-  still need explicit Kubernetes credentials/RBAC or a restricted Docker API
-  endpoint reachable from the API service. Kubernetes runner logs use the
-  registered runner's `kubernetes_namespace` and `kubernetes_label_selector`
-  dispatcher metadata, so the NopsAI API service account needs read-only
-  `pods` and `pods/log` RBAC in that namespace. Removed
-  runner registrations are hidden from System Logs even if their old containers
-  or pods still exist. For Docker runners installed against a port-forwarded
-  Kubernetes control plane, forward `service/dispatcher` on `9090` as well as
-  the UI.
-- Check dispatcher, runner, git-bot, LLM, and config sync health checks.
-- Back up Postgres and protect access to the Docker socket on runner hosts.
-- Review audit logs for sensitive operations.
-
-## Repository Layout
+## Repository layout
 
 ```text
 cmd/                    User-facing command entrypoints
-config/                 Runtime configuration loader and tests
+config/                 Runtime configuration loader
 container/              Service Dockerfiles
 db/                     Postgres schema and seed data
-doc/                    Architecture, API, feature, auth, GitOps, and setup docs
-pkg/                    Shared models, protobuf contracts, service auth, TLS, proxy helpers
-internal/cli/            CLI config, REST client, API catalog, prompts, platform, command, and rendering owners
-services/aaa            Authorization decision service
-services/agent          Per-run pipeline orchestrator
-services/dispatcher     Scheduler and runner bridge
-services/git-bot        GitHub App integration
-services/nopsai         Main API and control plane
-services/docker-runner  Docker-backed runner (`docker-runner` in Compose)
-services/ui             React operator UI
+deploy/helm/            Helm chart
+doc/                    Code-grounded documentation set
+examples/               Runnable pipelines, GitOps sample repo, SSO fixtures
+internal/cli/           CLI config, REST client, API catalog, interactive console
+pkg/                    Shared models, protobuf contracts, service auth, TLS
+release/                Version and compatibility contract
+scripts/                Build, test, release, and license gates
+services/               Platform services (see table above)
 test/                   Local operational and performance scripts
 ```
 
 ## Development
 
-Build the CLI and API binaries:
+Build the binaries:
 
 ```bash
 go build -o nopsai ./cmd/nopsai-cli
 go build -o nopsai-api ./services/nopsai/cmd/nopsai
 ```
 
-See [doc/cli.md](doc/cli.md) for the default interactive home, contexts, token
-handling, built-in guides, required API parameter and payload guidance,
-completion files, GitOps-safe automation, and `platform doctor`.
-
-NopsAI first installs generate Docker Compose files or Kubernetes Helm values
-directly from the selected CLI/platform version. `nopsai install kubernetes`
-generates non-secret values, a separate `nopsai-secrets.yaml` Secret manifest,
-`installation.md`, and install lock metadata; it can later deploy from those
-stored files with `--deploy`. Docker Compose and Kubernetes install generation
-expose internal service hostnames and addresses through CLI flags and generated
-config so multi-environment topology changes stay reviewable. `nopsai platform
-release` remains available for advanced CI/GitOps render and deploy workflows
-that already produce release manifests. See
-[doc/release-bundles.md](doc/release-bundles.md).
-
-Run backend tests:
+Run backend tests. The script excludes `services/ui` so an installed
+`node_modules` tree cannot be mistaken for part of the Go module:
 
 ```bash
 scripts/test-backend.sh
 ```
-
-The backend test command excludes `services/ui` so an installed or concurrently
-updated `node_modules` tree cannot be mistaken for part of the Go module.
 
 Run UI checks:
 
@@ -725,41 +281,23 @@ docker compose build base k8s-runner
 docker compose --profile images push k8s-runner
 ```
 
-Build the UI:
+See [doc/package-ownership.md](doc/package-ownership.md) for where new code
+belongs, and [services/ui/src/README.md](services/ui/src/README.md) for the UI
+placement rules.
 
-```bash
-cd services/ui
-npm install
-npm run build
-```
+## Project status
 
-Useful local docs:
+This repository contains the NopsAI product implementation and its deployment
+shape. The documentation describes the current codebase, not a roadmap. The
+in-app wiki page **Reference and limits → Confirmed gaps and limits** lists what
+the platform deliberately does not do yet; [doc/wiki](doc/wiki) is the
+repository-side source map that keeps it honest.
 
-- [doc/README.md](doc/README.md): documentation map
-- [doc/api.md](doc/api.md): REST API guide
-- [doc/runtime-flows.md](doc/runtime-flows.md): runtime flow walkthroughs
-- [doc/decision-architecture.md](doc/decision-architecture.md): architectural
-  decisions and tradeoffs
-- [doc/license-compliance.md](doc/license-compliance.md): commercial
-  dependency, container, data, and MCP/plugin license policy
+## License
 
+Proprietary. Copyright (c) 2026 Hossein Yousefi. All rights reserved. See
+[LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Documentation Map
-
-Start here:
-
-1. [Architecture overview](doc/architecture-overview.md)
-2. [Service reference](doc/service-reference.md)
-3. [First-install wizard](doc/first-install-wizard.md)
-4. [Access control](doc/access-control.md)
-5. [API guide](doc/api.md)
-6. [Feature reference](doc/feature-reference.md)
-7. [Runtime flows](doc/runtime-flows.md)
-
-## Project Status
-
-This repository contains the NopsAI product implementation and local deployment
-shape. The documentation describes the current codebase, not an external
-managed service. Treat the Docker Compose setup as the fastest path to local
-evaluation, and use the production checklist plus GitOps model for hardened
-deployments.
+Customer use requires a signed agreement; the licence grant, Order Form and
+support data processing terms are in [legal/](legal/). Security issues go to
+contact@nopsai.com — see [SECURITY.md](SECURITY.md).
