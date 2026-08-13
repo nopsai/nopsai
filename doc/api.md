@@ -194,7 +194,8 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
 - Mandatory local-login and external identity-provider settings can be managed in the global config repo at `setting/system/auth.yaml`.
 - GitHub App IDs, credential references, and installations can be managed in the global config repo at `setting/git-apps/github.yaml`. The internal git-bot URL remains a system/service setting.
-- Runner defaults, runtime defaults, dispatcher routing, and assistant settings can be managed in the global config repo at `setting/system/runner.yaml`.
+- Runner defaults, runtime defaults, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.
+- Assistant provider, model, credential reference, feature flags, and memory settings can be managed in the global config repo at `setting/system/assistant.yaml`. A sync fails with a migration error when an `assistant:` block is still present in `setting/system/runner.yaml`.
 - Scheduled cleanup rules can be managed in the global config repo at `setting/system/data-management.yaml`.
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<team>/<document>.md`; in a system/global repo, `knowledge/<kind>/<document>.md` creates a global document.
@@ -419,7 +420,7 @@ global assistant/admin identity.
 Assistant tool execution goes through the same hosted MCP JSON-RPC request
 processor as external clients, so chat answers are grounded in the
 permission-filtered Nopsai tool/resource surface.
-Assistant feature flags in `setting/system/runner.yaml` decide which broad
+Assistant feature flags in `setting/system/assistant.yaml` decide which broad
 capability families are globally available. AAA still decides the specific
 resources and actions the current user can read or execute. Runtime and admin
 execution tools are hidden unless `assistant.features.action_execution` is
@@ -1933,7 +1934,7 @@ GitOps-managed in `setting/system/credentials.yaml`. GitHub App installation
 records are served to git-bot through `GET /v1/internal/git-bot/installations`
 using the git-bot internal service identity.
 - Only owners of the target team, including inherited parent owners, can sync that team repo.
-- Complete examples live under `examples/sample-config-repo`.
+- Complete examples live under `examples/gitops-quickstart`.
 
 ---
 

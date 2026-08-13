@@ -1,6 +1,0 @@
-name: announce
-image: alpine:3.20
-script: |
-  #!/bin/sh
-  set -e
-  echo "Starting Nopsai pipeline"

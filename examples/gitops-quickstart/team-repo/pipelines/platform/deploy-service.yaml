@@ -1,0 +1,50 @@
+name: deploy-service
+version: "1.0.0"
+description: Deploy the service after a human approval, using scope secrets.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 30m
+variables:
+  - API_VERSION
+  - DEPLOY_TARGET
+# Only the platform team may run this pipeline.
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: team
+        subject_id: platform
+steps:
+  - name: plan
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Planning deployment of $API_VERSION to $DEPLOY_TARGET"
+
+  # Durable human checkpoint. The run waits until a platform member approves.
+  - name: approve-deployment
+    approval:
+      type: production-deploy
+      teams:
+        - platform
+      allow_self_approval: false
+      timeout: 24h
+    depends_on:
+      - plan
+
+  - name: deploy
+    # DEPLOY_TOKEN is declared in scopes/platform/prod/scope.yaml and resolved
+    # from the credential store at run time.
+    secrets:
+      - DEPLOY_TOKEN
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Deploying $API_VERSION to $DEPLOY_TARGET"
+    depends_on:
+      - approve-deployment
+
+  - name: notify
+    include: step:platform/shared/notify
+    depends_on:
+      - deploy

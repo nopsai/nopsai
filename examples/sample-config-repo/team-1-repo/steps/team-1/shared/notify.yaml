@@ -1,6 +1,0 @@
-name: notify
-image: alpine:3.20
-script: |
-  #!/bin/sh
-  set -e
-  echo "Pipeline finished for $IMAGE_NAME"

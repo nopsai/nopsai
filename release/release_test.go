@@ -131,8 +131,10 @@ func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
 		t.Error("Helm chart values should not include the Docker-only socket proxy image")
 	}
 	for _, required := range []string{
-		"releaseVersion: dev",
+		`releaseVersion: ""`,
 		`tag: ""`,
+		`define "nopsai.releaseVersion"`,
+		"default .Chart.AppVersion $configured",
 		`define "nopsai.imageWithDefaultTag"`,
 		"default .defaultTag $image.tag",
 	} {

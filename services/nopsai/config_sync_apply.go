@@ -58,6 +58,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	credentialPlan := plan.credentialPlan
 	runtimeSettingsPlan := plan.runtimeSettingsPlan
 	githubSettingsPlan := plan.githubSettingsPlan
+	assistantSettingsPlan := plan.assistantSettingsPlan
 	mailSettingsPlan := plan.mailSettingsPlan
 	dataManagementPlan := plan.dataManagementPlan
 	schedules := plan.schedules
@@ -115,6 +116,15 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			credentialMetadata("password", "SMTP authentication password", mailSettingsPlan.sourcePath),
 		); err != nil {
 			return fmt.Errorf("prepare mail credential metadata: %w", err)
+		}
+	}
+	if assistantSettingsPlan != nil && assistantSettingsPlan.payload.Assistant != nil {
+		if err := a.ensureCredentialReferenceMetadata(
+			ctx,
+			assistantSettingsPlan.payload.Assistant.CredentialRef,
+			credentialMetadata("api_key", "Assistant LLM API key", assistantSettingsPlan.sourcePath),
+		); err != nil {
+			return fmt.Errorf("prepare assistant credential metadata: %w", err)
 		}
 	}
 	if githubSettingsPlan != nil {
@@ -1217,8 +1227,13 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 		details["auth_settings_synced"] = 1
 	}
-	if runtimeSettingsPlan != nil || githubSettingsPlan != nil {
-		if err := a.applySystemSettingsGitOpsPlans(ctx, binding, runtimeSettingsPlan, githubSettingsPlan, commitSHA); err != nil {
+	systemSettingsPlans := systemSettingsGitOpsPlans{
+		runtime:   runtimeSettingsPlan,
+		github:    githubSettingsPlan,
+		assistant: assistantSettingsPlan,
+	}
+	if !systemSettingsPlans.empty() {
+		if err := a.applySystemSettingsGitOpsPlans(ctx, binding, systemSettingsPlans, commitSHA); err != nil {
 			return fmt.Errorf("failed to sync system settings: %w", err)
 		}
 		if runtimeSettingsPlan != nil {
@@ -1226,6 +1241,9 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 		if githubSettingsPlan != nil {
 			details["github_settings_synced"] = 1
+		}
+		if assistantSettingsPlan != nil {
+			details["assistant_settings_synced"] = 1
 		}
 	}
 	if llmProfilePlan != nil {

@@ -89,6 +89,7 @@ preflight, and `/v1/auth/me`.
 From the home menu operators can switch into the full CLI surface: API catalog
 calls, raw API requests, route listing, route descriptions, context management,
 token login/logout, first-install flows, platform doctor, platform release,
+platform upgrade,
 completion generation, guide topics, help, or exit. Nested screens keep the
 same visual model: route parameters, raw transport options, install options,
 release options, completion output, help, doctor checks, guide text, and API
@@ -408,6 +409,78 @@ Git.
 Without `--version`, a released CLI defaults to its own semantic build version.
 Development builds prompt for a version in the wizard and require `--version`
 for exact noninteractive install commands.
+
+## Platform Upgrade
+
+`install` performs the first install. `platform upgrade` moves an existing
+install to a newer release without regenerating the secrets that install
+created.
+
+```bash
+# Review the upgrade before anything changes
+nopsai platform upgrade docker-compose --version <version> --plan
+
+# Apply the upgrade and restart the stack
+nopsai platform upgrade docker-compose --version <version> --run
+
+# Review, then apply a Helm upgrade using the recorded values files
+nopsai platform upgrade kubernetes --version <version> --plan
+nopsai platform upgrade kubernetes --version <version> --deploy --wait
+
+# Prompt for target and version
+nopsai platform upgrade
+```
+
+Upgrade order matters: run `nopsai update --version <version>` first. The CLI
+owns the Compose template and Helm inputs a release expects, so an upgrade
+refuses a platform version outside the range the current CLI supports and tells
+you which `nopsai update` command to run.
+
+What each target does:
+
+- `docker-compose` reads `<output-dir>/.nopsai/install.lock`, re-renders
+  `docker-compose.yaml` for the target release, and rewrites only
+  `NOPSAI_VERSION` and the image pins in `.env`. Every generated secret,
+  including `NOPSAI_MASTER_KEY`, survives the upgrade. Keys the new release
+  renders but the existing `.env` does not have are listed as required actions
+  rather than being invented.
+- `kubernetes` reads the deployment lock written by the last install or upgrade,
+  reuses the recorded Helm release, namespace, chart, and values files, and runs
+  `helm upgrade --install` for the target version. Pass `--values` to override
+  the recorded files. The version stays a single value: the deploy passes
+  `--set-string global.releaseVersion=<version>` so the chart version and the
+  NopsAI image tags cannot diverge, and after a successful deploy the pinned
+  `global.releaseVersion` in the values files that record one is rewritten to the
+  deployed version.
+
+Upgrades are forward-only: a target that is not newer than the installed version
+is rejected.
+
+### Changelog and required actions
+
+Before applying, the command prints the release changelog and a required-action
+checklist. The changelog is the published `nopsai-changelog-<version>.md` asset,
+downloaded and checksum-verified against the `SHA256SUMS` beside it. Use
+`--changelog-repository` or `--changelog-base-url` (or
+`NOPSAI_CHANGELOG_BASE_URL`) for enterprise mirrors; when no changelog is
+reachable, the plan says so instead of pretending the upgrade is clean.
+
+An upgrade that crosses a compatibility series (the major number, or the minor
+number below `1.0.0`) is treated as a breaking upgrade: the full changelog is
+printed, entries under the changelog's `Breaking` heading become required
+actions, and the upgrade refuses to apply until it is re-run with
+`--accept-series-upgrade`. Smaller upgrades still surface breaking entries when a
+release publishes them.
+
+Upgrade flags:
+
+- `--version` selects the target release; released CLIs default to their build version.
+- `--plan` prints the plan, changelog, and required actions without changing anything.
+- `--output/-o` renders the plan as `text`, `json`, or `yaml`.
+- `--accept-series-upgrade` confirms a reviewed series upgrade.
+- `--run` (Compose) applies files and runs `docker compose up -d`.
+- `--deploy` and `--wait` (Kubernetes) apply the Helm upgrade.
+- `--lock-file` (Kubernetes) selects a deployment lock other than `.nopsai/release.lock`.
 
 ## Advanced Platform Bundles
 

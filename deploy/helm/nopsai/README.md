@@ -52,11 +52,15 @@ helm upgrade --install nopsai ./nopsai-<version>.tgz \
   --set secrets.existingSecret=nopsai-secrets
 ```
 
-NopsAI-owned image tags default from `global.releaseVersion` when their
-per-image `tag` is empty. Set `api.image.tag`, `agent.image.tag`, or another
-NopsAI image tag only for an intentional component-specific override; set
-`digest` to pin an image by digest. Third-party images such as PostgreSQL and
-Gotenberg keep explicit tags in values.
+The chart version is the only version to change. Every NopsAI image tag
+resolves from `global.releaseVersion`, and when that is empty it falls back to
+the chart `appVersion`, which release packaging stamps with the release version.
+Deploying `--version <release>` therefore moves every NopsAI image without any
+values edit. Set `global.releaseVersion` only to run images from a version other
+than the chart's own; set `api.image.tag`, `agent.image.tag`, or another
+per-image tag only for an intentional component-specific override, and `digest`
+to pin one image by digest. Third-party images such as PostgreSQL and Gotenberg
+keep explicit tags in values.
 
 Private GHCR installations should create a registry pull Secret in the target
 namespace and attach it through `global.imagePullSecrets`. The Kubernetes

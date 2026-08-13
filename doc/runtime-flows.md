@@ -408,6 +408,7 @@ Rerun:
    - `setting/system/auth.yaml` becomes mandatory local-login settings plus the single enabled external identity provider, only from a system/global config repo, with provider credential references resolved from the encrypted registry
    - `setting/git-apps/github.yaml` becomes GitHub App IDs, credential references, and installation records, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
+   - `setting/system/assistant.yaml` becomes the Nopsai AI Assistant provider, model, credential reference, feature flags, and memory settings, only from a system/global config repo
    - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password plaintext kept out of the mail file
    - `setting/system/data-management.yaml` becomes scheduled data cleanup rules, only from a system/global config repo; backup files and cleanup job history remain runtime records
    - `setting/system/credentials.yaml` becomes encrypted system credential envelopes, only from a system/global config repo

@@ -23,6 +23,7 @@ func newPlatformCommand(options *rootOptions) *cobra.Command {
 	}
 	command.AddCommand(newPlatformDoctorCommand(options))
 	command.AddCommand(newPlatformReleaseCommand(options))
+	command.AddCommand(newPlatformUpgradeCommand(options))
 	return command
 }
 

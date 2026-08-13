@@ -20,7 +20,7 @@ spec:
       {{- end }}
       containers:
         - name: dispatcher
-          image: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.dispatcher.image "defaultTag" .Values.global.releaseVersion) | quote }}
+          image: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.dispatcher.image "defaultTag" (include "nopsai.releaseVersion" .)) | quote }}
           imagePullPolicy: {{ .Values.dispatcher.imagePullPolicy }}
           ports: [{name: grpc, containerPort: 9090}]
           env:

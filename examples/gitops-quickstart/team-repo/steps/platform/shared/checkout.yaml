@@ -1,0 +1,11 @@
+# Reusable step. Any pipeline can include it with:
+#   include: step:platform/shared/checkout
+name: checkout
+image: alpine/git:latest
+access:
+  visibility: public
+script: |
+  #!/bin/sh
+  set -e
+  git --version
+  echo "Repository content is available in the run workspace."

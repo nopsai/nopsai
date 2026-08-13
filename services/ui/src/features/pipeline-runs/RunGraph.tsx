@@ -85,6 +85,7 @@ export function StepsGraph({
   pipelineDefinition,
   statusVariant = 'default',
   hideStatusLegend = false,
+  hideStatusFilter = false,
   statusColorOverride,
   stepStatusColorOverride,
   taskStatusColorOverride,
@@ -104,6 +105,7 @@ export function StepsGraph({
   pipelineDefinition?: PipelineDefinition;
   statusVariant?: StatusGlyphVariant;
   hideStatusLegend?: boolean;
+  hideStatusFilter?: boolean;
   statusColorOverride?: string;
   stepStatusColorOverride?: string;
   taskStatusColorOverride?: string;
@@ -514,21 +516,23 @@ export function StepsGraph({
           placeholder="Find step or task"
         />
       </label>
-      <select
-        className="run-graph-select"
-        aria-label="Filter graph by status"
-        value={statusFilter}
-        onChange={event => setStatusFilter(event.target.value as RunGraphStatusFilter)}
-      >
-        <option value="all">All statuses</option>
-        <option value="success">Succeeded</option>
-        <option value="warning">Warning</option>
-        <option value="failed">Failed</option>
-        <option value="running">Running</option>
-        <option value="pending">Pending</option>
-        <option value="skipped">Skipped</option>
-        <option value="cancelled">Cancelled</option>
-      </select>
+      {!hideStatusFilter ? (
+        <select
+          className="run-graph-select"
+          aria-label="Filter graph by status"
+          value={statusFilter}
+          onChange={event => setStatusFilter(event.target.value as RunGraphStatusFilter)}
+        >
+          <option value="all">All statuses</option>
+          <option value="success">Succeeded</option>
+          <option value="warning">Warning</option>
+          <option value="failed">Failed</option>
+          <option value="running">Running</option>
+          <option value="pending">Pending</option>
+          <option value="skipped">Skipped</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      ) : null}
     </>
   );
 

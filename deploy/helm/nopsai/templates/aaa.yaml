@@ -20,7 +20,7 @@ spec:
       {{- end }}
       containers:
         - name: aaa
-          image: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.aaa.image "defaultTag" .Values.global.releaseVersion) | quote }}
+          image: {{ include "nopsai.imageWithDefaultTag" (dict "image" .Values.aaa.image "defaultTag" (include "nopsai.releaseVersion" .)) | quote }}
           imagePullPolicy: {{ .Values.aaa.imagePullPolicy }}
           ports: [{name: http, containerPort: 8082}]
           env:

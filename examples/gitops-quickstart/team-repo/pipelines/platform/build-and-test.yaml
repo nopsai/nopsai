@@ -1,0 +1,39 @@
+name: build-and-test
+version: "1.0.0"
+description: Build and test the service, then produce a summary for reviewers.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 15m
+# Values come from the scope selected at run time (scopes/platform/dev|prod).
+variables:
+  - API_VERSION
+  - IMAGE_NAME
+output:
+  items:
+    - name: Build summary
+      type: markdown
+      when: success
+      prompt: |
+        Summarize this build-and-test run: result, notable evidence, and the
+        recommended next action.
+steps:
+  # Reusable step from steps/platform/shared/checkout.yaml.
+  - name: checkout
+    include: step:platform/shared/checkout
+
+  - name: test
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Testing API_VERSION=$API_VERSION"
+      echo "All tests passed"
+    depends_on:
+      - checkout
+
+  - name: build-image
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Building image $IMAGE_NAME"
+    depends_on:
+      - test

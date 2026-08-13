@@ -1,0 +1,31 @@
+# Users and roles owned by the global repository.
+users:
+  - sub: alice
+    email: alice@example.com
+    status: active
+
+  - sub: bob
+    email: bob@example.com
+    status: active
+
+# Basic roles bind a user to a resource with a predefined permission set.
+basic_roles:
+  - user: alice
+    role: owner
+    resource: team:platform
+
+  - user: bob
+    role: developer
+    resource: team:platform
+
+# Advanced roles express fine-grained policies when a basic role is too broad.
+advanced_roles:
+  - name: release-approver
+    description: May approve and execute platform release pipelines.
+    policies:
+      - name: Execute platform pipelines
+        resource: pipeline:platform/*
+        action: pipeline.execute
+      - name: Read platform runs
+        resource: pipeline_run:*
+        action: pipeline_run.read

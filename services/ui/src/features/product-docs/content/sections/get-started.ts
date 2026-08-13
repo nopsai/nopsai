@@ -225,7 +225,7 @@ export const getStartedSection: WikiSection = {
       ],
       related: ['pipeline-schema', 'step-task-directives', 'first-ai-assisted-pipeline', 'pipeline-runs'],
       sources: [
-        { repositoryPath: 'examples/sample-pipeline/README.md', purpose: 'Copyable standalone pipeline examples.' },
+        { repositoryPath: 'examples/gitops-quickstart/README.md', purpose: 'Copyable GitOps sample with pipelines, steps, scopes, and a dashboard.' },
       ],
     },
     {

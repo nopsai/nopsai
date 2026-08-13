@@ -40,6 +40,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"auth_settings_synced":           0,
 		"credentials_synced":             0,
 		"runtime_settings_synced":        0,
+		"assistant_settings_synced":      0,
 		"mail_settings_synced":           0,
 		"data_cleanup_schedules_synced":  0,
 		"notification_routes_synced":     0,

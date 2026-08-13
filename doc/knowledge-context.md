@@ -459,21 +459,22 @@ full history.
 Run details include the stored snapshot, so a completed run records the exact
 knowledge content that influenced it even if the source document later changes.
 
-## Prompt Injection Probe Sample
+## Guardrail Sample
 
-The GitOps sample repository includes a governed red-team pipeline at:
+The GitOps sample repository includes an LLM pipeline that attaches managed
+Knowledge Context documents at:
 
 ```text
-examples/sample-config-repo/team-1-repo/pipelines/team-1/prompt-injection-guardrail-probe.yaml
+examples/gitops-quickstart/team-repo/pipelines/platform/release-notes.yaml
 ```
 
-It demonstrates the existing guardrail and policy path without adding a custom
-runtime primitive. The pipeline attaches these managed Knowledge Context
+It demonstrates the existing architecture and guardrail path without adding a
+custom runtime primitive. The pipeline attaches these managed Knowledge Context
 documents:
 
 ```text
-guardrail/team-1/prompt-injection-safety
-policy/team-1/llm-task-integrity
+architecture/platform/service-architecture
+guardrail/platform/release-safety
 ```
 
 The first pipeline step prepares the report directory and then runs an LLM goal
