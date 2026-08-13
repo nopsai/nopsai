@@ -64,7 +64,10 @@ Four things worth noticing:
 - **`output:` runs after execution.** Deliverables can be Markdown, JSON, HTML,
   PDF, Excel, or a dashboard publication.
 
-More examples live in [`examples/`](examples/README.md).
+More examples live in [`examples/`](examples/README.md): a GitOps sample repository
+in [examples/sample-config-repo/README.md](examples/sample-config-repo/README.md),
+runnable pipelines under [examples/sample-pipeline](examples/sample-pipeline/README.md),
+and SSO fixtures under [examples/sso](examples/sso/README.md).
 
 ## Quick start
 
