@@ -37,29 +37,61 @@ GitOps-readable release lock; platform services are not selected independently.
 
 ## High-Level Flow
 
-```text
-Git providers / User
-    |
-    v
-git-bot or UI/API
-    |
-    v
-nopsai (auth, validation, DB, config resolution)
-    | \
-    |  -> aaa (authorization checks)
-    |
-    v
-dispatcher (queue, affinity, scope routing)
-    |
-    v
-runner (Docker host)
-    |
-    v
-agent container
-    |
-    v
-step containers + child pipeline runs
+```mermaid
+flowchart TB
+  subgraph ENTRY["Entry points"]
+    USERS["Browser · CLI · API clients"]
+    GIT["Git providers<br/>GitHub · GitLab · Bitbucket · Gitea"]
+    UI["Operator UI"]
+    GITBOT["git-bot"]
+  end
+
+  subgraph CONTROL["Durable control plane"]
+    API["nopsai API<br/>validation · orchestration · run records"]
+    AAA["aaa<br/>authorization decisions"]
+    PG[("PostgreSQL<br/>durable state")]
+    GOT["gotenberg<br/>PDF rendering"]
+    PROXY["docker-socket-proxy<br/>allow-listed reads only"]
+  end
+
+  subgraph EXEC["Ephemeral execution plane"]
+    DISP["dispatcher<br/>routing · capacity · assignment"]
+    RUNNER["Docker / Kubernetes runner"]
+    AGENT["Per-run agent"]
+    STEPS["Step containers or pods"]
+  end
+
+  subgraph EXT["External providers"]
+    LLM["LLM providers"]
+    MCP["MCP servers"]
+  end
+
+  USERS -->|REST| UI
+  UI -->|authenticated REST| API
+  GIT -->|signed webhooks| GITBOT
+  GITBOT -->|validated events| API
+  GIT -->|signed webhooks| API
+
+  API <-->|authorize caller| AAA
+  API --> PG
+  AAA --> PG
+  API -->|render PDF| GOT
+  API -->|system logs| PROXY
+
+  API -->|SubmitJob gRPC| DISP
+  RUNNER -.->|runner dials out| DISP
+  DISP -->|assigns runs over that stream| RUNNER
+  RUNNER -->|starts one per run| AGENT
+  AGENT -->|Docker / Kubernetes API| STEPS
+  AGENT -->|status · logs · outputs · approvals| API
+  AGENT -->|provider HTTP| LLM
+  AGENT -->|tool calls| MCP
 ```
+
+The dashed edge carries the property the rest of the topology depends on: the
+runner opens the stream to the dispatcher, and assignments travel back over that
+same connection. Runners are therefore reachable without any inbound network
+path, which is what makes remote and hybrid runner deployments practical.
 
 Feedback flows in the opposite direction:
 
