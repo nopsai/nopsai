@@ -1,86 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { wikiArticlePath } from '../features/product-docs/model';
-import { ArticleHeader, Boundaries, Details, KeyFacts, Prerequisites, Procedure, Sources } from '../features/product-docs/DocumentationArticle';
-import { Examples } from '../features/product-docs/DocumentationExamples';
-import { ArticleNavigation, DocumentationSidebar, OnThisPage } from '../features/product-docs/DocumentationNavigation';
-import { FieldReference, OperationalGuidance } from '../features/product-docs/DocumentationReference';
-import {
-  documentationSections,
-  findDocumentationArticle,
-  findDocumentationArticleByPath,
-  findDocumentationSectionForArticle,
-  getArticleSectionOrder,
-  type DocumentationArticle,
-} from '../features/product-docs/quality';
+import { findWikiArticleByPath, wikiHomePath } from '../features/product-docs/content';
+import { isIndexArticle } from '../features/product-docs/indexes';
 import { scrollDocumentationViewport } from '../features/product-docs/scroll';
-import { searchDocumentation, type DocumentationSearchResult } from '../features/product-docs/search';
+import { searchWiki, type WikiSearchResult } from '../features/product-docs/search';
+import { visibleWikiBlocks, wikiBlockTitle } from '../features/product-docs/blocks';
+import { WikiArticleBody, WikiArticleHeader } from '../features/product-docs/WikiArticle';
+import { WikiHome } from '../features/product-docs/WikiHome';
+import { WikiIndex } from '../features/product-docs/WikiIndexes';
+import { WikiOnThisPage, WikiPager, WikiSidebar } from '../features/product-docs/WikiNavigation';
 import { copyTextToClipboard } from '../lib/clipboard';
-
-type ArticleBlock = 'prerequisites' | 'procedure' | 'key-facts' | 'details' | 'configuration' | 'examples' | 'operations' | 'boundaries' | 'sources';
-
-const blockLabels: Record<ArticleBlock, string> = {
-  prerequisites: 'Prerequisites',
-  procedure: 'Procedure',
-  'key-facts': 'Key points',
-  details: 'How it works',
-  configuration: 'Field reference',
-  examples: 'Examples',
-  operations: 'Operational guidance',
-  boundaries: 'Boundaries',
-  sources: 'Sources',
-};
-
-function getVisibleBlocks(article: DocumentationArticle) {
-  const visible: Record<ArticleBlock, boolean> = {
-    prerequisites: article.prerequisites.length > 0,
-    procedure: article.steps.length > 0,
-    'key-facts': article.keyFacts.length > 0,
-    details: article.details.length > 0,
-    configuration: article.configRows.length > 0,
-    examples: article.examples.length > 0,
-    operations: article.runbookEntries.length > 0,
-    boundaries: article.caveats.length > 0,
-    sources: article.sourceLinks.length > 0,
-  };
-  return getArticleSectionOrder(article).filter(block => visible[block as ArticleBlock]) as ArticleBlock[];
-}
 
 export default function ProductDocsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [copiedKey, setCopiedKey] = useState('');
+
   const query = new URLSearchParams(location.search).get('q') || '';
-  const routeSelection = useMemo(() => findDocumentationArticleByPath(location.pathname), [location.pathname]);
-  const activeArticle = routeSelection?.article || findDocumentationArticle(documentationSections[0]?.articles[0]?.id || '');
-  const activeSection = activeArticle ? findDocumentationSectionForArticle(activeArticle.id) : undefined;
-  const searchResults = useMemo(() => searchDocumentation(query), [query]);
-  const visibleBlocks = useMemo(() => activeArticle ? getVisibleBlocks(activeArticle) : [], [activeArticle]);
-  const tocItems = visibleBlocks.map(block => ({ id: block, label: blockLabels[block] }));
+  const selection = useMemo(() => findWikiArticleByPath(location.pathname), [location.pathname]);
+  const results = useMemo(() => searchWiki(query), [query]);
+  const targetAnchor = location.hash.replace(/^#/, '') || undefined;
 
   useEffect(() => {
     scrollDocumentationViewport(location.hash);
   }, [location.pathname, location.hash]);
 
-  if (!activeArticle || !activeSection) return null;
-
   const handleQueryChange = (nextQuery: string) => {
     const params = new URLSearchParams(location.search);
     if (nextQuery.trim()) params.set('q', nextQuery);
     else params.delete('q');
-    navigate({ pathname: location.pathname, search: params.toString() ? `?${params.toString()}` : '', hash: location.hash }, { replace: true });
+    navigate(
+      { pathname: location.pathname, search: params.toString() ? `?${params.toString()}` : '', hash: location.hash },
+      { replace: true },
+    );
   };
 
-  const handleSelectArticle = (articleID: string) => {
-    const section = findDocumentationSectionForArticle(articleID);
-    if (!section) return;
-    const pathname = wikiArticlePath(section.id, articleID);
-    navigate({ pathname, search: location.search });
-    if (pathname === location.pathname && !location.hash) scrollDocumentationViewport('');
-  };
-
-  const handleSelectSearchResult = (result: DocumentationSearchResult) => {
-    const [pathname = '/docs', hash = ''] = result.href.split('#');
+  const handleSelectResult = (result: WikiSearchResult) => {
+    const [pathname = wikiHomePath(), hash = ''] = result.href.split('#');
     navigate({ pathname, search: location.search, hash: hash ? `#${hash}` : '' });
   };
 
@@ -88,45 +44,54 @@ export default function ProductDocsPage() {
     try {
       await copyTextToClipboard(code);
       setCopiedKey(key);
-      window.setTimeout(() => setCopiedKey(current => current === key ? '' : current), 1600);
+      window.setTimeout(() => setCopiedKey(current => (current === key ? '' : current)), 1600);
     } catch {
       setCopiedKey('');
     }
   };
 
-  const renderBlock = (block: ArticleBlock) => {
-    switch (block) {
-      case 'prerequisites': return <Prerequisites key={block} items={activeArticle.prerequisites} />;
-      case 'procedure': return <Procedure key={block} article={activeArticle} copiedKey={copiedKey} onCopy={handleCopy} />;
-      case 'key-facts': return <KeyFacts key={block} article={activeArticle} />;
-      case 'details': return <Details key={block} article={activeArticle} />;
-      case 'configuration': return <FieldReference key={block} article={activeArticle} />;
-      case 'examples': return <Examples key={block} article={activeArticle} copiedKey={copiedKey} onCopy={handleCopy} />;
-      case 'operations': return <OperationalGuidance key={block} article={activeArticle} />;
-      case 'boundaries': return <Boundaries key={block} article={activeArticle} />;
-      case 'sources': return <Sources key={block} article={activeArticle} />;
-    }
-  };
+  const blocks = selection ? visibleWikiBlocks(selection.article) : [];
+  const tocItems = blocks.map(block => ({ id: block, label: wikiBlockTitle(block, selection?.article) }));
 
   return (
     <div className="min-h-full bg-[var(--bg-primary)]">
-      <div className="mx-auto grid w-full max-w-[1440px] gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)_11rem] lg:px-8">
-        <DocumentationSidebar
-          activeArticleID={activeArticle.id}
+      <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-4 sm:px-5 lg:grid-cols-[15rem_minmax(0,1fr)] lg:px-6 xl:grid-cols-[15rem_minmax(0,1fr)_10rem]">
+        <WikiSidebar
+          activeArticleID={selection?.article.id || ''}
           query={query}
-          searchResults={searchResults}
+          results={results}
           onQueryChange={handleQueryChange}
-          onSelectArticle={handleSelectArticle}
-          onSelectSearchResult={handleSelectSearchResult}
+          onSelectResult={handleSelectResult}
+          showSearch={Boolean(selection)}
         />
-        <main className="min-w-0 pb-16" aria-labelledby="documentation-article-title">
-          <article className="mx-auto max-w-3xl">
-            <ArticleHeader section={activeSection} article={activeArticle} />
-            <div className="mt-9">{visibleBlocks.map(renderBlock)}</div>
-            <ArticleNavigation articleID={activeArticle.id} onSelect={handleSelectArticle} />
-          </article>
+        <main className="min-w-0 pb-12" aria-labelledby={selection ? 'wiki-article-title' : undefined}>
+          {selection ? (
+            <article className="mx-auto max-w-3xl">
+              <WikiArticleHeader section={selection.section} article={selection.article} />
+              {isIndexArticle(selection.article.id) ? (
+                <div className="mt-6">
+                  <WikiIndex indexID={selection.article.id} />
+                </div>
+              ) : null}
+              <WikiArticleBody
+                article={selection.article}
+                blocks={blocks}
+                targetAnchor={targetAnchor}
+                copiedKey={copiedKey}
+                onCopy={handleCopy}
+              />
+              <WikiPager articleID={selection.article.id} />
+            </article>
+          ) : (
+            <WikiHome
+              query={query}
+              results={results}
+              onQueryChange={handleQueryChange}
+              onSelectResult={handleSelectResult}
+            />
+          )}
         </main>
-        <OnThisPage items={tocItems} />
+        {selection ? <WikiOnThisPage items={tocItems} /> : <span />}
       </div>
     </div>
   );
