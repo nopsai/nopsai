@@ -137,6 +137,7 @@ test('builds Teams workspace table items and copy', () => {
 
 test('keeps application detail navigation collapsed into overview only', () => {
   assert.deepEqual(visibleTeamDetailTabs(teams[2]).map(tab => tab.label), ['Overview']);
-  assert.deepEqual(visibleTeamDetailTabs(teams[0]).map(tab => tab.label), ['Overview', 'GitOps', 'Notifications', 'Access']);
-  assert.deepEqual(visibleTeamDetailTabs(null).map(tab => tab.label), ['Overview', 'GitOps', 'Access']);
+  assert.deepEqual(visibleTeamDetailTabs(teams[0]).map(tab => tab.label), ['Overview', 'GitOps', 'Defaults', 'Notifications', 'Access']);
+  // Global scope keeps Defaults — only Notifications is team-scoped.
+  assert.deepEqual(visibleTeamDetailTabs(null).map(tab => tab.label), ['Overview', 'GitOps', 'Defaults', 'Access']);
 });
