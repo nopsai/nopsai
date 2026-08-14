@@ -1,7 +1,0 @@
-# A team-owned model. It lives in the team's own repository under the team
-# path, and `default: true` here sets the default for this team only.
-default: true
-provider: gemini
-model: gemini-2.5-pro
-credential_ref: credential://system/llm/gemini
-allowed_scopes: ["dev"]

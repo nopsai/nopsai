@@ -1,6 +1,6 @@
 import type { WikiField } from '../types.js';
 
-/** Model settings in `models/<name>.yaml` and team-owned `models/<team>/<name>.yaml`. */
+/** Model settings in `models/<name>.yaml`, where a team-scoped model lives at `models/<team>/<name>.yaml`. */
 export const llmProfileFields: WikiField[] = [
   {
     path: 'provider',
@@ -175,7 +175,7 @@ export const llmProfileFields: WikiField[] = [
   },
 ];
 
-/** Agent role settings in `agent-roles/<name>.yaml` and team-owned `agent-roles/<team>/<name>.yaml`. */
+/** Agent role settings in `agent-roles/<name>.yaml`, where a team-scoped role lives at `agent-roles/<team>/<name>.yaml`. */
 export const agentProfileFields: WikiField[] = [
   {
     path: 'id',

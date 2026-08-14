@@ -49,17 +49,19 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	)
 
 	steps := stepsByName(pipeline.Steps)
-	imageStepNames := []string{
-		"publish-image-nopsai-api",
-		"publish-image-nopsai-aaa",
-		"publish-image-nopsai-agent",
-		"publish-image-nopsai-dispatcher",
-		"publish-image-nopsai-git-bot",
-		"publish-image-nopsai-docker-runner",
-		"publish-image-nopsai-k8s-runner",
-		"publish-image-nopsai-docker-socket-proxy",
-		"publish-image-nopsai-ui",
-		"publish-image-pipeline-image",
+	// Release images are parallel tasks inside publish-images rather than one
+	// step each, so the toolchain is installed once for all of them.
+	imageTaskNames := []string{
+		"nopsai-api",
+		"nopsai-aaa",
+		"nopsai-agent",
+		"nopsai-dispatcher",
+		"nopsai-git-bot",
+		"nopsai-docker-runner",
+		"nopsai-k8s-runner",
+		"nopsai-docker-socket-proxy",
+		"nopsai-ui",
+		"pipeline-image",
 	}
 	for _, name := range []string{
 		"checkout-repository",
@@ -69,6 +71,7 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 		"build-cli-archives",
 		"publish-base-image",
 		"publish-images",
+		"verify-image-digests",
 		"package-helm-chart",
 		"publish-helm-chart",
 		"package-release-assets",
@@ -78,23 +81,34 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 			t.Fatalf("missing release pipeline step %q", name)
 		}
 	}
-	for _, name := range imageStepNames {
-		if _, ok := steps[name]; !ok {
-			t.Fatalf("missing release pipeline image step %q", name)
+	imageTasks := map[string]models.Task{}
+	for _, task := range steps["publish-images"].GetTasks() {
+		imageTasks[task.Name] = task
+	}
+	if _, ok := imageTasks["prepare-image-tools"]; !ok {
+		t.Fatal("publish-images must install the image toolchain once in prepare-image-tools")
+	}
+	for _, name := range imageTaskNames {
+		task, ok := imageTasks[name]
+		if !ok {
+			t.Fatalf("missing release pipeline image task %q", name)
+		}
+		requireDependsOn(t, task.DependsOn, "prepare-image-tools")
+		requireContains(t, task.Script, "scripts/publish-release-image.sh "+name)
+		if strings.Contains(task.Script, "apk add") {
+			t.Fatalf("image task %q should reuse the toolchain from prepare-image-tools", name)
 		}
 	}
 
 	requireSecrets(t, steps["checkout-repository"].GetSecrets(), "NOPSAI_RELEASE_GITHUB_TOKEN")
 	requireSecrets(t, steps["release-metadata"].GetSecrets(), "NOPSAI_RELEASE_GITHUB_TOKEN")
 	requireSecrets(t, steps["publish-base-image"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
-	for _, name := range imageStepNames {
-		requireSecrets(t, steps[name].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
-		requireDependsOn(t, steps[name].GetDependsOn(), "publish-base-image")
-	}
+	requireSecrets(t, steps["publish-images"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
+	requireDependsOn(t, steps["publish-images"].GetDependsOn(), "publish-base-image")
 	requireSecrets(t, steps["publish-helm-chart"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
 	requireSecrets(t, steps["publish-release"].GetSecrets(), "NOPSAI_RELEASE_GITHUB_TOKEN")
-	requireDependsOn(t, steps["publish-images"].GetDependsOn(), imageStepNames...)
-	requireDependsOn(t, steps["package-helm-chart"].GetDependsOn(), "publish-images")
+	requireDependsOn(t, steps["verify-image-digests"].GetDependsOn(), "publish-images")
+	requireDependsOn(t, steps["package-helm-chart"].GetDependsOn(), "verify-image-digests")
 	requireDependsOn(t, steps["publish-helm-chart"].GetDependsOn(), "package-helm-chart")
 	requireDependsOn(t, steps["build-cli-archives"].GetDependsOn(), "publish-helm-chart")
 	requireDependsOn(t, steps["package-release-assets"].GetDependsOn(), "build-cli-archives", "publish-helm-chart")
@@ -127,19 +141,44 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	if strings.Contains(steps["release-metadata"].GetScript(), "cat >dist/release/install-release-tools.sh") {
 		t.Fatal("release-metadata must copy the checked-in release tool installer instead of embedding a generated copy")
 	}
-	requireContains(t, steps["publish-base-image"].GetScript(), "publish-release-image.sh")
 	requireContains(t, steps["publish-base-image"].GetScript(), "nopsai-base")
 	requireContains(t, steps["publish-base-image"].GetScript(), `release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")`)
-	requireContains(t, steps["publish-base-image"].GetScript(), `release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")`)
 	requireContains(t, steps["publish-base-image"].GetScript(), `done < <(scripts/release-tags.sh "$VERSION")`)
 	requireContains(t, steps["publish-base-image"].GetScript(), `--annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"`)
-	requireContains(t, steps["publish-base-image"].GetScript(), `--annotation "index,manifest:org.opencontainers.image.title=$image_name"`)
 	requireContains(t, steps["publish-base-image"].GetScript(), `--annotation "index,manifest:org.opencontainers.image.title=nopsai-base"`)
 	requireContains(t, steps["publish-base-image"].GetScript(), `"${oci_annotation_args[@]}"`)
 	requireContains(t, steps["publish-base-image"].GetScript(), "--build-arg \"SOURCE_URL=$SOURCE_URL\"")
-	requireContains(t, steps["publish-image-pipeline-image"].GetScript(), "publish-release-image.sh pipeline-image . container/Dockerfile.pipeline")
-	requireContains(t, steps["publish-images"].GetScript(), "dist/digests/${image_name}.digest")
-	requireContains(t, steps["publish-images"].GetScript(), "verified_image=$REGISTRY/$image_name@$digest")
+
+	imagePublisherPath := filepath.Join("..", "..", "..", "..", "scripts", "publish-release-image.sh")
+	imagePublisherBytes, err := os.ReadFile(imagePublisherPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", imagePublisherPath, err)
+	}
+	imagePublisher := string(imagePublisherBytes)
+	for _, required := range []string{
+		`release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")`,
+		`done < <(scripts/release-tags.sh "$VERSION")`,
+		`--annotation "index,manifest:org.opencontainers.image.title=$image_name"`,
+		`"${oci_annotation_args[@]}"`,
+		"--build-arg \"BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest\"",
+		"--build-arg \"SOURCE_URL=$SOURCE_URL\"",
+		`printf '%s\n' "$digest" >"dist/digests/${image_name}.digest"`,
+	} {
+		requireContains(t, imagePublisher, required)
+	}
+	requireContains(t, imageTasks["pipeline-image"].Script, "scripts/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline")
+	// The image publisher is a checked-in script rather than a heredoc that the
+	// pipeline writes at run time, so it can be reviewed and linted like code.
+	if strings.Contains(pipeline.Steps[0].GetScript(), "IMAGE_SCRIPT") {
+		t.Fatal("release pipeline should not generate publish-release-image.sh at run time")
+	}
+	for _, step := range pipeline.Steps {
+		if strings.Contains(step.GetScript(), "cat >dist/release/publish-release-image.sh") {
+			t.Fatalf("step %q still generates the image publisher instead of using scripts/publish-release-image.sh", step.GetName())
+		}
+	}
+	requireContains(t, steps["verify-image-digests"].GetScript(), "dist/digests/${image_name}.digest")
+	requireContains(t, steps["verify-image-digests"].GetScript(), "verified_image=$REGISTRY/$image_name@$digest")
 	requireContains(t, steps["package-helm-chart"].GetScript(), "helm lint dist/release/chart")
 	requireContains(t, steps["package-helm-chart"].GetScript(), "helm package dist/release/chart --destination dist/release")
 	requireContains(t, steps["package-helm-chart"].GetScript(), "scripts/generate-changelog.sh")

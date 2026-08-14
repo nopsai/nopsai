@@ -439,11 +439,24 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 		if resourceID == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
 		}
-		if requireExists && resourceID != "*" {
-			kind, team, name, err := splitKnowledgeContextIdentifier(resourceID)
+		if resourceID == "*" {
+			return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
+		}
+		// The UI and the Knowledge Context API address documents by their
+		// document id, team/name, which omits the kind. Accept that form and
+		// resolve the kind, then store the canonical kind/team/name id so grants
+		// match the ones config repositories declare.
+		kind, team, name, err := splitKnowledgeContextRouteIdentifier(resourceID)
+		if err != nil {
+			return accessGrantResource{}, err
+		}
+		if kind == "" {
+			resolvedKind, err := resolveKnowledgeContextKindForGrant(ctx, runner, team, name)
 			if err != nil {
 				return accessGrantResource{}, err
 			}
+			kind = resolvedKind
+		} else if requireExists {
 			var exists int
 			err = runner.QueryRow(ctx, `
 				SELECT 1
@@ -458,7 +471,8 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 				return accessGrantResource{}, err
 			}
 		}
-		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
+		canonical := buildKnowledgeContextIdentifier(kind, team, name)
+		return accessGrantResource{Type: resourceType, ID: canonical, Display: canonical}, nil
 	case grantResourceKnowledgeConnection:
 		resourceID := strings.Trim(strings.TrimSpace(rawID), "/")
 		if resourceID == "" {
@@ -835,5 +849,40 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "config_repo.manage", model.ResourceRef{Type: grantResourceConfig, ID: resource.ID}, nil
 	default:
 		return "", model.ResourceRef{}, fmt.Errorf("unsupported grant resource")
+	}
+}
+
+// resolveKnowledgeContextKindForGrant finds the kind for a document addressed by
+// its document id. Document ids are unique across kinds, so a single match is
+// expected; anything else is reported instead of guessing.
+func resolveKnowledgeContextKindForGrant(ctx context.Context, runner queryRunner, team, name string) (string, error) {
+	rows, err := runner.Query(ctx, `
+		SELECT kind
+		FROM knowledge_contexts
+		WHERE team_path = $1 AND name = $2
+		ORDER BY kind ASC
+	`, team, name)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	kinds := []string{}
+	for rows.Next() {
+		var kind string
+		if err := rows.Scan(&kind); err != nil {
+			return "", err
+		}
+		kinds = append(kinds, kind)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	switch len(kinds) {
+	case 0:
+		return "", fmt.Errorf("resource not found")
+	case 1:
+		return kinds[0], nil
+	default:
+		return "", fmt.Errorf("knowledge document %q exists for kinds %s; use kind/team/name", buildKnowledgeDocumentIdentifier(team, name), strings.Join(kinds, ", "))
 	}
 }

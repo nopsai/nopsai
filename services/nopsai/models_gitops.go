@@ -22,30 +22,31 @@ type modelGitOpsFile struct {
 }
 
 type storedModel struct {
-	team       string
 	name       string
 	profile    config.LLMProfile
 	sourcePath string
 }
 
 type gitOpsModelPlan struct {
-	// models holds every model file, keyed by team/name for team models and by
-	// name for global models.
+	// models holds every model file keyed by model name. A team-scoped model
+	// carries its team in the name, exactly like a team-scoped pipeline.
 	models map[string]storedModel
-	// defaults maps a team ("" for global) to the model that declared itself
-	// the default for that scope.
-	defaults map[string]string
+	// defaultModel is the model that declared default: true, if any.
+	defaultModel string
 }
 
 func (p *gitOpsModelPlan) empty() bool {
 	return p == nil || len(p.models) == 0
 }
 
-func parseGitOpsModels(files map[string]string, root string, binding models.ConfigRepository, boundTeam string) (*gitOpsModelPlan, error) {
-	plan := &gitOpsModelPlan{models: map[string]storedModel{}, defaults: map[string]string{}}
-	defaultResources := map[string]registryGitOpsResource{}
+// parseGitOpsModels reads the model registry from models/<name>.yaml, where a
+// team-scoped model lives at models/<team>/<name>.yaml just like a team-scoped
+// pipeline lives at pipelines/<team>/<name>.yaml.
+func parseGitOpsModels(files map[string]string, root string, binding models.ConfigRepository) (*gitOpsModelPlan, error) {
+	plan := &gitOpsModelPlan{models: map[string]storedModel{}}
+	var defaultResource registryGitOpsResource
 
-	err := registryGitOpsFiles(files, root, binding, boundTeam, "model", func(resource registryGitOpsResource, content string) error {
+	visit := func(resource registryGitOpsResource, content string) error {
 		var file modelGitOpsFile
 		if err := yaml.Unmarshal([]byte(content), &file); err != nil {
 			return fmt.Errorf("failed to parse model '%s': %w", resource.sourcePath, err)
@@ -74,57 +75,42 @@ func parseGitOpsModels(files map[string]string, root string, binding models.Conf
 			}
 		}
 		resource.name = name
-		key := resource.key()
-		if existing, exists := plan.models[key]; exists {
-			return fmt.Errorf("duplicate model '%s' defined by '%s' and '%s'", key, existing.sourcePath, resource.sourcePath)
+		if existing, exists := plan.models[name]; exists {
+			return fmt.Errorf("duplicate model '%s' defined by '%s' and '%s'", name, existing.sourcePath, resource.sourcePath)
 		}
-		plan.models[key] = storedModel{
-			team:       resource.team,
-			name:       name,
-			profile:    profile,
-			sourcePath: resource.sourcePath,
-		}
+		plan.models[name] = storedModel{name: name, profile: profile, sourcePath: resource.sourcePath}
 		if file.Default {
-			winner, err := requireSingleRegistryDefault(defaultResources[resource.team], resource, "model")
+			winner, err := requireSingleRegistryDefault(defaultResource, resource, "model")
 			if err != nil {
 				return err
 			}
-			defaultResources[resource.team] = winner
-			plan.defaults[resource.team] = name
+			defaultResource = winner
+			plan.defaultModel = name
 		}
 		return nil
-	})
-	if err != nil {
+	}
+	if binding.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil, requireNoSystemRegistryFiles(files, root, modelsGitOpsDirectory)
+	}
+	if err := registryGitOpsFiles(files, root, "model", visit); err != nil {
 		return nil, err
 	}
 	if plan.empty() {
 		return nil, nil
 	}
-	for team, defaultName := range plan.defaults {
-		key := defaultName
-		if team != "" {
-			key = team + "/" + defaultName
-		}
-		if _, ok := plan.models[key]; !ok {
-			return nil, fmt.Errorf("model default %q is not defined for scope %q", defaultName, team)
-		}
-	}
 	return plan, nil
 }
 
-// globalModels returns the system-wide model registry from the plan.
-func (p *gitOpsModelPlan) globalModels() (string, map[string]config.LLMProfile) {
+// registryModels returns the model registry from the plan.
+func (p *gitOpsModelPlan) registryModels() (string, map[string]config.LLMProfile) {
 	profiles := map[string]config.LLMProfile{}
 	for _, stored := range p.models {
-		if stored.team != "" {
-			continue
-		}
 		profiles[stored.name] = stored.profile
 	}
 	if len(profiles) == 0 {
 		return "", nil
 	}
-	defaultName := p.defaults[""]
+	defaultName := p.defaultModel
 	if defaultName == "" {
 		defaultName = config.DefaultLLMProfileName
 	}
@@ -136,21 +122,6 @@ func (p *gitOpsModelPlan) globalModels() (string, map[string]config.LLMProfile) 
 		}
 	}
 	return defaultName, profiles
-}
-
-// teamModels groups team-owned models by team path.
-func (p *gitOpsModelPlan) teamModels() map[string]map[string]storedModel {
-	byTeam := map[string]map[string]storedModel{}
-	for _, stored := range p.models {
-		if stored.team == "" {
-			continue
-		}
-		if byTeam[stored.team] == nil {
-			byTeam[stored.team] = map[string]storedModel{}
-		}
-		byTeam[stored.team][stored.name] = stored
-	}
-	return byTeam
 }
 
 func buildModelGitOpsFile(name string, profile config.LLMProfile, isDefault bool) modelGitOpsFile {

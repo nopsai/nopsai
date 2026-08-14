@@ -31,6 +31,7 @@ team-repo/     the platform team's pipelines, steps, scopes, schedules, dashboar
 | `config-repositories/teams/platform/structure.yaml` | Registers the `platform` team and binds it to `team-repo`. |
 | `knowledge/architecture/platform/service-architecture.md` | Architecture knowledge attached to LLM work. |
 | `knowledge/guardrail/platform/release-safety.md` | A guardrail that constrains LLM behavior. |
+| `models/platform/team-review.yaml` | A team-scoped model. The team lives in the path, exactly like a pipeline, so this file defines the model named `platform/team-review`. |
 | `knowledge/connections/platform/engineering-wiki.yaml` | A Notion, Confluence, or wiki connection. Git owns the definition; reachability status stays runtime state. |
 | `knowledge/runbook/platform/service-onboarding.md` | A document whose body is mirrored from a connected page. Git owns which page is attached and how it syncs, not the page text. |
 | `triggers/platform/service-api.yaml` | Repository events that start pipelines. |
@@ -48,7 +49,6 @@ team-repo/     the platform team's pipelines, steps, scopes, schedules, dashboar
 | `scopes/platform/dev/scope.yaml`, `prod/scope.yaml` | Per-scope variables and declared secret keys. |
 | `schedules/platform/nightly-service-health.yaml` | A cron schedule bound to a scope. |
 | `dashboards/platform/service-health.yaml` | The dashboard that receives the pipeline output. |
-| `models/platform/team-review.yaml` | A team-owned model. `default: true` here sets the default for this team only. |
 | `access/grants.yaml` | Team-owned role grants. |
 | `config-repositories/teams/platform/notifications.yaml` | Team notification routing and throttling. |
 
