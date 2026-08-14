@@ -167,7 +167,7 @@ the current `DashboardSpec` version `1`; other versions remain invalid.
 ## Example: Intent-Driven Dashboard Publication
 
 This pipeline publishes one dashboard output. The step creates deterministic
-evidence and the final output prompt asks the configured LLM profile to turn
+evidence and the final output prompt asks the configured model to turn
 that evidence into a validated `DashboardSpec`.
 
 ```yaml
@@ -175,7 +175,7 @@ name: service-health-dashboard
 version: "1.0"
 description: Publish service health evidence into Engineering Health.
 container_image: alpine:3.20
-llm_profile: standard
+model: standard
 
 steps:
   - name: collect-evidence

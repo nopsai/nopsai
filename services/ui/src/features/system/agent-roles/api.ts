@@ -12,7 +12,7 @@ async function readError(response: Response, fallback: string) {
 }
 
 export async function fetchAgentProfiles(): Promise<AgentProfilesPayload> {
-  const response = await apiClient.fetch('/v1/system/agent-profiles', { cache: 'no-store' });
+  const response = await apiClient.fetch('/v1/system/agent-roles', { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(await readError(response, `Failed to load agent profiles (${response.status})`));
   }
@@ -21,7 +21,7 @@ export async function fetchAgentProfiles(): Promise<AgentProfilesPayload> {
 
 export async function createAgentProfile(form: AgentProfileFormState): Promise<AgentProfilesPayload> {
   const payload = agentProfilePayloadFromForm(form);
-  const response = await apiClient.fetch('/v1/system/agent-profiles', {
+  const response = await apiClient.fetch('/v1/system/agent-roles', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -34,7 +34,7 @@ export async function createAgentProfile(form: AgentProfileFormState): Promise<A
 
 export async function saveAgentProfile(form: AgentProfileFormState): Promise<AgentProfilesPayload> {
   const payload = agentProfilePayloadFromForm(form);
-  const response = await apiClient.fetch(`/v1/system/agent-profiles/${encodeURIComponent(payload.id)}`, {
+  const response = await apiClient.fetch(`/v1/system/agent-roles/${encodeURIComponent(payload.id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -46,7 +46,7 @@ export async function saveAgentProfile(form: AgentProfileFormState): Promise<Age
 }
 
 export async function setDefaultAgentProfile(defaultProfile: string): Promise<AgentProfilesPayload> {
-  const response = await apiClient.fetch('/v1/system/agent-profiles/default', {
+  const response = await apiClient.fetch('/v1/system/agent-roles/default', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ default_profile: defaultProfile.trim() }),
@@ -64,7 +64,7 @@ export async function deleteAgentProfile(
   const params = new URLSearchParams();
   if (opts?.force) params.set('force', 'true');
   const suffix = params.toString() ? `?${params.toString()}` : '';
-  const response = await apiClient.fetch(`/v1/system/agent-profiles/${encodeURIComponent(id)}${suffix}`, { method: 'DELETE' });
+  const response = await apiClient.fetch(`/v1/system/agent-roles/${encodeURIComponent(id)}${suffix}`, { method: 'DELETE' });
   if (response.status === 409) {
     const conflict = await response.json().catch(() => null);
     const references = Array.isArray(conflict?.references) ? conflict.references.map((item: unknown) => String(item)) : [];

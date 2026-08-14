@@ -19,7 +19,7 @@ var monitoringAnalyticsSchemaStatements = []string{
 		feature TEXT NOT NULL DEFAULT '',
 		provider TEXT NOT NULL DEFAULT '',
 		model TEXT NOT NULL DEFAULT '',
-		llm_profile TEXT NOT NULL DEFAULT '',
+		model TEXT NOT NULL DEFAULT '',
 		prompt_tokens BIGINT NOT NULL DEFAULT 0,
 		completion_tokens BIGINT NOT NULL DEFAULT 0,
 		total_tokens BIGINT NOT NULL DEFAULT 0,

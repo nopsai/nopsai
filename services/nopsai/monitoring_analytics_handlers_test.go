@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseMonitoringAnalyticsFilters(t *testing.T) {
-	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01&to=2026-06-11&teamId=42&pipelinePath=platform&pipelineName=release&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&branch=main&triggerSource=schedule&status=failure&compare=previous_period&provider=openai&model=gpt-4.1&llm_profile=standard&feature=goal_resolution&step_name=plan&task_name=summarize&minDurationSeconds=5&maxDurationSeconds=60", nil)
+	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01&to=2026-06-11&teamId=42&pipelinePath=platform&pipelineName=release&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&branch=main&triggerSource=schedule&status=failure&compare=previous_period&provider=openai&provider_model=gpt-4.1&model=standard&feature=goal_resolution&step_name=plan&task_name=summarize&minDurationSeconds=5&maxDurationSeconds=60", nil)
 
 	filters, err := parseMonitoringAnalyticsFilters(req)
 	if err != nil {
@@ -68,7 +68,7 @@ func TestBuildMonitoringCandidateRunIDsQueryUsesParameterizedFilters(t *testing.
 }
 
 func TestBuildMonitoringCandidateRunIDsQueryAppliesAIUsageFilters(t *testing.T) {
-	req := httptest.NewRequest("GET", "/v1/monitoring/summary?provider=openai&model=qwen&llmProfile=standard&feature=goal_resolution&stepName=plan&taskName=rank", nil)
+	req := httptest.NewRequest("GET", "/v1/monitoring/summary?provider=openai&provider_model=qwen&model=standard&feature=goal_resolution&stepName=plan&taskName=rank", nil)
 	filters, err := parseMonitoringAnalyticsFilters(req)
 	if err != nil {
 		t.Fatalf("parseMonitoringAnalyticsFilters() error = %v", err)
@@ -80,7 +80,7 @@ func TestBuildMonitoringCandidateRunIDsQueryAppliesAIUsageFilters(t *testing.T) 
 		"FROM ai_usage_events au",
 		"LOWER(COALESCE(au.provider, '')) = LOWER($3)",
 		"LOWER(COALESCE(au.model, '')) = LOWER($4)",
-		"LOWER(COALESCE(au.llm_profile, '')) = LOWER($5)",
+		"LOWER(COALESCE(au.model, '')) = LOWER($5)",
 		"LOWER(COALESCE(au.feature, '')) = LOWER($6)",
 		"LOWER(COALESCE(au.step_name, '')) = LOWER($7)",
 		"LOWER(COALESCE(au.task_name, '')) = LOWER($8)",
@@ -104,7 +104,7 @@ func TestMonitoringAIUsageQueriesCastTokenSumsForIntegerScans(t *testing.T) {
 		"top token runs":     monitoringAITopTokenRunsQuery(),
 		"by feature":         monitoringAIUsageTeamQuery("feature"),
 		"by provider":        monitoringAIUsageTeamQuery("provider"),
-		"by profile":         monitoringAIUsageTeamQuery("llm_profile"),
+		"by profile":         monitoringAIUsageTeamQuery("model"),
 		"trend":              monitoringAIUsageTrendQuery(),
 	}
 	for name, query := range queries {
@@ -117,7 +117,7 @@ func TestMonitoringAIUsageQueriesCastTokenSumsForIntegerScans(t *testing.T) {
 		"COALESCE(SUM(prompt_tokens), 0)::bigint",
 		"COALESCE(SUM(completion_tokens), 0)::bigint",
 		"LOWER(COALESCE(model, '')) = LOWER($5)",
-		"LOWER(COALESCE(llm_profile, '')) = LOWER($6)",
+		"LOWER(COALESCE(model, '')) = LOWER($6)",
 		"LOWER(COALESCE(step_name, '')) = LOWER($8)",
 	} {
 		if !strings.Contains(monitoringAIUsageTotalsQuery(), fragment) {

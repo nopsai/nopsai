@@ -185,13 +185,14 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - The call is idempotent and can be triggered manually or by Git events.
 - The caller needs `system.update` on `system:config-sync`.
 - For the global GitOps entrypoint, use `PUT /v1/system/config-repo` with `scope_id=global`.
-- System LLM profiles can be managed in the global config repo at `setting/system/llm_profile.yaml`.
-- LLM profile providers are `gemini`, `lmstudio`, `openai`, `anthropic`,
+- System models can be managed in the global config repo at `models/<name>.yaml`.
+- model providers are `gemini`, `lmstudio`, `openai`, `anthropic`,
   `groq`, `mistral`, `ollama`, `openrouter`, and `azure-openai`. Profiles can
   also set `timeout_seconds`, `max_tokens`, `temperature`, and provider-specific
   string values under `extra`.
-- System Agent Profiles and the default agent profile can be managed in the global config repo at `setting/system/agent-profiles.yaml`.
-- System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
+- Agent roles are managed as one file per role at `agent-roles/<name>.yaml`, or `agent-roles/<team>/<name>.yaml` for a team-owned role. The role that sets `default: true` is the default for its scope.
+- Models are managed as one file per model at `models/<name>.yaml`, or `models/<team>/<name>.yaml` for a team-owned model, with the same `default: true` rule.
+- MCP servers are managed at `mcp/servers/<name>.yaml` and are workspace-wide. MCP profiles are managed at `mcp/profiles/<name>.yaml` or `mcp/profiles/<team>/<name>.yaml`.
 - Mandatory local-login and external identity-provider settings can be managed in the global config repo at `setting/system/auth.yaml`.
 - GitHub App IDs, credential references, and installations can be managed in the global config repo at `setting/git-apps/github.yaml`. The internal git-bot URL remains a system/service setting.
 - Runner defaults, runtime defaults, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.
@@ -199,6 +200,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Scheduled cleanup rules can be managed in the global config repo at `setting/system/data-management.yaml`.
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<team>/<document>.md`; in a system/global repo, `knowledge/<kind>/<document>.md` creates a global document.
+- Knowledge connections to Notion, Confluence, and wikis can be managed in the config repo at `knowledge/connections/<team>/<connection>.yaml`. Documents mirrored from a connected page declare `source.type: external_page` with the connection, page reference, and sync settings; the mirrored page body stays runtime state.
 
 ## Teams
 
@@ -252,12 +254,12 @@ defaults and define LLM, Agent, and MCP profile definitions without taking over
 the system-owned catalogs:
 
 - `GET|PUT /v1/teams/{teamID}/defaults`
-- `GET|PUT /v1/teams/{teamID}/llm-profiles`
-- `PUT /v1/teams/{teamID}/llm-profiles/default`
-- `PUT|DELETE /v1/teams/{teamID}/llm-profiles/{profileName}`
-- `GET|POST /v1/teams/{teamID}/agent-profiles`
-- `PUT /v1/teams/{teamID}/agent-profiles/default`
-- `GET|PUT|DELETE /v1/teams/{teamID}/agent-profiles/{profileID}`
+- `GET|PUT /v1/teams/{teamID}/models`
+- `PUT /v1/teams/{teamID}/models/default`
+- `PUT|DELETE /v1/teams/{teamID}/models/{profileName}`
+- `GET|POST /v1/teams/{teamID}/agent-roles`
+- `PUT /v1/teams/{teamID}/agent-roles/default`
+- `GET|PUT|DELETE /v1/teams/{teamID}/agent-roles/{profileID}`
 - `GET|POST /v1/teams/{teamID}/mcp-profiles`
 - `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}`
 
@@ -267,11 +269,11 @@ also requires `team.create` on the destination parent scope and rejects
 hierarchy cycles. Team profile definitions are managed through these team APIs;
 system profile GitOps remains under `setting/system/*` today. Team defaults are
 a separate `defaults.yaml` file under `config-repositories/teams/<team>/` with
-`llm_profile`, `agent_profile`, and `knowledge_context` entries keyed by
+`model`, `agent_role`, and `knowledge_context` entries keyed by
 knowledge kind. Run preparation and agent launch merge team profile definitions
 over the system catalogs and add team knowledge-kind defaults when a run belongs
 to that team or one of its applications. The team Defaults
-endpoint stores the same `llm_profile`, `agent_profile`, and
+endpoint stores the same `model`, `agent_role`, and
 `knowledge_context` shape.
 
 ## Dashboards
@@ -380,8 +382,8 @@ For a user-facing guide to assistant capabilities and example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
 
 - `GET /v1/assistant/config` returns safe assistant configuration for the authenticated subject: enabled state, docs defaults, retention/limits, feature flags, action confirmation policy, and whether a dedicated assistant credential is configured. It does not return credential refs, API key env names, base URLs, or provider extras.
-- `GET /v1/assistant/llm-profiles` lists safe, selectable LLM profile metadata for the authenticated assistant user without exposing credential refs, base URLs, or provider extras.
-- `POST /v1/analysis/evaluate` asks the selected/default LLM profile for a
+- `GET /v1/assistant/models` lists safe, selectable model metadata for the authenticated assistant user without exposing credential refs, base URLs, or provider extras.
+- `POST /v1/analysis/evaluate` asks the selected/default model for a
   structured second-pass evaluation of a client-provided redacted analysis
   snapshot. It is authenticated, enforces Assistant feature flags and LLM
   profile scope/credential resolution, returns provider/model/usage metadata,
@@ -393,7 +395,7 @@ For a user-facing guide to assistant capabilities and example chat prompts, see
 - `POST /v1/assistant/conversations` creates a persistent assistant conversation for the authenticated subject.
 - `GET /v1/assistant/conversations` lists the subject's conversations.
 - `GET /v1/assistant/conversations/{id}` reads a conversation, messages, conversation-scoped memory, and assistant usage rollups.
-- `POST /v1/assistant/conversations/{id}/messages` appends a user message, asks the selected/default LLM profile for a structured hosted MCP plan, validates the plan against current-user AAA, tool availability, argument limits, and mutation confirmation rules, executes allowed hosted MCP tools, quality-gates final LLM synthesis against MCP evidence, records tool and LLM activity plus per-message token/duration usage, updates memory, and returns an assistant reply. Assistant turns do not use static normal-language routing: if the LLM planner is unavailable or returns an invalid plan, no hosted MCP tools run and no changes are applied. Generated YAML and trigger/schedule edits are proposals only.
+- `POST /v1/assistant/conversations/{id}/messages` appends a user message, asks the selected/default model for a structured hosted MCP plan, validates the plan against current-user AAA, tool availability, argument limits, and mutation confirmation rules, executes allowed hosted MCP tools, quality-gates final LLM synthesis against MCP evidence, records tool and LLM activity plus per-message token/duration usage, updates memory, and returns an assistant reply. Assistant turns do not use static normal-language routing: if the LLM planner is unavailable or returns an invalid plan, no hosted MCP tools run and no changes are applied. Generated YAML and trigger/schedule edits are proposals only.
 - `POST /v1/assistant/conversations/{id}/summarize-memory` updates conversation-scoped memory.
 - `POST /v1/mcp` exposes Nopsai-hosted MCP JSON-RPC operations: `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
 
@@ -413,7 +415,7 @@ pipeline, step, task, schedule, provider, and model-scoped AI usage filters
 remain scoped to recorded run AI usage events.
 
 The hosted MCP is first-party and permission-bound. It is separate from the
-external MCP registry under `setting/system/mcp.yaml`, which defines
+external MCP registry under `mcp/servers/` and `mcp/profiles/`, which defines
 third-party MCP servers Nopsai can connect to. Hosted MCP and assistant tool
 execution use the current authenticated AAA subject; they do not elevate to a
 global assistant/admin identity.
@@ -520,7 +522,7 @@ curl -X POST \
       {"name": "applications", "repositories": ["acme/web-app"]}
     ],
     "repositories": ["acme/service-api"],
-    "llm_profile": {
+    "model": {
       "name": "standard",
       "provider": "lmstudio",
       "model": "qwen3-coder",
@@ -544,7 +546,7 @@ experience no longer asks for a starter profile. Repository teams are used for
 starter run teams and user role assignment. If `seed_llm_profile` is false,
 the starter `setup/first-run` pipeline is generated without the AI smoke step
 and with `llm_enabled: false`. The bootstrap response still includes a warning
-that other AI-enabled pipelines may not work until an LLM profile is configured.
+that other AI-enabled pipelines may not work until an model is configured.
 For the full operator flow, see [first-install-wizard.md](./first-install-wizard.md).
 
 ---
@@ -722,7 +724,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET|POST|PUT|DELETE /v1/monitoring/views` manages owner-scoped saved views. Updating a config-repo-managed view stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps.
 - `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. Updating a config-repo-managed alert rule stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
 - `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.
-- Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Agent-reported metadata may include `prompt_sha256`, `prompt_bytes`, `estimated_input_tokens`, `cached_input_tokens`, `uncached_input_tokens`, `cache_write_tokens`, `stable_prefix_tokens`, `dynamic_context_tokens`, `static_context_sha256`, `static_context_cache_key`, `cache_identity_sha256`, `prompt_schema_version`, `execution_mode`, `logical_session_id`, `provider_state_id`, `provider_state_supported`, `provider_state_used`, `provider_state_mode`, `prompt_cache_supported`, `prompt_cache_hit`, `prompt_cache_mode`, `history_revision`, `workspace_revision`, `knowledge_revision`, `policy_revision`, `effective_policy_snapshot_hash`, `governance_level`, `governance_contract_version`, `shared_file_count`, `shared_file_bytes`, `workspace_tool_call_count`, and `workspace_tool_result_bytes`; prompt bodies and shared file contents are not stored in AI usage events. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
+- Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, model, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Agent-reported metadata may include `prompt_sha256`, `prompt_bytes`, `estimated_input_tokens`, `cached_input_tokens`, `uncached_input_tokens`, `cache_write_tokens`, `stable_prefix_tokens`, `dynamic_context_tokens`, `static_context_sha256`, `static_context_cache_key`, `cache_identity_sha256`, `prompt_schema_version`, `execution_mode`, `logical_session_id`, `provider_state_id`, `provider_state_supported`, `provider_state_used`, `provider_state_mode`, `prompt_cache_supported`, `prompt_cache_hit`, `prompt_cache_mode`, `history_revision`, `workspace_revision`, `knowledge_revision`, `policy_revision`, `effective_policy_snapshot_hash`, `governance_level`, `governance_contract_version`, `shared_file_count`, `shared_file_bytes`, `workspace_tool_call_count`, and `workspace_tool_result_bytes`; prompt bodies and shared file contents are not stored in AI usage events. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
 - Agents record declared task runtime outputs with `POST /v1/internal/runs/{runID}/steps/{stepName}/tasks/{taskName}/outputs` using an agent service JWT. Normal run-detail/API responses expose only output metadata (`name`, `sensitive`, `size_bytes`) on task rows; values remain run-state/internal data, and sensitive values are encrypted before persistence. The handler writes an audit log entry with output names and sizes but never output values. Hosted MCP run-log reads see the same audit metadata and no plaintext runtime output values.
 - Sync child pipeline includes resolve declared parent-visible outputs with `POST /v1/internal/runs/{childRunID}/task-outputs/resolve` using an agent service JWT. The request includes the parent run ID, parent step name, and output names; `nopsai` verifies the child run belongs to that parent step before returning only those requested values to the parent agent. Sensitive values are decrypted only for this internal runtime handoff and remain excluded from normal run-detail/API and hosted MCP responses.
 - `GET /v1/internal/runs/{runID}/policy-revision` remains available for diagnostics and audit. It returns `run_start_policy_revision`, `current_policy_revision`, `blocking_context_count`, and the current blocking knowledge snapshots used to calculate the revision. Active agent runs use their pinned scope snapshots as the correctness boundary; emergency policy response cancels the run instead of mutating policy in place.
@@ -1502,7 +1504,7 @@ GitOps drift/export can write the encrypted envelope records to
 credential references.
 
 Credential references must point at the kind expected by the consuming feature:
-LLM profiles and knowledge provider connections use `api_key`, MCP profiles and
+models and knowledge provider connections use `api_key`, MCP profiles and
 config repositories use `bearer_token`, SMTP uses `password`, OIDC client/admin
 credentials use `client_secret`, GitHub App private keys use `private_key`,
 GitHub App and Git webhook secrets use `webhook_secret`, and runner private
@@ -1875,7 +1877,7 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and team-scoped repos may define pipeline schedules under `schedules/`.
 - System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`. System/global repos support `knowledge/<kind>/<document>.md` for global documents; team-scoped repos keep the legacy `knowledge/<kind>/<document>.md` meaning the bound team.
 - System- and team-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`; team repos keep the bound team path explicit.
-- The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs and are merged into run launch for runs owned by that team. Team runtime defaults are managed through `/v1/teams/{teamID}/defaults` and `config-repositories/teams/<team>/defaults.yaml`, including one managed knowledge document ref per knowledge kind. If a team has no enabled team config repo, its defaults remain owned by the nearest parent/global config repo.
+- The system/global repo may define Agent roles and `default_profile` under `agent-roles/<name>.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs and are merged into run launch for runs owned by that team. Team runtime defaults are managed through `/v1/teams/{teamID}/defaults` and `config-repositories/teams/<team>/defaults.yaml`, including one managed knowledge document ref per knowledge kind. If a team has no enabled team config repo, its defaults remain owned by the nearest parent/global config repo.
 - The system/global repo may define mandatory local login and one enabled external identity provider under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
 - The system/global repo may define GitHub App IDs, credential references, and installations under `setting/git-apps/github.yaml`. The legacy `setting/system/github.yaml` file is read for one release to migrate `github_installation_id` into the first installation record, but exports stop writing it.
 - The system/global repo may define runtime runner defaults, dispatcher routing, and `runner_registry_credentials` under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
@@ -1884,7 +1886,7 @@ curl -X POST -H "Content-Type: application/json" \
 - The system/global repo may define encrypted system credential envelopes under `setting/system/credentials.yaml`; plaintext is never exported.
 - A binding file contains `repo_url`, optional `provider`, optional `credential_ref`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`. `credential_ref` is required for non-GitHub providers and must point at a `bearer_token` credential.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in the configured Git provider before merging back to the sync branch. For the GitHub App path, the app needs `contents: read and write`; token-backed providers need equivalent repository read/write scope.
-- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run team/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run team/config-repository structure, notification routes, access manifests, Agent roles, models, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
 - `POST /v1/system/config-repo/validate` and `POST /v1/teams/{teamID}/config-repository/validate` run the config-sync parser against draft files only. They catch cross-file reusable-step includes, trigger metadata, embedded access, managed-source rules, team-scoped paths, knowledge files, and file-name/name mismatches before write-back.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Team repositories use the same drift and write endpoint shape at `GET /v1/teams/<team-path>/config-repository/drift` and `POST /v1/teams/<team-path>/config-repository/write`. File paths are relative to the configured `base_path`.
@@ -2068,7 +2070,7 @@ curl -X DELETE \
   `when: success`, `when: failure`, or `when: always` to keep success reports
   and failure reports separate. Run detail responses include
   `final_outputs` with output ID, name, type, status, content, error,
-  LLM profile, dashboard target metadata for dashboard outputs,
+  model, dashboard target metadata for dashboard outputs,
   `generation_attempts`, `contract_violations`, `render_attempts`,
   `render_failures`, created/started/updated timestamps,
   `generation_duration`, and `generation_duration_seconds`.

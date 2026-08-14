@@ -317,19 +317,22 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryKnowledge(ctx, repo, delegatedScopes, resourceAccess, files); err != nil {
 		return nil, err
 	}
+	if err := a.exportConfigRepositoryKnowledgeConnections(ctx, repo, delegatedScopes, files); err != nil {
+		return nil, err
+	}
 	if err := a.exportConfigRepositoryTeamStructure(ctx, repo, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryAccess(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryLLMProfiles(ctx, repo, files); err != nil {
+	if err := a.exportConfigRepositoryModels(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryAgentProfiles(ctx, repo, files); err != nil {
+	if err := a.exportConfigRepositoryAgentRoles(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, files); err != nil {
+	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryTeamDefaults(ctx, repo, delegatedScopes, files); err != nil {

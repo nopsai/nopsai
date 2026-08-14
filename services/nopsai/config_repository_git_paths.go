@@ -15,6 +15,9 @@ type configRepositoryGitDirs struct {
 	configRepository  string
 	access            string
 	knowledge         string
+	model             string
+	agentRole         string
+	mcp               string
 	setting           string
 }
 
@@ -32,6 +35,9 @@ func configRepositoryGitDirsForBasePath(basePath string) configRepositoryGitDirs
 		configRepository:  configsync.RepoJoinPath(basePath, "config-repositories"),
 		access:            configsync.RepoJoinPath(basePath, "access"),
 		knowledge:         configsync.RepoJoinPath(basePath, "knowledge"),
+		model:             configsync.RepoJoinPath(basePath, modelsGitOpsDirectory),
+		agentRole:         configsync.RepoJoinPath(basePath, agentRolesGitOpsDirectory),
+		mcp:               configsync.RepoJoinPath(basePath, mcpGitOpsDirectory),
 		setting:           configsync.RepoJoinPath(basePath, "setting"),
 	}
 }

@@ -114,7 +114,7 @@ func (c *lmStudioClient) callLMStudio(ctx context.Context, prompt string) (strin
 
 	logEvent := log.Debug().Str("model", model).Str("endpoint", buildLMStudioChatURL(c.baseURL))
 	if c.owner.profile != "" {
-		logEvent = logEvent.Str("llm_profile", c.owner.profile)
+		logEvent = logEvent.Str("model", c.owner.profile)
 	}
 	if c.reasoning != "" {
 		logEvent = logEvent.Str("reasoning", c.reasoning)

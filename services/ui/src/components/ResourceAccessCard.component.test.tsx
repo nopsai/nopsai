@@ -58,20 +58,20 @@ describe('ResourceAccessCard', () => {
   });
 
   it('uses AI profile resource actions when sharing profiles', async () => {
-    render(<ResourceAccessCard resourceType="llm_profile" resourceID="hosted" label="LLM profile" />);
+    render(<ResourceAccessCard resourceType="model" resourceID="hosted" label="LLM profile" />);
     await userEvent.click(screen.getByRole('button', { name: 'Access' }));
     await userEvent.type(await screen.findByPlaceholderText('owner/repo'), 'acme/ai');
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     await waitFor(() => {
       expect(apiClient.fetch).toHaveBeenCalledWith(
-        '/v1/resources/llm_profile/hosted/grants',
+        '/v1/resources/model/hosted/grants',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
             subject_type: 'repository',
             subject_id: 'acme/ai',
-            actions: ['llm_profile.use'],
+            actions: ['model.use'],
             conditions: { branches: [], events: [] },
           }),
         })
@@ -116,7 +116,7 @@ describe('ResourceAccessCard', () => {
   it('supports icon-only access actions while keeping an accessible name', () => {
     render(
       <ResourceAccessCard
-        resourceType="agent_profile"
+        resourceType="agent_role"
         resourceID="devops-engineer"
         label="agent profile"
         buttonClassName="ai-resource-icon-action"

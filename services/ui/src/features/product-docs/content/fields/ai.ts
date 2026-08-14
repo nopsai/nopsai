@@ -1,6 +1,6 @@
 import type { WikiField } from '../types.js';
 
-/** LLM Profile settings in `setting/system/llm_profile.yaml` and team-owned profiles. */
+/** Model settings in `models/<name>.yaml` and team-owned `models/<team>/<name>.yaml`. */
 export const llmProfileFields: WikiField[] = [
   {
     path: 'provider',
@@ -175,30 +175,30 @@ export const llmProfileFields: WikiField[] = [
   },
 ];
 
-/** Agent Profile settings in `setting/system/agent-profiles.yaml` and team-owned profiles. */
+/** Agent role settings in `agent-roles/<name>.yaml` and team-owned `agent-roles/<team>/<name>.yaml`. */
 export const agentProfileFields: WikiField[] = [
   {
     path: 'id',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'string',
     required: true,
     defaultValue: 'None',
-    description: 'Profile identifier referenced by `agent_profile` on a pipeline or step.',
+    description: 'Profile identifier referenced by `agent_role` on a pipeline or step.',
     example: 'id: senior-release-engineer',
-    evidence: 'pkg/models/agent_profile.go',
+    evidence: 'pkg/models/agent_role.go',
   },
   {
     path: 'display_name',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'string',
     required: true,
     defaultValue: 'None',
-    description: 'Name shown in the Agent Profiles workspace and profile pickers.',
+    description: 'Name shown in the Agent roles workspace and profile pickers.',
     example: 'display_name: Senior Release Engineer',
   },
   {
     path: 'role',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'string',
     required: false,
     defaultValue: 'None',
@@ -207,7 +207,7 @@ export const agentProfileFields: WikiField[] = [
   },
   {
     path: 'description',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'string',
     required: false,
     defaultValue: 'None',
@@ -216,18 +216,18 @@ export const agentProfileFields: WikiField[] = [
   },
   {
     path: 'instructions',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'string',
     required: true,
     defaultValue: 'None',
     description: 'Prompt instructions injected for conditions and LLM goals that select this profile.',
     example: 'instructions: |\n  Prefer reversible actions. Never skip a failing check.',
     security: 'Instructions shape behavior only. They do not grant provider access, tools, credentials, or permissions.',
-    evidence: 'pkg/models/agent_profile.go',
+    evidence: 'pkg/models/agent_role.go',
   },
   {
     path: 'enabled',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'boolean',
     required: true,
     defaultValue: 'None',
@@ -237,7 +237,7 @@ export const agentProfileFields: WikiField[] = [
   },
   {
     path: 'built_in',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'boolean',
     required: false,
     defaultValue: 'false',
@@ -246,7 +246,7 @@ export const agentProfileFields: WikiField[] = [
   },
   {
     path: 'source',
-    scope: 'agent profile',
+    scope: 'agent role',
     type: 'string',
     required: false,
     defaultValue: 'database',
@@ -255,7 +255,7 @@ export const agentProfileFields: WikiField[] = [
   },
 ];
 
-/** External MCP server definitions in `setting/system/mcp.yaml`. */
+/** External MCP server definitions in `mcp/servers/<name>.yaml`. */
 export const mcpServerFields: WikiField[] = [
   {
     path: 'name',

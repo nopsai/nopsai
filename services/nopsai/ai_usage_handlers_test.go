@@ -11,7 +11,7 @@ func TestNormalizeAIUsageReportComputesTotalsAndDefaults(t *testing.T) {
 		StepName:         " build ",
 		TaskName:         " test ",
 		Provider:         " lmstudio ",
-		Model:            " model-a ",
+		ProviderModel:    " model-a ",
 		LLMProfile:       " local ",
 		PromptTokens:     10,
 		CompletionTokens: 4,
@@ -24,7 +24,7 @@ func TestNormalizeAIUsageReportComputesTotalsAndDefaults(t *testing.T) {
 	if report.StepName != "build" || report.TaskName != "test" || report.Feature != "unknown" {
 		t.Fatalf("normalized labels = %#v", report)
 	}
-	if report.Provider != "lmstudio" || report.Model != "model-a" || report.LLMProfile != "local" {
+	if report.Provider != "lmstudio" || report.ProviderModel != "model-a" || report.LLMProfile != "local" {
 		t.Fatalf("normalized identity = %#v", report)
 	}
 	if report.TotalTokens != 14 {

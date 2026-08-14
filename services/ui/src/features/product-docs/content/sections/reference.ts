@@ -117,7 +117,7 @@ export const referenceSection: WikiSection = {
         '**`/healthz` never becomes ready** — the API is retrying an unreachable database. `/livez` still answers.',
         '**A run stays queued** — no reachable dispatch-enabled runner matches the run scope. Check the dispatcher fleet view.',
         '**A Git push starts nothing** — compare event name, branch, and changed paths against the trigger rule, then check deliveries.',
-        '**A goal fails immediately** — test the LLM Profile; an unconfigured profile, a scope restriction, and an AAA denial produce different messages.',
+        '**A goal fails immediately** — test the Model; an unconfigured profile, a scope restriction, and an AAA denial produce different messages.',
         '**A pipeline is rejected on save** — validation names the exact step, task, or directive. Read the message before editing the graph.',
         '**PDF output fails** — no reachable Gotenberg at `FINAL_OUTPUT_PDF_RENDERER_URL`.',
         '**Runner logs show unavailable** — the System Logs provider cannot reach the Docker host or an owned pod in the runner namespace.',

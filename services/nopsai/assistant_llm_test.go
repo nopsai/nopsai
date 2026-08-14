@@ -191,13 +191,13 @@ func TestAssistantLLMProfilesRouteIsAuthenticatedOnly(t *testing.T) {
 	if !isAuthenticatedOnlyPath("/v1/assistant/config") {
 		t.Fatal("assistant config route must be authenticated-only")
 	}
-	if !isAuthenticatedOnlyPath("/v1/assistant/llm-profiles") {
+	if !isAuthenticatedOnlyPath("/v1/assistant/models") {
 		t.Fatal("assistant LLM profile picker route must be authenticated-only")
 	}
 	if !isAuthenticatedOnlyPath("/v1/assistant/conversations/00000000-0000-0000-0000-000000000001") {
 		t.Fatal("assistant conversation delete/detail routes must be authenticated-only")
 	}
-	if isAuthenticatedOnlyPath("/v1/system/llm-profiles") {
+	if isAuthenticatedOnlyPath("/v1/system/models") {
 		t.Fatal("system LLM profile management route must still require system authorization")
 	}
 }

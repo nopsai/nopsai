@@ -51,9 +51,9 @@ describe('assistant page context', () => {
     assert.equal(dashboard.resource_id, 'team-1/ops-dashboard');
     assert.equal(dashboard.tab, 'service-metrics');
 
-    const llmProfile = buildAssistantPageContext('/llm-profiles/platform/ml/reasoning', '');
-    assert.equal(llmProfile.route, '/llm-profiles/:profile_id');
-    assert.equal(llmProfile.resource_type, 'llm_profile');
+    const llmProfile = buildAssistantPageContext('/models/platform/ml/reasoning', '');
+    assert.equal(llmProfile.route, '/models/:profile_id');
+    assert.equal(llmProfile.resource_type, 'model');
     assert.equal(llmProfile.team_path, 'platform/ml');
 
     const mcpServer = buildAssistantPageContext('/mcp/servers/platform/ml/github', '');

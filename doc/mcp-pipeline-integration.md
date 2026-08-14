@@ -67,7 +67,7 @@ configured profiles.
 ## GitOps
 
 System config repositories can manage MCP the same way they manage LLM
-profiles. Put the registry in `setting/system/mcp.yaml`:
+profiles. Put the registry in `mcp/servers/` and `mcp/profiles/`:
 
 ```yaml
 mcp_servers:
@@ -156,7 +156,7 @@ allowlist; other MCP tool calls fail before a provider request is made.
 
 For a goal task, the agent:
 
-1. Resolves the LLM profile.
+1. Resolves the model.
 2. Resolves allowed MCP profiles for the current scope.
 3. Exposes selected MCP tools to the LLM as callable actions. A profile tool
    entry of `"*"` means all tools discovered from a configured read-only MCP
@@ -191,7 +191,7 @@ The assistant calls tools through the same hosted MCP JSON-RPC processor as
 external clients. For curl-based debugging, an authenticated empty `POST` body
 defaults to `tools/list`; explicit MCP clients should still send JSON-RPC
 payloads with `Content-Type: application/json`.
-Assistant conversation turns use the selected/default LLM profile to plan
+Assistant conversation turns use the selected/default model to plan
 hosted MCP calls first, then NopsAI validates the structured plan against the
 current AAA subject, available tools, bounded arguments, and explicit mutation
 confirmation before any tool executes.
@@ -246,7 +246,7 @@ High-value hosted tools include:
 - API bridge:
   `nopsai.call_api` calls guarded `/v1` REST routes as the current subject for
   compatibility coverage; mutating calls require `confirm:true`
-- triggers, schedules, scopes, cost, statistics, LLM profiles, MCP profiles,
+- triggers, schedules, scopes, cost, statistics, models, MCP profiles,
   system status, and dispatcher/runner status, dispatch, and ejection tools
 
 Hosted MCP is always user-scoped: `tools/list`, `resources/list`, and

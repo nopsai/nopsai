@@ -125,15 +125,15 @@ export const interfacesSection: WikiSection = {
         'Current-page context is metadata only: route, page area, active tab, team and scope, selected resource IDs, and allow-listed filters.',
         'The composer renders a removable context chip so you can see and drop the context before sending.',
         'The Assistant does not scrape page text, logs, secrets, credentials, or arbitrary query parameters.',
-        'Assistant selects from the same LLM profiles pipelines use, filtered by what the caller may access.',
+        'Assistant selects from the same models pipelines use, filtered by what the caller may access.',
         'Conversations are per-user and can be deleted; memory can be compacted with a summarize action.',
         'Assistant availability and individual features are configuration-controlled.',
       ],
       details: [
         'AI Evaluation on analysis surfaces is a separate mechanism. It uses the analysis evaluation endpoint rather than creating an Assistant conversation, and it does not ask hosted MCP to inspect resources.',
-        'If Assistant reports that no LLM profile is available, configure provider, model, credential reference, and scope access in LLM Profiles — the same place pipeline goals get their profiles.',
+        'If Assistant reports that no model is available, configure provider, model, credential reference, and scope access in Models — the same place pipeline goals get their profiles.',
       ],
-      related: ['llm-profiles', 'analysis-reviewers', 'hosted-mcp'],
+      related: ['models', 'analysis-reviewers', 'hosted-mcp'],
       sources: [
         { repositoryPath: 'doc/assistant-capabilities.md', purpose: 'User-facing capabilities and example prompts per feature area.' },
         { repositoryPath: 'services/ui/src/features/assistant/pageContext.ts', purpose: 'Exactly which page metadata is collected.' },

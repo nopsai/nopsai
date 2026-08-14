@@ -53,11 +53,11 @@ func TestSetupStarterTemplatesUseSecretReferencesOnly(t *testing.T) {
 	if _, ok := files["triggers/acme/service-api.yaml"]; !ok {
 		t.Fatal("expected repository trigger template")
 	}
-	llm := files["setting/system/llm_profile.yaml"]
+	llm := files["models/standard.yaml"]
 	if strings.Contains(strings.ToLower(llm), "api_key_value") {
 		t.Fatalf("LLM template should not contain secret values:\n%s", llm)
 	}
-	mcp := files["setting/system/mcp.yaml"]
+	mcp := files["mcp/servers/github-readonly.yaml"]
 	if !strings.Contains(mcp, "enabled: false") {
 		t.Fatalf("MCP examples should be disabled by default:\n%s", mcp)
 	}
@@ -87,7 +87,7 @@ func TestSetupStarterTemplatesUseSelectedRepositoryTeams(t *testing.T) {
 			t.Fatalf("apps structure missing %q:\n%s", want, appsStructure)
 		}
 	}
-	if _, ok := files["setting/system/mcp.yaml"]; ok {
+	if _, ok := files["mcp/servers/github-readonly.yaml"]; ok {
 		t.Fatal("MCP file should be omitted when MCP examples are disabled")
 	}
 	readme := files["README.md"]
@@ -102,7 +102,7 @@ func TestSetupStarterTemplatesUseSelectedRepositoryTeams(t *testing.T) {
 		t.Fatal("expected setup knowledge under the first selected team")
 	}
 	pipeline := files["pipelines/setup/first-run.yaml"]
-	for _, want := range []string{"llm_profile: standard", "name: ai-smoke", "goal:"} {
+	for _, want := range []string{"model: standard", "name: ai-smoke", "goal:"} {
 		if !strings.Contains(pipeline, want) {
 			t.Fatalf("LLM-enabled first-run pipeline missing %q:\n%s", want, pipeline)
 		}
@@ -160,7 +160,7 @@ func TestSetupDoesNotCreateTeamStructureWithoutSelectedTeams(t *testing.T) {
 			t.Fatalf("no-LLM first-run pipeline missing %q:\n%s", want, pipeline)
 		}
 	}
-	for _, forbidden := range []string{"llm_profile:", "name: ai-smoke", "goal:"} {
+	for _, forbidden := range []string{"model:", "name: ai-smoke", "goal:"} {
 		if strings.Contains(pipeline, forbidden) {
 			t.Fatalf("no-LLM first-run pipeline should not contain %q:\n%s", forbidden, pipeline)
 		}
@@ -203,8 +203,8 @@ func TestSetupAccessFallsBackToSelectedTeamForUnknownUserTeam(t *testing.T) {
 	}
 }
 
-func TestSetupLLMProfileYAMLGeminiHasProviderSpecificFields(t *testing.T) {
-	got := setupLLMProfileYAML(setupLLMProfileInput{
+func TestSetupModelYAMLGeminiHasProviderSpecificFields(t *testing.T) {
+	got := setupModelYAML(setupLLMProfileInput{
 		Provider:      config.LLMProviderGemini,
 		Model:         "gemini-2.5-pro",
 		CredentialRef: "credential://system/llm/gemini",
@@ -219,8 +219,8 @@ func TestSetupLLMProfileYAMLGeminiHasProviderSpecificFields(t *testing.T) {
 	}
 }
 
-func TestSetupLLMProfileYAMLOpenAIUsesProviderDefaults(t *testing.T) {
-	got := setupLLMProfileYAML(setupLLMProfileInput{
+func TestSetupModelYAMLOpenAIUsesProviderDefaults(t *testing.T) {
+	got := setupModelYAML(setupLLMProfileInput{
 		Provider: config.LLMProviderOpenAI,
 	})
 	for _, want := range []string{
@@ -235,9 +235,9 @@ func TestSetupLLMProfileYAMLOpenAIUsesProviderDefaults(t *testing.T) {
 	}
 }
 
-func TestSetupLLMProfileYAMLPreservesAdvancedOptions(t *testing.T) {
+func TestSetupModelYAMLPreservesAdvancedOptions(t *testing.T) {
 	temperature := 0.2
-	got := setupLLMProfileYAML(setupLLMProfileInput{
+	got := setupModelYAML(setupLLMProfileInput{
 		Provider:       config.LLMProviderOpenRouter,
 		TimeoutSeconds: 30,
 		MaxTokens:      4096,

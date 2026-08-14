@@ -452,7 +452,7 @@ func assistantAIUsageOutput(call assistantToolActivity) map[string]any {
 
 func assistantAIUsageFilterSummary(args map[string]any) string {
 	labels := []string{}
-	for _, key := range []string{"provider", "model", "llm_profile", "feature", "step_name", "task_name"} {
+	for _, key := range []string{"provider", "model", "model", "feature", "step_name", "task_name"} {
 		if value := strings.TrimSpace(fmt.Sprint(args[key])); value != "" && value != "<nil>" {
 			labels = append(labels, strings.ReplaceAll(key, "_", " ")+"="+value)
 		}

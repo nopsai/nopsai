@@ -14,8 +14,8 @@ describe('BaseSidebarNavigation', () => {
             { label: 'Pipelines', path: '/pipelines', icon: <span /> },
             { label: 'Triggers', path: '/triggers', icon: <span /> },
             { label: 'Assistant', path: '/assistant', icon: <span /> },
-            { label: 'Agent roles', path: '/agent-profiles', icon: <span /> },
-            { label: 'Models', path: '/llm-profiles', icon: <span /> },
+            { label: 'Agent roles', path: '/agent-roles', icon: <span /> },
+            { label: 'Models', path: '/models', icon: <span /> },
             { label: 'Knowledge', path: '/knowledge-context', icon: <span /> },
             { label: 'Teams', path: '/teams', icon: <span /> },
             { label: 'Scopes', path: '/scopes', icon: <span /> },
@@ -40,7 +40,7 @@ describe('BaseSidebarNavigation', () => {
     expect(screen.getByRole('link', { name: 'Assistant' }).closest('[aria-label="AI & Knowledge navigation"]')).not.toBeNull();
     expect(screen.getByRole('link', { name: 'Teams' }).closest('[aria-label="Workspace navigation"]')).not.toBeNull();
     const modelsLink = screen.getByRole('link', { name: 'Models' });
-    expect(modelsLink).toHaveAttribute('href', '/llm-profiles');
+    expect(modelsLink).toHaveAttribute('href', '/models');
     expect(modelsLink.closest('[aria-label="Administration navigation"]')).toBeNull();
     expect(screen.getByRole('link', { name: 'Credentials' }).closest('[aria-label="Workspace navigation"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Administration' })).toHaveAttribute('aria-expanded', 'true');

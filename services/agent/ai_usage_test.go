@@ -46,7 +46,7 @@ func TestAIUsageReportFromLLMUsageMarksEstimatedTokens(t *testing.T) {
 		WorkspaceToolCallCount:      1,
 		WorkspaceToolResultBytes:    96,
 	})
-	if report.Metadata["agent_profile"] != "sre" {
+	if report.Metadata["agent_role"] != "sre" {
 		t.Fatalf("agent profile metadata = %#v", report.Metadata)
 	}
 	if report.Metadata["estimated_tokens"] != true {

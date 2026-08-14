@@ -142,7 +142,7 @@ func completeOpenAIChat(
 		Str("model", model).
 		Str("endpoint", endpoint)
 	if owner.profile != "" {
-		logEvent = logEvent.Str("llm_profile", owner.profile)
+		logEvent = logEvent.Str("model", owner.profile)
 	}
 	logEvent.Msg("Calling OpenAI-compatible chat completions API")
 

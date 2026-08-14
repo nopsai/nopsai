@@ -639,7 +639,7 @@ func (a *App) hostedMCPProposeKnowledgeContext(ctx context.Context, args map[str
 		if body == "" {
 			return map[string]any{"proposal_type": "knowledge_context_" + mode, "applies": false, "valid": false, "error": "content is required"}, nil
 		}
-		content = renderKnowledgeContextGitOpsDocument(kind, name, description, body, id, nil)
+		content = renderKnowledgeContextGitOpsDocument(kind, name, description, body, id, nil, nil)
 	}
 	return map[string]any{
 		"proposal_type": "knowledge_context_" + mode,

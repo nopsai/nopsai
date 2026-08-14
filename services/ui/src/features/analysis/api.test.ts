@@ -22,7 +22,7 @@ test('selects the unscoped default LLM profile for scoped team analysis', async 
         },
       });
     }
-    if (path === '/v1/assistant/llm-profiles') {
+    if (path === '/v1/assistant/models') {
       return jsonResponse({
         default_profile: 'hosted-default',
         profiles: [
@@ -43,7 +43,7 @@ test('selects the unscoped default LLM profile for scoped team analysis', async 
         ],
       });
     }
-    if (path.startsWith('/v1/assistant/llm-profiles?')) {
+    if (path.startsWith('/v1/assistant/models?')) {
       throw new Error(`profile lookup must not be scoped for analysis: ${path}`);
     }
     if (path === '/v1/analysis/evaluate') {
@@ -75,11 +75,11 @@ test('selects the unscoped default LLM profile for scoped team analysis', async 
       resources: [],
     });
     const evaluation = await requestAnalysisAiEvaluation(result);
-    const profileLookup = calls.find(call => call.input.startsWith('/v1/assistant/llm-profiles'));
+    const profileLookup = calls.find(call => call.input.startsWith('/v1/assistant/models'));
     const evaluationCall = calls.find(call => call.input === '/v1/analysis/evaluate');
     const requestBody = JSON.parse(evaluationCall?.body || '{}') as Record<string, unknown>;
 
-    assert.equal(profileLookup?.input, '/v1/assistant/llm-profiles');
+    assert.equal(profileLookup?.input, '/v1/assistant/models');
     assert.equal(requestBody.scope, 'platform/payments');
     assert.equal(requestBody.selected_llm_profile, 'hosted-default');
     assert.equal(evaluation.profileName, 'hosted-default');

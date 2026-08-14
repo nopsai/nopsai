@@ -54,7 +54,7 @@ func normalizeAIUsageReport(report models.AIUsageReport) (models.AIUsageReport, 
 	if report.Provider == "" {
 		report.Provider = "unknown"
 	}
-	report.Model = strings.TrimSpace(report.Model)
+	report.ProviderModel = strings.TrimSpace(report.ProviderModel)
 	report.LLMProfile = strings.TrimSpace(report.LLMProfile)
 	report.PromptTokens = nonNegativeInt64(report.PromptTokens)
 	report.CompletionTokens = nonNegativeInt64(report.CompletionTokens)
@@ -121,14 +121,14 @@ func (a *App) recordAIUsage(ctx context.Context, runID string, report models.AIU
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO ai_usage_events (
 			run_id, step_name, task_name, pipeline_path, pipeline_name, team_id,
-			feature, provider, model, llm_profile,
+			feature, provider, model, model,
 			prompt_tokens, completion_tokens, total_tokens,
 			input_cost_usd, output_cost_usd, total_cost_usd,
 			requested_by_type, requested_by_id, effective_subject_type, effective_subject_id, metadata
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
 	`, runID, report.StepName, report.TaskName, pipelinePath, pipelineName, nullableTeamID(teamID),
-		report.Feature, report.Provider, report.Model, report.LLMProfile,
+		report.Feature, report.Provider, report.ProviderModel, report.LLMProfile,
 		report.PromptTokens, report.CompletionTokens, report.TotalTokens,
 		report.InputCostUSD, report.OutputCostUSD, report.TotalCostUSD,
 		requestedByType.String, requestedByID.String, effectiveSubjectType.String, effectiveSubjectID.String, string(metadataJSON)); err != nil {

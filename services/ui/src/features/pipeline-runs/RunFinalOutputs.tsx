@@ -156,7 +156,7 @@ export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null
                     <FinalOutputStatus status={output.status} />
                     <span className="font-semibold text-[var(--text-primary)] break-words">{output.name || 'Untitled output'}</span>
                     <span className="runner-pill runner-pill--muted">{formatOutputType(output.type)}</span>
-                    {output.llm_profile && <span className="runner-pill runner-pill--muted">LLM {output.llm_profile}</span>}
+                    {output.model && <span className="runner-pill runner-pill--muted">LLM {output.model}</span>}
                   </div>
                   {timingText ? <div className="text-xs text-[var(--text-secondary)]">{timingText}</div> : null}
                   {output.error && <div className="text-xs text-red-600 dark:text-red-300 break-words">{output.error}</div>}

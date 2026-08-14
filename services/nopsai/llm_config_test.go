@@ -2,7 +2,6 @@ package nopsai
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"nopsai/config"
@@ -240,99 +239,5 @@ func TestContainerReachableLMStudioBaseURL(t *testing.T) {
 				t.Fatalf("containerReachableLMStudioBaseURL(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestParseGitOpsLLMProfilePlanFromSettingDirectory(t *testing.T) {
-	plan, err := parseGitOpsLLMProfilePlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
-		gitOpsLLMProfileDirectory{
-			root: "setting",
-			files: map[string]string{
-				"setting/system/llm_profile.yaml": `
-default_profile: reasoning
-profiles:
-  - name: fast
-    provider: gemini
-    model: gemini-2.5-flash
-    credential_ref: credential://system/llm/gemini-fast
-    allowed_scopes: ["dev"]
-  - name: reasoning
-    provider: lmstudio
-    model: google/gemma-4-26b-a4b
-    base_url: http://lmstudio:1234
-    reasoning: high
-  - name: hosted
-    provider: openrouter
-    model: openai/gpt-test
-    credential_ref: credential://system/llm/openrouter-hosted
-    timeout_seconds: 45
-    max_tokens: 3000
-    temperature: 0.2
-    extra:
-      x_title: NopsAI
-`,
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("parseGitOpsLLMProfilePlan() error = %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected GitOps LLM profile plan")
-	}
-	if plan.defaultProfile != "reasoning" {
-		t.Fatalf("defaultProfile = %q, want reasoning", plan.defaultProfile)
-	}
-	if plan.sourcePath != "setting/system/llm_profile.yaml" {
-		t.Fatalf("sourcePath = %q", plan.sourcePath)
-	}
-	if got := plan.profiles["fast"].Provider; got != config.LLMProviderGemini {
-		t.Fatalf("fast provider = %q, want gemini", got)
-	}
-	if got := plan.profiles["reasoning"].Reasoning; got != "high" {
-		t.Fatalf("reasoning profile reasoning = %q, want high", got)
-	}
-	hosted := plan.profiles["hosted"]
-	if hosted.TimeoutSeconds != 45 || hosted.MaxTokens != 3000 || hosted.Temperature == nil || *hosted.Temperature != 0.2 {
-		t.Fatalf("hosted limits = %#v", hosted)
-	}
-	if hosted.Extra["x_title"] != "NopsAI" {
-		t.Fatalf("hosted extra = %#v", hosted.Extra)
-	}
-}
-
-func TestParseGitOpsLLMProfilePlanRejectsTeamScopedRepo(t *testing.T) {
-	_, err := parseGitOpsLLMProfilePlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
-		gitOpsLLMProfileDirectory{
-			root: "setting",
-			files: map[string]string{
-				"setting/system/llm_profile.yaml": `
-llm_default_profile: standard
-llm_profiles:
-  standard:
-    provider: lmstudio
-    base_url: http://lmstudio:1234
-`,
-			},
-		},
-	)
-	if err == nil || !strings.Contains(err.Error(), "system config repository") {
-		t.Fatalf("expected system-scope error, got %v", err)
-	}
-}
-
-func TestParseGitOpsLLMProfilePlanRejectsMissingDefault(t *testing.T) {
-	_, err := parseGitOpsLLMProfileFile(`
-default_profile: reasoning
-llm_profiles:
-  fast:
-    provider: gemini
-    model: gemini-2.5-flash
-    api_key_secret: GEMINI_API_KEY
-`, "setting/system/llm_profile.yaml")
-	if err == nil || !strings.Contains(err.Error(), `default profile "reasoning"`) {
-		t.Fatalf("expected missing default error, got %v", err)
 	}
 }

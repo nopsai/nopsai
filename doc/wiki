@@ -54,7 +54,7 @@ cloud-specific automation unless that capability is backed by runtime code,
 deployment files, tests, and focused docs.
 
 The in-app wiki must be usable as a field reference. A user who sees
-`llm_profile` under a step, `dashboard.mode` under an output item, or
+`model` under a step, `dashboard.mode` under an output item, or
 `allowed_callers` under an external trigger should be able to search that exact
 directive and learn what it does, where it can be used, what it does not grant,
 and which options are currently supported.
@@ -387,8 +387,8 @@ Build automation
 │   └── External API triggers
 └── AI, knowledge, and governance
     ├── The AI control layers
-    ├── Agent Profiles
-    ├── LLM Profiles
+    ├── Agent roles
+    ├── Models
     ├── MCP servers and profiles
     ├── Knowledge Context
     └── Governance levels
@@ -461,10 +461,10 @@ Use the same style as a production platform reference:
 Avoid marketing summaries in reference articles. The user should be able to
 answer practical questions such as:
 
-- "Can a task set `agent_profile`?" No. Tasks can set `llm_profile`, but
-  `agent_profile` is valid only at pipeline and step level.
-- "Does `steps[].llm_profile` grant access to a provider?" No. It selects the
-  named LLM profile; AAA and profile scope restrictions still decide whether the
+- "Can a task set `agent_role`?" No. Tasks can set `model`, but
+  `agent_role` is valid only at pipeline and step level.
+- "Does `steps[].model` grant access to a provider?" No. It selects the
+  named model; AAA and profile scope restrictions still decide whether the
   original caller may use it.
 - "Can a script task use `mcp_profiles`?" No. Explicit MCP profiles are valid
   only for LLM-backed goal work.
@@ -484,11 +484,11 @@ answer practical questions such as:
   read-only and only opens existing logs/resources or copies the diagnosis
   until a user chooses a separate confirmed action.
 - "Does AI Evaluation bypass NopsAI controls?" No. It uses the authenticated
-  analysis evaluation API, a usable configured LLM profile and credential
+  analysis evaluation API, a usable configured model and credential
   reference, and a redacted reviewer snapshot plus bounded page-owned evidence
   context for the selected analysis surface. It does not create an Assistant
   conversation or ask hosted MCP to inspect the pipeline, team, resource, or
-  run. If Assistant debugging or LLM profile access is unavailable,
+  run. If Assistant debugging or model access is unavailable,
   deterministic analysis still works.
 - "Do I need to regenerate AI Evaluation every time?" Not for the same snapshot.
   Structured AI reviews are cached in browser-local review history by subject
@@ -500,9 +500,9 @@ answer practical questions such as:
   no. If the stack points to `contentscript.js` and mentions
   `app-init-liveness` or `background-liveness`, treat it as injected browser
   extension code until a clean profile reproduces a NopsAI source-file stack.
-- "Why is AI Evaluation asking about LLM Profiles?" Analysis uses the same
-  selectable LLM profiles as Assistant chat. Configure provider, model,
-  credential reference, and scope access in **LLM Profiles**. AI Evaluation
+- "Why is AI Evaluation asking about Models?" Analysis uses the same
+  selectable models as Assistant chat. Configure provider, model,
+  credential reference, and scope access in **Models**. AI Evaluation
   selects the configured default from the unscoped Assistant profile picker and
   still sends the team/resource scope path to the evaluation endpoint for policy
   validation.
@@ -524,8 +524,8 @@ It should include at least these directives:
 | `steps` | pipeline | Required non-empty ordered list of step definitions. |
 | `timeout` | pipeline | Optional whole-run duration such as `45m` or `2h`. |
 | `llm_enabled` | pipeline | Optional boolean. `false` is for script-only pipelines and rejects goals, conditions, final outputs, and direct scripts with blocking guardrail/policy Knowledge Context. |
-| `agent_profile` | pipeline | Default AI persona and instruction profile. Step can override it. |
-| `llm_profile` | pipeline | Default model-provider profile. Step, task, output, and output item can override it where supported. |
+| `agent_role` | pipeline | Default agent role from the `agent-roles/` registry. Step can override it. |
+| `model` | pipeline | Default model from the `models/` registry. Step, task, output, and output item can override it where supported. |
 | `mcp_profiles` | pipeline | Approved MCP tool profiles available to LLM goal work. Additive with step and task MCP profiles; the agent only accepts server/tool pairs from the resolved profile allowlist. |
 | `governance_level` | pipeline | AI governance enforcement level: `advisory`, `guarded`, `strict`, or `exception_based`. Step and task values can override it. |
 | `runtime_pool` | pipeline | Kubernetes runtime pool default. Docker runners ignore it. |
@@ -571,8 +571,8 @@ Common step directives:
 | `steps[].volumes` | Named Docker volume or Kubernetes PVC mounts using `volume:/mount/path`; existing storage is reused and missing storage is created. |
 | `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. Ignored failed tasks remain auditable as `failure (ignored)`, the step renders as warning, and an otherwise successful run finishes with status `warning`. Approval and explicit policy/guardrail enforcement failures still fail closed. |
 | `steps[].llm_output_sharing` | Step-level output-history sharing override. |
-| `steps[].agent_profile` | Step persona override. Valid for conditions and LLM goals in the step. |
-| `steps[].llm_profile` | Step model-client override. Applies to the step condition and tasks unless a task has `llm_profile`. |
+| `steps[].agent_role` | Step persona override. Valid for conditions and LLM goals in the step. |
+| `steps[].model` | Step model-client override. Applies to the step condition and tasks unless a task has `model`. |
 | `steps[].mcp_profiles` | MCP profiles added for LLM goals in the step. Invalid on script-only and include steps. |
 | `steps[].governance_level` | Step-level AI governance enforcement override. |
 | `steps[].runtime_pool` | Kubernetes runtime pool override. Falls back to pipeline `runtime_pool`, then runner default. |
@@ -588,7 +588,7 @@ Common task directives:
 | `tasks[].depends_on` | Task dependencies. Values may be tasks in the same step or qualified producer tasks from upstream steps. |
 | `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step; run details warn when ignored work fails and an otherwise successful run finishes with status `warning`. Approval and explicit policy/guardrail enforcement failures still fail closed. |
 | `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
-| `tasks[].llm_profile` | Most-specific LLM model-client override for this task. |
+| `tasks[].model` | Most-specific LLM model-client override for this task. |
 | `tasks[].mcp_profiles` | MCP profiles for this LLM goal task. Invalid on script tasks. |
 | `tasks[].governance_level` | Task-level AI governance enforcement override. |
 | `tasks[].variables` | Task-local environment overrides. Applied after step variables. |
@@ -618,30 +618,30 @@ wiki:
 
 | Directive or resource | Controls | Does not control |
 | --- | --- | --- |
-| `agent_profile` | Persona, role, and prompt instructions. | Provider, model, secrets, tools, credentials, permissions. |
-| `llm_profile` | Provider, model, endpoint, credential reference, timeout, tokens, temperature, and provider-specific settings. | Persona, authorization, Knowledge Context, MCP server definitions. |
+| `agent_role` | Persona, role, and prompt instructions. | Provider, model, secrets, tools, credentials, permissions. |
+| `model` | Provider, provider model id, endpoint, credential reference, timeout, tokens, temperature, and provider-specific settings. | Persona, authorization, Knowledge Context, MCP server definitions. |
 | `mcp_profiles` | Approved MCP servers and tool allowlists for LLM goals. | Arbitrary server URLs in pipeline YAML. |
 | `knowledge_context` | Documents injected into LLM prompts and guardrail/policy behavior. | Runtime resource permission by itself. |
 | AAA | Whether the original caller may use the selected resources. | Model selection or prompt wording. |
 
-LLM profile resolution for conditions and LLM-backed tasks:
+model resolution for conditions and LLM-backed tasks:
 
-1. Task `llm_profile`
-2. Step `llm_profile`
-3. Pipeline `llm_profile`
+1. Task `model`
+2. Step `model`
+3. Pipeline `model`
 4. Configured default profile
 
-Final-output LLM profile resolution:
+Final-output model resolution:
 
-1. `output.items[].llm_profile`
-2. `output.llm_profile`
-3. Pipeline `llm_profile`
+1. `output.items[].model`
+2. `output.model`
+3. Pipeline `model`
 4. Configured default profile
 
-Agent profile resolution:
+Agent role resolution:
 
-1. Step `agent_profile`
-2. Pipeline `agent_profile`
+1. Step `agent_role`
+2. Pipeline `agent_role`
 3. Configured default profile
 
 MCP profile resolution is additive:
@@ -701,7 +701,7 @@ Final outputs use:
 
 ```yaml
 output:
-  llm_profile: report-writer
+  model: report-writer
   items:
     - name: Executive summary
       type: markdown
@@ -822,13 +822,13 @@ Implemented workflow building blocks include:
 - human approvals
 - scoped variables and encrypted secrets
 - governed Knowledge Context
-- LLM Profiles, Agent Profiles, and MCP Profiles
+- Models, Agent roles, and MCP Profiles
 - manual, scheduled, Git, external-trigger, child-pipeline, and rerun entry
   points
 - final Markdown, JSON, HTML, PDF, and Excel deliverables
 
 UI detail selection uses path-backed routes for primary resources: scopes,
-steps, schedules, LLM profiles, agent profiles, MCP servers/profiles,
+steps, schedules, models, agent roles, MCP servers/profiles,
 credentials, external API triggers, Git webhook sources, dashboards, and Monitoring tabs. Query
 parameters remain for filters, section/tab view state, and run drilldowns.
 Pipelines, reusable steps, schedules, scopes, and Knowledge Context expose a
@@ -934,7 +934,8 @@ source of truth. GitOps can manage:
 - `git-webhook-sources/`
 - `dashboards/`
 - `scopes/`
-- `knowledge/`
+- `knowledge/` (documents, plus `knowledge/connections/` for Notion, Confluence, and wiki connections)
+- `models/`, `agent-roles/`, `mcp/servers/`, `mcp/profiles/`
 - `access/`
 - `config-repositories/`
 - `setting/git-apps/`
@@ -969,9 +970,25 @@ Canonical system files include:
 - `setting/system/auth.yaml`
 - `setting/system/mail.yaml`
 - `setting/system/data-management.yaml`
-- `setting/system/llm_profile.yaml`
-- `setting/system/mcp.yaml`
-- `setting/system/agent-profiles.yaml`
+
+Models, agent roles, and MCP servers and profiles are one file per resource, in
+the same shape as pipelines and knowledge documents. A file directly under the
+directory is workspace-wide and a file under a team segment is owned by that
+team, which is also how team-owned registries reach GitOps. Exactly one file per
+scope may declare `default: true`, so the default travels with the resource
+instead of living in a second file, and a second default in the same scope fails
+the sync. MCP servers stay workspace-wide because they are connection
+definitions; teams select them through profiles, and a team profile may only
+reference an approved server.
+
+Knowledge is fully Git-owned. `knowledge/connections/<team>/<connection>.yaml`
+defines a Notion, Confluence, or wiki connection, and a document mirrored from a
+connected page declares `source.type: external_page` with the connection, page
+reference, and sync mode instead of inline content. Git owns which page is
+attached and how it syncs; the mirrored page body, sync status, cached content,
+and preserved provider assets stay runtime records so an upstream page edit is
+never reported as configuration drift. Connections are applied before the
+documents that attach to them, and both are pruned when Git stops declaring them.
 
 `setting/system/assistant.yaml` owns the Nopsai AI Assistant block. Runner
 settings and assistant settings are separate files so runtime operations and
@@ -991,11 +1008,11 @@ back to the owning configuration repository.
 
 ## AI and MCP Boundaries
 
-Agent Profiles, LLM Profiles, MCP Profiles, Knowledge Context, AAA, and pipeline
+Agent roles, Models, MCP Profiles, Knowledge Context, AAA, and pipeline
 schema are separate control layers:
 
-- Agent Profiles control persona and prompt behavior.
-- LLM Profiles control provider, model, endpoint, credential reference, and
+- Agent roles control persona and prompt behavior.
+- Models control provider, model, endpoint, credential reference, and
   generation settings.
 - MCP Profiles control approved external servers and tools.
 - Knowledge Context supplies architecture, policies, guardrails, examples, and
@@ -1098,3 +1115,24 @@ The current repository does not establish these capabilities:
 
 These can be valid roadmap items, but they should not appear in the
 current-version wiki as implemented behavior without implementation evidence.
+
+## Model and Agent Role Vocabulary
+
+Models are called **models** and Agent roles are called **agent roles**
+across the product: the UI navigation, the GitOps directories (`models/`,
+`agent-roles/`), the REST routes (`/v1/system/models`,
+`/v1/teams/{teamID}/models`, `/v1/system/agent-roles`,
+`/v1/teams/{teamID}/agent-roles`), the pipeline schema fields (`model:` and
+`agent_role:` on pipelines, steps, tasks, and outputs where supported), and the
+AAA resource types (`model`, `agent_role`).
+
+Inside a model definition, `model:` is the provider's own model identifier, so
+telemetry that reports both uses `model` for the selected registry entry and
+`provider_model` for the provider string it resolved to. That applies to the AI
+usage API and its `nopsai_ai_*` metric labels, and to the monitoring analytics
+`model` and `provider_model` query parameters.
+
+There is no compatibility alias for the old names. Config repositories, API
+clients, and pipelines must use the new vocabulary; stored AAA grants, role
+permissions, ACLs, ownership, and visibility rows are rewritten to the new
+resource types by schema migration on startup.

@@ -1364,7 +1364,7 @@ func assistantResourceURIsForTool(name string) []string {
 	case "nopsai.get_monitoring_summary", "nopsai.get_monitoring_run_analytics", "nopsai.get_monitoring_pipeline_performance", "nopsai.get_monitoring_step_performance", "nopsai.get_monitoring_task_performance", "nopsai.get_monitoring_trigger_analytics", "nopsai.get_monitoring_external_trigger_analytics", "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_reliability", "nopsai.get_monitoring_efficiency", "nopsai.get_monitoring_security", "nopsai.get_monitoring_runner_history", "nopsai.get_monitoring_schedule_ai_usage", "nopsai.get_monitoring_schedule_performance", "nopsai.get_monitoring_trigger_performance", "nopsai.get_pipeline_efficiency", "nopsai.compare_pipelines", "nopsai.compare_schedules", "nopsai.explain_pipeline_health", "nopsai.find_optimization_opportunities", "nopsai.list_monitoring_views", "nopsai.create_monitoring_view", "nopsai.update_monitoring_view", "nopsai.delete_monitoring_view", "nopsai.list_monitoring_alert_rules", "nopsai.create_monitoring_alert_rule", "nopsai.update_monitoring_alert_rule", "nopsai.delete_monitoring_alert_rule", "nopsai.evaluate_monitoring_alert_rule", "nopsai.list_monitoring_alert_events", "nopsai.list_monitoring_recommendations", "nopsai.acknowledge_monitoring_recommendation", "nopsai.resolve_monitoring_recommendation":
 		return []string{"nopsai://statistics"}
 	case "nopsai.get_llm_profiles":
-		return []string{"nopsai://system/llm-profiles"}
+		return []string{"nopsai://system/models"}
 	case "nopsai.get_mcp_profiles":
 		return []string{"nopsai://system/mcp-profiles"}
 	case "nopsai.get_feature_capabilities":

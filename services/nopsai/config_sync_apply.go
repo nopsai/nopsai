@@ -50,8 +50,9 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	configRepositories := plan.configRepositories
 	accessPlan := plan.accessPlan
 	knowledgeContexts := plan.knowledgeContexts
-	llmProfilePlan := plan.llmProfilePlan
-	agentProfilePlan := plan.agentProfilePlan
+	knowledgeConnections := plan.knowledgeConnections
+	modelPlan := plan.modelPlan
+	agentRolePlan := plan.agentRolePlan
 	mcpRegistryPlan := plan.mcpRegistryPlan
 	teamDefaultsPlans := plan.teamDefaultsPlans
 	authSettingsPlan := plan.authSettingsPlan
@@ -87,23 +88,23 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			ConfigSourceCommitSHA: commitSHA,
 		}
 	}
-	if llmProfilePlan != nil {
-		for name, profile := range llmProfilePlan.profiles {
+	if modelPlan != nil {
+		for key, stored := range modelPlan.models {
 			if err := a.ensureCredentialReferenceMetadata(
 				ctx,
-				profile.CredentialRef,
-				credentialMetadata("api_key", "LLM API key for "+name, llmProfilePlan.sourcePath),
+				stored.profile.CredentialRef,
+				credentialMetadata("api_key", "Model API key for "+key, stored.sourcePath),
 			); err != nil {
-				return fmt.Errorf("prepare LLM credential metadata for %q: %w", name, err)
+				return fmt.Errorf("prepare model credential metadata for %q: %w", key, err)
 			}
 		}
 	}
 	if mcpRegistryPlan != nil {
-		for name, server := range mcpRegistryPlan.Servers {
+		for name, stored := range mcpRegistryPlan.servers {
 			if err := a.ensureCredentialReferenceMetadata(
 				ctx,
-				server.CredentialRef,
-				credentialMetadata("bearer_token", "MCP bearer token for "+name, mcpRegistryPlan.SourcePath),
+				stored.server.CredentialRef,
+				credentialMetadata("bearer_token", "MCP bearer token for "+name, stored.sourcePath),
 			); err != nil {
 				return fmt.Errorf("prepare MCP credential metadata for %q: %w", name, err)
 			}
@@ -145,6 +146,15 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			); err != nil {
 				return fmt.Errorf("prepare GitHub App webhook credential metadata: %w", err)
 			}
+		}
+	}
+	for key, connection := range knowledgeConnections {
+		if err := a.ensureCredentialReferenceMetadata(
+			ctx,
+			connection.credentialRef,
+			credentialMetadata("bearer_token", "Knowledge connection token for "+key, connection.sourcePath),
+		); err != nil {
+			return fmt.Errorf("prepare knowledge connection credential metadata for %q: %w", key, err)
 		}
 	}
 	for id, source := range gitWebhookSources {
@@ -290,6 +300,63 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			config_source_path = EXCLUDED.config_source_path,
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	// External-page documents keep their mirrored body, sync history, and
+	// content hash: Git owns which page is attached and how it syncs, the sync
+	// worker owns the page body.
+	const knowledgeContextExternalUpsert = `INSERT INTO knowledge_contexts (
+			kind, team_path, name, description, content, content_source,
+			connection_id, external_provider, external_page_id, external_page_url, external_page_title,
+			sync_mode, sync_interval_minutes, failure_mode, sync_failure_mode,
+			source, config_repo_id, config_source_path, config_source_commit_sha,
+			managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, '', 'external_page', $5, $6, $7, $8, $9, $10, $11, $12, $12, 'git', $13, $14, $15, TRUE, NOW())
+		ON CONFLICT (kind, team_path, name) DO UPDATE SET
+			description = EXCLUDED.description,
+			source = 'git',
+			content_source = 'external_page',
+			connection_id = EXCLUDED.connection_id,
+			external_provider = EXCLUDED.external_provider,
+			external_page_id = EXCLUDED.external_page_id,
+			external_page_url = EXCLUDED.external_page_url,
+			external_page_title = EXCLUDED.external_page_title,
+			sync_mode = EXCLUDED.sync_mode,
+			sync_interval_minutes = EXCLUDED.sync_interval_minutes,
+			failure_mode = EXCLUDED.failure_mode,
+			sync_failure_mode = EXCLUDED.sync_failure_mode,
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const knowledgeConnectionUpsert = `INSERT INTO knowledge_context_connections (
+			team_path, name, display_name, provider, status, disabled,
+			credential_ref, credential_secret_ref, base_url, scopes, config, provider_config,
+			source, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
+			disabled_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9::jsonb, $10::jsonb, $10::jsonb,
+			'git', $11, $12, $13, TRUE, CASE WHEN $6 THEN NOW() ELSE NULL END, NOW())
+		ON CONFLICT (team_path, name) DO UPDATE SET
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			display_name = EXCLUDED.display_name,
+			provider = EXCLUDED.provider,
+			status = EXCLUDED.status,
+			disabled = EXCLUDED.disabled,
+			credential_ref = EXCLUDED.credential_ref,
+			credential_secret_ref = EXCLUDED.credential_secret_ref,
+			base_url = EXCLUDED.base_url,
+			scopes = EXCLUDED.scopes,
+			config = EXCLUDED.config,
+			provider_config = EXCLUDED.provider_config,
+			disabled_at = CASE
+				WHEN EXCLUDED.disabled THEN COALESCE(knowledge_context_connections.disabled_at, NOW())
+				ELSE NULL
+			END,
+			last_error = CASE WHEN EXCLUDED.status = 'connected' THEN '' ELSE knowledge_context_connections.last_error END,
 			updated_at = NOW()`
 	const envUpsert = `INSERT INTO variables (
 			name, value, repository_name, scope, source,
@@ -525,7 +592,42 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["schedules_synced"]++
 	}
 
-	// E. Upsert Knowledge Contexts
+	// E. Upsert Knowledge Connections before the documents that attach to them.
+	knowledgeConnectionIDs := make(map[string]string, len(knowledgeConnections))
+	for key, stored := range knowledgeConnections {
+		writable, err := ensureConfigResourceWritable(ctx, tx, "knowledge_context_connections", "knowledge connection", key, binding, stored.team, "team_path = $1 AND name = $2", stored.team, stored.name)
+		if err != nil {
+			return err
+		}
+		if !writable {
+			continue
+		}
+		scopes, err := json.Marshal(mapOrEmpty(stored.scopes))
+		if err != nil {
+			return fmt.Errorf("failed to encode knowledge connection scopes '%s': %w", key, err)
+		}
+		config, err := json.Marshal(mapOrEmpty(stored.config))
+		if err != nil {
+			return fmt.Errorf("failed to encode knowledge connection config '%s': %w", key, err)
+		}
+		status := knowledgeConnectionStatusConnected
+		switch {
+		case stored.disabled:
+			status = knowledgeConnectionStatusDisabled
+		case stored.credentialRef == "":
+			status = knowledgeConnectionStatusAuthenticationRequired
+		}
+		if _, err := tx.Exec(ctx, knowledgeConnectionUpsert,
+			stored.team, stored.name, stored.displayName, stored.provider, status, stored.disabled,
+			stored.credentialRef, stored.baseURL, string(scopes), string(config),
+			binding.ID, stored.sourcePath, commitSHA,
+		); err != nil {
+			return fmt.Errorf("failed to upsert knowledge connection '%s': %w", key, err)
+		}
+		details["knowledge_connections_synced"]++
+	}
+
+	// F. Upsert Knowledge Contexts
 	for key, stored := range knowledgeContexts {
 		var conflictingKind string
 		conflictErr := tx.QueryRow(ctx, `
@@ -547,13 +649,48 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, knowledgeContextUpsert, stored.kind, stored.team, stored.name, stored.description, stored.content, binding.ID, stored.sourcePath, commitSHA); err != nil {
-			return fmt.Errorf("failed to upsert knowledge context '%s': %w", key, err)
+		if stored.external == nil {
+			if _, err := tx.Exec(ctx, knowledgeContextUpsert, stored.kind, stored.team, stored.name, stored.description, stored.content, binding.ID, stored.sourcePath, commitSHA); err != nil {
+				return fmt.Errorf("failed to upsert knowledge context '%s': %w", key, err)
+			}
+			details["knowledge_contexts_synced"]++
+			continue
+		}
+		connectionKey := buildKnowledgeConnectionIdentifier(stored.team, stored.external.connection)
+		connectionID, ok := knowledgeConnectionIDs[connectionKey]
+		if !ok {
+			lookupErr := tx.QueryRow(ctx, `
+				SELECT id::text
+				FROM knowledge_context_connections
+				WHERE team_path = $1 AND name = $2
+				LIMIT 1
+			`, stored.team, stored.external.connection).Scan(&connectionID)
+			if errors.Is(lookupErr, pgx.ErrNoRows) || errors.Is(lookupErr, sql.ErrNoRows) {
+				return fmt.Errorf("knowledge context '%s' references unknown knowledge connection '%s'; define it under knowledge/%s/", key, connectionKey, knowledgeConnectionsGitOpsDirectory)
+			}
+			if lookupErr != nil {
+				return fmt.Errorf("failed to resolve knowledge connection '%s' for '%s': %w", connectionKey, key, lookupErr)
+			}
+			knowledgeConnectionIDs[connectionKey] = connectionID
+		}
+		provider := stored.external.provider
+		if provider == "" {
+			if err := tx.QueryRow(ctx, `SELECT provider FROM knowledge_context_connections WHERE id = $1`, connectionID).Scan(&provider); err != nil {
+				return fmt.Errorf("failed to resolve knowledge connection provider for '%s': %w", key, err)
+			}
+		}
+		if _, err := tx.Exec(ctx, knowledgeContextExternalUpsert,
+			stored.kind, stored.team, stored.name, stored.description,
+			connectionID, provider, stored.external.pageID, stored.external.pageURL, stored.external.pageTitle,
+			stored.external.syncMode, stored.external.intervalMinutes, stored.external.failureMode,
+			binding.ID, stored.sourcePath, commitSHA,
+		); err != nil {
+			return fmt.Errorf("failed to upsert external knowledge context '%s': %w", key, err)
 		}
 		details["knowledge_contexts_synced"]++
 	}
 
-	// F. Upsert General Scope Vars
+	// G. Upsert General Scope Vars
 	for key, stored := range generalScopeVars {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
@@ -570,7 +707,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["general_vars_synced"]++
 	}
 
-	// G. Upsert Repo Scope Vars
+	// H. Upsert Repo Scope Vars
 	for key, stored := range repoScopeVars {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("repo=%s scope=%s name=%s", key.repo, runtimeScopeForDisplay(key.scopePath), key.name)
@@ -587,7 +724,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["repo_vars_synced"]++
 	}
 
-	// H. Upsert Scope Secrets
+	// I. Upsert Scope Secrets
 	for key, stored := range generalScopeSecrets {
 		scopeParam := runtimeScopeForStorage(key.scopePath)
 		resourceID := fmt.Sprintf("scope=%s name=%s", runtimeScopeForDisplay(key.scopePath), key.name)
@@ -627,7 +764,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["secrets_synced"]++
 	}
 
-	// I. Upsert Git Webhook Sources
+	// J. Upsert Git Webhook Sources
 	for key, stored := range gitWebhookSources {
 		resourceScope := effectiveGitWebhookSourceTeamPath(stored.input)
 		writable, err := ensureConfigResourceWritable(
@@ -676,7 +813,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["git_webhook_sources_synced"]++
 	}
 
-	// J. Upsert Triggers
+	// K. Upsert Triggers
 	for repoName, stored := range triggers {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repositoryTriggerConfigScope(stored.record), "repository_name = $1", repoName)
 		if err != nil {
@@ -705,7 +842,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["triggers_synced"]++
 	}
 
-	// K. Upsert External Triggers
+	// L. Upsert External Triggers
 	for key, stored := range externalTriggers {
 		resourceScope := externalTriggerConfigScope(stored.input)
 		writable, err := ensureConfigResourceWritable(ctx, tx, "external_triggers", "external trigger", key, binding, resourceScope, "id = $1", key)
@@ -819,7 +956,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "data_cleanup_schedules", "dashboards", "dashboard_refresh_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings", "runtime_settings", "credentials"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "data_cleanup_schedules", "dashboards", "dashboard_refresh_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "knowledge_context_connections", "agent_profiles", "notification_routes", "notification_mail_settings", "runtime_settings", "credentials"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -974,7 +1111,32 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 
-	// 5. Prune Triggers
+	// 6. Prune Knowledge Connections. Documents are pruned first so removing a
+	// connection cannot leave a live document pointing at nothing.
+	{
+		var teams, names []string
+		for _, connection := range knowledgeConnections {
+			teams = append(teams, connection.team)
+			names = append(names, connection.name)
+		}
+		if len(names) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM knowledge_context_connections WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return fmt.Errorf("failed to prune knowledge connections: %w", err)
+			}
+		} else if _, err := tx.Exec(ctx, `
+			DELETE FROM knowledge_context_connections
+			WHERE managed_by_config_repo = TRUE
+			AND config_repo_id = $3
+			AND NOT EXISTS (
+				SELECT 1 FROM unnest($1::text[], $2::text[]) AS t(g, n)
+				WHERE knowledge_context_connections.team_path = t.g
+				  AND knowledge_context_connections.name = t.n
+			)`, teams, names, binding.ID); err != nil {
+			return fmt.Errorf("failed to prune knowledge connections: %w", err)
+		}
+	}
+
+	// 7. Prune Triggers
 	{
 		var repos []string
 		for repo := range triggers {
@@ -991,7 +1153,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 
-	// 6. Prune External Triggers
+	// 8. Prune External Triggers
 	{
 		var ids []string
 		for id := range externalTriggers {
@@ -1025,7 +1187,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 
-	// 7. Prune Variables (Scope Variables)
+	// 9. Prune Variables (Scope Variables)
 	{
 		var names []string
 		var repos []*string
@@ -1067,7 +1229,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 
-	// 8. Prune Secrets (Scope Secrets)
+	// 10. Prune Secrets (Scope Secrets)
 	{
 		var names []string
 		var repos []*string
@@ -1198,24 +1360,49 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["team_defaults_synced"]++
 		details["team_knowledge_defaults_synced"] += len(defaultsPlan.knowledgeDefaults)
 	}
-	if llmProfilePlan != nil {
-		if err := persistLLMProfilesToTx(ctx, tx, llmProfilePlan.defaultProfile, llmProfilePlan.profiles); err != nil {
-			return fmt.Errorf("failed to sync LLM profiles from '%s': %w", llmProfilePlan.sourcePath, err)
+	if modelPlan != nil {
+		defaultModel, globalModels := modelPlan.globalModels()
+		if len(globalModels) > 0 {
+			if err := persistLLMProfilesToTx(ctx, tx, defaultModel, globalModels); err != nil {
+				return fmt.Errorf("failed to sync models: %w", err)
+			}
+			details["models_synced"] = len(globalModels)
 		}
-		details["llm_profiles_synced"] = len(llmProfilePlan.profiles)
+		teamModels, err := a.persistGitOpsTeamModels(ctx, tx, binding, modelPlan, commitSHA)
+		if err != nil {
+			return err
+		}
+		details["team_models_synced"] = teamModels
 	}
-	if agentProfilePlan != nil {
-		if err := persistGitOpsAgentProfilesToTx(ctx, tx, agentProfilePlan, binding.ID, commitSHA); err != nil {
-			return fmt.Errorf("failed to sync agent profiles from '%s': %w", agentProfilePlan.sourcePath, err)
+	if agentRolePlan != nil {
+		defaultRole, globalRoles := agentRolePlan.globalRoles()
+		if len(globalRoles) > 0 {
+			if err := persistGitOpsAgentRolesToTx(ctx, tx, agentRolePlan, defaultRole, globalRoles, binding.ID, commitSHA); err != nil {
+				return fmt.Errorf("failed to sync agent roles: %w", err)
+			}
+			details["agent_roles_synced"] = len(globalRoles)
 		}
-		details["agent_profiles_synced"] = len(agentProfilePlan.profiles)
+		teamRoles, err := a.persistGitOpsTeamAgentRoles(ctx, tx, binding, agentRolePlan, commitSHA)
+		if err != nil {
+			return err
+		}
+		details["team_agent_roles_synced"] = teamRoles
 	}
 	if mcpRegistryPlan != nil {
-		if err := persistMCPRegistryToTx(ctx, tx, mcpRegistryPlan.Servers, mcpRegistryPlan.Profiles); err != nil {
-			return fmt.Errorf("failed to sync MCP registry from '%s': %w", mcpRegistryPlan.SourcePath, err)
+		servers := mcpRegistryPlan.globalServers()
+		globalProfiles := mcpRegistryPlan.globalProfiles()
+		if len(servers) > 0 || len(globalProfiles) > 0 {
+			if err := persistMCPRegistryToTx(ctx, tx, servers, globalProfiles); err != nil {
+				return fmt.Errorf("failed to sync MCP registry: %w", err)
+			}
+			details["mcp_servers_synced"] = len(servers)
+			details["mcp_profiles_synced"] = len(globalProfiles)
 		}
-		details["mcp_servers_synced"] = len(mcpRegistryPlan.Servers)
-		details["mcp_profiles_synced"] = len(mcpRegistryPlan.Profiles)
+		teamProfiles, err := a.persistGitOpsTeamMCPProfiles(ctx, tx, binding, mcpRegistryPlan, commitSHA)
+		if err != nil {
+			return err
+		}
+		details["team_mcp_profiles_synced"] = teamProfiles
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1246,11 +1433,17 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			details["assistant_settings_synced"] = 1
 		}
 	}
-	if llmProfilePlan != nil {
-		a.setLLMProfiles(llmProfilePlan.defaultProfile, llmProfilePlan.profiles)
+	if modelPlan != nil {
+		if defaultModel, globalModels := modelPlan.globalModels(); len(globalModels) > 0 {
+			a.setLLMProfiles(defaultModel, globalModels)
+		}
 	}
 	if mcpRegistryPlan != nil {
-		a.setMCPRegistry(mcpRegistryPlan.Servers, mcpRegistryPlan.Profiles)
+		servers := mcpRegistryPlan.globalServers()
+		globalProfiles := mcpRegistryPlan.globalProfiles()
+		if len(servers) > 0 || len(globalProfiles) > 0 {
+			a.setMCPRegistry(servers, globalProfiles)
+		}
 	}
 	return nil
 }

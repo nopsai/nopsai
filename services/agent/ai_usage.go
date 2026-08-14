@@ -53,7 +53,7 @@ func reportCollectedAIUsage(ctx context.Context, reporter aiUsageReporter, featu
 func aiUsageReportFromLLMUsage(feature, stepName, taskName, agentProfile string, usage llmruntime.Usage) models.AIUsageReport {
 	metadata := map[string]any{}
 	if agentProfile = strings.TrimSpace(agentProfile); agentProfile != "" {
-		metadata["agent_profile"] = agentProfile
+		metadata["agent_role"] = agentProfile
 	}
 	if usage.Estimated {
 		metadata["estimated_tokens"] = true
@@ -159,7 +159,7 @@ func aiUsageReportFromLLMUsage(feature, stepName, taskName, agentProfile string,
 		TaskName:         strings.TrimSpace(taskName),
 		Feature:          strings.TrimSpace(feature),
 		Provider:         strings.TrimSpace(usage.Provider),
-		Model:            strings.TrimSpace(usage.Model),
+		ProviderModel:    strings.TrimSpace(usage.Model),
 		LLMProfile:       strings.TrimSpace(usage.Profile),
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,

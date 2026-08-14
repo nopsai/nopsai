@@ -36,6 +36,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"team_defaults_synced":           0,
 		"team_knowledge_defaults_synced": 0,
 		"knowledge_contexts_synced":      0,
+		"knowledge_connections_synced":   0,
 		"auth_teams_seeded":              0,
 		"auth_settings_synced":           0,
 		"credentials_synced":             0,

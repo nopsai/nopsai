@@ -17,14 +17,14 @@ const teamKnowledgeDefaultSettingPrefix = "knowledge_default:"
 type teamDefaultsResponse struct {
 	TeamID           int               `json:"team_id"`
 	TeamPath         string            `json:"team_path"`
-	LLMProfile       string            `json:"llm_profile,omitempty"`
-	AgentProfile     string            `json:"agent_profile,omitempty"`
+	LLMProfile       string            `json:"model,omitempty"`
+	AgentProfile     string            `json:"agent_role,omitempty"`
 	KnowledgeContext map[string]string `json:"knowledge_context"`
 }
 
 type updateTeamDefaultsRequest struct {
-	LLMProfile       *string           `json:"llm_profile,omitempty"`
-	AgentProfile     *string           `json:"agent_profile,omitempty"`
+	LLMProfile       *string           `json:"model,omitempty"`
+	AgentProfile     *string           `json:"agent_role,omitempty"`
 	KnowledgeContext map[string]string `json:"knowledge_context,omitempty"`
 }
 

@@ -205,10 +205,10 @@ function buildTeamOperationsSection(summary: TeamAnalysisOperationsSummary): Ana
     lines: [
       ...notificationRoutes.slice(0, 12).map((route, index) => `notification_route_${index + 1}=${redactAnalysisPromptText(JSON.stringify(route), 500)}`),
       ...llmProfiles.slice(0, 12).map(profile =>
-        `llm_profile=${profile.name} provider=${profile.provider || '-'} model=${profile.model || '-'} scope=${profile.scope} team=${profile.team_path || 'global'} status=${profile.status || '-'} allowed=${profile.allowed_in_scope === false ? 'false' : 'true'}`
+        `model=${profile.name} provider=${profile.provider || '-'} model=${profile.model || '-'} scope=${profile.scope} team=${profile.team_path || 'global'} status=${profile.status || '-'} allowed=${profile.allowed_in_scope === false ? 'false' : 'true'}`
       ),
       ...agentProfiles.slice(0, 12).map(profile =>
-        `agent_profile=${profile.id} display=${redactAnalysisPromptText(profile.display_name || profile.id, 160)} role=${profile.role || '-'} scope=${profile.scope} team=${profile.team_path || 'global'} enabled=${profile.enabled === false ? 'false' : 'true'} source=${profile.source || '-'}`
+        `agent_role=${profile.id} display=${redactAnalysisPromptText(profile.display_name || profile.id, 160)} role=${profile.role || '-'} scope=${profile.scope} team=${profile.team_path || 'global'} enabled=${profile.enabled === false ? 'false' : 'true'} source=${profile.source || '-'}`
       ),
       ...mcpProfiles.slice(0, 12).map(profile =>
         `mcp_profile=${profile.name} scope=${profile.scope} team=${profile.team_path || 'global'} enabled=${profile.enabled === false ? 'false' : 'true'} servers=${compactPromptList((profile.servers || []).map(server => server.server))}`

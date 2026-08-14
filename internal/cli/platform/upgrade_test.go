@@ -303,6 +303,9 @@ func TestKubernetesUpgradeRecordsDeployedVersionInValues(t *testing.T) {
 		Version:  testOtherPlatformVersion,
 		LockFile: lockFile,
 	})
+	if plan.LockFile != lockFile {
+		t.Fatalf("plan lock file = %q, want the lock the plan was read from", plan.LockFile)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,8 +14,8 @@ import {
 } from '../api';
 import { fetchKnowledgeContexts } from '../../knowledge-context/api';
 import type { KnowledgeContextListItem } from '../../knowledge-context/model';
-import { fetchAgentProfiles } from '../../system/agent-profiles/api';
-import { fetchLLMProfiles } from '../../system/llm-profiles/api';
+import { fetchAgentProfiles } from '../../system/agent-roles/api';
+import { fetchLLMProfiles } from '../../system/models/api';
 import { fetchMCPRegistry } from '../../system/mcp/api';
 import { aiResourceTeamScope } from '../../system/aiResourceTeams';
 import {

@@ -81,13 +81,13 @@ export const automationSection: WikiSection = {
       keyFacts: [
         'Every step defines exactly one execution mode: `include`, `tasks`, `goal`, `script`, or `approval`. Combining two is a validation error.',
         'A task defines exactly one of `goal` or `script` — neither and both are both errors.',
-        '`agent_profile` is valid on a pipeline and a step but never on a task. Parsing rejects it with an explicit message.',
+        '`agent_role` is valid on a pipeline and a step but never on a task. Parsing rejects it with an explicit message.',
         '`mcp_profiles` is invalid on include steps, script steps, and script tasks.',
         'Task dependencies must be a task in the same step or a qualified `step.task`; a bare step name is not valid.',
         'Steps with `tasks` declare outputs on the tasks, never at step level.',
       ],
       details: [
-        'Step-level settings cascade down to tasks unless the task overrides them. The resolution order for LLM Profile is task, then step, then pipeline, then the configured default; Agent Profile resolves step, then pipeline, then default; MCP profiles are additive across all three levels and deduplicated.',
+        'Step-level settings cascade down to tasks unless the task overrides them. The resolution order for Model is task, then step, then pipeline, then the configured default; Agent role resolves step, then pipeline, then default; MCP profiles are additive across all three levels and deduplicated.',
         '`ignore_failure` on a step also applies to every task inside it. Ignored failures stay auditable as `failure (ignored)` and turn an otherwise successful run into status `warning`.',
         'Volume mounts use `volume:/mount/path`. Existing storage is reused and missing storage is created. Mounting the reserved runtime output path `/nopsai/outputs` is rejected.',
       ],
@@ -137,7 +137,7 @@ export const automationSection: WikiSection = {
       related: ['pipeline-schema', 'runtime-outputs', 'reuse-and-children', 'approvals'],
       sources: [
         { repositoryPath: 'services/nopsai/pkg/validation/pipeline.go', purpose: 'Mode exclusivity, dependency resolution, and profile rules.' },
-        { repositoryPath: 'pkg/models/model.go', purpose: 'Step and task struct definitions, including the agent_profile rejection.' },
+        { repositoryPath: 'pkg/models/model.go', purpose: 'Step and task struct definitions, including the agent_role rejection.' },
       ],
     },
     {
@@ -336,8 +336,8 @@ export const automationSection: WikiSection = {
         '`when` accepts `always`, `success`, or `failure`; omitted or empty means `always`.',
         '`name`, `type`, and `prompt` are all required on every item, and names must be unique.',
         'Dashboard directives are only valid when `type: dashboard`; setting any of them on another type is a validation error.',
-        'LLM Profile resolution runs item, then `output.llm_profile`, then pipeline, then the configured default.',
-        '`output.llm_profile` without at least one item is a validation error.',
+        'Model resolution runs item, then `output.model`, then pipeline, then the configured default.',
+        '`output.model` without at least one item is a validation error.',
       ],
       details: [
         'Generation happens after the run finishes, so an output can describe the whole run including approvals and ignored failures.',
@@ -372,7 +372,7 @@ export const automationSection: WikiSection = {
         'Final outputs are rejected when the pipeline sets `llm_enabled: false`.',
         'PDF output fails when no Gotenberg renderer is reachable.',
       ],
-      related: ['dashboards', 'create-final-deliverable', 'llm-profiles'],
+      related: ['dashboards', 'create-final-deliverable', 'models'],
       sources: [
         { repositoryPath: 'services/nopsai/pkg/validation/pipeline.go', purpose: 'Output and dashboard target validation.' },
         { repositoryPath: 'doc/final-output-rendering.md', purpose: 'Renderer contracts and retry/audit behavior.' },

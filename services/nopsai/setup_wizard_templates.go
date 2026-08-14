@@ -12,8 +12,6 @@ import (
 
 	"nopsai/config"
 	"nopsai/services/nopsai/internal/configsync"
-
-	"gopkg.in/yaml.v3"
 )
 
 func setupProfiles() []setupStarterProfile {
@@ -286,10 +284,12 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 		files[path] = content
 	}
 	if options.IncludeLLM {
-		files["setting/system/llm_profile.yaml"] = setupLLMProfileYAML(options.LLMProfile)
+		files[modelsGitOpsDirectory+"/"+setupModelName(options.LLMProfile)+".yaml"] = setupModelYAML(options.LLMProfile)
 	}
 	if options.IncludeMCP {
-		files["setting/system/mcp.yaml"] = setupMCPYAML()
+		for path, content := range setupMCPFiles() {
+			files[path] = content
+		}
 	}
 	if profile == setupProfileTeam || profile == setupProfileProduction {
 		files["scopes/prod/scope.yaml"] = setupScopeYAML("prod", repositoryTeams, repositories)
@@ -435,7 +435,7 @@ func setupFirstRunPipelineYAML(profile string, includeLLM bool) string {
 	aiSmokeStep := ""
 	if includeLLM {
 		description = "Verifies that NopsAI can run a starter job, stream logs, and call the configured LLM profile."
-		llmSettings = "llm_profile: standard"
+		llmSettings = "model: standard"
 		aiSmokeStep = `
 
   - name: ai-smoke
@@ -590,7 +590,17 @@ func setupAccessUserTeam(teams []string, raw string) string {
 	return teams[0]
 }
 
-func setupLLMProfileYAML(input setupLLMProfileInput) string {
+func setupModelName(input setupLLMProfileInput) string {
+	name := config.NormalizeLLMProfileName(input.Name)
+	if name == "" {
+		name = config.DefaultLLMProfileName
+	}
+	return name
+}
+
+// setupModelYAML renders the starter model file. Models are one file per
+// resource, and the starter model is the workspace default.
+func setupModelYAML(input setupLLMProfileInput) string {
 	provider := config.NormalizeLLMProvider(input.Provider)
 	if provider == "" {
 		provider = config.LLMProviderLMStudio
@@ -601,7 +611,7 @@ func setupLLMProfileYAML(input setupLLMProfileInput) string {
 	}
 	credentialRef := strings.TrimSpace(input.CredentialRef)
 	if credentialRef == "" && config.LLMProviderRequiresAPIKey(provider) {
-		credentialRef = "credential://system/llm/" + credentialReferenceSegment(firstNonEmptyString(input.Name, config.DefaultLLMProfileName))
+		credentialRef = "credential://system/llm/" + credentialReferenceSegment(setupModelName(input))
 	}
 	baseURL := strings.TrimSpace(input.BaseURL)
 	if baseURL == "" {
@@ -609,19 +619,10 @@ func setupLLMProfileYAML(input setupLLMProfileInput) string {
 	}
 
 	document := struct {
-		DefaultProfile string `yaml:"default_profile"`
-		Profiles       []struct {
-			Name              string `yaml:"name"`
-			config.LLMProfile `yaml:",inline"`
-		} `yaml:"profiles"`
-	}{
-		DefaultProfile: config.DefaultLLMProfileName,
-	}
-	document.Profiles = append(document.Profiles, struct {
-		Name              string `yaml:"name"`
+		Default           bool `yaml:"default"`
 		config.LLMProfile `yaml:",inline"`
 	}{
-		Name: config.DefaultLLMProfileName,
+		Default: true,
 		LLMProfile: config.NormalizeLLMProfile(config.LLMProfile{
 			Provider:       provider,
 			Model:          model,
@@ -633,38 +634,38 @@ func setupLLMProfileYAML(input setupLLMProfileInput) string {
 			Temperature:    input.Temperature,
 			Extra:          input.Extra,
 		}),
-	})
-	contents, err := yaml.Marshal(document)
+	}
+	encoded, err := marshalConfigRepositoryYAML(document)
 	if err != nil {
 		return ""
 	}
-	return string(contents)
+	return string(encoded)
 }
 
-func setupMCPYAML() string {
-	return strings.TrimSpace(`
-mcp_servers:
-  github-readonly:
-    display_name: GitHub MCP Read-only
-    enabled: false
-    provider: github
-    transport: streamable_http
-    url: https://api.githubcopilot.com/mcp/x/all/readonly
-    auth_type: bearer_token
-    credential_ref: credential://system/mcp/github-readonly
-    timeout: 30s
-    allowed_scopes: ["dev", "prod"]
-
-mcp_profiles:
-  github-readonly:
-    description: Read-only GitHub tools for repository-aware setup tests
-    enabled: false
-    servers:
-      - server: github-readonly
-        tools:
-          - "*"
-    allowed_scopes: ["dev", "prod"]
-`) + "\n"
+// setupMCPFiles renders the starter MCP server and profile as one file each.
+func setupMCPFiles() map[string]string {
+	return map[string]string{
+		mcpServersGitOpsDirectory + "/github-readonly.yaml": strings.TrimSpace(`
+display_name: GitHub MCP Read-only
+enabled: false
+provider: github
+transport: streamable_http
+url: https://api.githubcopilot.com/mcp/x/all/readonly
+auth_type: bearer_token
+credential_ref: credential://system/mcp/github-readonly
+timeout: 30s
+allowed_scopes: ["dev", "prod"]
+`) + "\n",
+		mcpProfilesGitOpsDirectory + "/github-readonly.yaml": strings.TrimSpace(`
+description: Read-only GitHub tools for repository-aware setup tests
+enabled: false
+servers:
+  - server: github-readonly
+    tools:
+      - "*"
+allowed_scopes: ["dev", "prod"]
+`) + "\n",
+	}
 }
 
 func setupConfigRepositoryStructureFiles(repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]string {

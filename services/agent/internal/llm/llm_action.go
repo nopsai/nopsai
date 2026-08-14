@@ -64,7 +64,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 	if mustUseMCP {
 		logEvent := log.Info().Strs("mcp_profiles", mcpRuntime.Profiles())
 		if c.profile != "" {
-			logEvent = logEvent.Str("llm_profile", c.profile)
+			logEvent = logEvent.Str("model", c.profile)
 		}
 		logEvent.Msg("MCP tool call is required before final action")
 	}
@@ -91,7 +91,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 			toolName := strings.TrimSpace(toolAction.Tool)
 			logEvent := log.Info().Str("workspace_tool", toolName)
 			if c.profile != "" {
-				logEvent = logEvent.Str("llm_profile", c.profile)
+				logEvent = logEvent.Str("model", c.profile)
 			}
 			logEvent.Msg("Calling workspace tool requested by LLM")
 			result, err := workspaceTools.CallTool(ctx, toolName, toolAction.Arguments)
@@ -104,7 +104,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 				Int("workspace_tool_result_bytes", len(result)).
 				Int("workspace_successful_tool_calls", workspaceTools.SuccessfulToolCalls())
 			if c.profile != "" {
-				resultLog = resultLog.Str("llm_profile", c.profile)
+				resultLog = resultLog.Str("model", c.profile)
 			}
 			resultLog.Msg("Workspace tool returned result to LLM")
 			workspaceTranscript += formatWorkspaceToolResultTranscript(toolName, toolAction.Arguments, result)
@@ -114,7 +114,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 			if mustUseMCP && successfulToolCalls == 0 {
 				logEvent := log.Warn().Str("action_type", actionModel.Type)
 				if c.profile != "" {
-					logEvent = logEvent.Str("llm_profile", c.profile)
+					logEvent = logEvent.Str("model", c.profile)
 				}
 				logEvent.Msg("LLM selected a final action before the required MCP tool call; retrying")
 				toolTranscript += fmt.Sprintf(
@@ -128,7 +128,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 					Str("action_type", actionModel.Type).
 					Str("command", actionModel.CommandAction.Command)
 				if c.profile != "" {
-					logEvent = logEvent.Str("llm_profile", c.profile)
+					logEvent = logEvent.Str("model", c.profile)
 				}
 				logEvent.Msg("LLM selected a shell command that appears to bypass missing MCP capability; failing goal resolution")
 				return nil, newNonRetryableGoalResolutionError("%s", answer)
@@ -136,7 +136,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 			if answer, ok := mcpFinalAnswerFailureReason(actionModel, mcpRuntime); ok {
 				logEvent := log.Warn().Str("action_type", actionModel.Type)
 				if c.profile != "" {
-					logEvent = logEvent.Str("llm_profile", c.profile)
+					logEvent = logEvent.Str("model", c.profile)
 				}
 				logEvent.Msg("LLM reported missing MCP capability or permission; failing goal resolution")
 				return nil, newNonRetryableGoalResolutionError("%s", answer)
@@ -161,7 +161,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 			logEvent = logEvent.Str("mcp_server", serverName)
 		}
 		if c.profile != "" {
-			logEvent = logEvent.Str("llm_profile", c.profile)
+			logEvent = logEvent.Str("model", c.profile)
 		}
 		logEvent.Msg("Calling MCP tool requested by LLM")
 		result, err := mcpRuntime.CallTool(ctx, serverName, toolName, toolAction.Arguments)
@@ -193,7 +193,7 @@ func (c *LLMClient) enforceDuringPolicyReview(req *proto.GetActionRequest, actio
 		}
 	}
 	if c != nil && c.profile != "" {
-		logEvent = logEvent.Str("llm_profile", c.profile)
+		logEvent = logEvent.Str("model", c.profile)
 	}
 	if !interpretation.Allowed {
 		logEvent.Msg("During policy review blocked action")

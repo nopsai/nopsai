@@ -884,7 +884,7 @@ func validatePipelineOutput(output models.PipelineOutput) error {
 	outputProfile := strings.TrimSpace(output.LLMProfile)
 	if len(output.Items) == 0 {
 		if outputProfile != "" {
-			return fmt.Errorf("output.llm_profile requires at least one output item")
+			return fmt.Errorf("output.model requires at least one output item")
 		}
 		return nil
 	}

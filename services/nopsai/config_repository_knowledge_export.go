@@ -13,9 +13,14 @@ import (
 
 func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, resourceAccess map[resourceAccessPlanKey]configRepositoryResourceAccessState, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-			SELECT kind, team_path, name, description, content, COALESCE(source, 'database'), content_source, config_repo_id, managed_by_config_repo, config_source_path
-			FROM knowledge_contexts
-			ORDER BY kind ASC, team_path ASC, name ASC
+			SELECT k.kind, k.team_path, k.name, k.description, k.content, COALESCE(k.source, 'database'), k.content_source,
+			       k.config_repo_id, k.managed_by_config_repo, k.config_source_path,
+			       COALESCE(c.name, ''), COALESCE(k.external_provider, ''), COALESCE(k.external_page_id, ''),
+			       COALESCE(k.external_page_url, ''), COALESCE(k.external_page_title, ''),
+			       COALESCE(k.sync_mode, 'manual'), COALESCE(k.sync_interval_minutes, 0), COALESCE(k.sync_failure_mode, 'fail')
+			FROM knowledge_contexts k
+			LEFT JOIN knowledge_context_connections c ON c.id = k.connection_id
+			ORDER BY k.kind ASC, k.team_path ASC, k.name ASC
 		`)
 	if err != nil {
 		return err
@@ -24,13 +29,40 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 
 	for rows.Next() {
 		var kind, teamPath, name, description, content, source, contentSource, sourcePath string
+		var connectionName, externalProvider, externalPageID, externalPageURL, externalPageTitle string
+		var syncMode, syncFailureMode string
+		var syncIntervalMinutes int
 		var configRepoID sql.NullInt64
 		var managed bool
-		if err := rows.Scan(&kind, &teamPath, &name, &description, &content, &source, &contentSource, &configRepoID, &managed, &sourcePath); err != nil {
+		if err := rows.Scan(
+			&kind, &teamPath, &name, &description, &content, &source, &contentSource, &configRepoID, &managed, &sourcePath,
+			&connectionName, &externalProvider, &externalPageID, &externalPageURL, &externalPageTitle,
+			&syncMode, &syncIntervalMinutes, &syncFailureMode,
+		); err != nil {
 			return err
 		}
-		if contentSource == "external_page" {
-			continue
+		var external *knowledgeSourceFrontMatter
+		if contentSource == knowledgeContentSourceExternalPage {
+			// A connected page is still Git-owned configuration: Git decides
+			// which page is attached and how it syncs. Only the mirrored page
+			// body stays out of Git so an upstream edit is not config drift.
+			if strings.TrimSpace(connectionName) == "" {
+				continue
+			}
+			external = &knowledgeSourceFrontMatter{
+				Type:       knowledgeContentSourceExternalPage,
+				Connection: connectionName,
+				Provider:   externalProvider,
+				PageID:     externalPageID,
+				PageURL:    externalPageURL,
+				PageTitle:  externalPageTitle,
+				Sync: &knowledgeSyncFrontMatter{
+					Mode:            syncMode,
+					IntervalMinutes: syncIntervalMinutes,
+					FailureMode:     syncFailureMode,
+				},
+			}
+			content = ""
 		}
 		identifier := buildKnowledgeContextIdentifier(kind, teamPath, name)
 		if !configRepositoryIncludesResource(repo, teamPath, source, configRepoID, managed, delegatedScopes) {
@@ -47,7 +79,7 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 		if currentAccess, ok := resourceAccess[resourceAccessPlanKey{resourceType: grantResourceKnowledgeContext, resourceID: identifier}]; ok {
 			access = currentAccess.exportFile()
 		}
-		files[filePath] = renderKnowledgeContextGitOpsDocument(kind, name, description, content, identifier, access)
+		files[filePath] = renderKnowledgeContextGitOpsDocument(kind, name, description, content, identifier, access, external)
 	}
 	return rows.Err()
 }
@@ -78,15 +110,21 @@ type configRepositoryKnowledgeDocument struct {
 	Kind        string                              `yaml:"kind"`
 	Description string                              `yaml:"description,omitempty"`
 	Access      *configRepositoryEmbeddedAccessFile `yaml:"access,omitempty"`
-	Content     string                              `yaml:"content"`
+	Source      *knowledgeSourceFrontMatter         `yaml:"source,omitempty"`
+	Content     string                              `yaml:"content,omitempty"`
 }
 
-func renderKnowledgeContextGitOpsDocument(kind, name, description, content, fallbackName string, access *configRepositoryEmbeddedAccessFile) string {
+func renderKnowledgeContextGitOpsDocument(
+	kind, name, description, content, fallbackName string,
+	access *configRepositoryEmbeddedAccessFile,
+	external *knowledgeSourceFrontMatter,
+) string {
 	doc := configRepositoryKnowledgeDocument{
 		Name:        name,
 		Kind:        kind,
 		Description: strings.TrimSpace(description),
 		Access:      access,
+		Source:      external,
 		Content:     content,
 	}
 	if strings.TrimSpace(doc.Name) == "" {

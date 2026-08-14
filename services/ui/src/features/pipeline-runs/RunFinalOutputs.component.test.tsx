@@ -14,7 +14,7 @@ const outputs: PipelineRunFinalOutput[] = [
     type: 'markdown',
     status: 'success',
     content: '# Summary\n\nEverything passed.',
-    llm_profile: 'report-writer',
+    model: 'report-writer',
     created_at: '2026-07-18T10:00:00Z',
     updated_at: '2026-07-18T10:02:00Z',
     generation_duration: '2m0s',

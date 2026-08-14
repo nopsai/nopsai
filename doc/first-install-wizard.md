@@ -73,7 +73,7 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 7. Create one or two repository teams and place selected repositories under
    them. These teams drive starter trigger generation, run navigation, and
    initial access assignments.
-8. Optionally configure the default LLM profile. For local development, the
+8. Optionally configure the default model. For local development, the
    default is LM Studio at `http://lmstudio:1234` with model `qwen3-coder`.
    The catalog also supports Gemini, OpenAI / ChatGPT, Anthropic Claude, Groq,
    Mistral, OpenRouter, Ollama, and Azure OpenAI. Hosted providers use one API
@@ -85,7 +85,7 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 11. Review generated runtime variables, GitOps team/file layout, and
     post-setup instructions.
 12. Apply setup, then run the starter `setup/first-run` pipeline to verify the
-    runner, agent, logs, and UI. When setup seeded an LLM profile, the same
+    runner, agent, logs, and UI. When setup seeded an model, the same
     pipeline also verifies the LLM path with an AI smoke step.
 
 The setup modal is step-by-step. Optional steps such as GitOps, repository
@@ -220,8 +220,8 @@ scopes/dev/scope.yaml
 scopes/prod/scope.yaml
 knowledge/guideline/<team>/setup-run.md
 access/bootstrap.yaml
-setting/system/llm_profile.yaml
-setting/system/mcp.yaml
+models/<name>.yaml
+mcp/servers/<name>.yaml
 config-repositories/teams/<team>/structure.yaml
 ```
 
@@ -277,7 +277,7 @@ curl -X POST \
       {"name": "applications", "repositories": ["acme/web-app"]}
     ],
     "repositories": ["acme/service-api"],
-    "llm_profile": {
+    "model": {
       "name": "standard",
       "provider": "lmstudio",
       "model": "qwen3-coder",
@@ -303,7 +303,7 @@ Important response fields:
 - `requires_restart`: services should be restarted to pick up changed runtime
   values.
 - `temporary_credentials`: one-time local user credentials for seeded users.
-- `warnings`: non-blocking setup warnings, including when LLM profile setup is
+- `warnings`: non-blocking setup warnings, including when model setup is
   skipped and AI-enabled pipelines may not work yet.
 - `status`: refreshed setup status and health checks after bootstrap.
 
@@ -313,4 +313,4 @@ Important response fields:
   secret, git-bot service networking, and that git-bot can forward to
   `nopsai_api_url`.
 - **Starter run cannot execute**: Check dispatcher/runner health, runner
-  registration, Docker access, and the configured LLM profile.
+  registration, Docker access, and the configured model.

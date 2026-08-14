@@ -28,7 +28,7 @@ Start here when you want to understand the system from different angles:
 - [jwt-authentication.md](./jwt-authentication.md): Local auth, Enterprise SSO/OIDC, User/API JWTs, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.
 - [local-keycloak-sso.md](./local-keycloak-sso.md): Local Keycloak fixture under `examples/sso/keycloak` with seeded users, teams, and OIDC settings for SSO testing.
 - [knowledge-context.md](./knowledge-context.md): Project knowledge documents for LLM-backed pipeline steps, GitOps layout, runtime snapshots, and access checks.
-- [agent-profiles.md](./agent-profiles.md): AI role/persona selection for pipelines and steps, GitOps management, AAA, and runtime prompt behavior.
+- [agent-roles.md](./agent-roles.md): AI role/persona selection for pipelines and steps, GitOps management, AAA, and runtime prompt behavior.
 - [final-output-rendering.md](./final-output-rendering.md): Final-output generation contracts, retry/audit behavior, current renderers, and the structured-document rendering roadmap.
 - [system-logs.md](./system-logs.md): Live allow-listed platform logs, Docker and Kubernetes providers, SSE replay, AAA, redaction, limits, GitOps configuration, and monitoring.
 - [browser-console-troubleshooting.md](./browser-console-troubleshooting.md): How to triage DevTools warnings from injected browser extension content scripts versus NopsAI UI code.

@@ -19,8 +19,8 @@ import (
 const configRepositoryTeamDefaultsPath = "defaults.yaml"
 
 type teamDefaultsGitOpsFile struct {
-	LLMProfile       *string           `json:"llm_profile,omitempty" yaml:"llm_profile,omitempty"`
-	AgentProfile     *string           `json:"agent_profile,omitempty" yaml:"agent_profile,omitempty"`
+	LLMProfile       *string           `json:"model,omitempty" yaml:"model,omitempty"`
+	AgentProfile     *string           `json:"agent_role,omitempty" yaml:"agent_role,omitempty"`
 	KnowledgeContext map[string]string `json:"knowledge_context,omitempty" yaml:"knowledge_context,omitempty"`
 }
 
@@ -89,11 +89,11 @@ func parseGitOpsTeamDefaultsFile(content, sourcePath, teamPath string) (*gitOpsT
 		return nil, fmt.Errorf("team defaults GitOps file '%s' is missing a team scope", sourcePath)
 	}
 
-	llmDefault, _, err := mergeGitOpsDefaultValue(nil, "", file.LLMProfile, "llm_profile", sourcePath, sourceKind, normalizeOptionalLLMDefault)
+	llmDefault, _, err := mergeGitOpsDefaultValue(nil, "", file.LLMProfile, "model", sourcePath, sourceKind, normalizeOptionalLLMDefault)
 	if err != nil {
 		return nil, err
 	}
-	agentDefault, _, err := mergeGitOpsDefaultValue(nil, "", file.AgentProfile, "agent_profile", sourcePath, sourceKind, normalizeOptionalAgentDefault)
+	agentDefault, _, err := mergeGitOpsDefaultValue(nil, "", file.AgentProfile, "agent_role", sourcePath, sourceKind, normalizeOptionalAgentDefault)
 	if err != nil {
 		return nil, err
 	}

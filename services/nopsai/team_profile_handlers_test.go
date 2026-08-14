@@ -195,7 +195,7 @@ func TestCanonicalTeamAgentDefaultProfileValueRejectsDisabledScopedCatalogProfil
 }
 
 func TestParseGitOpsTeamDefaultsFileAllowsCatalogResolvedLLMDefault(t *testing.T) {
-	plan, err := parseGitOpsTeamDefaultsFile("llm_profile: chatgpt\n", "defaults.yaml", "platform/ml")
+	plan, err := parseGitOpsTeamDefaultsFile("model: chatgpt\n", "defaults.yaml", "platform/ml")
 	if err != nil {
 		t.Fatalf("parseGitOpsTeamDefaultsFile() error = %v", err)
 	}
@@ -205,7 +205,7 @@ func TestParseGitOpsTeamDefaultsFileAllowsCatalogResolvedLLMDefault(t *testing.T
 }
 
 func TestParseGitOpsTeamDefaultsFileRejectsLLMDefaultOutsideTeam(t *testing.T) {
-	_, err := parseGitOpsTeamDefaultsFile("llm_profile: platform/security/chatgpt\n", "defaults.yaml", "platform/ml")
+	_, err := parseGitOpsTeamDefaultsFile("model: platform/security/chatgpt\n", "defaults.yaml", "platform/ml")
 	if err == nil {
 		t.Fatal("parseGitOpsTeamDefaultsFile() error = nil, want outside-team default error")
 	}
@@ -213,8 +213,8 @@ func TestParseGitOpsTeamDefaultsFileRejectsLLMDefaultOutsideTeam(t *testing.T) {
 
 func TestParseGitOpsTeamDefaultsFileLoadsDefaults(t *testing.T) {
 	content := `
-llm_profile: chatgpt
-agent_profile: reviewer
+model: chatgpt
+agent_role: reviewer
 knowledge_context:
   guardrail: runtime-output-safety
   runbook: runbook/platform/ml/restart-service

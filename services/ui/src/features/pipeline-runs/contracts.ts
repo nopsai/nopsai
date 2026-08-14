@@ -64,7 +64,7 @@ export type TaskDefinition = {
   script?: string;
   depends_on?: string[];
   ignore_failure?: boolean;
-  llm_profile?: string;
+  model?: string;
   mcp_profiles?: string[];
   llm_output_sharing?: boolean;
   variables?: Record<string, string>;
@@ -86,7 +86,7 @@ export type StepConfiguration = {
   volumes?: string[];
   variables?: Record<string, string>;
   ignore_failure?: boolean;
-  llm_profile?: string;
+  model?: string;
   mcp_profiles?: string[];
   runtime_pool?: string;
   llm_output_sharing?: boolean;
@@ -123,18 +123,18 @@ export type PipelineDefinition = {
   name?: string;
   description?: string;
   version?: string;
-  llm_profile?: string;
+  model?: string;
   mcp_profiles?: string[];
   runtime_pool?: string;
   affinity_enabled?: boolean;
   output?: {
-    llm_profile?: string;
+    model?: string;
     items?: Array<{
       name: string;
       type: 'markdown' | 'pdf' | 'excel' | 'json' | 'html' | string;
       when?: 'always' | 'success' | 'failure' | string;
       prompt: string;
-      llm_profile?: string;
+      model?: string;
       dashboard?: PipelineOutputDashboardTarget;
     }>;
   };
@@ -146,7 +146,7 @@ export type PipelineDefinition = {
     tasks?: TaskDefinition[];
     goal?: string;
     script?: string;
-    llm_profile?: string;
+    model?: string;
     mcp_profiles?: string[];
     runtime_pool?: string;
     llm_output_sharing?: boolean;
@@ -169,7 +169,7 @@ export type PipelineRunFinalOutput = {
   status: 'pending' | 'generating' | 'success' | 'failure' | 'cancelled' | string;
   content?: string;
   error?: string;
-  llm_profile?: string;
+  model?: string;
   dashboard_target?: PipelineOutputDashboardTarget;
   generation_attempts?: number;
   contract_violations?: number;

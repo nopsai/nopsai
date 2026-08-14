@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -99,22 +98,6 @@ type llmProfilesRequest struct {
 	LLMDefaultProfile string                       `json:"llm_default_profile" yaml:"llm_default_profile"`
 	Profiles          []llmProfileForm             `json:"profiles" yaml:"profiles"`
 	LLMProfiles       map[string]config.LLMProfile `json:"llm_profiles" yaml:"llm_profiles"`
-}
-
-type gitOpsLLMProfileDirectory struct {
-	root  string
-	files map[string]string
-}
-
-type gitOpsLLMProfilePlan struct {
-	defaultProfile string
-	profiles       map[string]config.LLMProfile
-	sourcePath     string
-}
-
-type gitOpsLLMProfileFileCandidate struct {
-	sourcePath string
-	content    string
 }
 
 type runtimeLLMProfile struct {
@@ -841,113 +824,6 @@ func (a *App) persistLLMProfilesBootstrapConfig(cfg config.Config, required bool
 	return nil
 }
 
-func parseGitOpsLLMProfilePlan(binding models.ConfigRepository, directories ...gitOpsLLMProfileDirectory) (*gitOpsLLMProfilePlan, error) {
-	candidates := []gitOpsLLMProfileFileCandidate{}
-	for _, directory := range directories {
-		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
-		for path, content := range directory.files {
-			normalized := filepath.ToSlash(path)
-			rel, ok := configsync.RelativePath(normalized, root)
-			if !ok || !isGitOpsLLMProfileRelativePath(rel) {
-				continue
-			}
-			candidates = append(candidates, gitOpsLLMProfileFileCandidate{
-				sourcePath: normalized,
-				content:    content,
-			})
-		}
-	}
-
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-	if binding.ScopeType != models.ConfigRepositoryScopeSystem {
-		return nil, fmt.Errorf("LLM profiles can only be configured from a system config repository")
-	}
-	if len(candidates) > 1 {
-		paths := make([]string, 0, len(candidates))
-		for _, candidate := range candidates {
-			paths = append(paths, candidate.sourcePath)
-		}
-		sort.Strings(paths)
-		return nil, fmt.Errorf("multiple LLM profile GitOps files found: %s", strings.Join(paths, ", "))
-	}
-
-	return parseGitOpsLLMProfileFile(candidates[0].content, candidates[0].sourcePath)
-}
-
-func isGitOpsLLMProfileRelativePath(rel string) bool {
-	switch strings.Trim(filepath.ToSlash(rel), "/") {
-	case "system/llm_profile.yaml", "system/llm_profile.yml", "system/llm_profiles.yaml", "system/llm_profiles.yml":
-		return true
-	default:
-		return false
-	}
-}
-
-func parseGitOpsLLMProfileFile(content, sourcePath string) (*gitOpsLLMProfilePlan, error) {
-	var file llmProfilesRequest
-	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
-		return nil, fmt.Errorf("failed to parse LLM profile GitOps file '%s': %w", sourcePath, err)
-	}
-
-	defaultProfile := strings.TrimSpace(file.DefaultProfile)
-	if defaultProfile == "" {
-		defaultProfile = strings.TrimSpace(file.LLMDefaultProfile)
-	}
-	if defaultProfile == "" {
-		defaultProfile = config.DefaultLLMProfileName
-	}
-	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
-
-	profiles := map[string]config.LLMProfile{}
-	for name, profile := range file.LLMProfiles {
-		profileName := config.NormalizeLLMProfileName(name)
-		if profileName == "" {
-			return nil, fmt.Errorf("LLM profile GitOps file '%s' contains an empty profile name", sourcePath)
-		}
-		if _, exists := profiles[profileName]; exists {
-			return nil, fmt.Errorf("LLM profile GitOps file '%s' defines profile %q more than once", sourcePath, profileName)
-		}
-		profiles[profileName] = config.NormalizeLLMProfile(profile)
-	}
-	for _, form := range file.Profiles {
-		profileName := config.NormalizeLLMProfileName(form.Name)
-		if profileName == "" {
-			return nil, fmt.Errorf("LLM profile GitOps file '%s' contains a list profile without a name", sourcePath)
-		}
-		if _, exists := profiles[profileName]; exists {
-			return nil, fmt.Errorf("LLM profile GitOps file '%s' defines profile %q more than once", sourcePath, profileName)
-		}
-		profiles[profileName] = profileConfigFromForm(form)
-	}
-	if len(profiles) == 0 {
-		return nil, fmt.Errorf("LLM profile GitOps file '%s' must define at least one profile", sourcePath)
-	}
-	if _, ok := profiles[defaultProfile]; !ok {
-		return nil, fmt.Errorf("LLM profile GitOps file '%s' sets default profile %q but does not define it", sourcePath, defaultProfile)
-	}
-	for name, profile := range profiles {
-		if status, message := validateLLMProfileDefinition(name, profile); status != "valid" {
-			return nil, fmt.Errorf("invalid LLM profile in GitOps file '%s': %s", sourcePath, message)
-		}
-		for _, scope := range profile.AllowedScopes {
-			if strings.TrimSpace(scope) == "" {
-				continue
-			}
-			if _, err := configsync.CleanPathSegments(scope, false); err != nil {
-				return nil, fmt.Errorf("invalid allowed scope %q for LLM profile %q in GitOps file '%s': %w", scope, name, sourcePath, err)
-			}
-		}
-	}
-
-	return &gitOpsLLMProfilePlan{
-		defaultProfile: defaultProfile,
-		profiles:       profiles,
-		sourcePath:     sourcePath,
-	}, nil
-}
-
 func validateLLMProfileDefinition(name string, profile config.LLMProfile) (string, string) {
 	profile = config.NormalizeLLMProfile(profile)
 	if profile.TimeoutSeconds < 0 {
@@ -1059,7 +935,7 @@ func (a *App) resolveLLMProfileAPIKey(ctx context.Context, name string, profile 
 	return a.resolveCredentialText(ctx, profile.CredentialRef, credentials.Purpose{
 		ConsumerService: "nopsai",
 		Operation:       "llm.authenticate",
-		SubjectType:     "llm_profile",
+		SubjectType:     "model",
 		SubjectID:       name,
 	})
 }
@@ -1250,7 +1126,7 @@ func (a *App) handleListLLMProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAAADecision(w, r, "system.update", model.ResourceRef{Type: "system", ID: "llm-profiles"}) {
+	if !a.requireAAADecision(w, r, "system.update", model.ResourceRef{Type: "system", ID: "models"}) {
 		return
 	}
 	var payload llmProfilesRequest

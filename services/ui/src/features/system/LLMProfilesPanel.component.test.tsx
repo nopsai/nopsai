@@ -81,7 +81,7 @@ const teamProfileMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('./llm-profiles/api', () => apiMocks);
+vi.mock('./models/api', () => apiMocks);
 vi.mock('./teamProfileApi', () => teamProfileMocks);
 vi.mock('../../lib/resourceTeams', () => teamMocks);
 
@@ -100,7 +100,7 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
 
   expect((await screen.findAllByText('OpenAI / ChatGPT'))[0]).toBeVisible();
   expect(screen.getByRole('heading', { name: 'LLM Profiles' })).toHaveClass('sr-only');
-  expect(document.getElementById('system-llm-profiles-section')).toHaveClass('ai-resource-page');
+  expect(document.getElementById('system-models-section')).toHaveClass('ai-resource-page');
   expect(screen.getByLabelText('LLM profile workspace')).toHaveClass('ai-resource-workspace-card');
   expect(screen.getByLabelText('LLM profile tree')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Select LLM profile hosted' })).toBeVisible();
@@ -242,7 +242,7 @@ test('shows scoped catalog LLM profiles for the selected team and saves them as 
 
   const user = userEvent.setup();
   render(
-    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/models?team=platform%2Fml']}>
       <LLMProfilesPanel canManage />
     </MemoryRouter>
   );
@@ -262,7 +262,7 @@ test('shows scoped catalog LLM profiles for the selected team and saves them as 
 test('updates the selected team LLM default through the team API', async () => {
   const user = userEvent.setup();
   render(
-    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/models?team=platform%2Fml']}>
       <LLMProfilesPanel canManage />
     </MemoryRouter>
   );
@@ -300,7 +300,7 @@ test('moves an edited team LLM profile to the global catalog', async () => {
   const user = userEvent.setup();
 
   render(
-    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/models?team=platform%2Fml']}>
       <LLMProfilesPanel canManage />
     </MemoryRouter>
   );
@@ -324,7 +324,7 @@ test('moves an edited team LLM profile to the global catalog', async () => {
 
 test('applies the team filter from the route query', async () => {
   render(
-    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/models?team=platform%2Fml']}>
       <LLMProfilesPanel canManage />
     </MemoryRouter>
   );

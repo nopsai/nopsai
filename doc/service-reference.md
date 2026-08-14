@@ -661,7 +661,7 @@ Responsibilities:
 - LLM-backed agents report provider/model/profile token usage to Nopsai through
   internal service-auth endpoints so monitoring can aggregate usage by run,
   pipeline, feature, and subject.
-- System feature modules for config, Agent Profiles, LLM profiles, MCP,
+- System feature modules for config, Agent roles, models, MCP,
   dispatcher, and access keep the route page focused on data loading and
   mutation orchestration.
 - Access-grant management for product roles and effective-permission inspection

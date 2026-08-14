@@ -109,14 +109,14 @@ func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID strin
 		}
 		_, err := a.db.Exec(ctx, `
 			INSERT INTO pipeline_run_outputs (
-				run_id, item_index, name, type, prompt, llm_profile, dashboard_target, status, updated_at
+				run_id, item_index, name, type, prompt, model, dashboard_target, status, updated_at
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', NOW())
 			ON CONFLICT (run_id, item_index) DO UPDATE SET
 				name = EXCLUDED.name,
 				type = EXCLUDED.type,
 				prompt = EXCLUDED.prompt,
-				llm_profile = EXCLUDED.llm_profile,
+				model = EXCLUDED.model,
 				dashboard_target = EXCLUDED.dashboard_target,
 				status = CASE
 					WHEN pipeline_run_outputs.status IN ('success', 'cancelled') THEN pipeline_run_outputs.status
@@ -202,7 +202,7 @@ func (a *App) waitForPipelineFinalOutputLogDrain(ctx context.Context) error {
 
 func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID string) ([]pipelineFinalOutputRecord, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		SELECT id::text, item_index, name, type, prompt, model, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, generation_started_at, updated_at, dashboard_target::text
 		FROM pipeline_run_outputs
@@ -466,7 +466,7 @@ func (a *App) updatePipelineFinalOutputCancelled(ctx context.Context, runID, out
 		WHERE run_id::text = $1
 		  AND id::text = $2
 		  AND status IN ('pending', 'generating')
-		RETURNING id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		RETURNING id::text, item_index, name, type, prompt, model, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, generation_started_at, updated_at, dashboard_target::text
 	`, runID, outputID))
@@ -487,7 +487,7 @@ func (a *App) resetPipelineFinalOutputForRetry(ctx context.Context, runID, outpu
 		WHERE run_id::text = $1
 		  AND id::text = $2
 		  AND status = 'failure'
-		RETURNING id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		RETURNING id::text, item_index, name, type, prompt, model, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, generation_started_at, updated_at, dashboard_target::text
 	`, runID, outputID))
@@ -495,7 +495,7 @@ func (a *App) resetPipelineFinalOutputForRetry(ctx context.Context, runID, outpu
 
 func (a *App) loadPipelineFinalOutputRecord(ctx context.Context, runID, outputID string) (pipelineFinalOutputRecord, error) {
 	return scanPipelineFinalOutputRecord(a.db.QueryRow(ctx, `
-		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		SELECT id::text, item_index, name, type, prompt, model, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, generation_started_at, updated_at, dashboard_target::text
 		FROM pipeline_run_outputs
@@ -1543,7 +1543,7 @@ func pipelineFinalOutputAttemptUsageReports(
 		reports = append(reports, models.AIUsageReport{
 			Feature:          pipelineFinalOutputFeature,
 			Provider:         usage.Provider,
-			Model:            usage.Model,
+			ProviderModel:    usage.Model,
 			LLMProfile:       usage.Profile,
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.CompletionTokens,
@@ -2486,7 +2486,7 @@ func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, out
 	var output models.PipelineRunFinalOutput
 	var generationStartedAt sql.NullTime
 	err := a.db.QueryRow(ctx, `
-		SELECT id::text, name, type, status, content, error, llm_profile,
+		SELECT id::text, name, type, status, content, error, model,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, generation_started_at, updated_at
 		FROM pipeline_run_outputs

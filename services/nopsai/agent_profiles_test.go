@@ -7,44 +7,71 @@ import (
 	"nopsai/pkg/models"
 )
 
-func TestParseGitOpsAgentProfileFile(t *testing.T) {
-	const raw = `
-default_profile: release-manager
-agent_profiles:
-  - id: release-manager
-    display_name: Release Manager
-    description: Coordinates release readiness.
-    instructions: |
-      Check release evidence before rollout.
-`
-
-	plan, err := parseGitOpsAgentProfileFile(raw, "setting/system/agent-profiles.yaml")
+func TestParseGitOpsAgentRolesReadsOneFilePerRole(t *testing.T) {
+	plan, err := parseGitOpsAgentRoles(
+		map[string]string{
+			"agent-roles/release-manager.yaml": `
+default: true
+display_name: Release Manager
+description: Coordinates release readiness.
+instructions: |
+  Check release evidence before rollout.
+`,
+			"agent-roles/platform/reviewer.yaml": `
+display_name: Security Reviewer
+instructions: Review risky changes.
+`,
+		},
+		"agent-roles",
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
+		"",
+	)
 	if err != nil {
-		t.Fatalf("parseGitOpsAgentProfileFile() error = %v", err)
+		t.Fatalf("parseGitOpsAgentRoles() error = %v", err)
 	}
-	if plan.defaultProfile != "release-manager" {
-		t.Fatalf("defaultProfile = %q, want release-manager", plan.defaultProfile)
+	defaultRole, globalRoles := plan.globalRoles()
+	if defaultRole != "release-manager" {
+		t.Fatalf("default role = %q, want release-manager", defaultRole)
 	}
-	profile := plan.profiles["release-manager"]
-	if profile.ID != "release-manager" || profile.Source != "gitops" || !profile.Enabled {
-		t.Fatalf("profile = %#v, want enabled gitops release-manager", profile)
+	role := globalRoles["release-manager"]
+	if role.ID != "release-manager" || !role.Enabled {
+		t.Fatalf("role = %#v, want an enabled release-manager role", role)
 	}
-	if profile.Role != "" {
-		t.Fatalf("role = %q, want optional empty role", profile.Role)
+	if role.Instructions != "Check release evidence before rollout." {
+		t.Fatalf("instructions = %q", role.Instructions)
 	}
-	if profile.Instructions != "Check release evidence before rollout." {
-		t.Fatalf("instructions = %q", profile.Instructions)
+	teamRoles := plan.teamRoles()
+	if _, ok := teamRoles["platform"]["reviewer"]; !ok {
+		t.Fatalf("team roles = %#v, want the platform reviewer", teamRoles)
 	}
 }
 
-func TestParseGitOpsAgentProfileFileAcceptsBuiltInDefaultOnly(t *testing.T) {
-	const raw = `default_profile: sre`
-	plan, err := parseGitOpsAgentProfileFile(raw, "setting/system/agent-profiles.yaml")
-	if err != nil {
-		t.Fatalf("parseGitOpsAgentProfileFile() error = %v", err)
+func TestParseGitOpsAgentRolesRejectsTwoDefaultsInOneScope(t *testing.T) {
+	_, err := parseGitOpsAgentRoles(
+		map[string]string{
+			"agent-roles/one.yaml": "default: true\ndisplay_name: One\ninstructions: Do one thing.\n",
+			"agent-roles/two.yaml": "default: true\ndisplay_name: Two\ninstructions: Do another thing.\n",
+		},
+		"agent-roles",
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
+		"",
+	)
+	if err == nil || !strings.Contains(err.Error(), "set default: true") {
+		t.Fatalf("error = %v, want a single-default error", err)
 	}
-	if plan.defaultProfile != "sre" || len(plan.profiles) != 0 {
-		t.Fatalf("plan = %#v, want built-in default only", plan)
+}
+
+func TestParseGitOpsAgentRolesRejectsNameMismatch(t *testing.T) {
+	_, err := parseGitOpsAgentRoles(
+		map[string]string{
+			"agent-roles/reviewer.yaml": "name: other\ndisplay_name: Reviewer\ninstructions: Review changes.\n",
+		},
+		"agent-roles",
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
+		"",
+	)
+	if err == nil || !strings.Contains(err.Error(), "declares name") {
+		t.Fatalf("error = %v, want a file-name mismatch error", err)
 	}
 }
 
@@ -69,67 +96,5 @@ func TestValidateAgentProfileDefinitionRejectsEmptyScopedSegment(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected empty scoped segment error")
-	}
-}
-
-func TestParseGitOpsAgentProfileFileRejectsUnknownDefault(t *testing.T) {
-	const raw = `
-default_profile: missing-profile
-agent_profiles:
-  - id: release-manager
-    display_name: Release Manager
-    instructions: Check release evidence.
-`
-	_, err := parseGitOpsAgentProfileFile(raw, "setting/system/agent-profiles.yaml")
-	if err == nil {
-		t.Fatal("expected unknown default profile error")
-	}
-	if !strings.Contains(err.Error(), `sets default profile "missing-profile"`) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestParseGitOpsAgentProfileFileRejectsDuplicates(t *testing.T) {
-	const raw = `
-profiles:
-  - id: sre
-    display_name: SRE
-    role: Senior Site Reliability Engineer
-    instructions: Protect reliability.
-  - id: sre
-    display_name: Duplicate SRE
-    role: Senior Site Reliability Engineer
-    instructions: Duplicate profile.
-`
-	_, err := parseGitOpsAgentProfileFile(raw, "setting/system/agent-profiles.yaml")
-	if err == nil {
-		t.Fatal("expected duplicate profile error")
-	}
-	if !strings.Contains(err.Error(), `defines profile "sre" more than once`) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestParseGitOpsAgentProfilePlanRequiresSystemRepository(t *testing.T) {
-	_, err := parseGitOpsAgentProfilePlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
-		gitOpsAgentProfileDirectory{
-			root: "setting",
-			files: map[string]string{
-				"setting/system/agent-profiles.yaml": `
-agent_profiles:
-  - id: sre
-    display_name: SRE
-    role: Senior Site Reliability Engineer
-    instructions: Protect reliability.
-`,
-			},
-		},
-	)
-	if err == nil {
-		t.Fatal("expected non-system repository error")
-	}
-	if !strings.Contains(err.Error(), "agent profiles can only be configured from a system config repository") {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }

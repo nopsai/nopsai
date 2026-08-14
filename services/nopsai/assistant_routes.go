@@ -19,7 +19,7 @@ import (
 
 func (a *App) registerAssistantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/assistant/config", a.handleGetAssistantConfig)
-	mux.HandleFunc("GET /v1/assistant/llm-profiles", a.handleListAssistantLLMProfiles)
+	mux.HandleFunc("GET /v1/assistant/models", a.handleListAssistantLLMProfiles)
 	mux.HandleFunc("POST /v1/assistant/conversations", a.handleCreateAssistantConversation)
 	mux.HandleFunc("GET /v1/assistant/conversations", a.handleListAssistantConversations)
 	mux.HandleFunc("GET /v1/assistant/conversations/{id}", a.handleGetAssistantConversation)

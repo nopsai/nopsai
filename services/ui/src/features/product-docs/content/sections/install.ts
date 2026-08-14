@@ -80,7 +80,7 @@ export const installSection: WikiSection = {
       details: [
         'The table below covers every documented variable. Filter by scope to see what a single component actually reads, or use the environment variable index for the same rows grouped for scanning.',
         'Keep bootstrap-only values such as `DATABASE_URL`, `NOPSAI_MASTER_KEY`, `JWT_SIGNING_KEY`, `SERVICE_JWT_SIGNING_KEY`, `AAA_SHARED_INTERNAL_TOKEN`, and the bootstrap admin password in deployment secrets or the service environment — not in a configuration repository.',
-        'Most product settings move to GitOps once the platform is running. Files under `setting/system/` become authoritative for runner topology, authentication, mail, data management, LLM profiles, MCP, and Agent Profiles.',
+        'Most product settings move to GitOps once the platform is running. Files under `setting/system/` become authoritative for runner topology, authentication, mail, data management, models, MCP, and Agent roles.',
       ],
       fields: allEnvironmentFields,
       examples: [

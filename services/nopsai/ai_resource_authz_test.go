@@ -18,12 +18,12 @@ func TestAIResourceAuthzAllowsTeamScopedResourceOnly(t *testing.T) {
 			checkFn: func(_ context.Context, _ model.Subject, action string, resource model.ResourceRef, _ map[string]any) (model.Decision, error) {
 				allowed := resource.Type == grantResourceTeam &&
 					resource.ID == "team-1" &&
-					(action == "llm_profile.read" || action == "team.update")
+					(action == "model.read" || action == "team.update")
 				return model.Decision{Allowed: allowed}, nil
 			},
 		},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/v1/system/llm-profiles", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/models", nil)
 	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, ID: "alice"}))
 
 	visible, err := app.aiResourceVisible(req, llmProfileAccessSpec, "team-1/alice")
@@ -61,12 +61,12 @@ func TestHandleListLLMProfilesFiltersByTeamResourceAccess(t *testing.T) {
 		},
 		aaaLocal: stubAAAAuthorizer{
 			checkFn: func(_ context.Context, _ model.Subject, action string, resource model.ResourceRef, _ map[string]any) (model.Decision, error) {
-				allowed := action == "llm_profile.read" && resource.Type == grantResourceTeam && resource.ID == "team-1"
+				allowed := action == "model.read" && resource.Type == grantResourceTeam && resource.ID == "team-1"
 				return model.Decision{Allowed: allowed}, nil
 			},
 		},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/v1/system/llm-profiles", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/models", nil)
 	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, ID: "alice"}))
 	rec := httptest.NewRecorder()
 
@@ -95,7 +95,7 @@ func TestHandleListAgentProfilesIncludesBuiltInsWithoutResourceGrant(t *testing.
 			},
 		},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/v1/system/agent-profiles", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/agent-roles", nil)
 	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, ID: "alice"}))
 	rec := httptest.NewRecorder()
 
@@ -129,7 +129,7 @@ func TestHandleGetAgentProfileAllowsBuiltInWithoutResourceGrant(t *testing.T) {
 			},
 		},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/v1/system/agent-profiles/devops-engineer", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/system/agent-roles/devops-engineer", nil)
 	req.SetPathValue("profileID", models.DefaultAgentProfileID)
 	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, ID: "alice"}))
 	rec := httptest.NewRecorder()
