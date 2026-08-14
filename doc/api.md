@@ -190,9 +190,9 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   `groq`, `mistral`, `ollama`, `openrouter`, and `azure-openai`. Profiles can
   also set `timeout_seconds`, `max_tokens`, `temperature`, and provider-specific
   string values under `extra`.
-- Agent roles are managed as one file per role at `agent-roles/<name>.yaml`, or `agent-roles/<team>/<name>.yaml` for a team-owned role. The role that sets `default: true` is the default for its scope.
-- Models are managed as one file per model at `models/<name>.yaml`, or `models/<team>/<name>.yaml` for a team-owned model, with the same `default: true` rule.
-- MCP servers are managed at `mcp/servers/<name>.yaml` and are workspace-wide. MCP profiles are managed at `mcp/profiles/<name>.yaml` or `mcp/profiles/<team>/<name>.yaml`.
+- Agent roles are managed as one file per role at `agent-roles/<name>.yaml`, where the file path is the role name. A team-scoped role lives at `agent-roles/<team>/<name>.yaml`, in the same shape as a team-scoped pipeline. The role that sets `default: true` is the registry default.
+- Models follow the same layout at `models/<name>.yaml`.
+- MCP servers and profiles follow the same layout at `mcp/servers/<name>.yaml` and `mcp/profiles/<name>.yaml`. All three registries are workspace-wide and are defined only by a system config repository.
 - Mandatory local-login and external identity-provider settings can be managed in the global config repo at `setting/system/auth.yaml`.
 - GitHub App IDs, credential references, and installations can be managed in the global config repo at `setting/git-apps/github.yaml`. The internal git-bot URL remains a system/service setting.
 - Runner defaults, runtime defaults, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.

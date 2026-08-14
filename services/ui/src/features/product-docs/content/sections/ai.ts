@@ -65,7 +65,7 @@ export const aiSection: WikiSection = {
       keyFacts: [
         'A profile carries an ID, display name, optional role and description, instructions, and an enabled flag.',
         'Referencing a missing or disabled profile is a validation error, not a silent fallback.',
-        'Agent roles are one file per role: `agent-roles/<name>.yaml` is workspace-wide and `agent-roles/<team>/<name>.yaml` is team-owned.',
+        'Agent roles are one file per role at `agent-roles/<name>.yaml`, where the file path is the role name; a team-scoped role lives at `agent-roles/<team>/<name>.yaml`, exactly like a team-scoped pipeline.',
         '`agent_role` is valid on a pipeline and a step. A task that sets it fails at parse time.',
         'Instructions shape behavior only — they grant no provider access, tools, credentials, or permissions.',
       ],

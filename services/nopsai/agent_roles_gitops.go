@@ -1,17 +1,21 @@
 package nopsai
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"nopsai/pkg/models"
 
+	"github.com/jackc/pgx/v5"
 	"gopkg.in/yaml.v3"
 )
 
-// agentRoleGitOpsFile is one agent role definition. The file name is the role
-// id: agent-roles/<name>.yaml is global and agent-roles/<team>/<name>.yaml
-// belongs to that team.
+// agentRoleGitOpsFile is one agent role definition. The file path is the role
+// name: agent-roles/<name>.yaml defines a workspace role, and
+// config-repositories/teams/<team>/agent-roles/<name>.yaml defines a team-owned
+// role.
 type agentRoleGitOpsFile struct {
 	Name    string `json:"name,omitempty" yaml:"name,omitempty"`
 	Default bool   `json:"default,omitempty" yaml:"default,omitempty"`
@@ -19,27 +23,41 @@ type agentRoleGitOpsFile struct {
 	agentProfileForm `yaml:",inline"`
 }
 
+// agentRoleExportDocument keeps the exported file free of the empty id field the
+// shared API form would otherwise emit.
+type agentRoleExportDocument struct {
+	Name         string `yaml:"name"`
+	Default      bool   `yaml:"default,omitempty"`
+	DisplayName  string `yaml:"display_name"`
+	Role         string `yaml:"role,omitempty"`
+	Description  string `yaml:"description,omitempty"`
+	Enabled      bool   `yaml:"enabled"`
+	Instructions string `yaml:"instructions"`
+}
+
 type storedAgentRole struct {
-	team       string
 	name       string
 	profile    models.AgentProfile
 	sourcePath string
 }
 
 type gitOpsAgentRolePlan struct {
-	roles    map[string]storedAgentRole
-	defaults map[string]string
+	roles       map[string]storedAgentRole
+	defaultRole string
 }
 
 func (p *gitOpsAgentRolePlan) empty() bool {
 	return p == nil || len(p.roles) == 0
 }
 
-func parseGitOpsAgentRoles(files map[string]string, root string, binding models.ConfigRepository, boundTeam string) (*gitOpsAgentRolePlan, error) {
-	plan := &gitOpsAgentRolePlan{roles: map[string]storedAgentRole{}, defaults: map[string]string{}}
-	defaultResources := map[string]registryGitOpsResource{}
+// parseGitOpsAgentRoles reads the agent role registry from
+// agent-roles/<name>.yaml, where a team-scoped role lives at
+// agent-roles/<team>/<name>.yaml in the same shape as a team-scoped pipeline.
+func parseGitOpsAgentRoles(files map[string]string, root string, binding models.ConfigRepository) (*gitOpsAgentRolePlan, error) {
+	plan := &gitOpsAgentRolePlan{roles: map[string]storedAgentRole{}}
+	var defaultResource registryGitOpsResource
 
-	err := registryGitOpsFiles(files, root, binding, boundTeam, "agent role", func(resource registryGitOpsResource, content string) error {
+	visit := func(resource registryGitOpsResource, content string) error {
 		var file agentRoleGitOpsFile
 		if err := yaml.Unmarshal([]byte(content), &file); err != nil {
 			return fmt.Errorf("failed to parse agent role '%s': %w", resource.sourcePath, err)
@@ -63,56 +81,41 @@ func parseGitOpsAgentRoles(files map[string]string, root string, binding models.
 			return fmt.Errorf("invalid agent role '%s': %w", resource.sourcePath, err)
 		}
 		resource.name = name
-		key := resource.key()
-		if existing, exists := plan.roles[key]; exists {
-			return fmt.Errorf("duplicate agent role '%s' defined by '%s' and '%s'", key, existing.sourcePath, resource.sourcePath)
+		if existing, exists := plan.roles[name]; exists {
+			return fmt.Errorf("duplicate agent role '%s' defined by '%s' and '%s'", name, existing.sourcePath, resource.sourcePath)
 		}
-		plan.roles[key] = storedAgentRole{
-			team:       resource.team,
-			name:       name,
-			profile:    profile,
-			sourcePath: resource.sourcePath,
-		}
+		plan.roles[name] = storedAgentRole{name: name, profile: profile, sourcePath: resource.sourcePath}
 		if file.Default {
-			winner, err := requireSingleRegistryDefault(defaultResources[resource.team], resource, "agent role")
+			winner, err := requireSingleRegistryDefault(defaultResource, resource, "agent role")
 			if err != nil {
 				return err
 			}
-			defaultResources[resource.team] = winner
-			plan.defaults[resource.team] = name
+			defaultResource = winner
+			plan.defaultRole = name
 		}
 		return nil
-	})
-	if err != nil {
+	}
+	if binding.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil, requireNoSystemRegistryFiles(files, root, agentRolesGitOpsDirectory)
+	}
+	if err := registryGitOpsFiles(files, root, "agent role", visit); err != nil {
 		return nil, err
 	}
 	if plan.empty() {
 		return nil, nil
 	}
-	for team, defaultName := range plan.defaults {
-		key := defaultName
-		if team != "" {
-			key = team + "/" + defaultName
-		}
-		if _, ok := plan.roles[key]; !ok {
-			return nil, fmt.Errorf("agent role default %q is not defined for scope %q", defaultName, team)
-		}
-	}
 	return plan, nil
 }
 
-func (p *gitOpsAgentRolePlan) globalRoles() (string, map[string]models.AgentProfile) {
+func (p *gitOpsAgentRolePlan) registryRoles() (string, map[string]models.AgentProfile) {
 	profiles := map[string]models.AgentProfile{}
 	for _, stored := range p.roles {
-		if stored.team != "" {
-			continue
-		}
 		profiles[stored.name] = stored.profile
 	}
 	if len(profiles) == 0 {
 		return "", nil
 	}
-	defaultName := p.defaults[""]
+	defaultName := p.defaultRole
 	if defaultName == "" {
 		defaultName = models.DefaultAgentProfileID
 	}
@@ -126,27 +129,49 @@ func (p *gitOpsAgentRolePlan) globalRoles() (string, map[string]models.AgentProf
 	return defaultName, profiles
 }
 
-func (p *gitOpsAgentRolePlan) teamRoles() map[string]map[string]storedAgentRole {
-	byTeam := map[string]map[string]storedAgentRole{}
-	for _, stored := range p.roles {
-		if stored.team == "" {
-			continue
-		}
-		if byTeam[stored.team] == nil {
-			byTeam[stored.team] = map[string]storedAgentRole{}
-		}
-		byTeam[stored.team][stored.name] = stored
+// persistGitOpsAgentRolesToTx replaces the Git-owned agent role registry and its
+// default with the roles this repository declares.
+func persistGitOpsAgentRolesToTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	plan *gitOpsAgentRolePlan,
+	defaultRole string,
+	roles map[string]models.AgentProfile,
+	configRepoID int64,
+	commitSHA string,
+) error {
+	if plan == nil {
+		return nil
 	}
-	return byTeam
+	ids := make([]string, 0, len(roles))
+	for id := range roles {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM agent_profiles WHERE source = 'gitops'`); err != nil {
+			return fmt.Errorf("clear GitOps agent roles: %w", err)
+		}
+	} else if _, err := tx.Exec(ctx, `DELETE FROM agent_profiles WHERE source = 'gitops' AND id != ALL($1::text[])`, ids); err != nil {
+		return fmt.Errorf("prune GitOps agent roles: %w", err)
+	}
+	for _, id := range ids {
+		if err := persistAgentProfileToTx(ctx, tx, roles[id], "gitops", plan.roles[id].sourcePath, commitSHA, configRepoID, true); err != nil {
+			return err
+		}
+	}
+	return persistAgentProfileDefaultToTx(ctx, tx, defaultRole)
 }
 
-func buildAgentRoleGitOpsFile(profile models.AgentProfile, isDefault bool) agentRoleGitOpsFile {
-	form := agentProfileFormFromModel(models.NormalizeAgentProfile(profile))
-	name := form.ID
-	form.ID = ""
-	return agentRoleGitOpsFile{
-		Name:             name,
-		Default:          isDefault,
-		agentProfileForm: form,
+func buildAgentRoleGitOpsFile(profile models.AgentProfile, isDefault bool) agentRoleExportDocument {
+	profile = models.NormalizeAgentProfile(profile)
+	return agentRoleExportDocument{
+		Name:         profile.ID,
+		Default:      isDefault,
+		DisplayName:  profile.DisplayName,
+		Role:         profile.Role,
+		Description:  profile.Description,
+		Enabled:      profile.Enabled,
+		Instructions: profile.Instructions,
 	}
 }

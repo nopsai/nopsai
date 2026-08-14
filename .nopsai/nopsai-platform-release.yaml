@@ -366,96 +366,6 @@ steps:
 
       . dist/release/env
       mkdir -p dist/release
-      cat >dist/release/publish-release-image.sh <<'IMAGE_SCRIPT'
-      #!/usr/bin/env bash
-      set -euo pipefail
-
-      if [[ $# -ne 3 ]]; then
-        echo "usage: publish-release-image.sh <image-name> <context-path> <dockerfile-path>" >&2
-        exit 2
-      fi
-
-      image_name="$1"
-      context_path="$2"
-      dockerfile_path="$3"
-
-      . dist/release/env
-      if [[ "$SHOULD_RELEASE" != "true" ]]; then
-        echo "Release v$VERSION already exists; skipping $image_name publication"
-        exit 0
-      fi
-      if [[ -z "${NOPSAI_RELEASE_GHCR_TOKEN:-}" ]]; then
-        echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish container images" >&2
-        exit 1
-      fi
-      if [[ ! -s dist/digests/nopsai-base.digest ]]; then
-        echo "Base image digest is required before publishing $image_name" >&2
-        exit 1
-      fi
-
-      base_digest="$(tr -d '\r\n' <dist/digests/nopsai-base.digest)"
-      if [[ ! "$base_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-        echo "Invalid base image digest for $image_name: $base_digest" >&2
-        exit 1
-      fi
-
-      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-      builder_suffix="$(printf '%s-%s-%s' "$VERSION" "$image_name" "$$" | tr -c 'A-Za-z0-9_.-' '-')"
-      builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}-${builder_suffix}"
-      if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
-        docker buildx create --name "$builder" --driver docker-container --use
-      else
-        docker buildx use "$builder"
-      fi
-      trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
-      docker buildx inspect --bootstrap
-
-      mkdir -p dist/digests dist/docker-metadata
-      metadata_file="dist/docker-metadata/${image_name}.json"
-      release_tag_args=()
-      while IFS= read -r release_tag; do
-        release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")
-      done < <(scripts/release-tags.sh "$VERSION")
-      oci_annotation_args=(
-        --annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"
-        --annotation "index,manifest:org.opencontainers.image.version=$VERSION"
-        --annotation "index,manifest:org.opencontainers.image.revision=$SOURCE_COMMIT"
-        --annotation "index,manifest:org.opencontainers.image.created=$BUILD_DATE"
-        --annotation "index,manifest:org.opencontainers.image.licenses=LicenseRef-NopsAI-Proprietary"
-        --annotation "index,manifest:org.opencontainers.image.vendor=NopsAI"
-        --annotation "index,manifest:org.opencontainers.image.title=$image_name"
-      )
-      echo "Building and publishing $image_name"
-      docker buildx build \
-        --file "$dockerfile_path" \
-        --platform "$PLATFORMS" \
-        --push \
-        "${release_tag_args[@]}" \
-        "${oci_annotation_args[@]}" \
-        --build-arg "BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest" \
-        --build-arg "VERSION=$VERSION" \
-        --build-arg "COMMIT=$SOURCE_COMMIT" \
-        --build-arg "BUILD_DATE=$BUILD_DATE" \
-        --build-arg "SOURCE_URL=$SOURCE_URL" \
-        --build-arg "API_VERSION=$API_VERSION" \
-        --build-arg "RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION" \
-        --build-arg "CLI_COMPATIBILITY=$CLI_COMPATIBILITY" \
-        --build-arg "RUNNER_COMPATIBILITY=$RUNNER_COMPATIBILITY" \
-        --build-arg "PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY" \
-        --build-arg "CAPABILITIES=$CAPABILITIES" \
-        --provenance=mode=max \
-        --sbom=true \
-        --metadata-file "$metadata_file" \
-        "$context_path"
-      digest="$(jq -r '."containerimage.digest"' "$metadata_file")"
-      if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-        echo "Docker buildx did not return a valid $image_name digest" >&2
-        exit 1
-      fi
-      printf '%s\n' "$digest" >"dist/digests/${image_name}.digest"
-      echo "published_image=$REGISTRY/$image_name@$digest"
-      IMAGE_SCRIPT
-      chmod +x dist/release/publish-release-image.sh
 
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping base image publication"
@@ -526,129 +436,85 @@ steps:
       echo "published_image=$REGISTRY/nopsai-base@$base_digest"
       BASH
 
-  - name: publish-image-nopsai-api
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-api . container/Dockerfile.nopsai
-
-  - name: publish-image-nopsai-aaa
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-aaa . container/Dockerfile.aaa
-
-  - name: publish-image-nopsai-agent
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-agent . container/Dockerfile.agent
-
-  - name: publish-image-nopsai-dispatcher
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-dispatcher . container/Dockerfile.dispatcher
-
-  - name: publish-image-nopsai-git-bot
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-git-bot . container/Dockerfile.git-bot
-
-  - name: publish-image-nopsai-docker-runner
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-docker-runner . container/Dockerfile.docker-runner
-
-  - name: publish-image-nopsai-k8s-runner
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-k8s-runner . container/Dockerfile.k8s-runner
-
-  - name: publish-image-nopsai-docker-socket-proxy
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-docker-socket-proxy . container/Dockerfile.socket-proxy
-
-  - name: publish-image-nopsai-ui
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh nopsai-ui services/ui services/ui/Dockerfile
-
-  - name: publish-image-pipeline-image
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
-    depends_on:
-      - publish-base-image
-    secrets:
-      - NOPSAI_RELEASE_GHCR_TOKEN
-    script: |
-      set -eu
-      apk add --no-cache bash docker-cli-buildx jq
-      bash dist/release/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline
-
+  # Every release image is built and pushed by the same script and differs only
+  # in name, build context, and Dockerfile. They run as parallel tasks in one
+  # step, so the release installs the image toolchain once instead of ten times.
   - name: publish-images
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    depends_on:
+      - publish-base-image
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    tasks:
+      - name: prepare-image-tools
+        script: |
+          set -eu
+          apk add --no-cache bash docker-cli-buildx jq
+
+      - name: nopsai-api
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-api . container/Dockerfile.nopsai
+
+      - name: nopsai-aaa
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-aaa . container/Dockerfile.aaa
+
+      - name: nopsai-agent
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-agent . container/Dockerfile.agent
+
+      - name: nopsai-dispatcher
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-dispatcher . container/Dockerfile.dispatcher
+
+      - name: nopsai-git-bot
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-git-bot . container/Dockerfile.git-bot
+
+      - name: nopsai-docker-runner
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-docker-runner . container/Dockerfile.docker-runner
+
+      - name: nopsai-k8s-runner
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-k8s-runner . container/Dockerfile.k8s-runner
+
+      - name: nopsai-docker-socket-proxy
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-docker-socket-proxy . container/Dockerfile.socket-proxy
+
+      - name: nopsai-ui
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-ui services/ui services/ui/Dockerfile
+
+      - name: pipeline-image
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline
+
+  - name: verify-image-digests
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
-      - publish-image-nopsai-api
-      - publish-image-nopsai-aaa
-      - publish-image-nopsai-agent
-      - publish-image-nopsai-dispatcher
-      - publish-image-nopsai-git-bot
-      - publish-image-nopsai-docker-runner
-      - publish-image-nopsai-k8s-runner
-      - publish-image-nopsai-docker-socket-proxy
-      - publish-image-nopsai-ui
-      - publish-image-pipeline-image
+      - publish-images
     script: |
       set -eu
       apk add --no-cache bash
@@ -693,7 +559,7 @@ steps:
   - name: package-helm-chart
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
-      - publish-images
+      - verify-image-digests
     script: |
       set -eu
       apk add --no-cache bash curl git ruby tar gzip

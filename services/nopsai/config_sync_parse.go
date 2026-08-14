@@ -183,11 +183,11 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		return configSyncPlan{}, err
 	}
 	plan.knowledgeContexts = knowledgeContexts
-	plan.modelPlan, err = parseGitOpsModels(files.models, repoCtx.dirs.model, binding, boundTeam)
+	plan.modelPlan, err = parseGitOpsModels(files.models, repoCtx.dirs.model, binding)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.agentRolePlan, err = parseGitOpsAgentRoles(files.agentRoles, repoCtx.dirs.agentRole, binding, boundTeam)
+	plan.agentRolePlan, err = parseGitOpsAgentRoles(files.agentRoles, repoCtx.dirs.agentRole, binding)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
@@ -196,16 +196,12 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		configsync.RepoJoinPath(basePath, mcpServersGitOpsDirectory),
 		configsync.RepoJoinPath(basePath, mcpProfilesGitOpsDirectory),
 		binding,
-		boundTeam,
 	)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
 	plan.teamDefaultsPlans, err = parseGitOpsTeamDefaultsPlans(binding, repoCtx, files.configRepositories)
 	if err != nil {
-		return configSyncPlan{}, err
-	}
-	if err := requireSingleTeamDefaultSource(plan); err != nil {
 		return configSyncPlan{}, err
 	}
 	plan.authSettingsPlan, err = parseGitOpsAuthSettingsPlan(
@@ -570,33 +566,4 @@ func configSyncStepIncludeLookupKeys(includeIdentifier, stepPath, includeName st
 	}
 	add(normalizedPath, normalizedName)
 	return keys
-}
-
-// requireSingleTeamDefaultSource keeps a team default declared in exactly one
-// place. A team marks one of its own resources with `default: true`, or names an
-// existing workspace resource in its defaults file when the default is not a
-// resource the team owns. Declaring both is ambiguous and fails the sync.
-func requireSingleTeamDefaultSource(plan configSyncPlan) error {
-	for teamPath, defaults := range plan.teamDefaultsPlans {
-		if defaults == nil {
-			continue
-		}
-		if plan.modelPlan != nil && defaults.llmDefaultProfile != nil {
-			if fileDefault, ok := plan.modelPlan.defaults[teamPath]; ok && fileDefault != strings.TrimSpace(*defaults.llmDefaultProfile) {
-				return fmt.Errorf(
-					"team %q sets a model default in two places: '%s' names %q and a model file marks %q with default: true",
-					teamPath, defaults.sourcePath, strings.TrimSpace(*defaults.llmDefaultProfile), fileDefault,
-				)
-			}
-		}
-		if plan.agentRolePlan != nil && defaults.agentDefaultProfile != nil {
-			if fileDefault, ok := plan.agentRolePlan.defaults[teamPath]; ok && fileDefault != strings.TrimSpace(*defaults.agentDefaultProfile) {
-				return fmt.Errorf(
-					"team %q sets an agent role default in two places: '%s' names %q and an agent role file marks %q with default: true",
-					teamPath, defaults.sourcePath, strings.TrimSpace(*defaults.agentDefaultProfile), fileDefault,
-				)
-			}
-		}
-	}
-	return nil
 }

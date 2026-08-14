@@ -133,8 +133,8 @@ describe('TeamDefaultsPanel', () => {
     expect(screen.queryByRole('link', { name: 'Knowledge' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'MCP' })).not.toBeInTheDocument();
 
-    expect(screen.getByLabelText('LLM profile')).toHaveValue('fast');
-    expect(screen.getByLabelText('Agent profile')).toHaveValue('reviewer');
+    expect(screen.getByLabelText('Model')).toHaveValue('fast');
+    expect(screen.getByLabelText('Agent role')).toHaveValue('reviewer');
     expect(screen.getByLabelText('Guardrail knowledge')).toHaveValue('platform/runtime-safety');
     expect(screen.getByLabelText('Runbook knowledge')).toHaveValue('platform/restart');
     expect(screen.getByLabelText('Architecture knowledge')).toHaveValue('');
@@ -146,10 +146,10 @@ describe('TeamDefaultsPanel', () => {
     const onSaveDefaults = vi.fn().mockResolvedValue(undefined);
     renderPanel({ canManageDefaults: true, onSaveDefaults });
 
-    await user.selectOptions(screen.getByLabelText('LLM profile'), 'careful');
+    await user.selectOptions(screen.getByLabelText('Model'), 'careful');
     await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('platform', { model: 'careful' }));
 
-    await user.selectOptions(screen.getByLabelText('Agent profile'), 'ops');
+    await user.selectOptions(screen.getByLabelText('Agent role'), 'ops');
     await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('platform', { agent_role: 'ops' }));
 
     await user.selectOptions(screen.getByLabelText('Guardrail knowledge'), 'platform/no-env-print');
@@ -166,7 +166,7 @@ describe('TeamDefaultsPanel', () => {
     });
 
     expect(screen.getByRole('heading', { name: 'Global Defaults' })).toBeVisible();
-    expect(screen.getByLabelText('LLM profile')).toBeDisabled();
+    expect(screen.getByLabelText('Model')).toBeDisabled();
   });
 
   it('shows loading and error states', () => {

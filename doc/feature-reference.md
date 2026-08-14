@@ -386,10 +386,9 @@ GitOps-style configuration sync supports:
 - `config-repositories/` -> team config repo bindings, team shells, colocated team structure files, and system-repo team notification policies
 - `setting/system/auth.yaml` -> mandatory local login and external identity-provider settings from a global config repo
 - `setting/system/mail.yaml` -> SMTP mail notification settings from a global config repo
-- `models/` -> one file per model; `models/<name>.yaml` is workspace-wide and `models/<team>/<name>.yaml` is team-owned
-- `agent-roles/` -> one file per agent role, with the same workspace and team layout
-- `mcp/servers/` -> one file per MCP server; servers are workspace-wide
-- `mcp/profiles/` -> one file per MCP profile, workspace-wide or team-owned
+- `models/` -> one file per model, where the file path is the model name, so `models/<team>/<name>.yaml` is team-scoped
+- `agent-roles/` -> one file per agent role, same path rule
+- `mcp/servers/`, `mcp/profiles/` -> one file per MCP server and profile, same path rule
 - `setting/git-apps/github.yaml` -> GitHub App IDs, credential references, and installation records from a global config repo
 - `setting/system/runner.yaml` -> runner install defaults, runtime defaults, and dispatcher routing from a global config repo
 - `setting/system/assistant.yaml` -> Nopsai AI Assistant provider, model, credential reference, feature flags, and memory settings from a global config repo

@@ -326,13 +326,13 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryAccess(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryModels(ctx, repo, delegatedScopes, files); err != nil {
+	if err := a.exportConfigRepositoryModels(ctx, repo, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryAgentRoles(ctx, repo, delegatedScopes, files); err != nil {
+	if err := a.exportConfigRepositoryAgentRoles(ctx, repo, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, delegatedScopes, files); err != nil {
+	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryTeamDefaults(ctx, repo, delegatedScopes, files); err != nil {

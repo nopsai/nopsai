@@ -402,9 +402,9 @@ Rerun:
    - `config-repositories/teams/<team>/structure.yaml` places apps under team shells with `name` and `repo_url`, and can define inline team repo `config:` blocks
    - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
    - `config-repositories/teams/<team>/notifications.yaml` in a system or team repo becomes a pipeline notification policy with one or more named routes for that run team
-   - `models/<name>.yaml` and `models/<team>/<name>.yaml` become the workspace and team model registries; exactly one file per scope may set `default: true`
-   - `agent-roles/<name>.yaml` and `agent-roles/<team>/<name>.yaml` become the workspace and team agent role registries with the same default rule
-   - `mcp/servers/<name>.yaml` becomes a workspace MCP server, and `mcp/profiles/<name>.yaml` or `mcp/profiles/<team>/<name>.yaml` becomes a workspace or team MCP profile
+   - `models/<name>.yaml` becomes a model, where the path is the model name, so `models/<team>/<name>.yaml` is a team-scoped model just like a team-scoped pipeline. Exactly one file may set `default: true`
+   - `agent-roles/<name>.yaml` follows the same rule for agent roles
+   - `mcp/servers/<name>.yaml` and `mcp/profiles/<name>.yaml` follow the same rule for MCP servers and profiles, only from a system/global config repo
    - `setting/system/auth.yaml` becomes mandatory local-login settings plus the single enabled external identity provider, only from a system/global config repo, with provider credential references resolved from the encrypted registry
    - `setting/git-apps/github.yaml` becomes GitHub App IDs, credential references, and installation records, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
