@@ -10,7 +10,7 @@ Most API routes pass through the same middleware stack before reaching a handler
 2. Other requests must include a bearer token produced by the local auth service, service-auth credentials, or a user-created personal access token.
 3. `nopsai` validates service tokens first, then user/API JWTs with signature, expiration, issuer, and audience checks, or hashes opaque `nopat_` personal tokens and `nopsat_` service account tokens against their token tables.
 4. Session JWTs enforce idle-session timeout when configured; service tokens, personal tokens, and service account tokens rely on expiry and revocation semantics. Valid credentials place claims in the request context.
-5. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`, `/v1/auth/personal-tokens`, `/v1/assistant/llm-profiles`) stop here.
+5. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`, `/v1/auth/personal-tokens`, `/v1/assistant/models`) stop here.
 6. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
 7. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
 8. If the AAA service is unavailable, `nopsai` temporarily falls back to an in-process evaluator backed by the same Postgres tables.
@@ -214,7 +214,7 @@ The agent runs tasks in dependency order, not strictly line order.
      before execution and the task fails closed if validation is unavailable or
      returns a conflict
    - `goal` task: ask the LLM to return a structured action
-20. For goal tasks, the LLM prompt includes the resolved Agent Profile role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
+20. For goal tasks, the LLM prompt includes the resolved Agent role role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
 21. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
 22. It executes the chosen action inside the step container or pod.
 23. After a successful output-producing task, the agent collects declared files
@@ -251,7 +251,7 @@ The agent runs tasks in dependency order, not strictly line order.
 
 For a goal-driven task:
 
-1. The agent resolves `agent_profile` from step, pipeline, then the configured system default, and builds an LLM prompt from that profile persona/instructions, variables, effective knowledge context, optional directory contents, MCP tools, execution history, and the current goal.
+1. The agent resolves `agent_role` from step, pipeline, then the configured system default, and builds an LLM prompt from that profile persona/instructions, variables, effective knowledge context, optional directory contents, MCP tools, execution history, and the current goal.
 2. The LLM must return one structured action:
    - `EXECUTE_COMMAND`
    - `REPLACE_FILE`
@@ -402,13 +402,14 @@ Rerun:
    - `config-repositories/teams/<team>/structure.yaml` places apps under team shells with `name` and `repo_url`, and can define inline team repo `config:` blocks
    - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
    - `config-repositories/teams/<team>/notifications.yaml` in a system or team repo becomes a pipeline notification policy with one or more named routes for that run team
-   - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
-   - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
-   - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
+   - `models/<name>.yaml` and `models/<team>/<name>.yaml` become the workspace and team model registries; exactly one file per scope may set `default: true`
+   - `agent-roles/<name>.yaml` and `agent-roles/<team>/<name>.yaml` become the workspace and team agent role registries with the same default rule
+   - `mcp/servers/<name>.yaml` becomes a workspace MCP server, and `mcp/profiles/<name>.yaml` or `mcp/profiles/<team>/<name>.yaml` becomes a workspace or team MCP profile
    - `setting/system/auth.yaml` becomes mandatory local-login settings plus the single enabled external identity provider, only from a system/global config repo, with provider credential references resolved from the encrypted registry
    - `setting/git-apps/github.yaml` becomes GitHub App IDs, credential references, and installation records, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
    - `setting/system/assistant.yaml` becomes the Nopsai AI Assistant provider, model, credential reference, feature flags, and memory settings, only from a system/global config repo
+   - `knowledge/connections/<team>/<connection>.yaml` becomes a Notion, Confluence, or wiki connection definition; connections are applied before the documents that attach to them, and reachability status stays runtime state
    - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password plaintext kept out of the mail file
    - `setting/system/data-management.yaml` becomes scheduled data cleanup rules, only from a system/global config repo; backup files and cleanup job history remain runtime records
    - `setting/system/credentials.yaml` becomes encrypted system credential envelopes, only from a system/global config repo
@@ -441,7 +442,7 @@ review branch. The sync branch is not updated directly. The
 drift endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run team/config-repository structure,
-notification routes, access manifests, Agent Profiles, LLM profiles, MCP
+notification routes, access manifests, Agent roles, models, MCP
 registry files, auth settings, mail settings, data cleanup schedules, runtime
 settings, and encrypted credential envelopes before
 pushing. After those files are merged into the sync branch, the next config sync

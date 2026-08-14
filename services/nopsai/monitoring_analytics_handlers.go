@@ -519,8 +519,10 @@ func parseMonitoringAnalyticsFilters(r *http.Request) (monitoringAnalyticsFilter
 	filters.ExternalTriggerID = strings.TrimSpace(values.Get("externalTriggerId"))
 	filters.ScheduleID = strings.TrimSpace(values.Get("scheduleId"))
 	filters.Provider = strings.TrimSpace(values.Get("provider"))
-	filters.Model = strings.TrimSpace(values.Get("model"))
-	filters.LLMProfile = strings.TrimSpace(firstMonitoringText(values.Get("llmProfile"), values.Get("llm_profile"), values.Get("profile")))
+	// model selects the named registry model; provider_model filters on the
+	// provider's own model string that the selected model resolves to.
+	filters.Model = strings.TrimSpace(values.Get("provider_model"))
+	filters.LLMProfile = strings.TrimSpace(firstMonitoringText(values.Get("model"), values.Get("profile")))
 	filters.Feature = strings.TrimSpace(values.Get("feature"))
 	filters.StepName = strings.TrimSpace(firstMonitoringText(values.Get("stepName"), values.Get("step_name")))
 	filters.TaskName = strings.TrimSpace(firstMonitoringText(values.Get("taskName"), values.Get("task_name")))
@@ -699,7 +701,7 @@ func monitoringAIUsageCandidateRunConditions(args *[]any, filters monitoringAnal
 	}
 	addTextCondition("provider", filters.Provider)
 	addTextCondition("model", filters.Model)
-	addTextCondition("llm_profile", filters.LLMProfile)
+	addTextCondition("model", filters.LLMProfile)
 	addTextCondition("feature", filters.Feature)
 	addTextCondition("step_name", filters.StepName)
 	addTextCondition("task_name", filters.TaskName)
@@ -1377,7 +1379,7 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 		if err != nil {
 			return resp, err
 		}
-		resp.ByProfile, err = a.loadAIUsageTeam(ctx, runIDs, filters, "llm_profile")
+		resp.ByProfile, err = a.loadAIUsageTeam(ctx, runIDs, filters, "model")
 		if err != nil {
 			return resp, err
 		}
@@ -2157,7 +2159,7 @@ func monitoringAIUsageEventFilterPredicate() string {
 	return `
 		  AND ($4::text = '' OR LOWER(COALESCE(provider, '')) = LOWER($4))
 		  AND ($5::text = '' OR LOWER(COALESCE(model, '')) = LOWER($5))
-		  AND ($6::text = '' OR LOWER(COALESCE(llm_profile, '')) = LOWER($6))
+		  AND ($6::text = '' OR LOWER(COALESCE(model, '')) = LOWER($6))
 		  AND ($7::text = '' OR LOWER(COALESCE(feature, '')) = LOWER($7))
 		  AND ($8::text = '' OR LOWER(COALESCE(step_name, '')) = LOWER($8))
 		  AND ($9::text = '' OR LOWER(COALESCE(task_name, '')) = LOWER($9))`

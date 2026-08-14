@@ -85,7 +85,7 @@ test('renders clean chat messages without inline tool-call details', async () =>
           resource_uris: ['nopsai://assistant/execution-plan'],
         },
         { name: 'nopsai.get_pipeline', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://pipelines'] },
-        { name: 'nopsai.llm.complete', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://system/llm-profiles'] },
+        { name: 'nopsai.llm.complete', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://system/models'] },
       ],
     },
   ];

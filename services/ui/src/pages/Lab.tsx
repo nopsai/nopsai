@@ -481,10 +481,10 @@ function LabPage() {
     if (suggestionContext?.type === 'variables' && autocompleteMeta.variables.length === 0 && !autocompleteMeta.loading) {
       void loadAutocomplete();
     }
-    if (suggestionContext?.type === 'agent_profile' && autocompleteMeta.agentProfiles.length === 0 && !autocompleteMeta.loading) {
+    if (suggestionContext?.type === 'agent_role' && autocompleteMeta.agentProfiles.length === 0 && !autocompleteMeta.loading) {
       void loadAutocomplete();
     }
-    if (suggestionContext?.type === 'llm_profile' && autocompleteMeta.llmProfiles.length === 0 && !autocompleteMeta.loading) {
+    if (suggestionContext?.type === 'model' && autocompleteMeta.llmProfiles.length === 0 && !autocompleteMeta.loading) {
       void loadAutocomplete();
     }
     if (suggestionContext?.type === 'mcp_profile' && autocompleteMeta.mcpProfiles.length === 0 && !autocompleteMeta.loading) {

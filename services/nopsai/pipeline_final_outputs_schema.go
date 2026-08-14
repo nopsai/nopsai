@@ -15,7 +15,7 @@ var pipelineFinalOutputSchemaStatements = []string{
 		name TEXT NOT NULL,
 			type TEXT NOT NULL,
 			prompt TEXT NOT NULL DEFAULT '',
-			llm_profile TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
 			dashboard_target JSONB NOT NULL DEFAULT '{}'::jsonb,
 			status TEXT NOT NULL DEFAULT 'pending',
 			content TEXT NOT NULL DEFAULT '',
@@ -40,7 +40,7 @@ var pipelineFinalOutputSchemaStatements = []string{
 			UNIQUE(run_id, item_index)
 	)`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS llm_profile TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS dashboard_target JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS error TEXT NOT NULL DEFAULT ''`,

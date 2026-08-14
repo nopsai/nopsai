@@ -1,0 +1,10 @@
+# MCP servers are workspace-wide; teams select them through profiles.
+display_name: GitHub MCP
+enabled: true
+provider: github
+transport: streamable_http
+url: https://api.githubcopilot.com/mcp/x/all/readonly
+auth_type: bearer_token
+credential_ref: credential://system/mcp/github-readonly
+timeout: 30s
+allowed_scopes: ["dev", "prod"]

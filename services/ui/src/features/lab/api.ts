@@ -19,7 +19,7 @@ async function fetchOptionalJSON(path: string, fallback: unknown): Promise<unkno
 }
 
 export async function fetchLabAgentProfilesMetadata(): Promise<unknown> {
-  return fetchOptionalJSON('/v1/system/agent-profiles', null);
+  return fetchOptionalJSON('/v1/system/agent-roles', null);
 }
 
 export async function fetchLabAutocompleteMetadata(scope: string): Promise<LabAutocompleteMetadata> {
@@ -29,7 +29,7 @@ export async function fetchLabAutocompleteMetadata(scope: string): Promise<LabAu
     fetchOptionalJSON(`/v1/variables${scopeParam}`, []),
     fetchOptionalJSON('/v1/steps', []),
     fetchLabAgentProfilesMetadata(),
-    fetchOptionalJSON(`/v1/system/llm-profiles${scopeParam}`, null),
+    fetchOptionalJSON(`/v1/system/models${scopeParam}`, null),
     fetchOptionalJSON('/v1/system/mcp/profiles', null),
     fetchOptionalJSON('/v1/system/config', null),
   ]);

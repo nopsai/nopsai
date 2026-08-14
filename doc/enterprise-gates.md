@@ -266,12 +266,12 @@ than one heavyweight end-to-end fixture:
   `services/nopsai/config_sync_fetch_test.go`,
   `services/nopsai/config_sync_parse_test.go`, and
   `services/nopsai/config_sync_test.go`
-- Agent Profile GitOps parsing, validation, route authorization, prompt
+- Agent role GitOps parsing, validation, route authorization, prompt
   selection, and UI normalization:
   `services/nopsai/agent_profiles_test.go`,
   `services/nopsai/pkg/validation/pipeline_test.go`,
   `services/agent/internal/llm/agent_profiles_test.go`, and
-  `services/ui/src/features/system/agent-profiles/model.test.ts`
+  `services/ui/src/features/system/agent-roles/model.test.ts`
 - Authorization decisions and inheritance:
   `services/nopsai/aaa_integration_test.go`,
   `services/nopsai/access_grants_test.go`, and

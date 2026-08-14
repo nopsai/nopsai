@@ -152,7 +152,7 @@ describe('assistant model', () => {
           tool_calls: [
             { name: 'nopsai.llm.plan', status: 'success', resource_uris: ['nopsai://features'] },
             { name: 'nopsai.get_pipeline', status: 'success', resource_uris: ['nopsai://pipelines'] },
-            { name: 'nopsai.llm.complete', status: 'success', resource_uris: ['nopsai://system/llm-profiles'] },
+            { name: 'nopsai.llm.complete', status: 'success', resource_uris: ['nopsai://system/models'] },
             { name: 'nopsai.propose_pipeline_update', status: 'success', output: { proposal_type: 'pipeline_update', yaml: 'name: deploy', applies: false } },
           ],
         },

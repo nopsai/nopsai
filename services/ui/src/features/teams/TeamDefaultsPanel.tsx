@@ -12,8 +12,8 @@ import type {
 } from './api';
 
 type DefaultValues = {
-  llm_profile: string;
-  agent_profile: string;
+  model: string;
+  agent_role: string;
   knowledge_context: Record<string, string>;
 };
 
@@ -50,20 +50,20 @@ export function TeamDefaultsPanel({
   const agents = useMemo(() => [...(agentProfiles?.profiles ?? [])].sort((left, right) => left.id.localeCompare(right.id)), [agentProfiles?.profiles]);
   const editable = Boolean(teamPath && canManageDefaults && onSaveDefaults);
   const initialValues = useMemo<DefaultValues>(() => ({
-    llm_profile: teamDefaults?.llm_profile || llmProfiles?.default_profile || '',
-    agent_profile: teamDefaults?.agent_profile || agentProfiles?.default_profile || '',
+    model: teamDefaults?.model || llmProfiles?.default_profile || '',
+    agent_role: teamDefaults?.agent_role || agentProfiles?.default_profile || '',
     knowledge_context: { ...(teamDefaults?.knowledge_context ?? {}) },
-  }), [agentProfiles?.default_profile, llmProfiles?.default_profile, teamDefaults?.agent_profile, teamDefaults?.knowledge_context, teamDefaults?.llm_profile]);
+  }), [agentProfiles?.default_profile, llmProfiles?.default_profile, teamDefaults?.agent_role, teamDefaults?.knowledge_context, teamDefaults?.model]);
   const [values, setValues] = useState<DefaultValues>(initialValues);
   const [savingDefault, setSavingDefault] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const llmOptions = useMemo(
-    () => buildLLMDefaultOptions(llms, values.llm_profile, teamPath),
-    [llms, teamPath, values.llm_profile]
+    () => buildLLMDefaultOptions(llms, values.model, teamPath),
+    [llms, teamPath, values.model]
   );
   const agentOptions = useMemo(
-    () => buildAgentDefaultOptions(agents, values.agent_profile, teamPath),
-    [agents, teamPath, values.agent_profile]
+    () => buildAgentDefaultOptions(agents, values.agent_role, teamPath),
+    [agents, teamPath, values.agent_role]
   );
 
   useEffect(() => {
@@ -93,14 +93,14 @@ export function TeamDefaultsPanel({
   const saveLLMProfile = (value: string) => saveValue(
     'llm',
     value,
-    { llm_profile: value },
-    draft => ({ ...draft, llm_profile: value })
+    { model: value },
+    draft => ({ ...draft, model: value })
   );
   const saveAgentProfile = (value: string) => saveValue(
     'agent',
     value,
-    { agent_profile: value },
-    draft => ({ ...draft, agent_profile: value })
+    { agent_role: value },
+    draft => ({ ...draft, agent_role: value })
   );
   const saveKnowledgeDefault = (kind: string, value: string) => saveValue(
     `knowledge:${kind}`,
@@ -132,7 +132,7 @@ export function TeamDefaultsPanel({
             <DefaultRow
               id="team-default-llm-profile"
               label="LLM profile"
-              value={values.llm_profile}
+              value={values.model}
               options={llmOptions}
               disabled={!editable || savingDefault !== null}
               saving={savingDefault === 'llm'}
@@ -141,7 +141,7 @@ export function TeamDefaultsPanel({
             <DefaultRow
               id="team-default-agent-profile"
               label="Agent profile"
-              value={values.agent_profile}
+              value={values.agent_role}
               options={agentOptions}
               disabled={!editable || savingDefault !== null}
               saving={savingDefault === 'agent'}

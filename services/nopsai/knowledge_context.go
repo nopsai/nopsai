@@ -44,12 +44,21 @@ var supportedKnowledgeContextKinds = map[string]struct{}{
 
 var errKnowledgeContextIdentifierAmbiguous = errors.New("knowledge document id is ambiguous; include kind")
 
+const (
+	// knowledgeContentSourceInline stores the document body in NopsAI.
+	knowledgeContentSourceInline = "inline"
+	// knowledgeContentSourceExternalPage mirrors the body from a connected
+	// Notion, Confluence, or wiki page.
+	knowledgeContentSourceExternalPage = "external_page"
+)
+
 type storedKnowledgeContext struct {
 	kind        string
 	team        string
 	name        string
 	description string
 	content     string
+	external    *knowledgeExternalSource
 	sourcePath  string
 }
 
@@ -140,7 +149,107 @@ type knowledgeFrontMatter struct {
 	Description string                      `yaml:"description"`
 	Visibility  string                      `yaml:"visibility"`
 	Access      *embeddedResourceAccessFile `yaml:"access"`
+	Source      *knowledgeSourceFrontMatter `yaml:"source"`
 	Content     string                      `yaml:"content"`
+}
+
+// knowledgeSourceFrontMatter is the Git-owned definition of a document whose
+// body lives in Notion, Confluence, or another wiki. Git owns which page is
+// attached and how it is synced; the mirrored page body stays a runtime value
+// so an upstream edit never shows up as configuration drift.
+type knowledgeSourceFrontMatter struct {
+	Type       string                    `yaml:"type,omitempty"`
+	Connection string                    `yaml:"connection,omitempty"`
+	Provider   string                    `yaml:"provider,omitempty"`
+	PageID     string                    `yaml:"page_id,omitempty"`
+	PageURL    string                    `yaml:"page_url,omitempty"`
+	PageTitle  string                    `yaml:"page_title,omitempty"`
+	Sync       *knowledgeSyncFrontMatter `yaml:"sync,omitempty"`
+}
+
+type knowledgeSyncFrontMatter struct {
+	Mode            string `yaml:"mode,omitempty"`
+	IntervalMinutes int    `yaml:"interval_minutes,omitempty"`
+	FailureMode     string `yaml:"failure_mode,omitempty"`
+}
+
+// knowledgeExternalSource is the normalized external-page definition applied by
+// config sync.
+type knowledgeExternalSource struct {
+	connection      string
+	provider        string
+	pageID          string
+	pageURL         string
+	pageTitle       string
+	syncMode        string
+	intervalMinutes int
+	failureMode     string
+}
+
+func normalizeKnowledgeSourceFrontMatter(source *knowledgeSourceFrontMatter) (*knowledgeExternalSource, error) {
+	if source == nil {
+		return nil, nil
+	}
+	sourceType := strings.ToLower(strings.TrimSpace(source.Type))
+	switch sourceType {
+	case "", knowledgeContentSourceInline:
+		if strings.TrimSpace(source.Connection) == "" && strings.TrimSpace(source.PageID) == "" && strings.TrimSpace(source.PageURL) == "" {
+			return nil, nil
+		}
+		if sourceType == knowledgeContentSourceInline {
+			return nil, fmt.Errorf("source.type inline must not declare a connection or page")
+		}
+	case knowledgeContentSourceExternalPage, "external", "page":
+	default:
+		return nil, fmt.Errorf("source.type must be inline or external_page")
+	}
+
+	connection := strings.TrimSpace(source.Connection)
+	if connection == "" {
+		return nil, fmt.Errorf("source.connection is required for an external page document")
+	}
+	if _, err := normalizeKnowledgeConnectionName(connection); err != nil {
+		return nil, fmt.Errorf("invalid source.connection: %w", err)
+	}
+	pageID := strings.TrimSpace(source.PageID)
+	pageURL := strings.TrimSpace(source.PageURL)
+	if pageID == "" && pageURL == "" {
+		return nil, fmt.Errorf("source.page_id or source.page_url is required for an external page document")
+	}
+	provider := ""
+	if strings.TrimSpace(source.Provider) != "" {
+		normalizedProvider, err := normalizeKnowledgeConnectionProvider(source.Provider)
+		if err != nil {
+			return nil, fmt.Errorf("invalid source.provider: %w", err)
+		}
+		provider = normalizedProvider
+	}
+	sync := knowledgeSyncFrontMatter{}
+	if source.Sync != nil {
+		sync = *source.Sync
+	}
+	syncMode, err := normalizeKnowledgeSyncMode(sync.Mode)
+	if err != nil {
+		return nil, fmt.Errorf("invalid source.sync.mode: %w", err)
+	}
+	intervalMinutes, err := normalizeKnowledgeSyncIntervalMinutes(sync.IntervalMinutes, syncMode)
+	if err != nil {
+		return nil, fmt.Errorf("invalid source.sync.interval_minutes: %w", err)
+	}
+	failureMode, err := normalizeKnowledgeFailureMode(sync.FailureMode)
+	if err != nil {
+		return nil, fmt.Errorf("invalid source.sync.failure_mode: %w", err)
+	}
+	return &knowledgeExternalSource{
+		connection:      connection,
+		provider:        provider,
+		pageID:          pageID,
+		pageURL:         pageURL,
+		pageTitle:       strings.TrimSpace(source.PageTitle),
+		syncMode:        syncMode,
+		intervalMinutes: intervalMinutes,
+		failureMode:     failureMode,
+	}, nil
 }
 
 func normalizeKnowledgeContextKind(raw string) (string, error) {
@@ -404,7 +513,7 @@ func parseKnowledgeContextDocument(content string) (knowledgeFrontMatter, string
 
 	contentIndex := topLevelYAMLKeyIndex(normalized, "content")
 	if contentIndex < 0 {
-		return knowledgeFrontMatter{}, "", fmt.Errorf("content is required")
+		return knowledgeFrontMatter{}, "", fmt.Errorf("content is required unless the document declares an external page source")
 	}
 
 	doc, body, err := parseLooseKnowledgeContextDocument(normalized, contentIndex)
@@ -412,6 +521,19 @@ func parseKnowledgeContextDocument(content string) (knowledgeFrontMatter, string
 		return doc, "", err
 	}
 	return doc, body, nil
+}
+
+// knowledgeFrontMatterDeclaresExternalPage reports whether the document body is
+// mirrored from a connected page instead of being stored inline, which is the
+// one case where a knowledge document legitimately carries no content.
+func knowledgeFrontMatterDeclaresExternalPage(doc knowledgeFrontMatter) bool {
+	if doc.Source == nil {
+		return false
+	}
+	return strings.TrimSpace(doc.Source.Type) != "" ||
+		strings.TrimSpace(doc.Source.Connection) != "" ||
+		strings.TrimSpace(doc.Source.PageID) != "" ||
+		strings.TrimSpace(doc.Source.PageURL) != ""
 }
 
 func parseMarkdownKnowledgeContextDocument(content string) (knowledgeFrontMatter, string, bool, error) {
@@ -435,8 +557,8 @@ func parseMarkdownKnowledgeContextDocument(content string) (knowledgeFrontMatter
 					return doc, "", true, retryErr
 				}
 			}
-			if strings.TrimSpace(doc.Content) == "" {
-				return doc, "", true, fmt.Errorf("content is required")
+			if strings.TrimSpace(doc.Content) == "" && !knowledgeFrontMatterDeclaresExternalPage(doc) {
+				return doc, "", true, fmt.Errorf("content is required unless the document declares an external page source")
 			}
 			if strings.TrimSpace(body) != "" {
 				return doc, "", true, fmt.Errorf("markdown body outside content field is not supported; use content")
@@ -581,6 +703,11 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 		if !ok || rel == "" || strings.HasSuffix(rel, "/") || !isKnowledgeContextGitOpsFile(rel) {
 			continue
 		}
+		// connections/ is reserved for knowledge connection definitions, which
+		// have their own parser and are not knowledge documents.
+		if isKnowledgeConnectionGitOpsPath(rel) {
+			continue
+		}
 
 		kind, team, _, err := parseKnowledgeContextGitOpsPath(rel, binding, boundTeam)
 		if err != nil {
@@ -645,12 +772,21 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 		if err := addKnowledgeContextEmbeddedAccess(accessPlan, frontMatter, normalized, key, binding, boundTeam); err != nil {
 			return nil, fmt.Errorf("invalid knowledge context access '%s': %w", normalized, err)
 		}
+		external, err := normalizeKnowledgeSourceFrontMatter(frontMatter.Source)
+		if err != nil {
+			return nil, fmt.Errorf("invalid knowledge context source in '%s': %w", normalized, err)
+		}
+		content := strings.TrimSpace(body)
+		if external != nil && content != "" {
+			return nil, fmt.Errorf("knowledge context '%s' declares an external page source and must not carry inline content; the page body is mirrored at run time", normalized)
+		}
 		contexts[key] = storedKnowledgeContext{
 			kind:        kind,
 			team:        team,
 			name:        name,
 			description: strings.TrimSpace(frontMatter.Description),
-			content:     strings.TrimSpace(body),
+			content:     content,
+			external:    external,
 			sourcePath:  normalized,
 		}
 	}

@@ -40,6 +40,9 @@ type configSyncRepositoryFiles struct {
 	configRepositories map[string]string
 	access             map[string]string
 	knowledge          map[string]string
+	models             map[string]string
+	agentRoles         map[string]string
+	mcp                map[string]string
 	notifications      map[string]string
 	setting            map[string]string
 }
@@ -98,6 +101,9 @@ func fetchConfigSyncRepositoryFiles(ctx context.Context, reader configSyncGitRea
 		{path: repoCtx.dirs.configRepository, resource: "config repository bindings"},
 		{path: repoCtx.dirs.access, resource: "access manifests"},
 		{path: repoCtx.dirs.knowledge, resource: "knowledge contexts"},
+		{path: repoCtx.dirs.model, resource: "model definitions"},
+		{path: repoCtx.dirs.agentRole, resource: "agent role definitions"},
+		{path: repoCtx.dirs.mcp, resource: "MCP server and profile definitions"},
 		{path: repoCtx.dirs.setting, resource: "system settings"},
 	})
 	if err != nil {
@@ -115,7 +121,10 @@ func fetchConfigSyncRepositoryFiles(ctx context.Context, reader configSyncGitRea
 	files.configRepositories = directoryResults[9]
 	files.access = directoryResults[10]
 	files.knowledge = directoryResults[11]
-	files.setting = directoryResults[12]
+	files.models = directoryResults[12]
+	files.agentRoles = directoryResults[13]
+	files.mcp = directoryResults[14]
+	files.setting = directoryResults[15]
 
 	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 		rootRoutePath := configsync.RepoJoinPath(repoCtx.basePath, "notifications.yaml")

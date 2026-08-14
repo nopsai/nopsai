@@ -149,14 +149,14 @@ export type TeamMCPProfilesResponse = {
 export type TeamDefaultsResponse = {
   team_id: number;
   team_path: string;
-  llm_profile?: string;
-  agent_profile?: string;
+  model?: string;
+  agent_role?: string;
   knowledge_context: Record<string, string>;
 };
 
 export type TeamDefaultsPayload = {
-  llm_profile?: string;
-  agent_profile?: string;
+  model?: string;
+  agent_role?: string;
   knowledge_context?: Record<string, string>;
 };
 
@@ -242,11 +242,11 @@ export async function fetchTeamConfigRepository(teamPath: string): Promise<unkno
 }
 
 export function fetchTeamLLMProfiles(teamID: number | string): Promise<TeamLLMProfilesResponse> {
-  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/llm-profiles`);
+  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/models`);
 }
 
 export function replaceTeamLLMProfiles(teamID: number | string, payload: TeamLLMProfilesPayload): Promise<TeamLLMProfilesResponse> {
-  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/llm-profiles`, {
+  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/models`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -258,7 +258,7 @@ export function upsertTeamLLMProfile(
   profileName: string,
   payload: TeamLLMProfilePayload
 ): Promise<TeamLLMProfilesResponse> {
-  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/llm-profiles/${encodeURIComponent(profileName)}`, {
+  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/models/${encodeURIComponent(profileName)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -266,7 +266,7 @@ export function upsertTeamLLMProfile(
 }
 
 export function setTeamDefaultLLMProfile(teamID: number | string, defaultProfile: string): Promise<TeamLLMProfilesResponse> {
-  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/llm-profiles/default`, {
+  return requestTeamsJson<TeamLLMProfilesResponse>(`${teamRoute(teamID)}/models/default`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ default_profile: defaultProfile }),
@@ -274,18 +274,18 @@ export function setTeamDefaultLLMProfile(teamID: number | string, defaultProfile
 }
 
 export function deleteTeamLLMProfile(teamID: number | string, profileName: string): Promise<void> {
-  return requestTeamsJson<void>(`${teamRoute(teamID)}/llm-profiles/${encodeURIComponent(profileName)}`, { method: 'DELETE' });
+  return requestTeamsJson<void>(`${teamRoute(teamID)}/models/${encodeURIComponent(profileName)}`, { method: 'DELETE' });
 }
 
 export function fetchTeamAgentProfiles(teamID: number | string): Promise<TeamAgentProfilesResponse> {
-  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-profiles`);
+  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-roles`);
 }
 
 export function createTeamAgentProfile(
   teamID: number | string,
   payload: TeamAgentProfilePayload
 ): Promise<TeamAgentProfilesResponse> {
-  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-profiles`, {
+  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-roles`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -297,7 +297,7 @@ export function upsertTeamAgentProfile(
   profileID: string,
   payload: TeamAgentProfilePayload
 ): Promise<TeamAgentProfilesResponse> {
-  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-profiles/${encodeURIComponent(profileID)}`, {
+  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-roles/${encodeURIComponent(profileID)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -305,7 +305,7 @@ export function upsertTeamAgentProfile(
 }
 
 export function setTeamDefaultAgentProfile(teamID: number | string, defaultProfile: string): Promise<TeamAgentProfilesResponse> {
-  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-profiles/default`, {
+  return requestTeamsJson<TeamAgentProfilesResponse>(`${teamRoute(teamID)}/agent-roles/default`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ default_profile: defaultProfile }),
@@ -313,7 +313,7 @@ export function setTeamDefaultAgentProfile(teamID: number | string, defaultProfi
 }
 
 export function deleteTeamAgentProfile(teamID: number | string, profileID: string): Promise<void> {
-  return requestTeamsJson<void>(`${teamRoute(teamID)}/agent-profiles/${encodeURIComponent(profileID)}`, { method: 'DELETE' });
+  return requestTeamsJson<void>(`${teamRoute(teamID)}/agent-roles/${encodeURIComponent(profileID)}`, { method: 'DELETE' });
 }
 
 export function fetchTeamMCPProfiles(teamID: number | string): Promise<TeamMCPProfilesResponse> {

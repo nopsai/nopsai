@@ -217,10 +217,10 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 	}
 	actions, err = normalizeUseGrantActions(grantResourceLLMProfile, nil)
 	if err != nil {
-		t.Fatalf("normalizeUseGrantActions(llm_profile) error = %v", err)
+		t.Fatalf("normalizeUseGrantActions(model) error = %v", err)
 	}
-	if len(actions) != 1 || actions[0] != "llm_profile.use" {
-		t.Fatalf("normalizeUseGrantActions(llm_profile) = %#v, want llm_profile.use", actions)
+	if len(actions) != 1 || actions[0] != "model.use" {
+		t.Fatalf("normalizeUseGrantActions(model) = %#v, want model.use", actions)
 	}
 	actions, err = normalizeUseGrantActions(grantResourceDashboard, nil)
 	if err != nil {
@@ -243,7 +243,7 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 	if _, err := normalizeUseGrantActions(grantResourcePipeline, []string{"scope.use"}); err == nil {
 		t.Fatal("normalizeUseGrantActions() accepted mismatched use action")
 	}
-	if _, err := normalizeUseGrantActions(grantResourceMCPProfile, []string{"llm_profile.use"}); err == nil {
+	if _, err := normalizeUseGrantActions(grantResourceMCPProfile, []string{"model.use"}); err == nil {
 		t.Fatal("normalizeUseGrantActions() accepted mismatched AI profile use action")
 	}
 	if _, err := normalizeUseGrantActions(grantResourceDashboard, []string{"dashboard.publish"}); err == nil {

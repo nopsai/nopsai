@@ -57,6 +57,10 @@ var resourceAuthorizationSchemaStatements = []string{
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS effective_subject_type TEXT`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS effective_subject_id TEXT`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS authorization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	`UPDATE resource_visibility SET resource_type = 'model' WHERE resource_type = 'llm_profile'`,
+	`UPDATE resource_visibility SET resource_type = 'agent_role' WHERE resource_type = 'agent_profile'`,
+	`UPDATE resource_access_overrides SET resource_type = 'model' WHERE resource_type = 'llm_profile'`,
+	`UPDATE resource_access_overrides SET resource_type = 'agent_role' WHERE resource_type = 'agent_profile'`,
 }
 
 func ensureResourceAuthorizationSchema(ctx context.Context, db *pgxpool.Pool) error {

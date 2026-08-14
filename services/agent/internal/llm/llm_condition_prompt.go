@@ -25,7 +25,7 @@ func (c *LLMClient) getActionModel(ctx context.Context, prompt string, sessions 
 	if err != nil {
 		logEvent := log.Error().Err(err).Str("provider", c.provider)
 		if c.profile != "" {
-			logEvent = logEvent.Str("llm_profile", c.profile)
+			logEvent = logEvent.Str("model", c.profile)
 		}
 		logEvent.Msg("Error calling LLM provider for GetAction")
 		return nil, err
@@ -68,7 +68,7 @@ func (c *LLMClient) EvaluateConditionWithAgentProfile(ctx context.Context, req *
 	if err != nil {
 		logEvent := log.Error().Err(err).Str("provider", c.provider)
 		if c.profile != "" {
-			logEvent = logEvent.Str("llm_profile", c.profile)
+			logEvent = logEvent.Str("model", c.profile)
 		}
 		logEvent.Msg("Error calling LLM provider for EvaluateCondition")
 		return &proto.ConditionResponse{Result: false}, err

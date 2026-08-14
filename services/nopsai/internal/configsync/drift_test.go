@@ -13,7 +13,7 @@ func testDriftOptions() DriftPathOptions {
 		GitWebhookSourcesDirectory: "git-webhook-sources",
 		SettingsRelativePath: func(rel string) bool {
 			switch rel {
-			case "system/runner.yaml", "system/github.yaml", "system/mail.yaml", "system/llm_profile.yaml", "system/agent-profiles.yaml", "system/mcp.yaml":
+			case "system/runner.yaml", "system/github.yaml", "system/mail.yaml", "system/model.yaml", "system/agent-roles.yaml", "system/mcp.yaml":
 				return true
 			default:
 				return false
@@ -44,8 +44,8 @@ func TestIsDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
 		"git-webhook-sources/gitlab-platform.yaml",
 		"setting/system/mail.yaml",
 		"setting/system/github.yaml",
-		"setting/system/llm_profile.yaml",
-		"setting/system/agent-profiles.yaml",
+		"setting/system/model.yaml",
+		"setting/system/agent-roles.yaml",
 		"setting/system/mcp.yaml",
 		"setting/system/runner.yaml",
 	} {

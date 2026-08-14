@@ -399,10 +399,10 @@ func queryParameters(path string) []QueryParameter {
 	if strings.Contains(path, "/mcp/") && strings.HasSuffix(path, "/test") {
 		add("scope", "Team or runtime scope to test.", "team-1")
 	}
-	if strings.Contains(path, "/llm-profiles/") && strings.HasSuffix(path, "/test") {
+	if strings.Contains(path, "/models/") && strings.HasSuffix(path, "/test") {
 		add("scope", "Team or runtime scope to test.", "team-1")
 	}
-	if strings.Contains(path, "/agent-profiles/") && strings.HasSuffix(path, "/usage") {
+	if strings.Contains(path, "/agent-roles/") && strings.HasSuffix(path, "/usage") {
 		add("force", "Force delete/update when references exist.", "true")
 	}
 	if strings.Contains(path, "/knowledge") {

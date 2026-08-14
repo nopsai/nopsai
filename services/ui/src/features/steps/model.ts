@@ -28,7 +28,7 @@ export const STEP_DIRECTIVES = [
   'depends_on',
   'outputs',
   'ignore_failure',
-  'agent_profile',
+  'agent_role',
   'governance_level',
   'runtime_pool',
   'llm_output_sharing',

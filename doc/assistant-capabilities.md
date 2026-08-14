@@ -49,7 +49,7 @@ operations as the current authenticated user.
   example, a successful `nopsai.analyze_pipeline_run_failure` call already
   includes run metadata, bounded logs, a root-cause hint, and next steps, so the
   assistant can render the deterministic run-analysis answer without asking a
-  slower local LLM profile to re-process the same evidence.
+  slower local model to re-process the same evidence.
 - Tool lists, resources, and tool calls are permission-filtered. If a user
   cannot use a route or resource in NopsAI, the assistant cannot bypass that.
 - Enterprise feature flags under `assistant.features` decide which broad
@@ -77,7 +77,7 @@ operations as the current authenticated user.
 - AI usage analytics expose provider, model, profile, feature, step, task,
   pipeline, schedule, subject, and run breakdowns. Assistant chat token usage is
   merged into the same global AI usage view and is attributed back to provider
-  and model through the selected LLM profile when that profile is stored in
+  and model through the selected model when that profile is stored in
   NopsAI.
 - Successful AI usage evidence is terminal for the assistant planner loop. The
   assistant renders the deterministic token analytics summary directly instead
@@ -171,9 +171,9 @@ metadata available on demand.
   Send label, `Cmd/Ctrl + Enter` shortcut hint, and a draggable top border for
   vertical resizing.
 - The visible session line stays human-readable: "Ready · changes always need
-  your review." MCP, memory, confirmation policy, and chat-level LLM profile
+  your review." MCP, memory, confirmation policy, and chat-level model
   selection are available in a compact Session details disclosure. New
-  conversations default to the configured assistant/default LLM profile unless
+  conversations default to the configured assistant/default model unless
   the user chooses another chat profile.
 - Message bubbles show only user/assistant content plus compact actions such as
   copy and retry. Raw internal planner and synthesis calls are not rendered
@@ -734,18 +734,18 @@ Main MCP coverage: `nopsai.list_data_backups`,
 `nopsai.run_data_cleanup_schedule`, and
 `nopsai.delete_data_cleanup_schedule`.
 
-### LLM Profiles, MCP Profiles, System Status, And Lab Items
+### Models, MCP Profiles, System Status, And Lab Items
 
-The assistant can inspect safe LLM profile metadata, MCP profile metadata,
+The assistant can inspect safe model metadata, MCP profile metadata,
 system status, lab items, and lab results. It does not expose credential refs
 or unsafe provider details in ordinary chat context.
 When an assistant-specific provider is configured, the picker includes the
 dedicated `assistant` profile. Otherwise it falls back to existing selectable
-LLM profiles for backward compatibility.
+models for backward compatibility.
 
 Ask:
 
-- "List assistant LLM profiles I can choose from."
+- "List assistant models I can choose from."
 - "Show MCP profiles configured for the system."
 - "Check NopsAI system status."
 - "List lab items and explain result `lab_123`."

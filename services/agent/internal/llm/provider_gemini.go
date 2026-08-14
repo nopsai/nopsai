@@ -39,7 +39,7 @@ func (c *geminiClient) Name() string {
 func (c *geminiClient) Complete(ctx context.Context, prompt string) (string, error) {
 	logEvent := log.Debug().Str("model", c.model)
 	if c.owner.profile != "" {
-		logEvent = logEvent.Str("llm_profile", c.owner.profile)
+		logEvent = logEvent.Str("model", c.owner.profile)
 	}
 	logEvent.Msg("Calling Gemini API")
 

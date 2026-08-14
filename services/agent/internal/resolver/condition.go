@@ -93,10 +93,10 @@ func (ConditionEvaluator) Evaluate(ctx context.Context, req ConditionRequest) Co
 		}
 	}
 	if req.Logger != nil {
-		req.Logger.Info().Str("llm_profile", conditionProfile).Msg("Using LLM profile for condition")
+		req.Logger.Info().Str("model", conditionProfile).Msg("Using LLM profile for condition")
 		if aware, ok := conditionClient.(agentProfileAwareConditionClient); ok {
 			if agentProfile := strings.TrimSpace(aware.AgentProfileName()); agentProfile != "" {
-				req.Logger.Info().Str("agent_profile", agentProfile).Msg("Using agent profile for condition")
+				req.Logger.Info().Str("agent_role", agentProfile).Msg("Using agent profile for condition")
 			}
 		}
 	}

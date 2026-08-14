@@ -8,15 +8,15 @@ export default function AgentProfilesPage({ canManage }: { canManage: boolean })
   const location = useLocation();
   const navigate = useNavigate();
   const selectedProfileID = useMemo(
-    () => decodeAIResourceRouteID(location.pathname, 'agent-profiles'),
+    () => decodeAIResourceRouteID(location.pathname, 'agent-roles'),
     [location.pathname]
   );
   const setSelectedProfileID = useCallback((profileID: string) => {
-    navigate(aiResourceRoute('/agent-profiles', profileID, new URLSearchParams(location.search)), { preventScrollReset: true });
+    navigate(aiResourceRoute('/agent-roles', profileID, new URLSearchParams(location.search)), { preventScrollReset: true });
   }, [location.search, navigate]);
 
   return (
-    <div data-page="agent-profiles" className="active h-full flex flex-col">
+    <div data-page="agent-roles" className="active h-full flex flex-col">
       <AgentProfilesPanel
         canManage={canManage}
         selectedProfileID={selectedProfileID}

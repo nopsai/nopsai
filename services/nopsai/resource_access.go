@@ -908,9 +908,9 @@ func defaultUseActionForResource(resourceType string) (string, error) {
 	case grantResourceDashboard:
 		return "dashboard.read", nil
 	case grantResourceLLMProfile:
-		return "llm_profile.use", nil
+		return "model.use", nil
 	case grantResourceAgentProfile:
-		return "agent_profile.use", nil
+		return "agent_role.use", nil
 	case grantResourceMCPServer:
 		return "mcp_server.use", nil
 	case grantResourceMCPProfile:

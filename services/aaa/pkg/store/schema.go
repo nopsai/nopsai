@@ -329,6 +329,21 @@ var aaaSchemaStatements = []string{
 		('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.finalize', 'allow'),
 		('dispatcher-internal', 'pipeline_run', '*', 'pipeline_run.task_update', 'allow')
 	ON CONFLICT (role_name, resource_type, resource_id, action, effect) DO NOTHING`,
+	// LLM profiles are now called models and agent profiles are now called agent
+	// roles. Rewrite stored authorization rows so existing grants, role
+	// permissions, ACLs, and ownership keep working under the new resource names.
+	`UPDATE auth_role_permissions SET resource_type = 'model' WHERE resource_type = 'llm_profile'`,
+	`UPDATE auth_role_permissions SET resource_type = 'agent_role' WHERE resource_type = 'agent_profile'`,
+	`UPDATE auth_role_permissions SET action = 'model' || SUBSTRING(action FROM LENGTH('llm_profile') + 1) WHERE action LIKE 'llm_profile.%'`,
+	`UPDATE auth_role_permissions SET action = 'agent_role' || SUBSTRING(action FROM LENGTH('agent_profile') + 1) WHERE action LIKE 'agent_profile.%'`,
+	`UPDATE access_grants SET resource_type = 'model' WHERE resource_type = 'llm_profile'`,
+	`UPDATE access_grants SET resource_type = 'agent_role' WHERE resource_type = 'agent_profile'`,
+	`UPDATE resource_acl SET resource_type = 'model' WHERE resource_type = 'llm_profile'`,
+	`UPDATE resource_acl SET resource_type = 'agent_role' WHERE resource_type = 'agent_profile'`,
+	`UPDATE resource_acl SET action = 'model' || SUBSTRING(action FROM LENGTH('llm_profile') + 1) WHERE action LIKE 'llm_profile.%'`,
+	`UPDATE resource_acl SET action = 'agent_role' || SUBSTRING(action FROM LENGTH('agent_profile') + 1) WHERE action LIKE 'agent_profile.%'`,
+	`UPDATE resource_ownership SET resource_type = 'model' WHERE resource_type = 'llm_profile'`,
+	`UPDATE resource_ownership SET resource_type = 'agent_role' WHERE resource_type = 'agent_profile'`,
 }
 
 var aaaConfigMetadataForeignKeyStatements = []string{

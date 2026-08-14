@@ -28,7 +28,7 @@ pipeline knowledge_context
 ```
 
 Team defaults are configured from **Teams -> Defaults**. The panel shows one
-selector row per subject: `LLM profile`, `Agent profile`, then one selector for
+selector row per subject: `model`, `Agent role`, then one selector for
 each supported knowledge kind. A knowledge default is always a managed
 team-owned document of that kind.
 
@@ -116,7 +116,7 @@ present. Before the script runs, the LLM must validate the exact script as the
 proposed `EXECUTE_COMMAND`. If validation is unavailable, changes the command,
 or returns a conflict explanation, the task fails instead of executing the
 script. Pipelines using this strict script validation must keep `llm_enabled`
-true and use a resolvable LLM profile. Command logs and run history mask known
+true and use a resolvable model. Command logs and run history mask known
 secret values plus the NopsAI-provided runtime variable values passed into the
 step.
 
@@ -147,7 +147,11 @@ The GitOps path shape is:
 ```text
 knowledge/<kind>/<team>/<file>.yaml
 knowledge/<kind>/<team>/<file>.md
+knowledge/connections/<team>/<connection>.yaml
 ```
+
+`connections` is reserved for knowledge connection definitions and is never read
+as a knowledge kind.
 
 For team-scoped config repositories, document teams are normalized under the
 bound team in the same way as pipelines, reusable steps, scopes, and triggers.
@@ -203,7 +207,8 @@ Document fields:
 - `description`: optional UI/API summary
 - `access.visibility`: `team`, `restricted`, or `workspace`/`public`
 - `access`: optional embedded resource-access config and grants
-- `content`: reusable document text; required for every GitOps knowledge document
+- `content`: reusable document text; required unless the document declares an external page source
+- `source`: optional external page definition, described in [External Page Documents](#external-page-documents)
 
 GitOps documents do not support `title` or top-level `visibility` parameters.
 Put the human-readable heading inside `content` instead. Resource visibility
@@ -297,8 +302,69 @@ The synced markdown includes a lightweight placeholder such as:
 The placeholder only records that the block exists. It does not OCR, summarize,
 or infer the contents of the asset. Asset rows inherit access through the parent
 Knowledge Context and are deleted/replaced atomically with each successful
-external-page sync. GitOps knowledge files stay text-only; external-page links
-and preserved provider assets remain API-managed runtime resources.
+external-page sync. GitOps knowledge files stay text-only: they carry the page
+link and sync settings, while fetched page text and preserved provider assets
+remain runtime records.
+
+## Knowledge Connections in GitOps
+
+Connections to Notion, Confluence, and other wikis are configuration, so they are
+Git-owned like every other resource:
+
+```text
+knowledge/connections/<team>/<connection>.yaml
+```
+
+```yaml
+name: engineering-wiki
+display_name: Engineering Wiki
+provider: notion            # notion, confluence, or wiki
+base_url: https://www.notion.so/acme
+credential_ref: credential://system/knowledge/notion-token
+disabled: false
+scopes: {}                  # optional provider scope selection
+config: {}                  # optional provider-specific settings
+```
+
+Git owns the definition only. Reachability status, last error, last check time,
+and document counts are runtime state and are never exported. The credential is a
+reference; tokens never appear in Git. Config sync creates, updates, and prunes
+connections owned by the repository, and connections are applied before the
+documents that attach to them so a document never resolves against a missing
+connection.
+
+## External Page Documents
+
+A document whose body lives in a connected page is still Git-owned
+configuration. Git decides which page is attached and how it syncs; the mirrored
+page body stays runtime state so an upstream edit never appears as configuration
+drift.
+
+```markdown
+---
+name: service-onboarding
+kind: runbook
+description: Service onboarding runbook mirrored from the engineering wiki.
+source:
+  type: external_page
+  connection: engineering-wiki
+  provider: notion
+  page_id: 8a7f0c1149e64a2f9c2b1c9a0e5d4f31
+  page_url: https://www.notion.so/acme/Service-Onboarding-8a7f0c11
+  page_title: Service Onboarding
+  sync:
+    mode: periodic          # manual, before_run, or periodic
+    interval_minutes: 120
+    failure_mode: use_cached
+---
+```
+
+`source.connection` names a connection in the same team, and either
+`source.page_id` or `source.page_url` is required. An external-page document must
+not declare `content`: the connected page body is mirrored by the sync worker, and
+an inline copy would fight the mirror and show up as permanent drift. Sync status,
+cached content, content hashes, and preserved provider assets stay runtime
+records.
 
 External page synchronization supports three modes:
 
@@ -345,11 +411,12 @@ returned by these APIs. Page search is provider-backed, URL resolution validates
 access immediately, and manual sync fetches prompt-friendly page text into the
 cached Knowledge Context content used by runtime snapshots.
 
-Config sync creates, updates, and prunes inline `knowledge_contexts` rows for
-files under `knowledge/`, just like it does for other Git-managed resources.
-External page links and provider connections are API-managed runtime resources;
-external sync does not convert provider-backed links into inline markdown
-snapshots. Existing inline and GitOps documents are unaffected by external sync.
+Config sync creates, updates, and prunes `knowledge_contexts` rows for files
+under `knowledge/`, just like it does for other Git-managed resources. That
+covers inline documents, external-page document definitions, and the connections
+they attach to. External sync does not convert provider-backed links into inline
+markdown snapshots: the fetched page text, sync history, and preserved provider
+assets remain runtime records owned by the sync worker.
 The UI mirrors existing teams under every supported knowledge kind, so a
 team such as `team-1/platform` is available as a team path under `guardrail`,
 `policy`, `guideline`, and the other kinds even before it has a document.

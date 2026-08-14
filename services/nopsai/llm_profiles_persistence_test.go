@@ -53,7 +53,7 @@ func TestHandleUpsertLLMProfileDoesNotPublishMemoryWhenPersistenceFails(t *testi
 	}
 
 	body := `{"name":"standard","provider":"lmstudio","model":"new-model","base_url":"http://lmstudio:1234"}`
-	req := httptest.NewRequest(http.MethodPut, "/v1/system/llm-profiles/standard", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/v1/system/models/standard", strings.NewReader(body))
 	req.SetPathValue("profileName", "standard")
 	req = req.WithContext(withAAASubject(req.Context(), model.Subject{Type: model.SubjectTypeUser, ID: "alice"}))
 	rec := httptest.NewRecorder()

@@ -75,7 +75,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.get_cost_summary", "Read cost and usage summary.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.suggest_cost_improvements", "Suggest cost improvements from current usage data.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.suggest_design_improvements", "Suggest pipeline design improvements from current inventory.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{})),
-		toolDef("nopsai.get_llm_profiles", "List existing LLM profiles the assistant can use.", "system.read", "system", "llm-profiles", objectSchema(map[string]any{})),
+		toolDef("nopsai.get_llm_profiles", "List existing LLM profiles the assistant can use.", "system.read", "system", "models", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_mcp_profiles", "List external MCP profiles configured in Nopsai.", "system.read", "system", "mcp", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_feature_capabilities", "List NopsAI feature coverage, MCP surfaces, REST/GitOps backing routes, and current-user AAA availability.", "system.read", "system", "mcp", objectSchema(map[string]any{"area": stringSchema(), "query": stringSchema(), "include_api_routes": booleanSchema()})),
 		toolDef("nopsai.get_system_status", "Read basic system setup and dispatcher status.", "system.read", "system", "config", objectSchema(map[string]any{})),
@@ -784,7 +784,7 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 
 func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID string) ([]map[string]any, error) {
 	rows, err := a.db.Query(ctx, `
-			SELECT id::text, name, type, status, error, llm_profile,
+			SELECT id::text, name, type, status, error, model,
 			       generation_attempts, contract_violations, render_attempts, render_failures, created_at, generation_started_at, updated_at,
 			       COALESCE(dashboard_target::text, '{}')
 			FROM pipeline_run_outputs
@@ -859,7 +859,7 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	}
 
 	query := `
-			SELECT id::text, name, type, status, content, error, llm_profile,
+			SELECT id::text, name, type, status, content, error, model,
 			       generation_attempts, contract_violations, render_attempts, render_failures,
 			       created_at, generation_started_at, updated_at, COALESCE(dashboard_target::text, '{}')
 			FROM pipeline_run_outputs
@@ -914,7 +914,7 @@ func hostedMCPPipelineRunOutputMap(output models.PipelineRunFinalOutput) map[str
 		"status":                      output.Status,
 		"content":                     output.Content,
 		"error":                       output.Error,
-		"llm_profile":                 output.LLMProfile,
+		"model":                       output.LLMProfile,
 		"generation_attempts":         output.GenerationAttempts,
 		"contract_violations":         output.ContractViolations,
 		"render_attempts":             output.RenderAttempts,
@@ -1589,7 +1589,7 @@ name: service-health-dashboard
 version: "1.0"
 description: Publish service health evidence into Engineering Health.
 container_image: alpine:3.20
-llm_profile: standard
+model: standard
 
 steps:
   - name: collect-evidence

@@ -312,7 +312,7 @@ func LoadAIUsageByTask(ctx context.Context, db Queryer, runID string) (map[strin
 
 func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.PipelineRunFinalOutput, error) {
 	rows, err := db.Query(ctx, `
-		SELECT id::text, name, type, status, content, error, llm_profile,
+		SELECT id::text, name, type, status, content, error, model,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, generation_started_at, updated_at, COALESCE(dashboard_target::text, '{}')
 		FROM pipeline_run_outputs

@@ -112,7 +112,7 @@ export type SetupBootstrapRequest = {
   };
   repository_teams: Array<{ name: string; repositories: string[] }>;
   repositories: string[];
-  llm_profile: {
+  model: {
     name: string;
     provider: string;
     model: string;
@@ -193,8 +193,8 @@ export function buildSetupGitOpsFileList(
   ];
   const knowledgeTeam = teams[0]?.name;
   if (knowledgeTeam) files.push(`knowledge/guideline/${knowledgeTeam}/setup-run.md`);
-  if (options.includeLLM) files.push('setting/system/llm_profile.yaml');
-  if (options.includeMCP) files.push('setting/system/mcp.yaml');
+  if (options.includeLLM) files.push('models/standard.yaml');
+  if (options.includeMCP) files.push('mcp/servers/github-readonly.yaml', 'mcp/profiles/github-readonly.yaml');
   repositories.forEach(repo => files.push(`triggers/${repo}.yaml`));
   return Array.from(new Set(files));
 }

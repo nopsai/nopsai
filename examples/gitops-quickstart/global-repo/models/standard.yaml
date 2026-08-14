@@ -1,0 +1,7 @@
+# One file per model, exactly like a pipeline or a knowledge document.
+# Exactly one model per scope may set `default: true`.
+default: true
+provider: gemini
+model: gemini-2.5-flash
+credential_ref: credential://system/llm/gemini
+allowed_scopes: ["dev", "prod"]

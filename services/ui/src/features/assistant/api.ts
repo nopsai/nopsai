@@ -74,7 +74,7 @@ export async function fetchAssistantLLMProfiles(scope = ''): Promise<AssistantLL
   const normalizedScope = scope.trim().replace(/^\/+|\/+$/g, '');
   if (normalizedScope) params.set('scope', normalizedScope);
   const suffix = params.toString() ? `?${params.toString()}` : '';
-  const response = await apiClient.fetch(`/v1/assistant/llm-profiles${suffix}`, { cache: 'no-store' });
+  const response = await apiClient.fetch(`/v1/assistant/models${suffix}`, { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(await responseError(response, `Failed to load assistant LLM profiles (${response.status})`));
   }

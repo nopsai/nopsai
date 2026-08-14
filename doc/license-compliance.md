@@ -96,7 +96,7 @@ First-party hosted MCP tools are NopsAI product code and are covered by the
 same dependency gate as the rest of the repository.
 
 External MCP servers, MCP plugins, connectors, and tool providers configured in
-`setting/system/mcp.yaml` are runtime integrations. They are not automatically
+`mcp/servers/` and `mcp/profiles/` are runtime integrations. They are not automatically
 licensed for redistribution just because NopsAI can call them. Before NopsAI
 ships a bundled MCP server, plugin, example tool, or connector package, record:
 

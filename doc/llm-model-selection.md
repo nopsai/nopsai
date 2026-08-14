@@ -1,17 +1,17 @@
-# LLM Profiles
+# Models
 
-Nopsai uses named LLM profiles for all model selection. Pipelines do not set raw
+Nopsai uses named models for all model selection. Pipelines do not set raw
 provider credentials or model configuration directly; they reference approved
 profile names.
 
-Agent Profiles are separate from LLM Profiles. `agent_profile` selects the role
-and instruction text inserted into prompts, while `llm_profile` selects the
-provider/model client. See [agent-profiles.md](./agent-profiles.md).
+Agent roles are separate from Models. `agent_role` selects the role
+and instruction text inserted into prompts, while `model` selects the
+provider/model client. See [agent-roles.md](./agent-roles.md).
 
 ## Configuration
 
-Manage LLM profiles from **System -> LLM Profiles** or with GitOps from a
-system config repository at `setting/system/llm_profile.yaml`. When the GitOps
+Manage models from **System -> Models** or with GitOps from a
+system config repository at `models/<name>.yaml`. When the GitOps
 file is present, config sync writes that file into the database and refreshes
 the running profile registry. `config.yml` still accepts bootstrap profile
 settings for non-GitOps deployments, but the checked-in config intentionally
@@ -160,14 +160,14 @@ path. Existing deployments can use the legacy route by setting
 `extra.deployment` and `extra.api_version`; the adapter then calls
 `/openai/deployments/{deployment}/chat/completions`.
 
-The canonical GitOps path is `setting/system/llm_profile.yaml`. Team-scoped
-config repositories cannot manage system LLM profiles.
+The canonical GitOps path is `models/<name>.yaml`. Team-scoped
+config repositories cannot manage system models.
 
-Team-scoped LLM profile storage and REST APIs are available at
-`GET|PUT /v1/teams/{teamID}/llm-profiles` and
-`PUT /v1/teams/{teamID}/llm-profiles/default`,
-`PUT|DELETE /v1/teams/{teamID}/llm-profiles/{profileName}` for callers with
-`team.read` or `team.update` on the team resource. The **LLM Profiles** page
+Team-scoped model storage and REST APIs are available at
+`GET|PUT /v1/teams/{teamID}/models` and
+`PUT /v1/teams/{teamID}/models/default`,
+`PUT|DELETE /v1/teams/{teamID}/models/{profileName}` for callers with
+`team.read` or `team.update` on the team resource. The **Models** page
 loads those team-owned rows when a concrete team is selected in the profile
 tree or `?team=` query, and the top default selector updates that team's
 LLM default. The selected-team view also includes system-catalog
@@ -181,22 +181,22 @@ Config repositories manage team defaults in a separate team defaults file:
 
 ```yaml
 # config-repositories/teams/platform/defaults.yaml
-llm_profile: release-review
+model: release-review
 knowledge_context:
   guardrail: runtime-output-safety
   runbook: release-checklist
 ```
 
-`llm_profile`, `agent_profile`, and `knowledge_context` are the team GitOps
+`model`, `agent_role`, and `knowledge_context` are the team GitOps
 shape for runtime defaults in `defaults.yaml`. If a team has no enabled team
 config repo, the nearest parent/global config repo exports that team's
-`config-repositories/teams/<team>/defaults.yaml`. Team-owned LLM profile
+`config-repositories/teams/<team>/defaults.yaml`. Team-owned model
 definitions are managed through the team UI/API.
 
 Run preparation and agent launch merge team profiles over the system catalog
 when the run belongs to that team.
 
-LLM profiles accept optional `prompt_cache` and `provider_state` feature
+models accept optional `prompt_cache` and `provider_state` feature
 preferences. `mode: auto` lets NopsAI use a supported provider optimization,
 `mode: disabled` keeps the request stateless, and `mode: required` fails closed
 when the selected provider adapter cannot satisfy the feature. NopsAI still
@@ -206,15 +206,15 @@ replaceable transport optimizations.
 
 ## Pipeline Usage
 
-Pipelines, steps, and tasks can select a profile with `llm_profile`.
+Pipelines, steps, and tasks can select a profile with `model`.
 
 ```yaml
 name: repo-review
-llm_profile: reasoning
+model: reasoning
 
 steps:
   - name: quick
-    llm_profile: fast
+    model: fast
     goal: Summarize the change.
 
   - name: deep
@@ -224,7 +224,7 @@ steps:
         goal: Inspect risky files.
 
       - name: summary
-        llm_profile: fast
+        model: fast
         goal: Summarize the findings.
 ```
 
@@ -239,7 +239,7 @@ steps:
 ```
 
 When `llm_enabled: false` is set, LLM and MCP profile validation is skipped and
-no LLM profile registry is required at runtime. Agent Profile references are
+no model registry is required at runtime. Agent role references are
 still schema-validated as pipeline/step metadata. The pipeline cannot define
 `goal` tasks, step `condition` values, final outputs, or direct scripts with
 blocking guardrail/policy Knowledge Context, because those require an LLM.
@@ -249,14 +249,14 @@ blocking guardrail/policy Knowledge Context, because those require an LLM.
 At runtime Nopsai resolves the selected profile from most-specific to
 least-specific:
 
-1. Task `llm_profile`
-2. Step `llm_profile`
-3. Pipeline `llm_profile`
+1. Task `model`
+2. Step `model`
+3. Pipeline `model`
 4. Owning team LLM default
 5. System/global default profile
 
 For team-owned pipeline runs, the owning-team default is configured through the
-Teams **Defaults** tab or `llm_profile` in the team's `defaults.yaml` GitOps
+Teams **Defaults** tab or `model` in the team's `defaults.yaml` GitOps
 file.
 If the team has no default, runtime validation and launch inherit the
 system/global default profile; they never borrow a viewer preference or another
@@ -267,15 +267,15 @@ Teams workspace also has a **Defaults** tab where the same users can select the
 team LLM default directly.
 
 Step-level conditions use the resolved step profile. Task-level goals use the
-resolved task profile. Script-only tasks can declare `llm_profile`, but it only
+resolved task profile. Script-only tasks can declare `model`, but it only
 matters when an LLM-backed operation is performed.
 
 The Nopsai AI Assistant uses the profile selected on the conversation. If no
 conversation profile is selected, it uses `llm_default_profile`. The same
 `allowed_scopes`, credential refs, provider options, timeout, token, and
 temperature validation apply. The assistant UI reads profile choices from
-`GET /v1/assistant/llm-profiles`, which returns only picker-safe metadata and
-does not require system LLM profile administration permission. Assistant
+`GET /v1/assistant/models`, which returns only picker-safe metadata and
+does not require system model administration permission. Assistant
 replies are synthesized from the user request, conversation memory, and hosted
 MCP tool outputs. Assistant conversation turns do not use static
 normal-language routing. If the selected profile cannot be used for planning,
@@ -298,13 +298,13 @@ Assistant usage accounting keeps visible text estimates separate from provider
 usage. User messages and deterministic replies without an LLM call add to
 `content_tokens` only. Assistant planner and final synthesis calls add
 provider-reported or estimated prompt, completion, and total tokens to the
-selected LLM profile for monitoring and cost analysis.
+selected model for monitoring and cost analysis.
 
 ## Validation
 
 Runs are rejected before agent launch when:
 
-- No LLM profiles are configured.
+- No models are configured.
 - The default profile does not exist.
 - A referenced profile does not exist.
 - A selected profile is not allowed for the run scope.
@@ -319,12 +319,12 @@ so NopsAI can validate the exact script before execution.
 Example scope error:
 
 ```text
-LLM profile "reasoning" is not allowed in scope "prod"
+model "reasoning" is not allowed in scope "prod"
 ```
 
 ## UI Management
 
-The **System -> LLM Profiles** page shows:
+The **System -> Models** page shows:
 
 - Default profile
 - Name
@@ -359,7 +359,7 @@ default is the profile the pipeline inherits when it does not set a more
 specific override. The agent reads that run-scoped registry and caches LLM
 clients by profile name.
 
-The Agent Profile catalog is packaged separately as `NOPSAI_AGENT_PROFILES`.
+The Agent role catalog is packaged separately as `NOPSAI_AGENT_PROFILES`.
 The agent uses it only to build persona text for prompts.
 
 There is no fallback to provider-specific environment variables. NopsAI

@@ -1436,13 +1436,13 @@ func (a *App) appendExternalTriggerInvocationFailureTotals(ctx context.Context, 
 
 func (a *App) appendAIUsageTokenTotals(ctx context.Context, out *strings.Builder) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT feature, provider, model, llm_profile,
+		SELECT feature, provider, model, model,
 		       COALESCE(SUM(prompt_tokens), 0)::float8,
 		       COALESCE(SUM(completion_tokens), 0)::float8,
 		       COALESCE(SUM(total_tokens), 0)::float8
 		FROM ai_usage_events
-		GROUP BY feature, provider, model, llm_profile
-		ORDER BY feature, provider, model, llm_profile
+		GROUP BY feature, provider, model, model
+		ORDER BY feature, provider, model, model
 	`)
 	if err != nil {
 		return err
@@ -1455,10 +1455,10 @@ func (a *App) appendAIUsageTokenTotals(ctx context.Context, out *strings.Builder
 			return err
 		}
 		base := map[string]string{
-			"feature":     normalizeMetricLabel(feature),
-			"provider":    normalizeMetricLabel(provider),
-			"model":       normalizeMetricLabel(modelName),
-			"llm_profile": normalizeMetricLabel(profile),
+			"feature":        normalizeMetricLabel(feature),
+			"provider":       normalizeMetricLabel(provider),
+			"provider_model": normalizeMetricLabel(modelName),
+			"model":          normalizeMetricLabel(profile),
 		}
 		for tokenType, value := range map[string]float64{
 			"prompt":     promptTokens,

@@ -38,25 +38,25 @@ func TestTaskRejectsAgentProfileFromYAML(t *testing.T) {
 	const raw = `
 name: invalid
 goal: Review release
-agent_profile: sre
+agent_role: sre
 `
 	var task Task
 	err := yaml.Unmarshal([]byte(raw), &task)
 	if err == nil {
-		t.Fatal("expected task-level agent_profile YAML to be rejected")
+		t.Fatal("expected task-level agent_role YAML to be rejected")
 	}
-	if !strings.Contains(err.Error(), `task "invalid" cannot define agent_profile`) {
+	if !strings.Contains(err.Error(), `task "invalid" cannot define agent_role`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestTaskRejectsAgentProfileFromJSON(t *testing.T) {
 	var task Task
-	err := json.Unmarshal([]byte(`{"name":"invalid","goal":"Review release","agent_profile":"sre"}`), &task)
+	err := json.Unmarshal([]byte(`{"name":"invalid","goal":"Review release","agent_role":"sre"}`), &task)
 	if err == nil {
-		t.Fatal("expected task-level agent_profile JSON to be rejected")
+		t.Fatal("expected task-level agent_role JSON to be rejected")
 	}
-	if !strings.Contains(err.Error(), `task "invalid" cannot define agent_profile`) {
+	if !strings.Contains(err.Error(), `task "invalid" cannot define agent_role`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

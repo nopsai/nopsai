@@ -44,10 +44,10 @@ test('collects selectable team paths from the team catalog only', () => {
 
 test('builds readable nested AI resource routes', () => {
   assert.equal(encodeAIResourceRouteID('platform/ml/reasoning profile'), 'platform/ml/reasoning%20profile');
-  assert.equal(decodeAIResourceRouteID('/llm-profiles/platform/ml/reasoning%20profile', 'llm-profiles'), 'platform/ml/reasoning profile');
+  assert.equal(decodeAIResourceRouteID('/models/platform/ml/reasoning%20profile', 'models'), 'platform/ml/reasoning profile');
   assert.equal(
-    aiResourceRoute('/llm-profiles', 'platform/ml/reasoning profile', new URLSearchParams('team=platform%2Fml')),
-    '/llm-profiles/platform/ml/reasoning%20profile?team=platform%2Fml'
+    aiResourceRoute('/models', 'platform/ml/reasoning profile', new URLSearchParams('team=platform%2Fml')),
+    '/models/platform/ml/reasoning%20profile?team=platform%2Fml'
   );
 });
 

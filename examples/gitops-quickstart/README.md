@@ -18,9 +18,10 @@ team-repo/     the platform team's pipelines, steps, scopes, schedules, dashboar
 | --- | --- |
 | `setting/system/runner.yaml` | Runtime defaults, runner install defaults, and dispatcher routing per scope. |
 | `setting/system/assistant.yaml` | Nopsai AI Assistant provider, model, features, and memory. Assistant settings have their own file; they are not part of `runner.yaml`. |
-| `setting/system/llm_profile.yaml` | Named LLM profiles that pipelines select by name. |
-| `setting/system/agent-profiles.yaml` | Agent personas used by goal tasks. |
-| `setting/system/mcp.yaml` | Approved MCP servers and the profiles pipelines may use. |
+| `models/standard.yaml`, `models/reasoning.yaml` | One file per model, like a pipeline. `default: true` marks the workspace default. |
+| `agent-roles/release-manager.yaml` | One file per agent role, with `default: true` for the workspace default. |
+| `mcp/servers/github.yaml` | One file per MCP server. Servers are workspace-wide. |
+| `mcp/profiles/github-readonly.yaml` | One file per MCP profile; profiles select tools from approved servers. |
 | `setting/system/auth.yaml` | Local login and external identity providers. |
 | `setting/system/mail.yaml` | SMTP settings for notification mail. |
 | `setting/system/data-management.yaml` | Scheduled cleanup of run history. |
@@ -30,6 +31,8 @@ team-repo/     the platform team's pipelines, steps, scopes, schedules, dashboar
 | `config-repositories/teams/platform/structure.yaml` | Registers the `platform` team and binds it to `team-repo`. |
 | `knowledge/architecture/platform/service-architecture.md` | Architecture knowledge attached to LLM work. |
 | `knowledge/guardrail/platform/release-safety.md` | A guardrail that constrains LLM behavior. |
+| `knowledge/connections/platform/engineering-wiki.yaml` | A Notion, Confluence, or wiki connection. Git owns the definition; reachability status stays runtime state. |
+| `knowledge/runbook/platform/service-onboarding.md` | A document whose body is mirrored from a connected page. Git owns which page is attached and how it syncs, not the page text. |
 | `triggers/platform/service-api.yaml` | Repository events that start pipelines. |
 
 ### team-repo (bind to team `platform` from the global repo)
@@ -39,12 +42,13 @@ team-repo/     the platform team's pipelines, steps, scopes, schedules, dashboar
 | `pipelines/platform/hello-world.yaml` | The smallest working pipeline. Start here. |
 | `pipelines/platform/build-and-test.yaml` | Variables, reusable steps, `depends_on`, and a markdown final output. |
 | `pipelines/platform/deploy-service.yaml` | Scope secrets, restricted access, and a human approval checkpoint. |
-| `pipelines/platform/release-notes.yaml` | An LLM goal task with an LLM profile, agent profile, and Knowledge Context. |
+| `pipelines/platform/release-notes.yaml` | An LLM goal task with an model, agent role, and Knowledge Context. |
 | `pipelines/platform/service-health-dashboard.yaml` | A dashboard final output published from run evidence. |
 | `steps/platform/shared/checkout.yaml`, `notify.yaml` | Reusable steps included by other pipelines. |
 | `scopes/platform/dev/scope.yaml`, `prod/scope.yaml` | Per-scope variables and declared secret keys. |
 | `schedules/platform/nightly-service-health.yaml` | A cron schedule bound to a scope. |
 | `dashboards/platform/service-health.yaml` | The dashboard that receives the pipeline output. |
+| `models/platform/team-review.yaml` | A team-owned model. `default: true` here sets the default for this team only. |
 | `access/grants.yaml` | Team-owned role grants. |
 | `config-repositories/teams/platform/notifications.yaml` | Team notification routing and throttling. |
 
@@ -74,7 +78,15 @@ team-repo/     the platform team's pipelines, steps, scopes, schedules, dashboar
 
 - Paths inside a team repository carry the team prefix (`pipelines/platform/...`);
   that is also the layout NopsAI writes back when it exports.
+- Models, agent roles, and MCP profiles are one file per resource. A file
+  directly under the directory is workspace-wide; a file under a team segment
+  (`models/platform/…`) is owned by that team. Exactly one file per scope may
+  declare `default: true`, so the default always travels with the resource.
 - Secrets are declared by key in scopes and resolved from the credential store.
   Only encrypted envelopes belong in Git.
+- `knowledge/connections/` is reserved for connection definitions, so it is never
+  read as a knowledge kind. A document that declares `source.type: external_page`
+  must not carry inline content: the connected page body is mirrored at run time
+  and would otherwise show up as permanent drift.
 - UI or API edits to a GitOps-managed resource create a database override. Push
   the change back to the owning repository to keep Git authoritative.

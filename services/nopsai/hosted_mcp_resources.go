@@ -31,7 +31,7 @@ func allHostedMCPResources() []hostedMCPResource {
 		resourceDef("nopsai://lab", "Lab", "Lab-oriented recent runs and results.", "pipeline_run.list", "pipeline_run", "*"),
 		resourceDef("nopsai://statistics", "Statistics", "Platform statistics.", "pipeline_run.list", "pipeline_run", "*"),
 		resourceDef("nopsai://costs", "Costs", "Cost and usage summary.", "pipeline_run.list", "pipeline_run", "*"),
-		resourceDef("nopsai://system/llm-profiles", "LLM profiles", "Existing LLM profile catalog.", "system.read", "system", "llm-profiles"),
+		resourceDef("nopsai://system/models", "LLM profiles", "Existing LLM profile catalog.", "system.read", "system", "models"),
 		resourceDef("nopsai://system/mcp-profiles", "MCP profiles", "External MCP profile catalog.", "system.read", "system", "mcp"),
 		resourceDef("nopsai://features", "Feature capabilities", "NopsAI feature coverage, hosted MCP surfaces, REST/GitOps backing routes, and current-user AAA availability.", "system.read", "system", "mcp"),
 		resourceDef("nopsai://system/status", "System status", "Basic system setup and assistant status.", "system.read", "system", "config"),
@@ -106,7 +106,7 @@ func (a *App) readHostedMCPResource(ctx context.Context, subject aaamodel.Subjec
 		payload, err = a.hostedMCPStatistics(ctx)
 	case "nopsai://costs":
 		payload, err = a.hostedMCPCostSummary(ctx)
-	case "nopsai://system/llm-profiles":
+	case "nopsai://system/models":
 		payload, err = a.hostedMCPGetLLMProfiles(ctx)
 	case "nopsai://system/mcp-profiles":
 		payload, err = a.hostedMCPGetMCPProfiles(ctx)

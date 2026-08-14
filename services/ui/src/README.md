@@ -483,7 +483,7 @@ truth; this file is the source-adjacent placement guide.
 - LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
   model/API/hook/panel code can remain under `features/system` while the route
   wrappers live in `pages/`. LLM and agent profile detail selection lives in
-  `/llm-profiles/<team>/<profile>` and `/agent-profiles/<team>/<profile>`;
+  `/models/<team>/<profile>` and `/agent-roles/<team>/<profile>`;
   MCP uses `/mcp/servers/<team>/<server>` and
   `/mcp/profiles/<team>/<profile>`. Page visibility is topic-level: global
   system permissions and scoped team/product grants can show the route, while the
@@ -508,7 +508,7 @@ truth; this file is the source-adjacent placement guide.
   as allowed scopes. Registry table typography, monospace metadata cells, and
   status text should stay aligned with the Triggers resource table.
 - Individual LLM profiles, agent profiles, MCP servers, and MCP profiles share
-  access through `ResourceAccessCard` with `llm_profile`, `agent_profile`,
+  access through `ResourceAccessCard` with `model`, `agent_role`,
   `mcp_server`, and `mcp_profile` resource types.
 - New and edited LLM profiles, agent profiles, MCP servers, and MCP profiles use
   the same slash path placement as pipelines: `team/subteam/name` belongs to

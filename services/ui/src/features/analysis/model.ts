@@ -2126,11 +2126,11 @@ function resourceMatchesToken(resource: AnalyzableResource, token: string) {
 }
 
 function reusableKind(kind: string) {
-  return ['pipeline', 'step', 'schedule', 'trigger', 'agent_profile', 'llm_profile', 'mcp_profile'].includes(kind);
+  return ['pipeline', 'step', 'schedule', 'trigger', 'agent_role', 'model', 'mcp_profile'].includes(kind);
 }
 
 function sensitiveKind(kind: string) {
-  return ['credential', 'mcp_profile', 'llm_profile', 'agent_profile', 'scope', 'knowledge_context', 'trigger', 'external_trigger', 'git_webhook_source'].includes(kind);
+  return ['credential', 'mcp_profile', 'model', 'agent_role', 'scope', 'knowledge_context', 'trigger', 'external_trigger', 'git_webhook_source'].includes(kind);
 }
 
 function resourceReference(resource: AnalyzableResource): ResourceReference {

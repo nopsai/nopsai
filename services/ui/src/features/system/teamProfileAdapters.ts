@@ -1,4 +1,4 @@
-import type { AgentProfileRecord } from './agent-profiles/model';
+import type { AgentProfileRecord } from './agent-roles/model';
 import {
   aiResourceLocalName,
   buildAIResourceScopedID,
@@ -12,7 +12,7 @@ import type {
   TeamMCPProfile,
   TeamMCPProfilesResponse,
 } from './teamProfileApi';
-import type { LLMProfileRecord } from './llm-profiles/model';
+import type { LLMProfileRecord } from './models/model';
 import type { MCPProfileRecord } from './mcp/model';
 
 export function teamScopedResourceID(teamPath: string, localName: string) {

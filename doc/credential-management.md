@@ -133,7 +133,7 @@ values into each feature table.
 
 Expected credential kinds by consumer:
 
-- LLM profiles and knowledge provider connections: `api_key`
+- models and knowledge provider connections: `api_key`
 - MCP profiles and config repositories: `bearer_token`
 - SMTP mail: `password`
 - OIDC client/admin credentials: `client_secret`
@@ -182,7 +182,7 @@ GitOps never stores or exports plaintext secret values. The credential envelope
 is instance-encrypted; it can be restored directly only with the matching
 encryption root or after being re-encrypted for the target environment.
 
-Example LLM profile:
+Example model:
 
 ```yaml
 profiles:

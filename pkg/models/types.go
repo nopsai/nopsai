@@ -106,8 +106,8 @@ type StepConfiguration struct {
 	Outputs          []TaskOutput          `json:"outputs,omitempty"`
 	IgnoreFailure    bool                  `json:"ignore_failure"`
 	LlmOutputSharing *bool                 `json:"llm_output_sharing,omitempty"`
-	AgentProfile     string                `json:"agent_profile,omitempty"`
-	LLMProfile       string                `json:"llm_profile,omitempty"`
+	AgentProfile     string                `json:"agent_role,omitempty"`
+	LLMProfile       string                `json:"model,omitempty"`
 	MCPProfiles      []string              `json:"mcp_profiles,omitempty"`
 	RuntimePool      string                `json:"runtime_pool,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `json:"knowledge_context,omitempty"`
@@ -159,7 +159,7 @@ type PipelineRunFinalOutput struct {
 	Status              string                 `json:"status"`
 	Content             string                 `json:"content,omitempty"`
 	Error               string                 `json:"error,omitempty"`
-	LLMProfile          string                 `json:"llm_profile,omitempty"`
+	LLMProfile          string                 `json:"model,omitempty"`
 	DashboardTarget     *DashboardOutputTarget `json:"dashboard_target,omitempty"`
 	GenerationAttempts  int                    `json:"generation_attempts,omitempty"`
 	ContractViolations  int                    `json:"contract_violations,omitempty"`
@@ -193,8 +193,8 @@ type AIUsageReport struct {
 	TaskName         string         `json:"task_name,omitempty"`
 	Feature          string         `json:"feature,omitempty"`
 	Provider         string         `json:"provider,omitempty"`
-	Model            string         `json:"model,omitempty"`
-	LLMProfile       string         `json:"llm_profile,omitempty"`
+	ProviderModel    string         `json:"provider_model,omitempty"`
+	LLMProfile       string         `json:"model,omitempty"`
 	PromptTokens     int64          `json:"prompt_tokens,omitempty"`
 	CompletionTokens int64          `json:"completion_tokens,omitempty"`
 	TotalTokens      int64          `json:"total_tokens,omitempty"`

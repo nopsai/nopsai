@@ -63,6 +63,7 @@ type UpgradePlan struct {
 	Namespace       string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	ChartReference  string            `json:"chartReference,omitempty" yaml:"chartReference,omitempty"`
 	ValuesFiles     []string          `json:"valuesFiles,omitempty" yaml:"valuesFiles,omitempty"`
+	LockFile        string            `json:"lockFile,omitempty" yaml:"lockFile,omitempty"`
 	Images          map[string]string `json:"images" yaml:"images"`
 	ChangelogSource string            `json:"changelogSource,omitempty" yaml:"changelogSource,omitempty"`
 	Changelog       string            `json:"changelog,omitempty" yaml:"changelog,omitempty"`
@@ -212,6 +213,7 @@ func (u Upgrader) PlanKubernetes(ctx context.Context, options KubernetesUpgradeO
 		Namespace:      valueOrFallback(options.Namespace, lock.Namespace, DefaultNamespace),
 		ChartReference: valueOrFallback(options.ChartReference, lock.ChartReference, DefaultInstallChartReference),
 		ValuesFiles:    valuesFiles,
+		LockFile:       lockFile,
 		Images:         cloneStrings(kubernetesInstallImages(versionedInstallImages(version))),
 	}
 	plan.Command = shellJoin(append([]string{"helm"}, kubernetesUpgradeArgs(plan, options.Wait)...))
@@ -235,7 +237,7 @@ func (u Upgrader) DeployKubernetes(ctx context.Context, plan UpgradePlan, wait b
 		ReleaseName:    plan.ReleaseName,
 		Namespace:      plan.Namespace,
 		Wait:           wait,
-		LockFile:       DefaultLockFile,
+		LockFile:       valueOrFallback(plan.LockFile, DefaultLockFile),
 	})
 	if err != nil {
 		return KubernetesInstallDeploymentPlan{}, err

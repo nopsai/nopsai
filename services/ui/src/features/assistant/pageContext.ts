@@ -59,8 +59,8 @@ const pageTitles: Record<string, string> = {
   dashboards: 'Dashboards',
   teams: 'Teams',
   assistant: 'Assistant',
-  'llm-profiles': 'Models',
-  'agent-profiles': 'Agent roles',
+  'models': 'Models',
+  'agent-roles': 'Agent roles',
   mcp: 'MCP',
   credentials: 'Credentials',
   docs: 'Wiki',
@@ -131,11 +131,11 @@ export function buildAssistantPageContext(pathname: string, search = ''): Assist
       applyPathResourceContext(context, segments, query.dashboard || '', 'dashboard', '/dashboards/:dashboard_id');
       context.tab = query.tab || '';
       break;
-    case 'llm-profiles':
-      applyPathResourceContext(context, segments, query.profile || '', 'llm_profile', '/llm-profiles/:profile_id');
+    case 'models':
+      applyPathResourceContext(context, segments, query.profile || '', 'model', '/models/:profile_id');
       break;
-    case 'agent-profiles':
-      applyPathResourceContext(context, segments, query.profile || '', 'agent_profile', '/agent-profiles/:profile_id');
+    case 'agent-roles':
+      applyPathResourceContext(context, segments, query.profile || '', 'agent_role', '/agent-roles/:profile_id');
       break;
     case 'mcp':
       applyMCPContext(context, segments, query);

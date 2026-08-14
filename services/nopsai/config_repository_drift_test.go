@@ -198,10 +198,14 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 		"setting/system/github.yaml",
 		"setting/system/mail.yaml",
 		"setting/system/data-management.yaml",
-		"setting/system/llm_profile.yaml",
-		"setting/system/agent-profiles.yaml",
-		"setting/system/mcp.yaml",
 		"setting/system/runner.yaml",
+		"setting/system/assistant.yaml",
+		"models/gemini-fast.yaml",
+		"models/platform/team-tuned.yaml",
+		"agent-roles/release-manager.yaml",
+		"mcp/servers/github.yaml",
+		"mcp/profiles/github-readonly.yaml",
+		"knowledge/connections/platform/engineering-wiki.yaml",
 	} {
 		if !isConfigRepositoryDriftPath(path) {
 			t.Fatalf("syncable path %q should be included in drift", path)
@@ -210,7 +214,7 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 	if isConfigRepositoryDriftPath("access/readme.md") {
 		t.Fatal("non-YAML access files should not be included in drift")
 	}
-	for _, path := range []string{"ai-profiles.yaml", "ai-profiles.yml", "defaults.yaml", "defaults.yml", "notifications/teams/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
+	for _, path := range []string{"ai-profiles.yaml", "ai-profiles.yml", "defaults.yaml", "defaults.yml", "notifications/teams/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml", "setting/system/model.yaml", "setting/system/agent-roles.yaml", "setting/system/mcp.yaml"} {
 		if isConfigRepositoryDriftPath(path) {
 			t.Fatalf("legacy path %q should not be included in drift", path)
 		}
@@ -241,8 +245,8 @@ func TestBuildConfigRepositoryTeamDefaultsExportDocumentIncludesDefaultsOnly(t *
 	}
 	yamlText := string(content)
 	for _, want := range []string{
-		"llm_profile: fast",
-		"agent_profile: reviewer",
+		"model: fast",
+		"agent_role: reviewer",
 		"guardrail: platform/runtime-safety",
 	} {
 		if !strings.Contains(yamlText, want) {
@@ -503,7 +507,7 @@ func TestConfigRepositoryIncludesBasicRoleGrantSkipsChildDelegatedScopeForTeamRe
 }
 
 func TestRenderKnowledgeContextGitOpsDocument(t *testing.T) {
-	got := renderKnowledgeContextGitOpsDocument("runbook", "deploy-api", "", "# Deploy\n\nRun it.\n", "runbook/team-1/deploy-api", nil)
+	got := renderKnowledgeContextGitOpsDocument("runbook", "deploy-api", "", "# Deploy\n\nRun it.\n", "runbook/team-1/deploy-api", nil, nil)
 	if want := "---\nname: deploy-api\nkind: runbook\ncontent: |\n"; len(got) < len(want) || got[:len(want)] != want {
 		t.Fatalf("knowledge document prefix = %q, want %q", got, want)
 	}

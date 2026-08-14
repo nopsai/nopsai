@@ -379,7 +379,7 @@ function SetupWizard({
         },
         repository_teams: normalizedRepositoryTeams,
         repositories,
-        llm_profile: {
+        model: {
           name: 'standard',
           provider: llmProvider.trim(),
           model: llmModel.trim(),

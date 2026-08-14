@@ -50,7 +50,7 @@ func isAuthenticatedOnlyPath(path string) bool {
 			path == "/v1/monitoring/dispatcher" ||
 			path == "/v1/mcp" ||
 			path == "/v1/assistant/config" ||
-			path == "/v1/assistant/llm-profiles" ||
+			path == "/v1/assistant/models" ||
 			path == "/v1/assistant/conversations" ||
 			path == "/v1/analysis/evaluate" ||
 			path == "/v1/internal/dispatcher/routing" ||

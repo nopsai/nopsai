@@ -134,8 +134,8 @@ const operationsSummary: TeamOperationsSummaryState = {
   teamDefaults: {
     team_id: 1,
     team_path: 'platform',
-    llm_profile: 'fast',
-    agent_profile: 'reviewer',
+    model: 'fast',
+    agent_role: 'reviewer',
     knowledge_context: {
       runbook: 'platform/restart',
     },
@@ -399,9 +399,9 @@ describe('TeamsWorkspace', () => {
     expect(within(overviewCard as HTMLElement).getByText('Owners')).toBeVisible();
     expect(within(overviewCard as HTMLElement).getByText('Alice Admin')).toBeVisible();
     expect(within(overviewCard as HTMLElement).getByText('Default LLM profile')).toBeVisible();
-    expect(within(overviewCard as HTMLElement).getByRole('link', { name: 'fast' })).toHaveAttribute('href', '/llm-profiles?team=platform');
+    expect(within(overviewCard as HTMLElement).getByRole('link', { name: 'fast' })).toHaveAttribute('href', '/models?team=platform');
     expect(within(overviewCard as HTMLElement).getByText('Default agent profile')).toBeVisible();
-    expect(within(overviewCard as HTMLElement).getByRole('link', { name: 'reviewer' })).toHaveAttribute('href', '/agent-profiles?team=platform');
+    expect(within(overviewCard as HTMLElement).getByRole('link', { name: 'reviewer' })).toHaveAttribute('href', '/agent-roles?team=platform');
     expect(within(overviewCard as HTMLElement).getByText('Latest run app')).toBeVisible();
     expect(within(overviewCard as HTMLElement).getByText(/checkout-api/)).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Team Activity' })).not.toBeInTheDocument();
@@ -494,11 +494,11 @@ describe('TeamsWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Open LLM Profiles' })).toHaveTextContent('1');
     await user.click(screen.getByRole('button', { name: 'Open LLM Profiles' }));
     expect(screen.getByRole('region', { name: 'LLM Profiles resources' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open hosted' })).toHaveAttribute('href', '/llm-profiles?team=global');
+    expect(screen.getByRole('link', { name: 'Open hosted' })).toHaveAttribute('href', '/models?team=global');
 
     await user.click(screen.getByRole('button', { name: 'Open Agent Profiles' }));
     expect(screen.getByRole('region', { name: 'Agent Profiles resources' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open DevOps Engineer' })).toHaveAttribute('href', '/agent-profiles?team=global');
+    expect(screen.getByRole('link', { name: 'Open DevOps Engineer' })).toHaveAttribute('href', '/agent-roles?team=global');
 
     await user.click(screen.getByRole('button', { name: 'Open MCP Profiles' }));
     expect(screen.getByRole('region', { name: 'MCP Profiles resources' })).toBeVisible();
@@ -539,12 +539,12 @@ describe('TeamsWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open LLM Profiles' }));
     expect(screen.getByRole('region', { name: 'LLM Profiles resources' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open fast' })).toHaveAttribute('href', '/llm-profiles?team=platform');
+    expect(screen.getByRole('link', { name: 'Open fast' })).toHaveAttribute('href', '/models?team=platform');
 
     await user.click(screen.getByRole('button', { name: 'Open Agent Profiles' }));
     expect(screen.getByRole('region', { name: 'Agent Profiles resources' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open DevOps Engineer' })).toHaveAttribute('href', '/agent-profiles?team=global');
-    expect(screen.getByRole('link', { name: 'Open Reviewer' })).toHaveAttribute('href', '/agent-profiles?team=platform');
+    expect(screen.getByRole('link', { name: 'Open DevOps Engineer' })).toHaveAttribute('href', '/agent-roles?team=global');
+    expect(screen.getByRole('link', { name: 'Open Reviewer' })).toHaveAttribute('href', '/agent-roles?team=platform');
 
     await user.click(screen.getByRole('button', { name: 'Open MCP Profiles' }));
     expect(screen.getByRole('region', { name: 'MCP Profiles resources' })).toBeVisible();

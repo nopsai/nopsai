@@ -13,7 +13,10 @@ type DriftPathOptions struct {
 	GitWebhookSourcesDirectory string
 	DashboardDirectory         string
 	DashboardTemplateDirectory string
-	SettingsRelativePath       func(string) bool
+	// RegistryDirectories holds the per-resource registry directories, such as
+	// models and agent roles, that own one file per resource.
+	RegistryDirectories  []string
+	SettingsRelativePath func(string) bool
 }
 
 func IncludesResource(repo models.ConfigRepository, identifier, source string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
@@ -172,6 +175,12 @@ func IsDriftPath(filePath string, options DriftPathOptions) bool {
 		"config-repositories/",
 	} {
 		if strings.HasPrefix(filePath, prefix) {
+			return true
+		}
+	}
+	for _, directory := range options.RegistryDirectories {
+		directory = strings.Trim(strings.TrimSpace(directory), "/")
+		if directory != "" && strings.HasPrefix(filePath, directory+"/") {
 			return true
 		}
 	}

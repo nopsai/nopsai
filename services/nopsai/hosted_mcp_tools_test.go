@@ -892,13 +892,13 @@ func TestHostedMCPMonitoringAnalyticsPathUsesAliases(t *testing.T) {
 	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_summary", map[string]any{
 		"team_id":                    "42",
 		"pipeline_path":              "platform",
-		"llm_profile":                "standard",
+		"model":                      "standard",
 		"step_name":                  "plan",
 		"task_name":                  "summarize",
 		"min_duration_seconds":       5,
 		"include_sensitive_response": true,
 	})
-	if !strings.Contains(path, "teamId=42") || !strings.Contains(path, "pipelinePath=platform") || !strings.Contains(path, "llmProfile=standard") || !strings.Contains(path, "stepName=plan") || !strings.Contains(path, "taskName=summarize") || !strings.Contains(path, "minDurationSeconds=5") {
+	if !strings.Contains(path, "teamId=42") || !strings.Contains(path, "pipelinePath=platform") || !strings.Contains(path, "model=standard") || !strings.Contains(path, "stepName=plan") || !strings.Contains(path, "taskName=summarize") || !strings.Contains(path, "minDurationSeconds=5") {
 		t.Fatalf("path = %q", path)
 	}
 	if strings.Contains(path, "include_sensitive_response") {
@@ -908,11 +908,11 @@ func TestHostedMCPMonitoringAnalyticsPathUsesAliases(t *testing.T) {
 
 func TestHostedMCPMonitoringAIUsagePathDropsGeneratedPlaceholderFilters(t *testing.T) {
 	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_ai_usage", map[string]any{
-		"from":        "2026-07-01",
-		"provider":    "provider",
-		"model":       "all",
-		"feature":     "cost",
-		"llm_profile": "llm profile",
+		"from":           "2026-07-01",
+		"provider":       "provider",
+		"provider_model": "all",
+		"feature":        "cost",
+		"model":          "llm profile",
 		"query": map[string]any{
 			"to":       "2026-07-16",
 			"provider": "by_provider",
@@ -925,7 +925,7 @@ func TestHostedMCPMonitoringAIUsagePathDropsGeneratedPlaceholderFilters(t *testi
 		t.Fatalf("parse path %q: %v", path, err)
 	}
 	query := parsed.Query()
-	for _, key := range []string{"provider", "model", "feature", "llmProfile"} {
+	for _, key := range []string{"provider", "provider_model", "feature", "model"} {
 		if got := query.Get(key); got != "" {
 			t.Fatalf("path kept generated placeholder %s=%q in %q", key, got, path)
 		}
@@ -937,17 +937,17 @@ func TestHostedMCPMonitoringAIUsagePathDropsGeneratedPlaceholderFilters(t *testi
 
 func TestHostedMCPMonitoringAIUsagePathKeepsExplicitFilters(t *testing.T) {
 	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_ai_usage", map[string]any{
-		"provider":    "gemini",
-		"model":       "gemini-2.5-flash",
-		"feature":     "assistant_chat",
-		"llm_profile": "standard",
+		"provider":       "gemini",
+		"provider_model": "gemini-2.5-flash",
+		"feature":        "assistant_chat",
+		"model":          "standard",
 	})
 	parsed, err := url.Parse(path)
 	if err != nil {
 		t.Fatalf("parse path %q: %v", path, err)
 	}
 	query := parsed.Query()
-	if query.Get("provider") != "gemini" || query.Get("model") != "gemini-2.5-flash" || query.Get("feature") != "assistant_chat" || query.Get("llmProfile") != "standard" {
+	if query.Get("provider") != "gemini" || query.Get("provider_model") != "gemini-2.5-flash" || query.Get("feature") != "assistant_chat" || query.Get("model") != "standard" {
 		t.Fatalf("path = %q, want explicit AI usage filters preserved", path)
 	}
 }
@@ -1033,9 +1033,9 @@ func TestHostedMCPMonitoringRoadmapToolsAreDiscoverable(t *testing.T) {
 
 	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_schedule_ai_usage", map[string]any{
 		"schedule_id": "00000000-0000-0000-0000-000000000001",
-		"llm_profile": "standard",
+		"model":       "standard",
 	})
-	if !strings.HasPrefix(path, "/v1/monitoring/ai-usage?") || !strings.Contains(path, "scheduleId=00000000-0000-0000-0000-000000000001") || !strings.Contains(path, "llmProfile=standard") {
+	if !strings.HasPrefix(path, "/v1/monitoring/ai-usage?") || !strings.Contains(path, "scheduleId=00000000-0000-0000-0000-000000000001") || !strings.Contains(path, "model=standard") {
 		t.Fatalf("schedule AI usage path = %q", path)
 	}
 

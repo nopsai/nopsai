@@ -380,7 +380,7 @@ func assistantLLMActivity(profileName string, profile config.LLMProfile, status 
 		},
 		Output:       output,
 		Status:       status,
-		ResourceURIs: []string{"nopsai://system/llm-profiles"},
+		ResourceURIs: []string{"nopsai://system/models"},
 		Source:       "llm",
 		Phase:        "synthesis",
 		Confidence:   "medium",

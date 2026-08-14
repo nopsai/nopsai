@@ -34,8 +34,8 @@ const (
 	grantResourceDashboard           = "dashboard"
 	grantResourceKnowledgeContext    = "knowledge_context"
 	grantResourceKnowledgeConnection = "knowledge_connection"
-	grantResourceLLMProfile          = "llm_profile"
-	grantResourceAgentProfile        = "agent_profile"
+	grantResourceLLMProfile          = "model"
+	grantResourceAgentProfile        = "agent_role"
 	grantResourceMCPServer           = "mcp_server"
 	grantResourceMCPProfile          = "mcp_profile"
 	grantResourceCredential          = "credential"
@@ -212,8 +212,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"dashboard.read",
 			"knowledge_context.read",
 			"knowledge_connection.read",
-			"llm_profile.read",
-			"agent_profile.read",
+			"model.read",
+			"agent_role.read",
 			"mcp_server.read",
 			"mcp_profile.read",
 			"credential.list_metadata",
@@ -273,8 +273,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"dashboard.manage_sources",
 			"knowledge_context.use",
 			"knowledge_connection.use",
-			"llm_profile.use",
-			"agent_profile.use",
+			"model.use",
+			"agent_role.use",
 			"mcp_server.use",
 			"mcp_profile.use",
 			"credential.list_metadata",
@@ -303,8 +303,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"config_repo.read",
 			"knowledge_context.read",
 			"knowledge_connection.read",
-			"llm_profile.read",
-			"agent_profile.read",
+			"model.read",
+			"agent_role.read",
 			"mcp_server.read",
 			"mcp_profile.read",
 			"credential.list_metadata",
@@ -344,8 +344,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"dashboard.manage_sources",
 			"knowledge_context.use",
 			"knowledge_connection.use",
-			"llm_profile.use",
-			"agent_profile.use",
+			"model.use",
+			"agent_role.use",
 			"mcp_server.use",
 			"mcp_profile.use",
 			"credential.create",
@@ -363,8 +363,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"knowledge_connection.test",
 			"knowledge_connection.delete",
 			"knowledge_connection.manage_access",
-			"llm_profile.manage_acl",
-			"agent_profile.manage_acl",
+			"model.manage_acl",
+			"agent_role.manage_acl",
 			"mcp_server.manage_acl",
 			"mcp_profile.manage_acl",
 			"team.create",
