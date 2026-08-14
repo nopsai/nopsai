@@ -418,7 +418,7 @@ export function StepDetailModal({
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-[var(--text-secondary)] w-28">LLM profile</span>
-                  <span className="font-mono break-words">{config?.llm_profile || 'Inherited'}</span>
+                  <span className="font-mono break-words">{config?.model || 'Inherited'}</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-[var(--text-secondary)] w-28">Runtime pool</span>

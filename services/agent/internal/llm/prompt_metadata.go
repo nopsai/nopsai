@@ -86,7 +86,7 @@ func addPromptMetadata(event *zerolog.Event, meta promptMetadata) *zerolog.Event
 		event = event.Str("static_context_cache_key", meta.StaticContextCacheKey)
 	}
 	if meta.Profile != "" {
-		event = event.Str("llm_profile", meta.Profile)
+		event = event.Str("model", meta.Profile)
 	}
 	if meta.HistoryRevision > 0 {
 		event = event.Uint64("history_revision", meta.HistoryRevision)

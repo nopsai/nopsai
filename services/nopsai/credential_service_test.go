@@ -685,7 +685,7 @@ func TestCreateSystemCredentialRequiresNopsAIAdmin(t *testing.T) {
 		credentials:     service,
 		aaaLocal: stubAAAAuthorizer{
 			checkFn: func(_ context.Context, subject aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
-				allowed := subject.Sub == "alice" && action == "system.update" && resource.Type == "system" && resource.ID == "llm-profiles"
+				allowed := subject.Sub == "alice" && action == "system.update" && resource.Type == "system" && resource.ID == "models"
 				allowed = allowed || subject.Sub == "admin" && action == "iam.admin" && resource.Type == "iam" && resource.ID == "admin"
 				return aaamodel.Decision{Allowed: allowed}, nil
 			},

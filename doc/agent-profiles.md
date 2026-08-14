@@ -1,6 +1,6 @@
-# Agent Profiles
+# Agent roles
 
-Agent Profiles select the AI persona used in LLM prompts. They do not select the
+Agent roles select the AI persona used in LLM prompts. They do not select the
 LLM provider/model, MCP tools, knowledge context, secrets, variables, or runtime
 permissions. Those controls remain separate enterprise boundaries.
 
@@ -8,8 +8,8 @@ permissions. Those controls remain separate enterprise boundaries.
 
 NopsAI ships with enabled built-in profiles, including `devops-engineer`, `sre`,
 and `security-engineer`. The system default starts as `devops-engineer`, but an
-operator can change it in **System -> Agent Profiles** or through GitOps. If a
-pipeline and step do not specify `agent_profile`, the runtime uses the configured
+operator can change it in **System -> Agent roles** or through GitOps. If a
+pipeline and step do not specify `agent_role`, the runtime uses the configured
 default.
 
 Built-in profiles are read-only in the UI. Operators can duplicate them into a
@@ -17,16 +17,16 @@ custom profile when they need local instructions.
 
 ## Pipeline Usage
 
-Pipelines and steps can select an Agent Profile with `agent_profile`.
+Pipelines and steps can select an Agent role with `agent_role`.
 
 ```yaml
 name: release-readiness
-agent_profile: release-manager
-llm_profile: reasoning
+agent_role: release-manager
+model: reasoning
 
 steps:
   - name: reliability-review
-    agent_profile: sre
+    agent_role: sre
     goal: Review rollout reliability risks.
 
   - name: deploy
@@ -35,16 +35,16 @@ steps:
 
 Current runtime resolution order:
 
-1. Step `agent_profile`
-2. Pipeline `agent_profile`
+1. Step `agent_role`
+2. Pipeline `agent_role`
 3. Owning team Agent default
 4. System `default_profile`
 
-Tasks must not define `agent_profile`. Use step-level profiles when different
+Tasks must not define `agent_role`. Use step-level profiles when different
 tasks inside a step should share the same persona, or split tasks into separate
 steps when they need different personas.
 
-For team-owned pipeline runs, no explicit `agent_profile` plus no owning-team
+For team-owned pipeline runs, no explicit `agent_role` plus no owning-team
 default inherits the system/global default profile. The runtime does not borrow
 a default from the current viewer or another team. Team overview shows the
 configured default, and the Teams **Defaults** tab lets users with
@@ -54,7 +54,7 @@ LLM and knowledge-kind defaults.
 ## GitOps Configuration
 
 System/global config repositories can manage custom profiles at
-`setting/system/agent-profiles.yaml`:
+`agent-roles/<name>.yaml`:
 
 ```yaml
 default_profile: release-manager
@@ -80,23 +80,23 @@ To change only the default to a built-in profile, the file can be as small as:
 default_profile: sre
 ```
 
-Only system/global config repositories may define system Agent Profiles.
-Team-scoped Agent Profile storage and REST APIs are available for delegated
+Only system/global config repositories may define system Agent roles.
+Team-scoped Agent role storage and REST APIs are available for delegated
 ownership, and run preparation/agent launch merge team profiles over the system
 catalog when the run belongs to that team. Config repositories manage team
 defaults in a separate team defaults file:
 
 ```yaml
 # config-repositories/teams/platform/ml/defaults.yaml
-agent_profile: release-reviewer
+agent_role: release-reviewer
 ```
 
-Team-owned Agent Profile definitions are managed through the team UI/API. They
+Team-owned Agent role definitions are managed through the team UI/API. They
 are not imported or exported by team config repositories.
 
 ## UI And API
 
-The UI manages system profiles under **Agent Profiles** when **Global** or
+The UI manages system profiles under **Agent roles** when **Global** or
 **All teams** is selected. When a concrete team is selected in the profile tree
 or `?team=` query, the same page loads team-owned profiles from the team API and
 system-catalog profiles whose slash-scoped IDs belong to that team. The top
@@ -108,28 +108,28 @@ team workspace.
 
 System routes:
 
-- `GET /v1/system/agent-profiles`
-- `POST /v1/system/agent-profiles`
-- `POST /v1/system/agent-profiles/validate`
-- `PUT /v1/system/agent-profiles/default`
-- `GET /v1/system/agent-profiles/{profileID}`
-- `PUT /v1/system/agent-profiles/{profileID}`
-- `DELETE /v1/system/agent-profiles/{profileID}`
-- `GET /v1/system/agent-profiles/{profileID}/usage`
+- `GET /v1/system/agent-roles`
+- `POST /v1/system/agent-roles`
+- `POST /v1/system/agent-roles/validate`
+- `PUT /v1/system/agent-roles/default`
+- `GET /v1/system/agent-roles/{profileID}`
+- `PUT /v1/system/agent-roles/{profileID}`
+- `DELETE /v1/system/agent-roles/{profileID}`
+- `GET /v1/system/agent-roles/{profileID}/usage`
 
 Team-scoped routes:
 
-- `GET /v1/teams/{teamID}/agent-profiles`
-- `POST /v1/teams/{teamID}/agent-profiles`
-- `PUT /v1/teams/{teamID}/agent-profiles/default`
-- `GET /v1/teams/{teamID}/agent-profiles/{profileID}`
-- `PUT /v1/teams/{teamID}/agent-profiles/{profileID}`
-- `DELETE /v1/teams/{teamID}/agent-profiles/{profileID}`
+- `GET /v1/teams/{teamID}/agent-roles`
+- `POST /v1/teams/{teamID}/agent-roles`
+- `PUT /v1/teams/{teamID}/agent-roles/default`
+- `GET /v1/teams/{teamID}/agent-roles/{profileID}`
+- `PUT /v1/teams/{teamID}/agent-roles/{profileID}`
+- `DELETE /v1/teams/{teamID}/agent-roles/{profileID}`
 
 AAA resources:
 
-- Reads require `system.read` on `system:agent-profiles`.
-- Mutations require `system.update` on `system:agent-profiles`.
+- Reads require `system.read` on `system:agent-roles`.
+- Mutations require `system.update` on `system:agent-roles`.
 - Team-scoped reads require `team.read` on the resolved team resource.
 - Team-scoped mutations require `team.update` on the resolved team resource.
 
@@ -148,6 +148,6 @@ You are {role | display_name | id}.
 {instructions}
 ```
 
-LLM profile selection still controls the model client. MCP profiles still
+model selection still controls the model client. MCP profiles still
 control external tools. Knowledge context still controls additional retrieved
-context. Agent Profiles only control the prompt persona and instruction text.
+context. Agent roles only control the prompt persona and instruction text.

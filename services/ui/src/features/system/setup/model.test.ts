@@ -88,8 +88,9 @@ test('lists canonical setup GitOps files without legacy aggregate structure', ()
 
   assert.ok(files.includes('config-repositories/teams/platform/structure.yaml'));
   assert.ok(files.includes('knowledge/guideline/platform/setup-run.md'));
-  assert.ok(files.includes('setting/system/llm_profile.yaml'));
-  assert.ok(files.includes('setting/system/mcp.yaml'));
+  assert.ok(files.includes('models/standard.yaml'));
+  assert.ok(files.includes('mcp/servers/github-readonly.yaml'));
+  assert.ok(files.includes('mcp/profiles/github-readonly.yaml'));
   assert.ok(files.includes('triggers/acme/api.yaml'));
   assert.equal(files.filter(file => file === 'config-repositories/teams/platform/structure.yaml').length, 1);
   assert.ok(!files.includes('config-repositories/teams/structure.yaml'));

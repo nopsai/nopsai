@@ -42,8 +42,8 @@ type PolicyReviewRequest struct {
 type ActionSessionResolutionStage string
 
 const (
-	ActionSessionResolutionLLMProfile   ActionSessionResolutionStage = "llm_profile"
-	ActionSessionResolutionAgentProfile ActionSessionResolutionStage = "agent_profile"
+	ActionSessionResolutionLLMProfile   ActionSessionResolutionStage = "model"
+	ActionSessionResolutionAgentProfile ActionSessionResolutionStage = "agent_role"
 	ActionSessionResolutionMCPProfile   ActionSessionResolutionStage = "mcp_profile"
 )
 
@@ -197,7 +197,7 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 	}
 	if req.Logger != nil {
 		req.Logger.Info().
-			Str("llm_profile", session.ProfileName()).
+			Str("model", session.ProfileName()).
 			Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
 			Msg("Validating direct script against blocking knowledge context")
 	}
@@ -517,9 +517,9 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 		return ActionResult{Goal: goal, Failed: true}
 	}
 	if req.Logger != nil {
-		req.Logger.Info().Str("llm_profile", session.ProfileName()).Msg("Using LLM profile for goal")
+		req.Logger.Info().Str("model", session.ProfileName()).Msg("Using LLM profile for goal")
 		if agentProfile := strings.TrimSpace(session.AgentProfileName()); agentProfile != "" {
-			req.Logger.Info().Str("agent_profile", agentProfile).Msg("Using agent profile for goal")
+			req.Logger.Info().Str("agent_role", agentProfile).Msg("Using agent profile for goal")
 		}
 	}
 	logMCPSession(req.Logger, session)

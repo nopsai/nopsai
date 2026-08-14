@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -99,22 +98,6 @@ type storedAgentProfile struct {
 	ConfigSourceCommitSHA string
 	ManagedByConfigRepo   bool
 	UpdatedAt             time.Time
-}
-
-type gitOpsAgentProfileDirectory struct {
-	root  string
-	files map[string]string
-}
-
-type gitOpsAgentProfileFileCandidate struct {
-	sourcePath string
-	content    string
-}
-
-type gitOpsAgentProfilePlan struct {
-	defaultProfile string
-	profiles       map[string]models.AgentProfile
-	sourcePath     string
 }
 
 type runtimeAgentProfile struct {
@@ -547,116 +530,6 @@ func (a *App) persistAgentProfileToDB(ctx context.Context, profile models.AgentP
 	return nil
 }
 
-func persistGitOpsAgentProfilesToTx(ctx context.Context, tx pgx.Tx, plan *gitOpsAgentProfilePlan, configRepoID int64, commitSHA string) error {
-	if plan == nil {
-		return nil
-	}
-	ids := make([]string, 0, len(plan.profiles))
-	for id := range plan.profiles {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	if len(ids) == 0 {
-		if _, err := tx.Exec(ctx, `DELETE FROM agent_profiles WHERE source = 'gitops'`); err != nil {
-			return fmt.Errorf("clear GitOps agent profiles: %w", err)
-		}
-	} else if _, err := tx.Exec(ctx, `DELETE FROM agent_profiles WHERE source = 'gitops' AND id != ALL($1::text[])`, ids); err != nil {
-		return fmt.Errorf("prune GitOps agent profiles: %w", err)
-	}
-	for _, id := range ids {
-		profile := plan.profiles[id]
-		if err := persistAgentProfileToTx(ctx, tx, profile, "gitops", plan.sourcePath, commitSHA, configRepoID, true); err != nil {
-			return err
-		}
-	}
-	if err := persistAgentProfileDefaultToTx(ctx, tx, plan.defaultProfile); err != nil {
-		return err
-	}
-	return nil
-}
-
-func parseGitOpsAgentProfilePlan(binding models.ConfigRepository, directories ...gitOpsAgentProfileDirectory) (*gitOpsAgentProfilePlan, error) {
-	candidates := []gitOpsAgentProfileFileCandidate{}
-	for _, directory := range directories {
-		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
-		for path, content := range directory.files {
-			normalized := filepath.ToSlash(path)
-			rel, ok := configsync.RelativePath(normalized, root)
-			if !ok || !isGitOpsAgentProfileRelativePath(rel) {
-				continue
-			}
-			candidates = append(candidates, gitOpsAgentProfileFileCandidate{sourcePath: normalized, content: content})
-		}
-	}
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-	if binding.ScopeType != models.ConfigRepositoryScopeSystem {
-		return nil, fmt.Errorf("agent profiles can only be configured from a system config repository")
-	}
-	if len(candidates) > 1 {
-		paths := make([]string, 0, len(candidates))
-		for _, candidate := range candidates {
-			paths = append(paths, candidate.sourcePath)
-		}
-		sort.Strings(paths)
-		return nil, fmt.Errorf("multiple agent profile GitOps files found: %s", strings.Join(paths, ", "))
-	}
-	return parseGitOpsAgentProfileFile(candidates[0].content, candidates[0].sourcePath)
-}
-
-func isGitOpsAgentProfileRelativePath(rel string) bool {
-	switch strings.Trim(filepath.ToSlash(rel), "/") {
-	case "system/agent-profiles.yaml", "system/agent-profiles.yml", "system/agent_profiles.yaml", "system/agent_profiles.yml":
-		return true
-	default:
-		return false
-	}
-}
-
-func parseGitOpsAgentProfileFile(content, sourcePath string) (*gitOpsAgentProfilePlan, error) {
-	var file agentProfilesRequest
-	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
-		return nil, fmt.Errorf("failed to parse agent profile GitOps file '%s': %w", sourcePath, err)
-	}
-	requestedDefault := requestedAgentProfileDefault(file)
-	defaultProfile := requestedDefault
-	if defaultProfile == "" {
-		defaultProfile = models.DefaultAgentProfileID
-	}
-	forms := append([]agentProfileForm{}, file.AgentProfiles...)
-	forms = append(forms, file.Profiles...)
-	if len(forms) == 0 && requestedDefault == "" {
-		return nil, fmt.Errorf("agent profile GitOps file '%s' must define at least one profile or default_profile", sourcePath)
-	}
-	profiles := map[string]models.AgentProfile{}
-	for _, form := range forms {
-		profile := agentProfileFromForm(form, "gitops")
-		profile.ID = models.NormalizeAgentProfileID(profile.ID)
-		if profile.ID == "" {
-			return nil, fmt.Errorf("agent profile GitOps file '%s' contains a profile without an id", sourcePath)
-		}
-		if _, exists := profiles[profile.ID]; exists {
-			return nil, fmt.Errorf("agent profile GitOps file '%s' defines profile %q more than once", sourcePath, profile.ID)
-		}
-		if err := validateAgentProfileDefinition(profile); err != nil {
-			return nil, fmt.Errorf("invalid agent profile in GitOps file '%s': %w", sourcePath, err)
-		}
-		profiles[profile.ID] = profile
-	}
-	defaultDefinition, ok := profiles[defaultProfile]
-	if !ok {
-		defaultDefinition, ok = models.BuiltInAgentProfiles()[defaultProfile]
-	}
-	if !ok {
-		return nil, fmt.Errorf("agent profile GitOps file '%s' sets default profile %q but does not define it or reference a built-in profile", sourcePath, defaultProfile)
-	}
-	if !defaultDefinition.Enabled {
-		return nil, fmt.Errorf("agent profile GitOps file '%s' sets disabled profile %q as default", sourcePath, defaultProfile)
-	}
-	return &gitOpsAgentProfilePlan{defaultProfile: defaultProfile, profiles: profiles, sourcePath: sourcePath}, nil
-}
-
 func (a *App) buildRuntimeAgentProfiles(ctx context.Context) (runtimeAgentProfiles, error) {
 	return a.buildRuntimeAgentProfilesForTeam(ctx, nil)
 }
@@ -940,7 +813,7 @@ func (a *App) handleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSetDefaultAgentProfile(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAAADecision(w, r, "system.update", model.ResourceRef{Type: "system", ID: "agent-profiles"}) {
+	if !a.requireAAADecision(w, r, "system.update", model.ResourceRef{Type: "system", ID: "agent-roles"}) {
 		return
 	}
 	var payload agentProfileDefaultRequest

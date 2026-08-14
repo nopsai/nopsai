@@ -1,0 +1,8 @@
+# A connection to an external documentation system. Git owns the definition;
+# reachability status, last error, and document counts stay runtime state.
+name: engineering-wiki
+display_name: Engineering Wiki
+provider: notion
+base_url: https://www.notion.so/acme
+credential_ref: credential://system/knowledge/notion-token
+disabled: false

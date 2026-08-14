@@ -139,8 +139,8 @@ export async function fetchEditorAutocompleteMetadata(
     fetchOptionalJson('/v1/steps'),
     fetchOptionalJson('/v1/secrets/scopes'),
     fetchOptionalJson('/v1/variables/scopes'),
-    options.includeAgentProfiles ? fetchOptionalJson('/v1/system/agent-profiles', null) : Promise.resolve(null),
-    options.includeLLMProfiles ? fetchOptionalJson('/v1/system/llm-profiles', null) : Promise.resolve(null),
+    options.includeAgentProfiles ? fetchOptionalJson('/v1/system/agent-roles', null) : Promise.resolve(null),
+    options.includeLLMProfiles ? fetchOptionalJson('/v1/system/models', null) : Promise.resolve(null),
     options.includeMCPProfiles ? fetchOptionalJson('/v1/system/mcp/profiles', null) : Promise.resolve(null),
     options.includeRuntimePools ? fetchOptionalJson('/v1/system/config', null) : Promise.resolve(null),
   ]);

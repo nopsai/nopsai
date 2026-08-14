@@ -25,7 +25,7 @@ Everything runs on your infrastructure. There is no NopsAI-operated service.
 ```yaml
 name: release-service
 container_image: alpine/git:latest
-llm_profile: standard
+model: standard
 steps:
   - name: build
     script: make build && make test
@@ -57,7 +57,7 @@ Four things worth noticing:
 
 - **Steps run in dependency order, not list order.** Independent branches run
   concurrently up to runner capacity.
-- **`goal:` is an LLM-backed step.** It resolves through the named LLM Profile,
+- **`goal:` is an LLM-backed step.** It resolves through the named Model,
   and AAA still decides whether the caller may use that profile.
 - **`approval:` is a durable checkpoint.** The run pauses and releases runner
   capacity rather than holding it, and survives a restart.
@@ -148,7 +148,7 @@ documentation set:
 | Set up access and identity | [access-control.md](doc/access-control.md), [jwt-authentication.md](doc/jwt-authentication.md) |
 | Manage secrets | [credential-management.md](doc/credential-management.md) |
 | Configure Git integration | [git-apps.md](doc/git-apps.md), [git-webhook-sources.md](doc/git-webhook-sources.md) |
-| Configure AI | [llm-model-selection.md](doc/llm-model-selection.md), [agent-profiles.md](doc/agent-profiles.md), [knowledge-context.md](doc/knowledge-context.md), [mcp-pipeline-integration.md](doc/mcp-pipeline-integration.md) |
+| Configure AI | [llm-model-selection.md](doc/llm-model-selection.md), [agent-roles.md](doc/agent-roles.md), [knowledge-context.md](doc/knowledge-context.md), [mcp-pipeline-integration.md](doc/mcp-pipeline-integration.md) |
 | Deploy to Kubernetes | [kubernetes-runner.md](doc/kubernetes-runner.md), [release-bundles.md](doc/release-bundles.md) |
 | Harden for production | [enterprise-gates.md](doc/enterprise-gates.md) |
 | Operate it | [system-logs.md](doc/system-logs.md), [dashboards.md](doc/dashboards.md) |

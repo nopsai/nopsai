@@ -10,7 +10,7 @@
 # - runner.yaml for runtime topology, runner defaults, dispatcher routing, and assistant settings
 # - auth.yaml for local login and OIDC providers
 # - mail.yaml for notification SMTP settings
-# - llm_profile.yaml for LLM profile registry
+# - model.yaml for LLM profile registry
 # - mcp.yaml for MCP server/profile registry
 # - agent-profiles.yaml for Agent Profile registry
 #

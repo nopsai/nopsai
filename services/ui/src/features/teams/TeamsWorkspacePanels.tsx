@@ -209,12 +209,12 @@ export function TeamOverviewCard({
     { label: 'Parent', value: parent ? teamDisplayName(parent) : 'Global' },
     {
       label: 'Default LLM profile',
-      value: profileDefaultLink(llmDefaultProfile, `/llm-profiles${profileQuery}`),
+      value: profileDefaultLink(llmDefaultProfile, `/models${profileQuery}`),
       title: llmDefaultProfile || 'Not configured',
     },
     {
       label: 'Default agent profile',
-      value: profileDefaultLink(agentDefaultProfile, `/agent-profiles${profileQuery}`),
+      value: profileDefaultLink(agentDefaultProfile, `/agent-roles${profileQuery}`),
       title: agentDefaultProfile || 'Not configured',
     },
     { label: 'Direct children', value: String(stats.directChildren) },

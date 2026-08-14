@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Bot, CheckCircle2, Edit3, ExternalLink, FlaskConical, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
-import { type LLMFeatureConfig, type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
-import { LLMFeatureControls } from './llm-profiles/LLMFeatureControls';
-import { useLLMProfiles } from './llm-profiles/useLLMProfiles';
+import { type LLMFeatureConfig, type LLMProfileFormState, type LLMProfileRecord } from './models/model';
+import { LLMFeatureControls } from './models/LLMFeatureControls';
+import { useLLMProfiles } from './models/useLLMProfiles';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 import {
   teamLLMProfileRecords,
@@ -299,7 +299,7 @@ function LLMProfilesPanel({
     setDeleteBlocker(null);
     setPanelMode(null);
     navigate(
-      aiResourceRoute('/llm-profiles', '', aiResourceSearchParamsForTeamFilter(new URLSearchParams(location.search), value)),
+      aiResourceRoute('/models', '', aiResourceSearchParamsForTeamFilter(new URLSearchParams(location.search), value)),
       { preventScrollReset: true }
     );
   };
@@ -330,7 +330,7 @@ function LLMProfilesPanel({
   };
 
   return (
-    <div id="system-llm-profiles-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
+    <div id="system-models-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
       <div className="ai-resource-page-header ai-resource-page-header--toolbar ai-resource-overview-bar">
         <h2 className="sr-only">LLM Profiles</h2>
         <div className="ai-resource-default-control">
@@ -359,7 +359,7 @@ function LLMProfilesPanel({
       {teamProfilesError && <div className="ai-resource-alert ai-resource-alert--error">{teamProfilesError}</div>}
 
       <AIResourceWorkspace
-        storageKey="llm-profiles"
+        storageKey="models"
         workspaceLabel="LLM profile workspace"
         treeTitle="LLM profile tree"
         resourceType="llm-profile"
@@ -743,7 +743,7 @@ function LLMProfileDetail({
             <Edit3 className="h-4 w-4" aria-hidden="true" />
           </AIResourceIconAction>
           <ResourceAccessCard
-            resourceType="llm_profile"
+            resourceType="model"
             resourceID={profile.name}
             label="LLM profile"
             buttonClassName="ai-resource-icon-action"

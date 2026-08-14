@@ -78,10 +78,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "notifications"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "notifications"}, false, nil
-	case path == "/v1/system/llm-profiles" || strings.HasPrefix(path, "/v1/system/llm-profiles/"):
-		return "system.read", model.ResourceRef{Type: "system", ID: "llm-profiles"}, true, nil
-	case path == "/v1/system/agent-profiles" || strings.HasPrefix(path, "/v1/system/agent-profiles/"):
-		return "system.read", model.ResourceRef{Type: "system", ID: "agent-profiles"}, true, nil
+	case path == "/v1/system/models" || strings.HasPrefix(path, "/v1/system/models/"):
+		return "system.read", model.ResourceRef{Type: "system", ID: "models"}, true, nil
+	case path == "/v1/system/agent-roles" || strings.HasPrefix(path, "/v1/system/agent-roles/"):
+		return "system.read", model.ResourceRef{Type: "system", ID: "agent-roles"}, true, nil
 	case path == "/v1/system/mcp" || strings.HasPrefix(path, "/v1/system/mcp/"):
 		return "system.read", model.ResourceRef{Type: "system", ID: "mcp"}, true, nil
 	case path == "/v1/system/config/sync/cancel":
@@ -727,8 +727,8 @@ func isTeamScopedProfilePath(path string) bool {
 	if !strings.HasPrefix(path, "/v1/teams/") {
 		return false
 	}
-	return strings.Contains(path, "/llm-profiles") ||
-		strings.Contains(path, "/agent-profiles") ||
+	return strings.Contains(path, "/models") ||
+		strings.Contains(path, "/agent-roles") ||
 		strings.Contains(path, "/mcp-profiles") ||
 		strings.Contains(path, "/mcp/profiles") ||
 		strings.HasSuffix(path, "/defaults")
@@ -736,7 +736,7 @@ func isTeamScopedProfilePath(path string) bool {
 
 func teamIDFromProfilePath(path string) string {
 	teamID := strings.TrimPrefix(strings.TrimSpace(path), "/v1/teams/")
-	for _, marker := range []string{"/llm-profiles", "/agent-profiles", "/mcp-profiles", "/mcp/profiles", "/defaults"} {
+	for _, marker := range []string{"/models", "/agent-roles", "/mcp-profiles", "/mcp/profiles", "/defaults"} {
 		if index := strings.Index(teamID, marker); index >= 0 {
 			teamID = teamID[:index]
 			break

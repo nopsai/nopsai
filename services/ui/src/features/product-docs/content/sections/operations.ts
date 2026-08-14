@@ -118,13 +118,13 @@ export const operationsSection: WikiSection = {
         'Category scores use the same weights filtered to that category.',
         'A structured AI Evaluation can replace the displayed number with an AI-reviewed score.',
         'Analysis is read-only. Analyse Run never reruns a failed step; it opens existing logs and resources or copies the diagnosis until a user chooses a separate confirmed action.',
-        'AI Evaluation uses the authenticated `POST /v1/analysis/evaluate` endpoint with a usable LLM profile, a redacted reviewer snapshot, and bounded page-owned evidence.',
+        'AI Evaluation uses the authenticated `POST /v1/analysis/evaluate` endpoint with a usable model, a redacted reviewer snapshot, and bounded page-owned evidence.',
         'It does not create an Assistant conversation and does not ask hosted MCP to inspect the pipeline, team, resource, or run.',
       ],
       details: [
         'Structured AI reviews are cached in browser-local review history by subject type, subject ID, and snapshot revision. Reopening the same analysis shows the reviewed score immediately.',
         'When only an older same-subject review exists, the modal labels it as a previous-snapshot score and asks you to regenerate for current evidence.',
-        'Deterministic analysis still works when Assistant debugging or LLM profile access is unavailable — you lose the AI-reviewed score, not the findings.',
+        'Deterministic analysis still works when Assistant debugging or model access is unavailable — you lose the AI-reviewed score, not the findings.',
         'AI Evaluation selects the configured default from the unscoped Assistant profile picker and still sends the team and resource scope path to the evaluation endpoint for policy validation.',
       ],
       examples: [
@@ -141,7 +141,7 @@ export const operationsSection: WikiSection = {
           ].join('\n'),
         },
       ],
-      related: ['pipeline-runs', 'llm-profiles', 'assistant', 'monitoring'],
+      related: ['pipeline-runs', 'models', 'assistant', 'monitoring'],
       sources: [
         { repositoryPath: 'services/nopsai/analysis_evaluation_handlers.go', purpose: 'Evaluation endpoint, snapshot redaction, and policy validation.' },
         { repositoryPath: 'doc/feature-reference.md', purpose: 'Analysis reviewer behavior and scoring.' },

@@ -32,8 +32,8 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'steps', hint: 'List pipeline steps' },
   { key: 'timeout', hint: 'Pipeline timeout' },
   { key: 'llm_enabled', hint: 'Enable or disable LLM for this pipeline' },
-  { key: 'agent_profile', hint: 'Select AI role/persona' },
-  { key: 'llm_profile', hint: 'Select LLM profile' },
+  { key: 'agent_role', hint: 'Select AI role/persona' },
+  { key: 'model', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'Select MCP profiles for goal tasks' },
   { key: 'governance_level', hint: 'AI governance enforcement level' },
   { key: 'runtime_pool', hint: 'Kubernetes runtime pool for steps' },
@@ -63,8 +63,8 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'depends_on', hint: 'Upstream steps' },
   { key: 'outputs', hint: 'Runtime task outputs' },
   { key: 'ignore_failure', hint: 'Ignore failures' },
-  { key: 'agent_profile', hint: 'Select AI role/persona' },
-  { key: 'llm_profile', hint: 'Select LLM profile' },
+  { key: 'agent_role', hint: 'Select AI role/persona' },
+  { key: 'model', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for goal tasks' },
   { key: 'governance_level', hint: 'AI governance enforcement level' },
   { key: 'runtime_pool', hint: 'Kubernetes runtime pool override' },
@@ -79,7 +79,7 @@ export const TASK_DIRECTIVES: LabDirective[] = [
   { key: 'depends_on', hint: 'Dependent tasks' },
   { key: 'outputs', hint: 'Runtime task outputs' },
   { key: 'ignore_failure', hint: 'Ignore task errors' },
-  { key: 'llm_profile', hint: 'Select LLM profile' },
+  { key: 'model', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for this goal task' },
   { key: 'governance_level', hint: 'AI governance enforcement level' },
   { key: 'variables', hint: 'Task variable overrides' },
@@ -442,8 +442,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'steps',
     'timeout',
     'llm_enabled',
-    'agent_profile',
-    'llm_profile',
+    'agent_role',
+    'model',
     'mcp_profiles',
     'governance_level',
     'policy_merge_mode',
@@ -473,8 +473,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'depends_on',
     'outputs',
     'ignore_failure',
-    'agent_profile',
-    'llm_profile',
+    'agent_role',
+    'model',
     'mcp_profiles',
     'governance_level',
     'policy_merge_mode',
@@ -489,7 +489,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'depends_on',
     'outputs',
     'ignore_failure',
-    'llm_profile',
+    'model',
     'mcp_profiles',
     'governance_level',
     'policy_merge_mode',
@@ -497,8 +497,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'knowledge_context',
     'llm_output_sharing',
   ]);
-  const knownOutputKeys = new Set(['llm_profile', 'items']);
-  const knownOutputItemKeys = new Set(['name', 'type', 'when', 'prompt', 'llm_profile', 'dashboard']);
+  const knownOutputKeys = new Set(['model', 'items']);
+  const knownOutputItemKeys = new Set(['name', 'type', 'when', 'prompt', 'model', 'dashboard']);
   const knownDashboardTargetKeys = new Set(['ref', 'section', 'entry_key', 'mode', 'preset', 'ttl']);
   const knownDisplayOptionsKeys = new Set(['github_view']);
 
@@ -590,8 +590,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
         return { errors: [createError("Validation Error: 'output' must be an object.", ['output'])] };
       }
       const output = pipeline.output as Record<string, unknown>;
-      if (hasOwn(output, 'llm_profile') && typeof output.llm_profile !== 'string') {
-        return { errors: [createError("Validation Error: 'output.llm_profile' must be a string.", ['output.llm_profile', 'output'])] };
+      if (hasOwn(output, 'model') && typeof output.model !== 'string') {
+        return { errors: [createError("Validation Error: 'output.model' must be a string.", ['output.model', 'output'])] };
       }
       const outputItems = Array.isArray(output.items) ? output.items : [];
       if (!hasOwn(output, 'items') || outputItems.length === 0) {
@@ -631,8 +631,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
         if (!safeString(item.prompt).trim()) {
           return { errors: [createError(`Validation Error: Final output '${outputName}' requires a prompt.`, [`${itemPath}.prompt`, itemPath])] };
         }
-        if (hasOwn(item, 'llm_profile') && typeof item.llm_profile !== 'string') {
-          return { errors: [createError(`Validation Error: Final output '${outputName}' llm_profile must be a string.`, [`${itemPath}.llm_profile`, itemPath])] };
+        if (hasOwn(item, 'model') && typeof item.model !== 'string') {
+          return { errors: [createError(`Validation Error: Final output '${outputName}' model must be a string.`, [`${itemPath}.model`, itemPath])] };
         }
         const hasDashboardTarget = hasOwn(item, 'dashboard');
         const dashboardTarget = hasDashboardTarget ? item.dashboard : undefined;
@@ -1341,8 +1341,8 @@ export type LabSuggestionType =
   | 'depends_on'
   | 'secrets'
   | 'variables'
-  | 'agent_profile'
-  | 'llm_profile'
+  | 'agent_role'
+  | 'model'
   | 'mcp_profile'
   | 'runtime_pool'
   | 'directive-value'
@@ -1447,9 +1447,9 @@ function detectDirectiveValueContext(lineInfo: LineInfo, selectionEnd: number): 
   const currentValue = rawLine.slice(valueOffsetLocal, lineInfo.column).trim();
 
   const metadata = DIRECTIVE_VALUE_METADATA[key];
-  if (!metadata && key === 'agent_profile') {
+  if (!metadata && key === 'agent_role') {
     return {
-      type: 'agent_profile',
+      type: 'agent_role',
       title: 'Agent Profiles',
       key,
       prefix: currentValue,
@@ -1458,9 +1458,9 @@ function detectDirectiveValueContext(lineInfo: LineInfo, selectionEnd: number): 
       insertSuffix: '',
     };
   }
-  if (!metadata && key === 'llm_profile') {
+  if (!metadata && key === 'model') {
     return {
-      type: 'llm_profile',
+      type: 'model',
       title: 'LLM Profiles',
       key,
       prefix: currentValue,
@@ -1690,9 +1690,9 @@ export function buildSuggestionItems(
     pool = opts.secrets.map(s => ({ value: s, label: s }));
   } else if (ctx.type === 'variables') {
     pool = opts.variables.map(v => ({ value: v, label: v }));
-  } else if (ctx.type === 'agent_profile') {
+  } else if (ctx.type === 'agent_role') {
     pool = (opts.agentProfiles || []).map(p => ({ value: p, label: p }));
-  } else if (ctx.type === 'llm_profile') {
+  } else if (ctx.type === 'model') {
     pool = opts.llmProfiles.map(p => ({ value: p, label: p }));
   } else if (ctx.type === 'mcp_profile') {
     pool = (opts.mcpProfiles || []).map(p => ({ value: p, label: p }));
@@ -1733,9 +1733,9 @@ export function suggestionCopyForContext(contextInfo: LabSuggestionContext | nul
       return { title: 'Secrets', subtitle: 'Available secret names.', footnote: 'Tab to accept inline hint.' };
     case 'include':
       return { title: 'Include targets', subtitle: 'Reusable steps and pipelines.', footnote: 'Click or Tab to insert.' };
-    case 'agent_profile':
+    case 'agent_role':
       return { title: 'Agent profiles', subtitle: 'AI roles/personas for this pipeline or step.', footnote: 'Click or Tab to insert.' };
-    case 'llm_profile':
+    case 'model':
       return { title: 'LLM profiles', subtitle: 'Profiles allowed for the selected scope.', footnote: 'Click or Tab to insert.' };
     case 'mcp_profile':
       return { title: 'MCP profiles', subtitle: 'Approved external tool bundles for goal tasks.', footnote: 'Click or Tab to insert.' };

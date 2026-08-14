@@ -243,8 +243,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "runner.use", true)
 		assertAction(t, actions, "config_repo.read", true)
 		assertAction(t, actions, "config_repo.use", true)
-		assertAction(t, actions, "llm_profile.use", true)
-		assertAction(t, actions, "agent_profile.use", true)
+		assertAction(t, actions, "model.use", true)
+		assertAction(t, actions, "agent_role.use", true)
 		assertAction(t, actions, "mcp_profile.use", true)
 		assertAction(t, actions, "config_repo.manage", false)
 		assertAction(t, actions, "config_repo.sync", false)
@@ -283,8 +283,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "config_repo.read", true)
 		assertAction(t, actions, "config_repo.manage", true)
 		assertAction(t, actions, "config_repo.sync", true)
-		assertAction(t, actions, "llm_profile.manage_acl", true)
-		assertAction(t, actions, "agent_profile.manage_acl", true)
+		assertAction(t, actions, "model.manage_acl", true)
+		assertAction(t, actions, "agent_role.manage_acl", true)
 		assertAction(t, actions, "mcp_server.manage_acl", true)
 		assertAction(t, actions, "mcp_profile.manage_acl", true)
 	})
@@ -434,11 +434,11 @@ func TestNormalizeAccessGrantResourceTypeSupportsGitWebhookSource(t *testing.T) 
 
 func TestNormalizeAccessGrantResourceTypeSupportsAIProfiles(t *testing.T) {
 	tests := map[string]string{
-		"llm_profile":   grantResourceLLMProfile,
-		"agent_profile": grantResourceAgentProfile,
-		"mcp_server":    grantResourceMCPServer,
-		"mcp_profile":   grantResourceMCPProfile,
-		"credential":    grantResourceCredential,
+		"model":       grantResourceLLMProfile,
+		"agent_role":  grantResourceAgentProfile,
+		"mcp_server":  grantResourceMCPServer,
+		"mcp_profile": grantResourceMCPProfile,
+		"credential":  grantResourceCredential,
 	}
 	for raw, want := range tests {
 		t.Run(raw, func(t *testing.T) {

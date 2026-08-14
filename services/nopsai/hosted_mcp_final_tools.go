@@ -53,9 +53,8 @@ func hostedMCPFinalTools() []hostedMCPTool {
 		"scheduleId":             stringSchema(),
 		"schedule_id":            stringSchema(),
 		"provider":               stringSchema(),
+		"provider_model":         stringSchema(),
 		"model":                  stringSchema(),
-		"llmProfile":             stringSchema(),
-		"llm_profile":            stringSchema(),
 		"profile":                stringSchema(),
 		"feature":                stringSchema(),
 		"stepName":               stringSchema(),
@@ -75,9 +74,9 @@ func hostedMCPFinalTools() []hostedMCPTool {
 		toolDef("nopsai.tail_system_logs", "Read a bounded, server-redacted tail of one allow-listed platform log source.", "system_log.read", "system_log", "*", objectSchema(map[string]any{"source_id": stringSchema(), "lines": numberSchema()})),
 		toolDef("nopsai.get_setup_status", "Read first-install setup status, starter profile state, counts, and health checks.", "system.read", "system", "config", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_setup_preflight", "Run public first-install setup preflight checks.", "system.read", "system", "config", objectSchema(map[string]any{})),
-		toolDef("nopsai.get_setup_templates", "Generate starter GitOps setup templates for a setup profile.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
-		toolDef("nopsai.plan_first_install_setup", "Return a guided first-install setup plan and GitOps starter template bundle without applying changes.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
-		toolDef("nopsai.bootstrap_first_install_setup", "Run first-install bootstrap as the current subject. High-impact operation requiring confirm:true.", "system.update", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "generate_secrets": booleanSchema(), "seed_starter_database": booleanSchema(), "seed_llm_profile": booleanSchema(), "mcp_examples": booleanSchema(), "production_acknowledged": booleanSchema(), "sync_config_repository": booleanSchema(), "config_repository": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "repositories": objectSchema(map[string]any{}), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
+		toolDef("nopsai.get_setup_templates", "Generate starter GitOps setup templates for a setup profile.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "model": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
+		toolDef("nopsai.plan_first_install_setup", "Return a guided first-install setup plan and GitOps starter template bundle without applying changes.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "model": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
+		toolDef("nopsai.bootstrap_first_install_setup", "Run first-install bootstrap as the current subject. High-impact operation requiring confirm:true.", "system.update", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "generate_secrets": booleanSchema(), "seed_starter_database": booleanSchema(), "seed_llm_profile": booleanSchema(), "mcp_examples": booleanSchema(), "production_acknowledged": booleanSchema(), "sync_config_repository": booleanSchema(), "config_repository": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "repositories": objectSchema(map[string]any{}), "model": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
 
 		toolDef("nopsai.propose_reusable_step_create", "Validate reusable step YAML and return a GitOps-ready create file plan without applying changes.", "step.create", "step", "*", objectSchema(map[string]any{"step": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "definition": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.propose_reusable_step_update", "Validate reusable step YAML and return a GitOps-ready update file plan without applying changes.", "step.update", "step", "*", objectSchema(map[string]any{"step": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "definition": stringSchema(), "message": stringSchema()})),
@@ -420,7 +419,7 @@ func hostedMCPSetupTemplatesPath(args map[string]any) string {
 }
 
 func hostedMCPSetupTemplatesQueryArgs(args map[string]any) map[string]any {
-	queryArgs := hostedMCPBodyWithout(args, "repository_teams", "users", "llm_profile")
+	queryArgs := hostedMCPBodyWithout(args, "repository_teams", "users", "model")
 	repositories := hostedMCPStringSliceArg(args, "repositories")
 
 	var teams []setupRepositoryTeamInput
@@ -457,7 +456,7 @@ func hostedMCPSetupTemplatesQueryArgs(args map[string]any) map[string]any {
 	}
 
 	var llm setupLLMProfileInput
-	if err := hostedMCPDecodeObject(args["llm_profile"], &llm); err == nil {
+	if err := hostedMCPDecodeObject(args["model"], &llm); err == nil {
 		if strings.TrimSpace(llm.Provider) != "" {
 			queryArgs["llm_provider"] = llm.Provider
 		}
@@ -491,7 +490,7 @@ func hostedMCPPlanFirstInstallSetup(args map[string]any) (map[string]any, error)
 	}
 	users = normalizeSetupUsers(users)
 	var llm setupLLMProfileInput
-	if err := hostedMCPDecodeObject(args["llm_profile"], &llm); err != nil {
+	if err := hostedMCPDecodeObject(args["model"], &llm); err != nil {
 		return nil, err
 	}
 	options := setupTemplateOptions{
@@ -806,7 +805,6 @@ func hostedMCPPruneGenericAIUsageFilters(args map[string]any) {
 		"profiles":     true,
 		"llm profile":  true,
 		"llm profiles": true,
-		"llm_profile":  true,
 		"feature":      true,
 		"features":     true,
 	}
@@ -837,9 +835,8 @@ func hostedMCPPruneGenericAIUsageFilters(args map[string]any) {
 		"profiles":     true,
 		"llm profile":  true,
 		"llm profiles": true,
-		"llm_profile":  true,
 	}
-	for _, key := range []string{"provider", "model", "profile", "llmProfile", "llm_profile"} {
+	for _, key := range []string{"provider", "provider_model", "model", "profile"} {
 		if hostedMCPIsGenericFilterValue(args[key], genericDimensions) {
 			delete(args, key)
 		}
@@ -889,7 +886,6 @@ func hostedMCPMonitoringAnalyticsAliases() map[string]string {
 		"effective_subject_id":   "effectiveSubjectId",
 		"external_trigger_id":    "externalTriggerId",
 		"schedule_id":            "scheduleId",
-		"llm_profile":            "llmProfile",
 		"step_name":              "stepName",
 		"task_name":              "taskName",
 		"min_duration_seconds":   "minDurationSeconds",

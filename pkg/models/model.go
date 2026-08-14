@@ -93,8 +93,8 @@ type BaseStep struct {
 	Condition        string                `yaml:"condition,omitempty" json:"condition,omitempty"`
 	IgnoreFailure    bool                  `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
-	AgentProfile     string                `yaml:"agent_profile,omitempty" json:"agent_profile,omitempty"`
-	LLMProfile       string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	AgentProfile     string                `yaml:"agent_role,omitempty" json:"agent_role,omitempty"`
+	LLMProfile       string                `yaml:"model,omitempty" json:"model,omitempty"`
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	RuntimePool      string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
@@ -751,7 +751,7 @@ type KnowledgeContextSnapshot struct {
 }
 
 type PipelineOutput struct {
-	LLMProfile string               `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	LLMProfile string               `yaml:"model,omitempty" json:"model,omitempty"`
 	Items      []PipelineOutputItem `yaml:"items,omitempty" json:"items,omitempty"`
 }
 
@@ -760,7 +760,7 @@ type PipelineOutputItem struct {
 	Type       string                `yaml:"type" json:"type"`
 	When       string                `yaml:"when,omitempty" json:"when,omitempty"`
 	Prompt     string                `yaml:"prompt" json:"prompt"`
-	LLMProfile string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	LLMProfile string                `yaml:"model,omitempty" json:"model,omitempty"`
 	Dashboard  DashboardOutputTarget `yaml:"dashboard,omitempty" json:"dashboard,omitempty"`
 }
 
@@ -827,8 +827,8 @@ type Pipeline struct {
 	Steps             []PipelineStep        `yaml:"steps" json:"steps"`
 	Timeout           string                `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	LLMEnabled        *bool                 `yaml:"llm_enabled,omitempty" json:"llm_enabled,omitempty"`
-	AgentProfile      string                `yaml:"agent_profile,omitempty" json:"agent_profile,omitempty"`
-	LLMProfile        string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	AgentProfile      string                `yaml:"agent_role,omitempty" json:"agent_role,omitempty"`
+	LLMProfile        string                `yaml:"model,omitempty" json:"model,omitempty"`
 	MCPProfiles       []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	RuntimePool       string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	AffinityEnabled   *bool                 `yaml:"affinity_enabled,omitempty" json:"affinity_enabled,omitempty"`
@@ -913,7 +913,7 @@ type Task struct {
 	DependsOn        []string              `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 	IgnoreFailure    bool                  `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
-	LLMProfile       string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	LLMProfile       string                `yaml:"model,omitempty" json:"model,omitempty"`
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	Outputs          []TaskOutput          `yaml:"outputs,omitempty" json:"outputs,omitempty"`
@@ -927,12 +927,12 @@ func (t *Task) UnmarshalYAML(value *yaml.Node) error {
 	if err := value.Decode(&raw); err != nil {
 		return err
 	}
-	if _, exists := raw["agent_profile"]; exists {
+	if _, exists := raw["agent_role"]; exists {
 		taskName := "unknown"
 		if name, ok := raw["name"].(string); ok && name != "" {
 			taskName = name
 		}
-		return fmt.Errorf("task %q cannot define agent_profile; set agent_profile on the pipeline or step", taskName)
+		return fmt.Errorf("task %q cannot define agent_role; set agent_role on the pipeline or step", taskName)
 	}
 	type rawTask Task
 	var parsed rawTask
@@ -948,7 +948,7 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if _, exists := raw["agent_profile"]; exists {
+	if _, exists := raw["agent_role"]; exists {
 		taskName := "unknown"
 		if rawName, ok := raw["name"]; ok {
 			var name string
@@ -956,7 +956,7 @@ func (t *Task) UnmarshalJSON(data []byte) error {
 				taskName = name
 			}
 		}
-		return fmt.Errorf("task %q cannot define agent_profile; set agent_profile on the pipeline or step", taskName)
+		return fmt.Errorf("task %q cannot define agent_role; set agent_role on the pipeline or step", taskName)
 	}
 	type rawTask Task
 	var parsed rawTask

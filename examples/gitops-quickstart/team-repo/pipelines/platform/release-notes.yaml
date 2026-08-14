@@ -6,8 +6,8 @@ working_directory: /workspace
 timeout: 15m
 llm_enabled: true
 # Profiles are registered in the global repo under setting/system.
-llm_profile: standard
-agent_profile: release-manager
+model: standard
+agent_role: release-manager
 # Knowledge Context documents ground the model in team rules.
 knowledge_context:
   - kind: architecture

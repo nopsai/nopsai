@@ -118,7 +118,7 @@ type setupBootstrapRequest struct {
 	ConfigRepository       *setupConfigRepositoryInput `json:"config_repository"`
 	RepositoryTeams        []setupRepositoryTeamInput  `json:"repository_teams"`
 	Repositories           []string                    `json:"repositories"`
-	LLMProfile             setupLLMProfileInput        `json:"llm_profile"`
+	LLMProfile             setupLLMProfileInput        `json:"model"`
 	Users                  []setupUserInput            `json:"users"`
 }
 

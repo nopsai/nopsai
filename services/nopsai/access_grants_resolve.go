@@ -820,9 +820,9 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 	case grantResourceKnowledgeConnection:
 		return "knowledge_connection.manage_access", model.ResourceRef{Type: grantResourceKnowledgeConnection, ID: resource.ID}, nil
 	case grantResourceLLMProfile:
-		return "llm_profile.manage_acl", model.ResourceRef{Type: grantResourceLLMProfile, ID: resource.ID}, nil
+		return "model.manage_acl", model.ResourceRef{Type: grantResourceLLMProfile, ID: resource.ID}, nil
 	case grantResourceAgentProfile:
-		return "agent_profile.manage_acl", model.ResourceRef{Type: grantResourceAgentProfile, ID: resource.ID}, nil
+		return "agent_role.manage_acl", model.ResourceRef{Type: grantResourceAgentProfile, ID: resource.ID}, nil
 	case grantResourceMCPServer:
 		return "mcp_server.manage_acl", model.ResourceRef{Type: grantResourceMCPServer, ID: resource.ID}, nil
 	case grantResourceMCPProfile:

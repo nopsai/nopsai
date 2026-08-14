@@ -23,10 +23,10 @@ Supported setup capabilities:
 - generated runtime variable output for container environment, secret-manager
   entries, or environment files
 - starter GitOps template preview for pipelines, reusable steps, scopes,
-  triggers, access bootstrap, knowledge docs, Agent Profiles, LLM profiles, MCP
+  triggers, access bootstrap, knowledge docs, Agent roles, models, MCP
   settings, and run team structure
 - direct starter database seeding for teams, starter pipeline, reusable step,
-  triggers, variables, knowledge context, optional LLM profile, optional MCP
+  triggers, variables, knowledge context, optional model, optional MCP
   examples, and optional users
 - one or two starter repository teams with selected repositories underneath
 - starter users with team role assignment, password creation, and forced first
@@ -69,7 +69,7 @@ Supported pipeline features:
   persisted generation/contract/render audit counts; PDF and HTML use validated
   `DocumentSpec`, Excel uses typed `SpreadsheetSpec`, and the run UI provides
   format-specific previews plus cancellation for pending or generating outputs
-- pipeline- and step-level Agent Profile selection through `agent_profile`
+- pipeline- and step-level Agent role selection through `agent_role`
 - knowledge context references for architecture docs, guardrails, policies, ADRs, guidelines, runbooks, references, and examples
 - GitHub display options
 
@@ -81,7 +81,7 @@ Final output example:
 
 ```yaml
 output:
-  llm_profile: report-writer
+  model: report-writer
   items:
     - name: Executive summary
       type: markdown
@@ -381,13 +381,15 @@ GitOps-style configuration sync supports:
 - `git-webhook-sources/` -> provider webhook source definitions and credential references
 - `scopes/` -> scoped variables declared under `variables:` and GitOps secret
   keys declared under `secrets:`
-- `knowledge/` -> managed knowledge context markdown documents
+- `knowledge/` -> managed knowledge context documents, including external-page definitions that name a connection, page, and sync settings
+- `knowledge/connections/` -> Notion, Confluence, and wiki connection definitions
 - `config-repositories/` -> team config repo bindings, team shells, colocated team structure files, and system-repo team notification policies
 - `setting/system/auth.yaml` -> mandatory local login and external identity-provider settings from a global config repo
 - `setting/system/mail.yaml` -> SMTP mail notification settings from a global config repo
-- `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
-- `setting/system/agent-profiles.yaml` -> system Agent Profile persona registry and default profile setting from a global config repo
-- `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
+- `models/` -> one file per model; `models/<name>.yaml` is workspace-wide and `models/<team>/<name>.yaml` is team-owned
+- `agent-roles/` -> one file per agent role, with the same workspace and team layout
+- `mcp/servers/` -> one file per MCP server; servers are workspace-wide
+- `mcp/profiles/` -> one file per MCP profile, workspace-wide or team-owned
 - `setting/git-apps/github.yaml` -> GitHub App IDs, credential references, and installation records from a global config repo
 - `setting/system/runner.yaml` -> runner install defaults, runtime defaults, and dispatcher routing from a global config repo
 - `setting/system/assistant.yaml` -> Nopsai AI Assistant provider, model, credential reference, feature flags, and memory settings from a global config repo
@@ -412,10 +414,10 @@ Assistant model configuration is separate from pipeline execution profiles.
 When `assistant.provider` is set in `setting/system/assistant.yaml`, the UI shows a
 dedicated `assistant` picker profile backed by that provider/model/credential.
 If no assistant provider is configured, the assistant remains backward
-compatible with existing LLM profiles. `GET /v1/assistant/config` exposes only
-safe assistant metadata and feature flags. `GET /v1/assistant/llm-profiles`
+compatible with existing models. `GET /v1/assistant/config` exposes only
+safe assistant metadata and feature flags. `GET /v1/assistant/models`
 exposes only safe picker metadata and requires an authenticated assistant user
-rather than `system.read` on the system LLM profile registry. When a selected
+rather than `system.read` on the system model registry. When a selected
 or default profile is valid for the conversation scope, the assistant sends the
 user request and conversation memory to that provider for planner output, then
 uses hosted MCP tool outputs and a deterministic tool summary for final
@@ -481,7 +483,7 @@ required proposal-safe language, the assistant returns the deterministic
 MCP-grounded summary instead.
 
 Nopsai also exposes a first-party hosted MCP endpoint at `POST /v1/mcp`. This
-is separate from the external MCP registry in `setting/system/mcp.yaml`: the
+is separate from the external MCP registry in `mcp/servers/` and `mcp/profiles/`: the
 external registry defines third-party MCP servers Nopsai can call, while the
 hosted MCP exposes Nopsai itself as permission-bound tools and resources for
 the assistant and future integrations. Tool and resource lists are filtered by
@@ -581,10 +583,10 @@ Sync behavior:
 - drift/export canonicalizes stale managed source paths, so legacy files with a
   duplicated team prefix or a missing team segment are surfaced as file moves
   instead of remaining pinned by historical `config_source_path` metadata
-- team-scoped LLM, Agent, and MCP profiles are managed through team UI/API; LLM and Agent Profile pages edit team defaults after a concrete team is selected, include matching slash-scoped catalog LLM/Agent profiles in that team view, Teams can select LLM, Agent, and knowledge-kind defaults from its Defaults tab, config repositories import/export those defaults under `config-repositories/teams/<team>/defaults.yaml`, and run launch merges team profiles plus team knowledge defaults over the system catalog while system profile GitOps remains under `setting/system/*`
+- team-scoped LLM, Agent, and MCP profiles are managed through team UI/API; LLM and Agent role pages edit team defaults after a concrete team is selected, include matching slash-scoped catalog LLM/agent roles in that team view, Teams can select LLM, Agent, and knowledge-kind defaults from its Defaults tab, config repositories import/export those defaults under `config-repositories/teams/<team>/defaults.yaml`, and run launch merges team profiles plus team knowledge defaults over the system catalog while system profile GitOps remains under `setting/system/*`
 - config repository bindings support GitHub, GitLab, Bitbucket Cloud-compatible, and Gitea providers; non-GitHub providers use `credential_ref` bearer-token credentials for sync and write operations
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
-- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run team/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
+- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run team/config-repository structure, access manifests, Agent roles, models, MCP registry files, auth settings, mail settings, data cleanup schedules, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
 - `config-repositories/teams/<team>/structure.yaml` can place apps under team shells with `name` and `repo_url`; these files can also include inline `config:` blocks for team repo bindings
 - repository triggers for GitHub, GitLab, and Bitbucket automatically contribute
@@ -635,7 +637,7 @@ Pipeline notifications include:
   pipeline run ID, trigger source, status, subject identity, external trigger,
   schedule, duration range, and previous-period comparison with tab-level
   regression deltas
-- AI usage filters for provider, model, LLM profile, feature, step name, and
+- AI usage filters for provider, model, model, feature, step name, and
   task name across REST analytics and hosted MCP monitoring tools, plus
   schedule-level highest/lowest token rankings for scheduled pipeline runs
 - access-filtered aggregate endpoints that reuse `pipeline_run.list` so normal
@@ -817,11 +819,11 @@ Monitoring and MCP notes:
   when it is already visible in the UI; they do not add a new metrics endpoint.
 - AI Evaluation returns per-request provider usage from
   `POST /v1/analysis/evaluate` and uses existing Assistant feature flags,
-  credential references, and LLM profile scope controls. It does not persist an
+  credential references, and model scope controls. It does not persist an
   Assistant conversation/message or run hosted MCP tools. The current reviewed
   score cache is browser-local operator history, not shared governance storage.
   When no usable profile is available, operators should configure or fix one
-  under **LLM Profiles**.
+  under **Models**.
 - Hosted MCP already has run/log analysis coverage through first-party tools.
   The UI reviewers can be promoted to server-side/MCP-backed analysis later
   without changing the finding shape.
@@ -1008,7 +1010,7 @@ Pages present in the current UI:
   use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
 - `Knowledge Context`: kind/team/document browser with kindless document IDs, selected-detail tree branches kept open from the resolved kind/team path, contextual Back path labels, top-toolbar document/connection metrics aligned with actions, compact magnifier-first search, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, data management, compact dispatcher overview/runners/routing/install tabs, runtime-filtered table-first runner fleet controls with runner detail below the table after selection, route edit/effective-routing tables, runtime pool management, redesigned Access management with Basic/Advanced modes, top-row summary metrics, Pipeline Runs-style advanced tabs, full-width table-first catalogs, sectioned full-height drawer create/edit flows, compact magnifier search, and icon create actions without extra table filters, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, save-to-detail profile/server forms, top-toolbar delete/test actions, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/llm-profiles/<id>`, `/agent-profiles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
+- `System`: config, data management, compact dispatcher overview/runners/routing/install tabs, runtime-filtered table-first runner fleet controls with runner detail below the table after selection, route edit/effective-routing tables, runtime pool management, redesigned Access management with Basic/Advanced modes, top-row summary metrics, Pipeline Runs-style advanced tabs, full-width table-first catalogs, sectioned full-height drawer create/edit flows, compact magnifier search, and icon create actions without extra table filters, compact Credentials registry with top-toolbar metrics and catalog-header search before the Flat list toggle, tree-scoped LLM/Agent/MCP resource lists with cached team-profile counts, save-to-detail profile/server forms, top-toolbar delete/test actions, list-header search/create actions, and no header metric boxes or generic Reload buttons, plus `/models/<id>`, `/agent-roles/<id>`, `/mcp/servers/<id>`, `/mcp/profiles/<id>`, and `/credentials/<namespace>/<name>` detail routes
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 

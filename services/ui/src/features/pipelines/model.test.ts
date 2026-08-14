@@ -32,7 +32,7 @@ test('validates pipeline final outputs without unknown-field errors', () => {
 name: deploy
 container_image: alpine:3.20
 output:
-  llm_profile: report-writer
+  model: report-writer
   items:
     - name: Executive summary
       type: markdown
@@ -73,7 +73,7 @@ container_image: alpine:latest
 llm_enabled: true
 llm_content_sharing: true
 llm_output_sharing: true
-llm_profile: fast
+model: fast
 knowledge_context:
   - kind: guardrail
     ref: data-team/runtime-output-safety

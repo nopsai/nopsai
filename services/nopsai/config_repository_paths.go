@@ -7,16 +7,12 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
-	"nopsai/services/nopsai/internal/mcpregistry"
 )
 
 const (
 	configRepositoryAccessAllPath             = "access/all.yaml"
 	configRepositoryAccessGrantsPath          = "access/grants.yaml"
 	configRepositoryServiceAccountsAccessPath = "access/service-accounts.yaml"
-	configRepositoryLLMProfilesPath           = "setting/system/llm_profile.yaml"
-	configRepositoryAgentProfilesPath         = "setting/system/agent-profiles.yaml"
-	configRepositoryMCPRegistryPath           = "setting/system/mcp.yaml"
 	configRepositoryAssistantSettingsPath     = "setting/" + assistantSettingsGitOpsPath
 	configRepositoryMailSettingsPath          = "setting/system/mail.yaml"
 	configRepositoryDataManagementPath        = "setting/system/data-management.yaml"
@@ -100,10 +96,7 @@ func isConfigRepositorySettingsDriftPath(rel string) bool {
 		isGitOpsAssistantSettingsRelativePath(rel) ||
 		isGitOpsMailSettingsRelativePath(rel) ||
 		isGitOpsDataManagementRelativePath(rel) ||
-		isGitOpsCredentialsRelativePath(rel) ||
-		isGitOpsLLMProfileRelativePath(rel) ||
-		isGitOpsAgentProfileRelativePath(rel) ||
-		mcpregistry.IsGitOpsRelativePath(rel)
+		isGitOpsCredentialsRelativePath(rel)
 }
 
 func configRepositoryDriftPathOptions() configsync.DriftPathOptions {
@@ -112,6 +105,7 @@ func configRepositoryDriftPathOptions() configsync.DriftPathOptions {
 		GitWebhookSourcesDirectory: gitWebhookSourcesGitOpsDirectory,
 		DashboardDirectory:         "dashboards",
 		DashboardTemplateDirectory: "dashboard-templates",
+		RegistryDirectories:        []string{modelsGitOpsDirectory, agentRolesGitOpsDirectory, mcpGitOpsDirectory},
 		SettingsRelativePath:       isConfigRepositorySettingsDriftPath,
 	}
 }

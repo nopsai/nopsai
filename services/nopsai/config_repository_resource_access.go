@@ -374,9 +374,9 @@ func resourceTypeForUseActions(actions []string) string {
 			return grantResourceKnowledgeConnection
 		case strings.HasPrefix(action, "dashboard."):
 			return grantResourceDashboard
-		case strings.HasPrefix(action, "llm_profile."):
+		case strings.HasPrefix(action, "model."):
 			return grantResourceLLMProfile
-		case strings.HasPrefix(action, "agent_profile."):
+		case strings.HasPrefix(action, "agent_role."):
 			return grantResourceAgentProfile
 		case strings.HasPrefix(action, "mcp_server."):
 			return grantResourceMCPServer

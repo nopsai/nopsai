@@ -165,8 +165,8 @@ function AppShell() {
         return item;
       })
       .filter(item => {
-        if (item.path === '/llm-profiles') return canViewSystemLLMProfiles;
-        if (item.path === '/agent-profiles') return canViewSystemAgentProfiles;
+        if (item.path === '/models') return canViewSystemLLMProfiles;
+        if (item.path === '/agent-roles') return canViewSystemAgentProfiles;
         if (item.path === '/mcp') return canViewSystemMCP;
         if (item.path === '/credentials') return canViewSystemCredentials;
         if (item.path === '/schedules') return canViewSchedules;

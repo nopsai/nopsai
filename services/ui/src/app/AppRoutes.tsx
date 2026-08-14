@@ -74,7 +74,7 @@ export function AppRoutes({
         <Route path="/teams/*" element={<TeamsPage />} />
         <Route path="/assistant" element={<AssistantPage />} />
         <Route
-          path="/llm-profiles/*"
+          path="/models/*"
           element={
             <PermissionGuard allowed={access.canViewSystemLLMProfiles} loading={currentUserLoading}>
               <LLMProfilesPage canManage={access.canManageSystemLLMProfiles} />
@@ -82,7 +82,7 @@ export function AppRoutes({
           }
         />
         <Route
-          path="/agent-profiles/*"
+          path="/agent-roles/*"
           element={
             <PermissionGuard allowed={access.canViewSystemAgentProfiles} loading={currentUserLoading}>
               <AgentProfilesPage canManage={access.canManageSystemAgentProfiles} />
@@ -201,8 +201,8 @@ export function AppRoutes({
             </PermissionGuard>
           }
         />
-        <Route path="/system/llm-profiles" element={<Navigate to="/llm-profiles" replace />} />
-        <Route path="/system/agent-profiles" element={<Navigate to="/agent-profiles" replace />} />
+        <Route path="/system/models" element={<Navigate to="/models" replace />} />
+        <Route path="/system/agent-roles" element={<Navigate to="/agent-roles" replace />} />
         <Route path="/system/mcp" element={<Navigate to="/mcp" replace />} />
         <Route path="/system/credentials" element={<Navigate to={{ pathname: '/credentials', search: location.search }} replace />} />
         <Route

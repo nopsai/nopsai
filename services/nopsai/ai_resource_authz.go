@@ -20,17 +20,17 @@ type aiResourceAccessSpec struct {
 var (
 	llmProfileAccessSpec = aiResourceAccessSpec{
 		resourceType: grantResourceLLMProfile,
-		systemID:     "llm-profiles",
-		readAction:   "llm_profile.read",
-		useAction:    "llm_profile.use",
-		manageAction: "llm_profile.manage_acl",
+		systemID:     "models",
+		readAction:   "model.read",
+		useAction:    "model.use",
+		manageAction: "model.manage_acl",
 	}
 	agentProfileAccessSpec = aiResourceAccessSpec{
 		resourceType: grantResourceAgentProfile,
-		systemID:     "agent-profiles",
-		readAction:   "agent_profile.read",
-		useAction:    "agent_profile.use",
-		manageAction: "agent_profile.manage_acl",
+		systemID:     "agent-roles",
+		readAction:   "agent_role.read",
+		useAction:    "agent_role.use",
+		manageAction: "agent_role.manage_acl",
 	}
 	mcpServerAccessSpec = aiResourceAccessSpec{
 		resourceType: grantResourceMCPServer,

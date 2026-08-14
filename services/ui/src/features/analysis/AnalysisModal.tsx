@@ -546,7 +546,7 @@ function AiEvaluationPanel({
           <div className="font-semibold">{aiEvaluationErrorTitle(state.error)}</div>
           <p className="mt-1">{aiEvaluationErrorDetail(state.error)}</p>
           {aiEvaluationErrorNeedsProfileLink(state.error) ? (
-            <Link className="mt-2 inline-flex text-xs font-semibold underline underline-offset-4" to="/llm-profiles">
+            <Link className="mt-2 inline-flex text-xs font-semibold underline underline-offset-4" to="/models">
               Open LLM Profiles
             </Link>
           ) : null}

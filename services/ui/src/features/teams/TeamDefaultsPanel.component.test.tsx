@@ -65,8 +65,8 @@ const agentProfiles: TeamAgentProfilesResponse = {
 const teamDefaults: TeamDefaultsResponse = {
   team_id: 1,
   team_path: 'platform',
-  llm_profile: 'fast',
-  agent_profile: 'reviewer',
+  model: 'fast',
+  agent_role: 'reviewer',
   knowledge_context: {
     guardrail: 'platform/runtime-safety',
     runbook: 'platform/restart',
@@ -147,10 +147,10 @@ describe('TeamDefaultsPanel', () => {
     renderPanel({ canManageDefaults: true, onSaveDefaults });
 
     await user.selectOptions(screen.getByLabelText('LLM profile'), 'careful');
-    await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('platform', { llm_profile: 'careful' }));
+    await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('platform', { model: 'careful' }));
 
     await user.selectOptions(screen.getByLabelText('Agent profile'), 'ops');
-    await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('platform', { agent_profile: 'ops' }));
+    await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('platform', { agent_role: 'ops' }));
 
     await user.selectOptions(screen.getByLabelText('Guardrail knowledge'), 'platform/no-env-print');
     await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('platform', { knowledge_context: { guardrail: 'platform/no-env-print' } }));

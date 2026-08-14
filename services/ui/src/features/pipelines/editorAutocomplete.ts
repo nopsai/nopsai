@@ -65,11 +65,11 @@ export function buildPipelineEditorSuggestion({
     currentKey === 'include' ||
     /^\s*include\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
   const llmProfileValueContext =
-    currentKey === 'llm_profile' ||
-    /^\s*llm_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
+    currentKey === 'model' ||
+    /^\s*model\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
   const agentProfileValueContext =
-    currentKey === 'agent_profile' ||
-    /^\s*agent_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
+    currentKey === 'agent_role' ||
+    /^\s*agent_role\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
   const runtimePoolValueContext =
     currentKey === 'runtime_pool' ||
     /^\s*runtime_pool\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());

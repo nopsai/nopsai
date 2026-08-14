@@ -236,26 +236,26 @@ export const getStartedSection: WikiSection = {
       summary: 'Add an LLM-backed goal to a pipeline and understand which control layer decides what.',
       keywords: ['ai', 'goal', 'llm', 'first ai pipeline'],
       keyFacts: [
-        'A goal needs a usable LLM Profile. Configure provider, model, and credential reference before authoring.',
-        '`agent_profile` selects the persona; `llm_profile` selects the provider and model. They are independent.',
+        'A goal needs a usable Model. Configure provider, model, and credential reference before authoring.',
+        '`agent_role` selects the persona; `model` selects the provider and model. They are independent.',
         'AAA still decides whether the original caller may use the profile you named.',
         '`governance_level` defaults to `strict`, which proceeds only on a clear policy allow.',
       ],
       prerequisites: [
-        { label: 'LLM Profile', value: 'At least one configured profile with a working credential', verification: 'Use the profile Test action in LLM Profiles.' },
+        { label: 'Model', value: 'At least one configured profile with a working credential', verification: 'Use the profile Test action in Models.' },
         { label: 'Scope access', value: 'The profile must be allowed in your run scope' },
         { label: 'Pipeline', value: 'A working script pipeline from the previous tutorial' },
         { label: 'Permission', value: 'Use access on the selected profile' },
       ],
       steps: [
         {
-          title: 'Test the LLM Profile first',
+          title: 'Test the Model first',
           description: 'Confirm the provider and credential work before a run depends on them.',
           commands: [
             {
               title: 'Test the profile',
               language: 'bash',
-              code: 'curl -sX POST localhost:8080/v1/system/llm-profiles/standard/test \\\n  -H "Authorization: Bearer $NOPSAI_TOKEN"',
+              code: 'curl -sX POST localhost:8080/v1/system/models/standard/test \\\n  -H "Authorization: Bearer $NOPSAI_TOKEN"',
             },
           ],
           expectedOutput: 'A successful test result. A failure here will fail every goal that uses the profile.',
@@ -270,7 +270,7 @@ export const getStartedSection: WikiSection = {
               code: [
                 'name: release-notes',
                 'container_image: alpine/git:latest',
-                'llm_profile: standard',
+                'model: standard',
                 'steps:',
                 '  - name: collect',
                 '    script: git log --oneline -20 > /workspace/commits.txt',
@@ -293,7 +293,7 @@ export const getStartedSection: WikiSection = {
         'If the run is rejected before execution, check the message: an unconfigured profile, a scope restriction, and an AAA denial all produce different, specific errors.',
         'Add `mcp_profiles` only when the goal genuinely needs external tools. Script steps and include steps cannot use them.',
       ],
-      related: ['ai-control-layers', 'llm-profiles', 'agent-profiles', 'governance-and-policy'],
+      related: ['ai-control-layers', 'models', 'agent-roles', 'governance-and-policy'],
       sources: [
         { repositoryPath: 'doc/llm-model-selection.md', purpose: 'Provider and model selection notes.' },
       ],
@@ -505,7 +505,7 @@ export const getStartedSection: WikiSection = {
         'PDF rendering requires a reachable Gotenberg service.',
       ],
       prerequisites: [
-        { label: 'LLM Profile', value: 'A usable profile — final outputs are LLM-generated' },
+        { label: 'Model', value: 'A usable profile — final outputs are LLM-generated' },
         { label: 'LLM enabled', value: 'The pipeline must not set `llm_enabled: false`' },
         { label: 'Gotenberg', value: 'Required only for `type: pdf`', verification: 'FINAL_OUTPUT_PDF_RENDERER_URL is set' },
         { label: 'Permission', value: 'Read access to the run to download the result' },
@@ -520,7 +520,7 @@ export const getStartedSection: WikiSection = {
               language: 'yaml',
               code: [
                 'output:',
-                '  llm_profile: report-writer',
+                '  model: report-writer',
                 '  items:',
                 '    - name: Executive summary',
                 '      type: markdown',

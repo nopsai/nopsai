@@ -18,8 +18,8 @@ import {
 
 export type TeamLinkedResourceKind =
   | 'application'
-  | 'llm_profile'
-  | 'agent_profile'
+  | 'model'
+  | 'agent_role'
   | 'mcp_profile'
   | 'pipeline'
   | 'step'
@@ -57,8 +57,8 @@ export type ApplicationResourceMatchContext = {
 
 export const TEAM_LINKED_RESOURCE_LABELS: Record<TeamLinkedResourceKind, string> = {
   application: 'Applications',
-  llm_profile: 'LLM Profiles',
-  agent_profile: 'Agent Profiles',
+  model: 'LLM Profiles',
+  agent_role: 'Agent Profiles',
   mcp_profile: 'MCP Profiles',
   pipeline: 'Pipelines',
   step: 'Steps',
@@ -73,8 +73,8 @@ export const TEAM_LINKED_RESOURCE_LABELS: Record<TeamLinkedResourceKind, string>
 
 const RESOURCE_KIND_ORDER: TeamLinkedResourceKind[] = [
   'application',
-  'llm_profile',
-  'agent_profile',
+  'model',
+  'agent_role',
   'mcp_profile',
   'pipeline',
   'step',

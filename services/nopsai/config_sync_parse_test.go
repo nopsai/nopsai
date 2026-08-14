@@ -309,8 +309,8 @@ func TestParseConfigSyncPlanLoadsColocatedTeamDefaults(t *testing.T) {
 	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
 		configRepositories: map[string]string{
 			"config-repositories/teams/platform/ml/defaults.yaml": `
-llm_profile: chatgpt
-agent_profile: reviewer
+model: chatgpt
+agent_role: reviewer
 knowledge_context:
   guardrail: runtime-output-safety
 `,
@@ -349,7 +349,7 @@ func TestParseConfigSyncPlanNormalizesTeamRepoDefaultsPath(t *testing.T) {
 	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
 		configRepositories: map[string]string{
 			"config/config-repositories/teams/ml/defaults.yaml": `
-agent_profile: reviewer
+agent_role: reviewer
 `,
 		},
 	})
@@ -375,8 +375,8 @@ func TestParseConfigSyncPlanRejectsDuplicateTeamDefaults(t *testing.T) {
 
 	_, err = (&App{}).parseConfigSyncPlan(binding, repoCtx, configSyncRepositoryFiles{
 		configRepositories: map[string]string{
-			"config/config-repositories/teams/team-1/defaults.yaml": "llm_profile: review\n",
-			"config/config-repositories/teams/team-1/defaults.yml":  "agent_profile: reviewer\n",
+			"config/config-repositories/teams/team-1/defaults.yaml": "model: review\n",
+			"config/config-repositories/teams/team-1/defaults.yml":  "agent_role: reviewer\n",
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "duplicate team defaults") {

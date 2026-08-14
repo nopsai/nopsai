@@ -108,8 +108,8 @@ func logAgentRuntimeAdapters(runID, pipelineName string, adapters agentRuntimeAd
 	if adapters.PipelineLLMEnabled {
 		defaultLLMProfile, _ := adapters.LLMRegistry.DefaultProfile()
 		startupLog := agentLog(runID, pipelineName).Info().
-			Str("llm_profile", adapters.LLMRegistry.DefaultProfileName()).
-			Str("agent_profile", adapters.AgentRegistry.DefaultProfileName()).
+			Str("model", adapters.LLMRegistry.DefaultProfileName()).
+			Str("agent_role", adapters.AgentRegistry.DefaultProfileName()).
 			Str("llm_provider", defaultLLMProfile.Provider)
 		switch defaultLLMProfile.Provider {
 		case appconfig.LLMProviderLMStudio:

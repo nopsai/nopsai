@@ -3,15 +3,15 @@ import type { WikiField } from '../types.js';
 /** Final deliverable directives under `output`. */
 export const finalOutputFields: WikiField[] = [
   {
-    path: 'output.llm_profile',
+    path: 'output.model',
     scope: 'output',
     type: 'string',
     required: false,
-    defaultValue: 'Pipeline `llm_profile`, otherwise configured default',
+    defaultValue: 'Pipeline `model`, otherwise configured default',
     description: 'Model profile used to generate every output item that does not set its own.',
-    example: 'output:\n  llm_profile: report-writer',
+    example: 'output:\n  model: report-writer',
     constraints: ['Setting this without at least one output item is a validation error.'],
-    overriddenBy: ['output.items[].llm_profile'],
+    overriddenBy: ['output.items[].model'],
     evidence: 'services/nopsai/pkg/validation/pipeline.go',
   },
   {
@@ -61,13 +61,13 @@ export const finalOutputFields: WikiField[] = [
     evidence: 'services/nopsai/pkg/validation/pipeline.go',
   },
   {
-    path: 'output.items[].llm_profile',
+    path: 'output.items[].model',
     scope: 'output item',
     type: 'string',
     required: false,
-    defaultValue: '`output.llm_profile`, then pipeline, then configured default',
+    defaultValue: '`output.model`, then pipeline, then configured default',
     description: 'Most specific model profile override for this deliverable.',
-    example: 'llm_profile: reasoning-large',
+    example: 'model: reasoning-large',
   },
 ];
 

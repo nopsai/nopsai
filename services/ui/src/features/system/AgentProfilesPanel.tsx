@@ -4,8 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   agentProfileSourceLabel,
   type AgentProfileRecord,
-} from './agent-profiles/model';
-import { useAgentProfiles } from './agent-profiles/useAgentProfiles';
+} from './agent-roles/model';
+import { useAgentProfiles } from './agent-roles/useAgentProfiles';
 import {
   teamAgentProfileRecords,
   teamScopedDefaultID,
@@ -244,7 +244,7 @@ function AgentProfilesPanel({
     setDeleteBlocker(null);
     setPanelMode(null);
     navigate(
-      aiResourceRoute('/agent-profiles', '', aiResourceSearchParamsForTeamFilter(new URLSearchParams(location.search), value)),
+      aiResourceRoute('/agent-roles', '', aiResourceSearchParamsForTeamFilter(new URLSearchParams(location.search), value)),
       { preventScrollReset: true }
     );
   };
@@ -272,7 +272,7 @@ function AgentProfilesPanel({
     setForm(prev => ({ ...prev, id: buildAIResourceScopedID(createTeamPath, localID) }));
   };
   return (
-    <div id="system-agent-profiles-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
+    <div id="system-agent-roles-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
       <div className="ai-resource-page-header ai-resource-page-header--toolbar ai-resource-overview-bar">
         <h2 className="sr-only">Agent Profiles</h2>
         <div className="ai-resource-default-control">
@@ -302,7 +302,7 @@ function AgentProfilesPanel({
       {teamProfilesError && <div className="ai-resource-alert ai-resource-alert--error">{teamProfilesError}</div>}
 
       <AIResourceWorkspace
-        storageKey="agent-profiles"
+        storageKey="agent-roles"
         workspaceLabel="Agent profile workspace"
         treeTitle="Agent profile tree"
         resourceType="agent-profile"
@@ -628,7 +628,7 @@ function AgentProfileDetail({
             </AIResourceIconAction>
           )}
           <ResourceAccessCard
-            resourceType="agent_profile"
+            resourceType="agent_role"
             resourceID={profile.id}
             label="agent profile"
             buttonClassName="ai-resource-icon-action"

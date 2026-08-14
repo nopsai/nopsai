@@ -22,12 +22,12 @@ Team
   -> notification policies
   -> access ownership
   -> defaults
-     -> LLM profile
-     -> Agent profile
+     -> model
+     -> Agent role
      -> each knowledge kind
   -> profiles
-     -> LLM profiles
-     -> Agent profiles
+     -> models
+     -> agent roles
      -> MCP profiles
   -> resources
      -> pipelines
@@ -240,8 +240,8 @@ Team admin:
 Team defaults are deliberately generic and rendered one subject per row:
 
 ```text
-LLM profile
-Agent profile
+model
+Agent role
 architecture knowledge
 guardrail knowledge
 policy knowledge
@@ -278,8 +278,8 @@ UI/API.
 Profile references in pipeline YAML stay simple for most authors:
 
 ```yaml
-llm_profile: release-review
-agent_profile: sre-reviewer
+model: release-review
+agent_role: sre-reviewer
 mcp_profiles:
   - github-pr-readonly
 ```
@@ -297,7 +297,7 @@ Validation must reject ambiguity and policy violations before agent launch.
 
 ### Policy Rules
 
-Team LLM profiles can select only approved providers/models and credentials
+Team models can select only approved providers/models and credentials
 allowed for that team. Credential references should support team namespaces:
 
 ```text
@@ -305,7 +305,7 @@ credential://team/<team-id-or-slug>/llm/openai-prod
 credential://team/<team-id-or-slug>/mcp/github
 ```
 
-Team Agent profiles may define local persona/instruction text, but system admins
+Team agent roles may define local persona/instruction text, but system admins
 can enforce maximum size, disallowed prompt fragments, and required enterprise
 guardrails.
 
@@ -329,8 +329,8 @@ config-repositories/
 Canonical team `defaults.yaml`:
 
 ```yaml
-llm_profile: release-review
-agent_profile: payments-sre
+model: release-review
+agent_role: payments-sre
 knowledge_context:
   guardrail: runtime-output-safety
   runbook: release-checklist
@@ -432,18 +432,18 @@ POST   /v1/teams/{teamID}/config-repository/write
 GET    /v1/teams/{teamID}/notifications
 PUT    /v1/teams/{teamID}/notifications
 
-GET    /v1/teams/{teamID}/llm-profiles
-PUT    /v1/teams/{teamID}/llm-profiles
-PUT    /v1/teams/{teamID}/llm-profiles/default
-PUT    /v1/teams/{teamID}/llm-profiles/{profileName}
-DELETE /v1/teams/{teamID}/llm-profiles/{profileName}
+GET    /v1/teams/{teamID}/models
+PUT    /v1/teams/{teamID}/models
+PUT    /v1/teams/{teamID}/models/default
+PUT    /v1/teams/{teamID}/models/{profileName}
+DELETE /v1/teams/{teamID}/models/{profileName}
 
-GET    /v1/teams/{teamID}/agent-profiles
-POST   /v1/teams/{teamID}/agent-profiles
-PUT    /v1/teams/{teamID}/agent-profiles/default
-GET    /v1/teams/{teamID}/agent-profiles/{profileID}
-PUT    /v1/teams/{teamID}/agent-profiles/{profileID}
-DELETE /v1/teams/{teamID}/agent-profiles/{profileID}
+GET    /v1/teams/{teamID}/agent-roles
+POST   /v1/teams/{teamID}/agent-roles
+PUT    /v1/teams/{teamID}/agent-roles/default
+GET    /v1/teams/{teamID}/agent-roles/{profileID}
+PUT    /v1/teams/{teamID}/agent-roles/{profileID}
+DELETE /v1/teams/{teamID}/agent-roles/{profileID}
 
 GET    /v1/teams/{teamID}/mcp-profiles
 POST   /v1/teams/{teamID}/mcp-profiles
@@ -487,7 +487,7 @@ application.delete
 
 Profile resolution at runtime must check both resource permission and profile
 use permission. A user who can run a pipeline does not automatically get to use
-an expensive or sensitive team LLM profile unless the team/profile policy
+an expensive or sensitive team model unless the team/profile policy
 allows it.
 
 ## Source Ownership

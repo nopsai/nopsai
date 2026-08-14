@@ -101,7 +101,7 @@ const teamProfileMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('./agent-profiles/api', () => apiMocks);
+vi.mock('./agent-roles/api', () => apiMocks);
 vi.mock('./teamProfileApi', () => teamProfileMocks);
 vi.mock('../../lib/resourceTeams', () => teamMocks);
 
@@ -120,7 +120,7 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   );
 
   expect(await screen.findByRole('heading', { name: 'Agent Profiles' })).toHaveClass('sr-only');
-  expect(document.getElementById('system-agent-profiles-section')).toHaveClass('ai-resource-page');
+  expect(document.getElementById('system-agent-roles-section')).toHaveClass('ai-resource-page');
   expect(screen.getByLabelText('Agent profile workspace')).toHaveClass('ai-resource-workspace-card');
   expect(screen.getByLabelText('Agent profile tree')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Select agent profile DevOps Engineer' })).toBeVisible();
@@ -194,7 +194,7 @@ test('shows scoped catalog agent profiles for the selected team and saves them a
 
   const user = userEvent.setup();
   render(
-    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/agent-roles?team=platform%2Fml']}>
       <AgentProfilesPanel canManage />
     </MemoryRouter>
   );
@@ -214,7 +214,7 @@ test('shows scoped catalog agent profiles for the selected team and saves them a
 test('updates the selected team agent default through the team API', async () => {
   const user = userEvent.setup();
   render(
-    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/agent-roles?team=platform%2Fml']}>
       <AgentProfilesPanel canManage />
     </MemoryRouter>
   );
@@ -247,7 +247,7 @@ test('moves an edited team agent profile to the global catalog', async () => {
   const user = userEvent.setup();
 
   render(
-    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/agent-roles?team=platform%2Fml']}>
       <AgentProfilesPanel canManage />
     </MemoryRouter>
   );
@@ -271,7 +271,7 @@ test('moves an edited team agent profile to the global catalog', async () => {
 
 test('applies the team filter from the route query', async () => {
   render(
-    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/agent-roles?team=platform%2Fml']}>
       <AgentProfilesPanel canManage />
     </MemoryRouter>
   );

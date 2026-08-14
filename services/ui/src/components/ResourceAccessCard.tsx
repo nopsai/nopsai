@@ -43,8 +43,8 @@ export type ResourceAccessResourceType =
   | 'runner'
   | 'config_repo'
   | 'knowledge_context'
-  | 'llm_profile'
-  | 'agent_profile'
+  | 'model'
+  | 'agent_role'
   | 'mcp_server'
   | 'mcp_profile';
 

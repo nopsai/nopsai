@@ -644,8 +644,8 @@ function TeamResourcesPanel({
     : [
         { label: 'Teams', value: stats.teams, icon: <ObjectIcon type="team" />, tone: 'blue' as const, onClick: () => onTabChange('overview') },
         { label: 'Applications', value: resourceCountLabel('application'), icon: <ObjectIcon type="application" />, tone: 'purple' as const, active: activeResourceKind === 'application', onClick: () => setSelectedResourceKind('application') },
-        { label: 'LLM Profiles', value: resourceCountLabel('llm_profile'), icon: <ObjectIcon type="llm-profile" />, tone: 'purple' as const, active: activeResourceKind === 'llm_profile', onClick: () => setSelectedResourceKind('llm_profile') },
-        { label: 'Agent Profiles', value: resourceCountLabel('agent_profile'), icon: <ObjectIcon type="agent-profile" />, tone: 'blue' as const, active: activeResourceKind === 'agent_profile', onClick: () => setSelectedResourceKind('agent_profile') },
+        { label: 'LLM Profiles', value: resourceCountLabel('model'), icon: <ObjectIcon type="llm-profile" />, tone: 'purple' as const, active: activeResourceKind === 'model', onClick: () => setSelectedResourceKind('model') },
+        { label: 'Agent Profiles', value: resourceCountLabel('agent_role'), icon: <ObjectIcon type="agent-profile" />, tone: 'blue' as const, active: activeResourceKind === 'agent_role', onClick: () => setSelectedResourceKind('agent_role') },
         { label: 'MCP Profiles', value: resourceCountLabel('mcp_profile'), icon: <ObjectIcon type="mcp-profile" />, tone: 'green' as const, active: activeResourceKind === 'mcp_profile', onClick: () => setSelectedResourceKind('mcp_profile') },
         ...(team ? [{ label: 'Notifications', value: typeof notificationCount === 'number' ? notificationCount : '-', icon: <Bell className="h-4 w-4" />, tone: 'cyan' as const, onClick: () => onTabChange('notifications') }] : []),
         { label: 'Pipelines', value: resourceCountLabel('pipeline'), icon: <ObjectIcon type="pipeline" />, tone: 'green' as const, active: activeResourceKind === 'pipeline', onClick: () => setSelectedResourceKind('pipeline') },
@@ -781,8 +781,8 @@ function TeamLinkedResourceRow({
 
 const TEAM_LINKED_RESOURCE_KINDS: TeamLinkedResourceKind[] = [
   'application',
-  'llm_profile',
-  'agent_profile',
+  'model',
+  'agent_role',
   'mcp_profile',
   'pipeline',
   'step',
@@ -795,7 +795,7 @@ const TEAM_LINKED_RESOURCE_KINDS: TeamLinkedResourceKind[] = [
   'credential',
 ];
 
-const AI_RESOURCE_KINDS = new Set<TeamLinkedResourceKind>(['llm_profile', 'agent_profile', 'mcp_profile']);
+const AI_RESOURCE_KINDS = new Set<TeamLinkedResourceKind>(['model', 'agent_role', 'mcp_profile']);
 const CATALOG_RESOURCE_KINDS = new Set<TeamLinkedResourceKind>([
   'pipeline',
   'step',
@@ -829,11 +829,11 @@ function buildLLMProfileLinkedResources(profiles: NonNullable<TeamOperationsSumm
   return profiles.map(profile => {
     const teamPath = profile.team_path || '';
     return {
-      id: `llm_profile:${teamPath || 'global'}:${profile.name}`,
-      kind: 'llm_profile',
+      id: `model:${teamPath || 'global'}:${profile.name}`,
+      kind: 'model',
       label: profile.name,
       description: [profile.provider, profile.model, profile.credential_ref].filter(Boolean).join(' / ') || 'LLM profile',
-      href: `/llm-profiles${aiResourceQuery(teamPath)}`,
+      href: `/models${aiResourceQuery(teamPath)}`,
       teamPath,
       source: profile.status || undefined,
     };
@@ -844,11 +844,11 @@ function buildAgentProfileLinkedResources(profiles: NonNullable<TeamOperationsSu
   return profiles.map(profile => {
     const teamPath = profile.team_path || '';
     return {
-      id: `agent_profile:${teamPath || 'global'}:${profile.id}`,
-      kind: 'agent_profile',
+      id: `agent_role:${teamPath || 'global'}:${profile.id}`,
+      kind: 'agent_role',
       label: profile.display_name || profile.id,
       description: [profile.id, profile.role, profile.description].filter(Boolean).join(' / ') || 'Agent profile',
-      href: `/agent-profiles${aiResourceQuery(teamPath)}`,
+      href: `/agent-roles${aiResourceQuery(teamPath)}`,
       teamPath,
       source: profile.enabled === false ? 'disabled' : profile.source,
     };
@@ -879,8 +879,8 @@ function aiResourceQuery(teamPath: string, suffix = '') {
 function countLinkedResourcesByKind(resources: TeamLinkedResource[]): Record<TeamLinkedResourceKind, number> {
   const counts: Record<TeamLinkedResourceKind, number> = {
     application: 0,
-    llm_profile: 0,
-    agent_profile: 0,
+    model: 0,
+    agent_role: 0,
     mcp_profile: 0,
     pipeline: 0,
     step: 0,
@@ -926,8 +926,8 @@ function linkedResourceIcon(kind: TeamLinkedResourceKind) {
 
 function linkedResourceIconType(kind: TeamLinkedResourceKind): ObjectIconType {
   if (kind === 'application') return 'application';
-  if (kind === 'llm_profile') return 'llm-profile';
-  if (kind === 'agent_profile') return 'agent-profile';
+  if (kind === 'model') return 'llm-profile';
+  if (kind === 'agent_role') return 'agent-profile';
   if (kind === 'mcp_profile') return 'mcp-profile';
   if (kind === 'external_trigger') return 'external-trigger';
   if (kind === 'git_webhook_source') return 'git-webhook-source';
@@ -938,7 +938,7 @@ function linkedResourceIconType(kind: TeamLinkedResourceKind): ObjectIconType {
 function linkedResourceTone(kind: TeamLinkedResourceKind): 'blue' | 'purple' | 'green' | 'cyan' {
   if (kind === 'pipeline' || kind === 'git_webhook_source' || kind === 'mcp_profile') return 'green';
   if (kind === 'trigger' || kind === 'external_trigger') return 'cyan';
-  if (kind === 'schedule' || kind === 'scope' || kind === 'application' || kind === 'llm_profile') return 'purple';
+  if (kind === 'schedule' || kind === 'scope' || kind === 'application' || kind === 'model') return 'purple';
   return 'blue';
 }
 

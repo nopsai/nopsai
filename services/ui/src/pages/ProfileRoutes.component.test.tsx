@@ -48,7 +48,7 @@ function LocationProbe() {
 test('LLM profile pages use nested profile routes', async () => {
   const user = userEvent.setup();
   render(
-    <MemoryRouter initialEntries={['/llm-profiles?team=platform%2Fml']}>
+    <MemoryRouter initialEntries={['/models?team=platform%2Fml']}>
       <LLMProfilesPage canManage />
       <LocationProbe />
     </MemoryRouter>
@@ -56,18 +56,18 @@ test('LLM profile pages use nested profile routes', async () => {
 
   await user.click(screen.getByRole('button', { name: 'Open LLM profile' }));
 
-  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/llm-profiles/platform/ml/reasoning?team=platform%2Fml'));
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/models/platform/ml/reasoning?team=platform%2Fml'));
   expect(screen.getByTestId('selected-llm-profile')).toHaveTextContent('platform/ml/reasoning');
 });
 
 test('Agent profile pages read direct nested profile routes', () => {
   render(
-    <MemoryRouter initialEntries={['/agent-profiles/platform/ml/security-reviewer']}>
+    <MemoryRouter initialEntries={['/agent-roles/platform/ml/security-reviewer']}>
       <AgentProfilesPage canManage />
       <LocationProbe />
     </MemoryRouter>
   );
 
-  expect(screen.getByTestId('location')).toHaveTextContent('/agent-profiles/platform/ml/security-reviewer');
+  expect(screen.getByTestId('location')).toHaveTextContent('/agent-roles/platform/ml/security-reviewer');
   expect(screen.getByTestId('selected-agent-profile')).toHaveTextContent('platform/ml/security-reviewer');
 });

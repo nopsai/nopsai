@@ -121,7 +121,7 @@ export const administrationSection: WikiSection = {
       summary: 'One encrypted registry behind every credential reference, with versions, rotation, and GitOps envelopes.',
       keywords: ['credential', 'secret', 'rotation', 'encryption', 'registry', 'envelope', 'master key'],
       keyFacts: [
-        'There is a single credential interface. LLM Profiles, MCP servers, Git Apps, webhook sources, and registry auth all reference it rather than storing values themselves.',
+        'There is a single credential interface. Models, MCP servers, Git Apps, webhook sources, and registry auth all reference it rather than storing values themselves.',
         '`NOPSAI_MASTER_KEY` is the root encryption material for the registry.',
         'Credential values are write-only: the API returns metadata but never the value after submission.',
         'Credentials are versioned. A rotation creates a new version, and a specific version can be activated or deleted.',
@@ -129,10 +129,10 @@ export const administrationSection: WikiSection = {
         '`POST /v1/secrets/encrypt` produces a GitOps-safe envelope so a secret can live in a configuration repository without being readable there.',
       ],
       details: [
-        'Legacy inline forms — `api_key_secret` on an LLM profile, `auth_secret` on an MCP server, `GITHUB_PRIVATE_KEY` and `GITHUB_WEBHOOK_SECRET` — remain only for migration. New configuration should use credential references.',
+        'Legacy inline forms — `api_key_secret` on an model, `auth_secret` on an MCP server, `GITHUB_PRIVATE_KEY` and `GITHUB_WEBHOOK_SECRET` — remain only for migration. New configuration should use credential references.',
         'Losing the master key makes stored credentials unrecoverable. Rotating it requires re-encrypting the registry, so treat it as the most sensitive value in the deployment.',
       ],
-      related: ['variables-secrets-scopes', 'llm-profiles', 'private-registry-auth', 'production-hardening'],
+      related: ['variables-secrets-scopes', 'models', 'private-registry-auth', 'production-hardening'],
       sources: [
         { repositoryPath: 'doc/credential-management.md', purpose: 'Encrypted registry, GitOps envelopes, AAA, rotation, and migration.' },
         { repositoryPath: 'services/nopsai/credential_schema.go', purpose: 'Credential schema and version handling.' },
@@ -147,7 +147,8 @@ export const administrationSection: WikiSection = {
       keywords: ['gitops', 'config repository', 'sync', 'drift', 'desired state', 'override'],
       keyFacts: [
         'GitOps can manage `pipelines/`, `steps/`, `schedules/`, `triggers/`, `external-triggers/`, `git-webhook-sources/`, `dashboards/`, `scopes/`, `knowledge/`, `access/`, `config-repositories/`, `setting/git-apps/`, and `setting/system/`.',
-        'Canonical system files: `credentials.yaml`, `runner.yaml`, `assistant.yaml`, `auth.yaml`, `mail.yaml`, `data-management.yaml`, `llm_profile.yaml`, `mcp.yaml`, `agent-profiles.yaml`, plus `setting/git-apps/github.yaml`.',
+        'Canonical system files: `credentials.yaml`, `runner.yaml`, `assistant.yaml`, `auth.yaml`, `mail.yaml`, `data-management.yaml`, plus `setting/git-apps/github.yaml`.',
+        'Models, agent roles, and MCP servers and profiles are one file per resource under `models/`, `agent-roles/`, `mcp/servers/`, and `mcp/profiles/`. A file under a team segment is team-owned, and one file per scope may set `default: true`.',
         '`setting/system/assistant.yaml` owns the assistant block. Sync fails with a migration error when `assistant:` is still in `setting/system/runner.yaml`.',
         'UI or API edits to GitOps-managed resources create database overrides. The next sync can replace or recreate them unless the change is pushed back.',
         'Sync applies dependency roots first: team hierarchy from `config-repositories/`, then team-owned dashboards and notification routes, then pipeline dashboard outputs.',
@@ -165,6 +166,7 @@ export const administrationSection: WikiSection = {
           language: 'text',
           code: [
             'pipelines/            steps/               schedules/',
+            'models/               agent-roles/         mcp/',
             'triggers/             external-triggers/   git-webhook-sources/',
             'dashboards/           scopes/              knowledge/',
             'access/               config-repositories/',
@@ -175,9 +177,9 @@ export const administrationSection: WikiSection = {
             'setting/system/auth.yaml',
             'setting/system/mail.yaml',
             'setting/system/data-management.yaml',
-            'setting/system/llm_profile.yaml',
-            'setting/system/mcp.yaml',
-            'setting/system/agent-profiles.yaml',
+            'models/<name>.yaml            models/<team>/<name>.yaml',
+            'agent-roles/<name>.yaml       agent-roles/<team>/<name>.yaml',
+            'mcp/servers/<name>.yaml       mcp/profiles/<team>/<name>.yaml',
           ].join('\n'),
         },
       ],

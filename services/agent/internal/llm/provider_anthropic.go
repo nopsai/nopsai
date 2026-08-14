@@ -71,7 +71,7 @@ func (c *anthropicClient) Complete(ctx context.Context, prompt string) (string, 
 	endpoint := buildAnthropicMessagesURL(c.baseURL)
 	logEvent := log.Debug().Str("model", c.model).Str("endpoint", endpoint)
 	if c.owner.profile != "" {
-		logEvent = logEvent.Str("llm_profile", c.owner.profile)
+		logEvent = logEvent.Str("model", c.owner.profile)
 	}
 	logEvent.Msg("Calling Anthropic Messages API")
 
