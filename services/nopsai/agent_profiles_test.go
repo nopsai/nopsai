@@ -17,32 +17,27 @@ description: Coordinates release readiness.
 instructions: |
   Check release evidence before rollout.
 `,
-			"agent-roles/platform/reviewer.yaml": `
-display_name: Security Reviewer
-instructions: Review risky changes.
-`,
+			"agent-roles/platform/reviewer.yaml": "display_name: Security Reviewer\ninstructions: Review risky changes.\n",
 		},
 		"agent-roles",
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
-		"",
 	)
 	if err != nil {
 		t.Fatalf("parseGitOpsAgentRoles() error = %v", err)
 	}
-	defaultRole, globalRoles := plan.globalRoles()
+	defaultRole, registryRoles := plan.registryRoles()
 	if defaultRole != "release-manager" {
 		t.Fatalf("default role = %q, want release-manager", defaultRole)
 	}
-	role := globalRoles["release-manager"]
+	role := registryRoles["release-manager"]
 	if role.ID != "release-manager" || !role.Enabled {
 		t.Fatalf("role = %#v, want an enabled release-manager role", role)
 	}
 	if role.Instructions != "Check release evidence before rollout." {
 		t.Fatalf("instructions = %q", role.Instructions)
 	}
-	teamRoles := plan.teamRoles()
-	if _, ok := teamRoles["platform"]["reviewer"]; !ok {
-		t.Fatalf("team roles = %#v, want the platform reviewer", teamRoles)
+	if _, ok := registryRoles["platform/reviewer"]; !ok {
+		t.Fatalf("registry roles = %#v, want the team-scoped platform/reviewer role", registryRoles)
 	}
 }
 
@@ -54,7 +49,6 @@ func TestParseGitOpsAgentRolesRejectsTwoDefaultsInOneScope(t *testing.T) {
 		},
 		"agent-roles",
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
-		"",
 	)
 	if err == nil || !strings.Contains(err.Error(), "set default: true") {
 		t.Fatalf("error = %v, want a single-default error", err)
@@ -68,7 +62,6 @@ func TestParseGitOpsAgentRolesRejectsNameMismatch(t *testing.T) {
 		},
 		"agent-roles",
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
-		"",
 	)
 	if err == nil || !strings.Contains(err.Error(), "declares name") {
 		t.Fatalf("error = %v, want a file-name mismatch error", err)

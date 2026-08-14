@@ -89,13 +89,13 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 	if modelPlan != nil {
-		for key, stored := range modelPlan.models {
+		for name, stored := range modelPlan.models {
 			if err := a.ensureCredentialReferenceMetadata(
 				ctx,
 				stored.profile.CredentialRef,
-				credentialMetadata("api_key", "Model API key for "+key, stored.sourcePath),
+				credentialMetadata("api_key", "Model API key for "+name, stored.sourcePath),
 			); err != nil {
-				return fmt.Errorf("prepare model credential metadata for %q: %w", key, err)
+				return fmt.Errorf("prepare model credential metadata for %q: %w", name, err)
 			}
 		}
 	}
@@ -1361,48 +1361,33 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["team_knowledge_defaults_synced"] += len(defaultsPlan.knowledgeDefaults)
 	}
 	if modelPlan != nil {
-		defaultModel, globalModels := modelPlan.globalModels()
-		if len(globalModels) > 0 {
-			if err := persistLLMProfilesToTx(ctx, tx, defaultModel, globalModels); err != nil {
+		defaultModel, registryModels := modelPlan.registryModels()
+		if len(registryModels) > 0 {
+			if err := persistLLMProfilesToTx(ctx, tx, defaultModel, registryModels); err != nil {
 				return fmt.Errorf("failed to sync models: %w", err)
 			}
-			details["models_synced"] = len(globalModels)
+			details["models_synced"] = len(registryModels)
 		}
-		teamModels, err := a.persistGitOpsTeamModels(ctx, tx, binding, modelPlan, commitSHA)
-		if err != nil {
-			return err
-		}
-		details["team_models_synced"] = teamModels
 	}
 	if agentRolePlan != nil {
-		defaultRole, globalRoles := agentRolePlan.globalRoles()
-		if len(globalRoles) > 0 {
-			if err := persistGitOpsAgentRolesToTx(ctx, tx, agentRolePlan, defaultRole, globalRoles, binding.ID, commitSHA); err != nil {
+		defaultRole, registryRoles := agentRolePlan.registryRoles()
+		if len(registryRoles) > 0 {
+			if err := persistGitOpsAgentRolesToTx(ctx, tx, agentRolePlan, defaultRole, registryRoles, binding.ID, commitSHA); err != nil {
 				return fmt.Errorf("failed to sync agent roles: %w", err)
 			}
-			details["agent_roles_synced"] = len(globalRoles)
+			details["agent_roles_synced"] = len(registryRoles)
 		}
-		teamRoles, err := a.persistGitOpsTeamAgentRoles(ctx, tx, binding, agentRolePlan, commitSHA)
-		if err != nil {
-			return err
-		}
-		details["team_agent_roles_synced"] = teamRoles
 	}
 	if mcpRegistryPlan != nil {
-		servers := mcpRegistryPlan.globalServers()
-		globalProfiles := mcpRegistryPlan.globalProfiles()
-		if len(servers) > 0 || len(globalProfiles) > 0 {
-			if err := persistMCPRegistryToTx(ctx, tx, servers, globalProfiles); err != nil {
+		servers := mcpRegistryPlan.registryServers()
+		profiles := mcpRegistryPlan.registryProfiles()
+		if len(servers) > 0 || len(profiles) > 0 {
+			if err := persistMCPRegistryToTx(ctx, tx, servers, profiles); err != nil {
 				return fmt.Errorf("failed to sync MCP registry: %w", err)
 			}
 			details["mcp_servers_synced"] = len(servers)
-			details["mcp_profiles_synced"] = len(globalProfiles)
+			details["mcp_profiles_synced"] = len(profiles)
 		}
-		teamProfiles, err := a.persistGitOpsTeamMCPProfiles(ctx, tx, binding, mcpRegistryPlan, commitSHA)
-		if err != nil {
-			return err
-		}
-		details["team_mcp_profiles_synced"] = teamProfiles
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1434,15 +1419,15 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 	if modelPlan != nil {
-		if defaultModel, globalModels := modelPlan.globalModels(); len(globalModels) > 0 {
-			a.setLLMProfiles(defaultModel, globalModels)
+		if defaultModel, registryModels := modelPlan.registryModels(); len(registryModels) > 0 {
+			a.setLLMProfiles(defaultModel, registryModels)
 		}
 	}
 	if mcpRegistryPlan != nil {
-		servers := mcpRegistryPlan.globalServers()
-		globalProfiles := mcpRegistryPlan.globalProfiles()
-		if len(servers) > 0 || len(globalProfiles) > 0 {
-			a.setMCPRegistry(servers, globalProfiles)
+		servers := mcpRegistryPlan.registryServers()
+		profiles := mcpRegistryPlan.registryProfiles()
+		if len(servers) > 0 || len(profiles) > 0 {
+			a.setMCPRegistry(servers, profiles)
 		}
 	}
 	return nil

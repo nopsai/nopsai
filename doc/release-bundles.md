@@ -78,7 +78,10 @@ The GitOps release pipeline pins its job images by digest and verifies Helm,
 ORAS, and GitHub CLI archives with SHA-256 before extracting or executing them.
 The shared installer lives in `scripts/install-release-tools.sh`, and
 `release-metadata` copies that checked-in script into the release workspace so
-later jobs reuse the same reviewed logic. The default tool versions have
+later jobs reuse the same reviewed logic. Release images are built by the
+checked-in `scripts/publish-release-image.sh`, which the `publish-images` step
+calls once per image as parallel tasks; the pipeline installs the image
+toolchain once for all of them and no longer writes that publisher at run time. The default tool versions have
 built-in checksums. If a release overrides
 `NOPSAI_RELEASE_HELM_VERSION`, `NOPSAI_RELEASE_ORAS_VERSION`, or
 `NOPSAI_RELEASE_GH_VERSION`, set the matching architecture checksum variable:

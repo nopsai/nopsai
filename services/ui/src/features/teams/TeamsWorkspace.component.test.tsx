@@ -422,8 +422,8 @@ describe('TeamsWorkspace', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Defaults' }));
     expect(screen.getByRole('heading', { name: 'Team Defaults' })).toBeVisible();
-    expect(screen.getByLabelText('LLM profile')).toHaveValue('fast');
-    expect(screen.getByLabelText('Agent profile')).toHaveValue('reviewer');
+    expect(screen.getByLabelText('Model')).toHaveValue('fast');
+    expect(screen.getByLabelText('Agent role')).toHaveValue('reviewer');
     expect(screen.getByLabelText('Runbook knowledge')).toHaveValue('platform/restart');
 
     await user.click(screen.getByRole('tab', { name: 'Access' }));

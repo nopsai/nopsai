@@ -131,7 +131,7 @@ export function TeamDefaultsPanel({
           <div className="teams-defaults-list" aria-label="Team defaults">
             <DefaultRow
               id="team-default-llm-profile"
-              label="LLM profile"
+              label="Model"
               value={values.model}
               options={llmOptions}
               disabled={!editable || savingDefault !== null}
@@ -140,7 +140,7 @@ export function TeamDefaultsPanel({
             />
             <DefaultRow
               id="team-default-agent-profile"
-              label="Agent profile"
+              label="Agent role"
               value={values.agent_role}
               options={agentOptions}
               disabled={!editable || savingDefault !== null}
@@ -187,9 +187,12 @@ function DefaultRow({
   onChange: (value: string) => void;
 }) {
   const detail = saving ? 'Saving...' : defaultOptionDetail(options, value);
+  // The label sits beside the select rather than wrapping it: a wrapping label
+  // takes the option text into its accessible name, which leaves the control
+  // without a usable name for assistive technology and for tests.
   return (
-    <label htmlFor={id} className="teams-defaults-row">
-      <span>{label}</span>
+    <div className="teams-defaults-row">
+      <label htmlFor={id}>{label}</label>
       <select
         id={id}
         className="teams-defaults-select"
@@ -205,7 +208,7 @@ function DefaultRow({
         ))}
       </select>
       <small aria-live="polite">{detail}</small>
-    </label>
+    </div>
   );
 }
 

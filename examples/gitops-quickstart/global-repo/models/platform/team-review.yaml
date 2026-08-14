@@ -1,0 +1,7 @@
+# A team-scoped model. Like a pipeline, the team lives in the path, so this file
+# defines the model named platform/team-review.
+name: platform/team-review
+provider: gemini
+model: gemini-2.5-pro
+credential_ref: credential://system/llm/gemini
+allowed_scopes: ["dev"]

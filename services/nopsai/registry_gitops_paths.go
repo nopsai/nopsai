@@ -25,23 +25,16 @@ const (
 // registryGitOpsResource is one parsed registry file location: which team owns
 // it, what the resource is called, and where the file came from.
 type registryGitOpsResource struct {
-	team       string
 	name       string
 	sourcePath string
 }
 
-func (r registryGitOpsResource) key() string {
-	if r.team == "" {
-		return r.name
-	}
-	return r.team + "/" + r.name
-}
-
-// resolveRegistryGitOpsPath maps <directory>/<team...>/<name>.yaml onto a team
-// and resource name. Team-scoped repositories normalize the team the same way
-// pipelines and knowledge documents do, so a team repository can use either the
-// bare name or its own team prefix.
-func resolveRegistryGitOpsPath(rel string, binding models.ConfigRepository, boundTeam string) (registryGitOpsResource, bool, error) {
+// resolveRegistryGitOpsPath maps <directory>/<name>.yaml onto a resource name.
+// The whole relative path is the name, so a team-qualified registry name such as
+// team-1/platform/github round-trips as mcp/servers/team-1/platform/github.yaml.
+// Team-owned registries are a separate concept and live under
+// config-repositories/teams/<team>/, next to the other team-owned settings.
+func resolveRegistryGitOpsPath(rel string) (registryGitOpsResource, bool, error) {
 	rel = strings.Trim(strings.TrimSpace(filepath.ToSlash(rel)), "/")
 	if rel == "" || strings.HasSuffix(rel, "/") {
 		return registryGitOpsResource{}, false, nil
@@ -51,35 +44,21 @@ func resolveRegistryGitOpsPath(rel string, binding models.ConfigRepository, boun
 	default:
 		return registryGitOpsResource{}, false, nil
 	}
-	parts := strings.Split(rel, "/")
-	fileName := parts[len(parts)-1]
-	name := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	name := strings.TrimSuffix(rel, filepath.Ext(rel))
 	if strings.TrimSpace(name) == "" {
 		return registryGitOpsResource{}, false, fmt.Errorf("registry file name is required")
 	}
-	team := strings.Trim(strings.Join(parts[:len(parts)-1], "/"), "/")
-	if team != "" {
-		if _, err := configsync.CleanPathSegments(team, false); err != nil {
-			return registryGitOpsResource{}, false, err
-		}
+	if _, err := configsync.CleanPathSegments(name, false); err != nil {
+		return registryGitOpsResource{}, false, err
 	}
-	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-		normalizedTeam, err := configsync.NormalizePathForTeam(boundTeam, team)
-		if err != nil {
-			return registryGitOpsResource{}, false, err
-		}
-		team = normalizedTeam
-	}
-	return registryGitOpsResource{team: team, name: name}, true, nil
+	return registryGitOpsResource{name: name}, true, nil
 }
 
-// registryGitOpsFiles walks one registry directory and yields every resource
-// file it owns.
+// registryGitOpsFiles walks one system registry directory and yields every
+// resource file it owns.
 func registryGitOpsFiles(
 	files map[string]string,
 	root string,
-	binding models.ConfigRepository,
-	boundTeam string,
 	resourceLabel string,
 	visit func(registryGitOpsResource, string) error,
 ) error {
@@ -89,7 +68,7 @@ func registryGitOpsFiles(
 		if !ok {
 			continue
 		}
-		resource, ok, err := resolveRegistryGitOpsPath(rel, binding, boundTeam)
+		resource, ok, err := resolveRegistryGitOpsPath(rel)
 		if err != nil {
 			return fmt.Errorf("invalid %s path '%s': %w", resourceLabel, normalized, err)
 		}
@@ -105,43 +84,45 @@ func registryGitOpsFiles(
 }
 
 // registryGitOpsExportPath is the canonical file a registry resource is written
-// back to, or false when the repository does not own that team.
-func registryGitOpsExportPath(repo models.ConfigRepository, directory, team, name string) (string, bool) {
+// back to. The resource name is the path under the registry directory, so a
+// team-scoped name such as team-1/reviewer lands in agent-roles/team-1/, in the
+// same shape as pipelines and reusable steps.
+func registryGitOpsExportPath(repo models.ConfigRepository, directory, name string) (string, bool) {
 	name = strings.Trim(strings.TrimSpace(name), "/")
 	if name == "" {
 		return "", false
 	}
-	team = strings.Trim(strings.TrimSpace(team), "/")
-	if team == "" {
-		if repo.ScopeType != models.ConfigRepositoryScopeSystem {
-			return "", false
-		}
-		return filepath.ToSlash(filepath.Join(directory, name+".yaml")), true
-	}
-	relTeam, ok := configRepositoryRelativeResourceIdentifier(repo, team)
-	if !ok {
+	if _, ok := configRepositoryRelativeResourceIdentifier(repo, name); !ok {
 		return "", false
 	}
-	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
-		team = strings.Trim(relTeam, "/")
-		if team == "" {
-			return filepath.ToSlash(filepath.Join(directory, name+".yaml")), true
-		}
-	}
-	return filepath.ToSlash(filepath.Join(directory, team, name+".yaml")), true
+	return filepath.ToSlash(filepath.Join(directory, name+".yaml")), true
 }
 
 // requireSingleRegistryDefault keeps the default selection unambiguous: exactly
-// one file per scope may declare itself the default.
+// one file in a registry may declare itself the default.
 func requireSingleRegistryDefault(current, candidate registryGitOpsResource, resourceLabel string) (registryGitOpsResource, error) {
 	if current.name == "" {
 		return candidate, nil
 	}
-	scope := "global"
-	if candidate.team != "" {
-		scope = "team " + candidate.team
-	}
 	paths := []string{current.sourcePath, candidate.sourcePath}
 	sort.Strings(paths)
-	return registryGitOpsResource{}, fmt.Errorf("multiple %s files set default: true for %s: %s", resourceLabel, scope, strings.Join(paths, ", "))
+	return registryGitOpsResource{}, fmt.Errorf("multiple %s files set default: true: %s", resourceLabel, strings.Join(paths, ", "))
+}
+
+// requireNoSystemRegistryFiles keeps workspace registry definitions out of team
+// repositories, where only team-owned registries under config-repositories/ are
+// allowed.
+func requireNoSystemRegistryFiles(files map[string]string, root, directory string) error {
+	for path := range files {
+		normalized := filepath.ToSlash(path)
+		rel, ok := configsync.RelativePath(normalized, root)
+		if !ok {
+			continue
+		}
+		if _, ok, err := resolveRegistryGitOpsPath(rel); err != nil || !ok {
+			continue
+		}
+		return fmt.Errorf("%s can only be defined by a system config repository; move '%s' under config-repositories/teams/<team>/%s/ to keep it team-owned", directory, normalized, directory)
+	}
+	return nil
 }

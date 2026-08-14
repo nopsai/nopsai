@@ -935,7 +935,7 @@ source of truth. GitOps can manage:
 - `dashboards/`
 - `scopes/`
 - `knowledge/` (documents, plus `knowledge/connections/` for Notion, Confluence, and wiki connections)
-- `models/`, `agent-roles/`, `mcp/servers/`, `mcp/profiles/`
+- `models/`, `agent-roles/`, `mcp/servers/`, `mcp/profiles/` (the file path is the resource name, including any team prefix)
 - `access/`
 - `config-repositories/`
 - `setting/git-apps/`
@@ -972,9 +972,17 @@ Canonical system files include:
 - `setting/system/data-management.yaml`
 
 Models, agent roles, and MCP servers and profiles are one file per resource, in
-the same shape as pipelines and knowledge documents. A file directly under the
-directory is workspace-wide and a file under a team segment is owned by that
-team, which is also how team-owned registries reach GitOps. Exactly one file per
+the same shape as pipelines and knowledge documents. The file path under the
+registry directory is the resource name, so team scoping works exactly like it
+does for pipelines: `models/team-2/jjj.yaml` is the model `team-2/jjj`, and
+`mcp/servers/team-1/platform/github.yaml` is the server
+`team-1/platform/github`. These registries are workspace-wide tables, so only a
+system config repository defines them; `config-repositories/teams/` stays
+reserved for team bindings, structure, defaults, and notification routes, and a
+registry file placed there is read as a repository binding.
+
+Team-managed model, agent role, and MCP profile registries (the `team_*` tables
+behind the Teams pages) remain API-managed and are not GitOps-owned. Exactly one file per
 scope may declare `default: true`, so the default travels with the resource
 instead of living in a second file, and a second default in the same scope fails
 the sync. MCP servers stay workspace-wide because they are connection

@@ -842,6 +842,7 @@ html.dark .teams-defaults-row {
   border-color: rgba(148, 163, 184, 0.14);
 }
 
+.teams-defaults-row > label,
 .teams-defaults-row > span {
   overflow: hidden;
   color: var(--teams-muted);

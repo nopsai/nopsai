@@ -552,7 +552,7 @@ func TestReleasePipelineInjectsCompatibilityContract(t *testing.T) {
 }
 
 func TestReleasePipelinePublishesStableContainerTagAliases(t *testing.T) {
-	pipeline := readNopsAIReleasePipeline(t)
+	pipeline := readNopsAIReleasePath(t)
 	for _, required := range []string{
 		`while IFS= read -r release_tag; do`,
 		`release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")`,
@@ -601,6 +601,25 @@ func readNopsAIReleasePipeline(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(contents)
+}
+
+// readNopsAIReleasePath returns the pipeline plus the checked-in scripts it
+// calls, because release logic is allowed to live in either place.
+func readNopsAIReleasePath(t *testing.T) string {
+	t.Helper()
+	combined := readNopsAIReleasePipeline(t)
+	for _, path := range []string{
+		"../scripts/publish-release-image.sh",
+		"../scripts/install-release-tools.sh",
+		"../scripts/release-tags.sh",
+	} {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("os.ReadFile(%q) error = %v", path, err)
+		}
+		combined += "\n" + string(contents)
+	}
+	return combined
 }
 
 func dockerfilesContain(t *testing.T, required string) bool {
