@@ -207,8 +207,10 @@ AAA and agent images copy their binaries from that shared artifact path. The
 Docker socket proxy intentionally remains a separate scratch-based image because
 it exposes only the minimal read-only Docker API surface for System Logs.
 The `.nopsai` quality gate pins `golangci-lint` to `v2.12.2`, `gosec` to
-`v2.27.1`, and `govulncheck` to `v1.6.0`, installing each with the Go 1.26.5
-toolchain from `golang:1.26.5-alpine`.
+`v2.27.1`, and `govulncheck` to `v1.6.0`, installing each with the Go 1.26.6
+toolchain from `golang:1.26.6-alpine`. The pinned Go patch release tracks the
+`go` directive in `go.mod`; `govulncheck` fails the gate when the toolchain falls
+behind a standard-library security release, so both move together.
 
 ## Current Baseline Decision
 
