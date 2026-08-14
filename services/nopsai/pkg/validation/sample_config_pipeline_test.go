@@ -108,9 +108,18 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireSecrets(t, steps["publish-helm-chart"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
 	requireSecrets(t, steps["publish-release"].GetSecrets(), "NOPSAI_RELEASE_GITHUB_TOKEN")
 	requireDependsOn(t, steps["verify-image-digests"].GetDependsOn(), "publish-images")
-	requireDependsOn(t, steps["package-helm-chart"].GetDependsOn(), "verify-image-digests")
-	requireDependsOn(t, steps["publish-helm-chart"].GetDependsOn(), "package-helm-chart")
-	requireDependsOn(t, steps["build-cli-archives"].GetDependsOn(), "publish-helm-chart")
+	// Chart packaging and the CLI cross-compile read only the checked-out source
+	// and dist/release/env, so they run beside the image builds. Anything that
+	// publishes still waits for verified image digests.
+	for _, name := range []string{"package-helm-chart", "build-cli-archives"} {
+		requireDependsOn(t, steps[name].GetDependsOn(), "quality-gates", "ui-gates")
+		for _, imageStep := range []string{"publish-base-image", "publish-images", "verify-image-digests"} {
+			if containsStepDependency(steps[name].GetDependsOn(), imageStep) {
+				t.Fatalf("%s should not wait for %s; it does not consume image artifacts", name, imageStep)
+			}
+		}
+	}
+	requireDependsOn(t, steps["publish-helm-chart"].GetDependsOn(), "package-helm-chart", "verify-image-digests")
 	requireDependsOn(t, steps["package-release-assets"].GetDependsOn(), "build-cli-archives", "publish-helm-chart")
 	requireDependsOn(t, steps["publish-release"].GetDependsOn(), "package-release-assets")
 	requireContains(t, steps["release-metadata"].GetScript(), "GIT_ASKPASS")
@@ -404,4 +413,13 @@ func requireContains(t *testing.T, haystack, needle string) {
 	if !strings.Contains(haystack, needle) {
 		t.Fatalf("script does not contain %q", needle)
 	}
+}
+
+func containsStepDependency(deps []string, want string) bool {
+	for _, dep := range deps {
+		if dep == want {
+			return true
+		}
+	}
+	return false
 }

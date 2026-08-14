@@ -556,10 +556,14 @@ steps:
       done
       BASH
 
+  # Chart packaging reads the checked-out source and dist/release/env only, so it
+  # runs beside the image builds instead of waiting for them. Publication still
+  # waits for verified image digests.
   - name: package-helm-chart
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
-      - verify-image-digests
+      - quality-gates
+      - ui-gates
     script: |
       set -eu
       apk add --no-cache bash curl git ruby tar gzip
@@ -602,6 +606,7 @@ steps:
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
     depends_on:
       - package-helm-chart
+      - verify-image-digests
     secrets:
       - NOPSAI_RELEASE_GHCR_TOKEN
     script: |
@@ -655,10 +660,13 @@ steps:
       echo "release_phase=publish-helm-chart complete"
       BASH
 
+  # Cross-compiling the CLI needs the source and dist/release/env only, so it runs
+  # beside the image and chart work rather than after it.
   - name: build-cli-archives
     image: golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
     depends_on:
-      - publish-helm-chart
+      - quality-gates
+      - ui-gates
     script: |
       set -eu
       apk add --no-cache bash git tar gzip zip
