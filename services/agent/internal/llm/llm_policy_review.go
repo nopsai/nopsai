@@ -196,9 +196,6 @@ func governanceLevelFromPrompt(knowledgeContext string) string {
 	if value := firstMetadataLineValue(knowledgeContext, "governance_level"); value != "" {
 		return models.NormalizeGovernanceLevel(value)
 	}
-	if value := firstMetadataLineValue(knowledgeContext, "policy_merge_mode"); value != "" {
-		return models.NormalizeGovernanceLevel(value)
-	}
 	return ""
 }
 
@@ -211,7 +208,7 @@ func interpretPromptPolicyReview(knowledgeContext string, review *models.PolicyR
 	if level == "" {
 		level = models.GovernanceLevelStrict
 	}
-	return models.InterpretPolicyReview(level, review, false)
+	return models.InterpretPolicyReview(level, review)
 }
 
 func governancePolicyError(phase, knowledgeContext string, review *models.PolicyReview) error {

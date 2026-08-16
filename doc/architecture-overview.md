@@ -166,9 +166,11 @@ and task at task start. Effective policy is recomputed as each narrower scope
 begins and includes `governance_level` plus `governance_contract_version`.
 NopsAI enforces the AI policy judgment before planning or direct execution,
 during action planning, and after the final structured action is selected.
-`advisory` warns, `guarded` blocks clear violations and conflicts, `strict`
-blocks anything except a clear allow, and `exception_based` allows conflicts
-only when an effective approved exception exists.
+Governance has two levels: `advisory` warns on an evaluated policy concern, and
+`strict` blocks anything except a clear allow. `strict` is the default. When a
+blocking guardrail or policy is attached and no judgment can be obtained at all,
+because no model is available or the review call fails, both levels fail closed:
+`advisory` downgrades an evaluated concern, never a missing evaluation.
 Provider conversation state and provider caches are disposable optimizations;
 NopsAI-owned scoped snapshots, logical session IDs, and durable transcripts
 remain the correctness boundary. Emergency policy response cancels active runs

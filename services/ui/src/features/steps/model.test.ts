@@ -66,11 +66,11 @@ outputs:
 
 test('validates reusable step governance level directives', () => {
   const result = validateStepYaml(`
-name: guarded-step
+name: governed-step
 governance_level: strict
 tasks:
   - name: inspect
-    governance_level: guarded
+    governance_level: advisory
     goal: Inspect workspace readiness.
 `);
 

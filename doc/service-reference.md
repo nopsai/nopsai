@@ -517,10 +517,13 @@ Responsibilities:
 - Pins policy snapshots by scope and recomputes effective policy as pipeline,
   step, and task scopes start. Emergency policy response uses run cancellation
   instead of live mutation of already-resolved policy.
-- Interprets AI policy decisions through `governance_level`: `advisory` logs
-  policy concerns, `guarded` blocks clear violations and conflicts, `strict`
-  proceeds only on a clear allow, and `exception_based` requires an effective
-  approved exception for conflicts.
+- Interprets AI policy decisions through `governance_level`: `advisory` logs an
+  evaluated policy concern and proceeds, `strict` proceeds only on a clear
+  allow. `strict` is the default. Any other value is a validation error.
+- Fails closed at every governance level, `advisory` included, when a blocking
+  guardrail or policy is attached and no AI policy judgment can be obtained:
+  no model available, a failed review or validation call, or a validation that
+  does not return the exact script it was asked to approve.
 - Logs LLM prompt metadata, hashes, sizes, and token estimates without logging
   prompt bodies.
 - Records prompt/cache/session/revision/retrieval telemetry in AI usage

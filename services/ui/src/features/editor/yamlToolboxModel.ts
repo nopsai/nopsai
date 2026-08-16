@@ -47,7 +47,7 @@ export type YamlSnippetInsertResult = {
 };
 
 const BOOLEAN_VALUES = ['true', 'false'];
-const GOVERNANCE_VALUES = ['advisory', 'guarded', 'strict', 'exception_based'];
+const GOVERNANCE_VALUES = ['advisory', 'strict'];
 const GOVERNANCE_DESCRIPTION =
   'AI governance enforcement: advisory warns, guarded blocks clear violations/conflicts, strict requires allow, exception_based requires approved exceptions for conflicts.';
 
