@@ -569,6 +569,37 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       return { errors: unknownKeys.map(item => createError(`Validation Error: Unknown field '${item.key}'.`, [item.path])) };
     }
 
+    // Governance level is validated by value, not just by key, so a removed
+    // level is caught in the editor instead of only when the run is submitted.
+    const allowedGovernanceLevels = new Set(['advisory', 'strict']);
+    const governanceValues: Array<{ value: unknown; path: string }> = [];
+    if (hasOwn(pipeline, 'governance_level')) {
+      governanceValues.push({ value: pipeline.governance_level, path: 'governance_level' });
+    }
+    (Array.isArray(pipeline.steps) ? pipeline.steps : []).forEach((step: unknown, index: number) => {
+      if (!isPlainObject(step)) return;
+      if (hasOwn(step, 'governance_level')) {
+        governanceValues.push({ value: step.governance_level, path: `steps[${index}].governance_level` });
+      }
+      (Array.isArray(step.tasks) ? step.tasks : []).forEach((task: unknown, taskIndex: number) => {
+        if (!isPlainObject(task)) return;
+        if (hasOwn(task, 'governance_level')) {
+          governanceValues.push({ value: task.governance_level, path: `steps[${index}].tasks[${taskIndex}].governance_level` });
+        }
+      });
+    });
+    for (const entry of governanceValues) {
+      // An absent or empty value falls back to the strict default, matching the backend.
+      if (entry.value === null || entry.value === undefined) continue;
+      if (typeof entry.value === 'string' && entry.value.trim() === '') continue;
+      const normalized = typeof entry.value === 'string' ? entry.value.trim().toLowerCase() : '';
+      if (!allowedGovernanceLevels.has(normalized)) {
+        return {
+          errors: [createError("Validation Error: 'governance_level' must be 'advisory' or 'strict'.", [entry.path])],
+        };
+      }
+    }
+
     const llmEnabledValue = hasOwn(pipeline, 'llm_enabled') ? pipeline.llm_enabled : undefined;
     if (llmEnabledValue !== undefined && typeof llmEnabledValue !== 'boolean') {
       return { errors: [createError("Validation Error: 'llm_enabled' must be true or false.", ['llm_enabled'])] };

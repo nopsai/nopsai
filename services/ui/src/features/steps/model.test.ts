@@ -64,6 +64,26 @@ outputs:
   assert.match(duplicateOutput.errors[0]?.message ?? '', /declared more than once/);
 });
 
+test('rejects a reusable step or task governance level that is not advisory or strict', () => {
+  const stepLevel = validateStepYaml(`
+name: governed-step
+governance_level: guarded
+script: make check
+`);
+  assert.equal(stepLevel.errors.length, 1);
+  assert.match(stepLevel.errors[0]?.message ?? '', /'advisory' or 'strict'/);
+
+  const taskLevel = validateStepYaml(`
+name: governed-step
+tasks:
+  - name: inspect
+    governance_level: exception_based
+    goal: Inspect workspace readiness.
+`);
+  assert.equal(taskLevel.errors.length, 1);
+  assert.match(taskLevel.errors[0]?.message ?? '', /'advisory' or 'strict'/);
+});
+
 test('validates reusable step governance level directives', () => {
   const result = validateStepYaml(`
 name: governed-step
