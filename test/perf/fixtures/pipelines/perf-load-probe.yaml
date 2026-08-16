@@ -1,0 +1,58 @@
+# Purpose-built pipeline for the performance harness.
+#
+# This exists so the pipeline suite measures the platform's own orchestration
+# cost - queue time, dispatch, runner startup, step execution, completion - and
+# nothing else. Every property below is chosen to keep the measurement about
+# NopsAI rather than about something the pipeline happens to call:
+#
+#   llm_enabled: false   no model calls, so runs are free and deterministic
+#   script steps         no agent reasoning, so step duration is fixed
+#   alpine:3.20          small, pinned, already pulled by other fixtures
+#   no secrets/volumes   nothing to resolve, nothing to leak
+#   no network access    no third-party latency inside the measurement
+#
+# PERF_WORK_SECONDS shapes the run: 0 measures pure orchestration overhead,
+# a larger value models a realistic pipeline while keeping the work constant
+# across runs so results stay comparable.
+name: perf-load-probe
+version: "1.0.0"
+description: Deterministic no-LLM pipeline used by the backend performance harness.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 10m
+llm_enabled: false
+variables:
+  - PERF_WORK_SECONDS
+  - PERF_RUN_LABEL
+steps:
+  - name: startup
+    script: |
+      #!/bin/sh
+      set -eu
+      # Recorded so a run can be tied back to the harness invocation that
+      # created it when reading logs after the fact.
+      echo "perf-load-probe starting label=${PERF_RUN_LABEL:-unset}"
+      echo "work_seconds=${PERF_WORK_SECONDS:-0}"
+
+  - name: work
+    script: |
+      #!/bin/sh
+      set -eu
+      # A fixed, cheap sleep rather than a busy loop: the harness measures the
+      # platform's scheduling and tracking overhead, so the step must not
+      # compete with the services under test for CPU.
+      seconds="${PERF_WORK_SECONDS:-0}"
+      case "$seconds" in
+        ''|*[!0-9]*)
+          echo "PERF_WORK_SECONDS must be a whole number, got '$seconds'" >&2
+          exit 1
+          ;;
+      esac
+      [ "$seconds" -gt 0 ] && sleep "$seconds"
+      echo "work complete after ${seconds}s"
+
+  - name: complete
+    script: |
+      #!/bin/sh
+      set -eu
+      echo "perf-load-probe finished label=${PERF_RUN_LABEL:-unset}"
