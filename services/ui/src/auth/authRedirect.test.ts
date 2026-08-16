@@ -17,3 +17,8 @@ test('rejects external and recursive login return paths', () => {
   assert.equal(resolvePostLoginPath({ returnTo: '//example.com' }), '/pipelineruns/main');
   assert.equal(resolvePostLoginPath({ returnTo: '/login?next=/system' }), '/pipelineruns/main');
 });
+
+test('rejects backslash-authority return paths that browsers treat as cross-origin', () => {
+  assert.equal(resolvePostLoginPath({ returnTo: '/\\example.com' }), '/pipelineruns/main');
+  assert.equal(resolvePostLoginPath({ returnTo: '/\\/example.com' }), '/pipelineruns/main');
+});
