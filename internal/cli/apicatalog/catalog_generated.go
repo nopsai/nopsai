@@ -325,6 +325,7 @@ var generatedRoutes = []Route{
 	newRoute("POST", "/v1/system/mcp/servers/{serverName}/test"),
 	newRoute("GET", "/v1/system/models"),
 	newRoute("PUT", "/v1/system/models"),
+	newRoute("PUT", "/v1/system/models/default"),
 	newRoute("DELETE", "/v1/system/models/{profileName}"),
 	newRoute("PUT", "/v1/system/models/{profileName}"),
 	newRoute("POST", "/v1/system/models/{profileName}/test"),

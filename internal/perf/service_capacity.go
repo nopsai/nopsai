@@ -225,6 +225,44 @@ func MostResilientService(capacities []ServiceCapacity) (ServiceCapacity, bool) 
 	return best, found
 }
 
+// sharedConstraintGrowthSpread is how close per-service latency growth has to be
+// before the degradation is read as shared rather than service-specific.
+const sharedConstraintGrowthSpread = 2.0
+
+// SharedConstraint reports whether every service degraded by a similar factor.
+// When they do, no single service is the weak one: they are all queueing behind
+// something they have in common, which in this topology is Postgres or the host.
+// Naming a "most resilient" service in that situation would be noise.
+func SharedConstraint(capacities []ServiceCapacity) bool {
+	lowest, highest := 0.0, 0.0
+	counted := 0
+	for _, capacity := range capacities {
+		if capacity.LatencyGrowth <= 0 || capacity.TotalRequests == 0 {
+			continue
+		}
+		counted++
+		if lowest == 0 || capacity.LatencyGrowth < lowest {
+			lowest = capacity.LatencyGrowth
+		}
+		if capacity.LatencyGrowth > highest {
+			highest = capacity.LatencyGrowth
+		}
+	}
+	// A single service cannot demonstrate a shared constraint, and neither can
+	// a set that barely moved.
+	if counted < 2 || lowest <= 0 || highest < 1.5 {
+		return false
+	}
+	return highest/lowest < sharedConstraintGrowthSpread
+}
+
+// EarliestServiceBreach returns the lowest concurrency at which any single
+// service breached. The stage-level p95 blends fast and slow endpoints together,
+// so it can still pass while a service is already over the SLO.
+func EarliestServiceBreach(capacities []ServiceCapacity) (ServiceCapacity, bool) {
+	return WeakestService(capacities)
+}
+
 func maxDuration(a, b time.Duration) time.Duration {
 	if b > a {
 		return b

@@ -32,6 +32,25 @@ selector row per subject: `model`, `Agent role`, then one selector for
 each supported knowledge kind. A knowledge default is always a managed
 team-owned document of that kind.
 
+Knowledge defaults exist only at team scope. Unlike `model` and `Agent role`,
+which both have a platform-wide default, there is no global knowledge default:
+the global **Teams -> Defaults** panel shows `model` and `Agent role` only. A run
+that resolves to no team therefore receives no knowledge defaults at all, and
+only the `knowledge_context` declared by the pipeline, step, and task applies.
+
+Defaults are additive, never an override. A pipeline cannot replace, weaken, or
+remove a team default: team defaults are injected as `required: true`, and a
+pipeline guardrail is added alongside the team guardrail rather than in place of
+it. Two entries collapse into one only when they resolve to the same document,
+in which case `required: true` wins. Clearing a default is done from
+**Teams -> Defaults** or by setting the kind to an empty string in the team
+defaults file.
+
+The defaults that apply are those of the team that owns the run, not the team of
+the caller who triggered it and not necessarily the team that owns the pipeline.
+Run team ownership resolves in this order: an explicit team path, then the
+triggering repository's team, then the pipeline path's team.
+
 Config repositories set the same knowledge defaults in the team defaults file:
 
 ```yaml

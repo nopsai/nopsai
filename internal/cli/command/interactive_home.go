@@ -71,10 +71,14 @@ func executeInteractiveHome(command *cobra.Command, options *rootOptions) error 
 		case 4:
 			actionErr = runInteractivePlatformMenu(command, options, prompter)
 		case 5:
-			actionErr = runInteractiveCompletion(command, prompter)
+			actionErr = runInteractiveUpdate(command, options, prompter)
 		case 6:
-			actionErr = runInteractiveGuideMenu(command, prompter)
+			actionErr = runInteractiveCompletion(command, prompter)
 		case 7:
+			actionErr = runInteractiveGuideMenu(command, prompter)
+		case 8:
+			actionErr = runInteractiveLicense(command, prompter, state)
+		case 9:
 			actionErr = showInteractiveCommandPreview(prompter, "Help command preview", []string{"nopsai", "--help"}, []string{
 				"Render top-level CLI help.",
 			}, commandPreviewScreenOptions([]string{"Home", "Help", "Preview"}, "Help Preview", sessionHeaderLines(state)))
@@ -86,7 +90,7 @@ func executeInteractiveHome(command *cobra.Command, options *rootOptions) error 
 			} else {
 				actionErr = command.Help()
 			}
-		case 8:
+		case 10:
 			return nil
 		}
 		if errors.Is(actionErr, io.EOF) {
@@ -114,9 +118,11 @@ func homeChoices() []interactive.Choice {
 		{Label: "contexts", Description: "List, add, use, or delete API contexts", SearchText: "context config token api address"},
 		{Label: "authentication", Description: "Login with a token or remove a local credential", SearchText: "auth login logout token credential aaa nopat nopsat"},
 		{Label: "install", Description: "Open the first-install wizard for Docker Compose or Kubernetes", SearchText: "install setup docker compose kubernetes helm environment topology gitops"},
-		{Label: "platform", Description: "Run doctor checks or plan/deploy platform releases", SearchText: "platform health monitoring doctor release helm manifest lock aaa metrics dispatcher"},
+		{Label: "platform", Description: "Run doctor checks, plan/deploy releases, or upgrade an install", SearchText: "platform health monitoring doctor release upgrade helm manifest lock aaa metrics dispatcher"},
+		{Label: "update", Description: "Update this CLI to an exact release version", SearchText: "update selfupdate cli binary version release download upgrade"},
 		{Label: "completion", Description: "Generate shell completion files or raw scripts", SearchText: "completion bash zsh fish powershell shell output stdout"},
 		{Label: "guide", Description: "Read CLI examples for common operator topics", SearchText: "help sample example config gitops mcp"},
+		{Label: "license", Description: "Show the NopsAI proprietary software notice", SearchText: "license notice legal copyright proprietary terms"},
 		{Label: "help", Description: "Show command help", SearchText: "help commands flags"},
 		{Label: "exit", Description: "Close the interactive session", SearchText: "quit back exit"},
 	}
@@ -245,11 +251,15 @@ func homeChoiceDetail(index int, choice interactive.Choice, state homeState) []s
 	case 3:
 		lines = append(lines, "", "Install generates Docker Compose files or Helm values from the selected NopsAI version.")
 	case 4:
-		lines = append(lines, "", "Platform includes doctor diagnostics plus advanced digest-pinned Kubernetes release planning and deployment.")
+		lines = append(lines, "", "Platform includes doctor diagnostics, advanced digest-pinned Kubernetes release planning and deployment, and upgrades of an existing install.")
 	case 5:
-		lines = append(lines, "", "Completion generates bash, zsh, fish, or PowerShell scripts with copy instructions or raw stdout output.")
+		lines = append(lines, "", "Update replaces this CLI binary with an exact release version. Update the CLI before a platform upgrade: the CLI owns the templates a release expects.")
 	case 6:
+		lines = append(lines, "", "Completion generates bash, zsh, fish, or PowerShell scripts with copy instructions or raw stdout output.")
+	case 7:
 		lines = append(lines, "", "Guides show copyable examples for API calls, GitOps, installs, AAA, MCP, monitoring, and config.")
+	case 8:
+		lines = append(lines, "", "License prints the NopsAI proprietary software notice and where third-party terms are recorded.")
 	}
 	return lines
 }

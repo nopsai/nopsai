@@ -158,6 +158,7 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/system/notifications/mail/test", a.handleTestNotificationMailSettings)
 	mux.HandleFunc("GET /v1/system/models", a.handleListLLMProfiles)
 	mux.HandleFunc("PUT /v1/system/models", a.handleReplaceLLMProfiles)
+	mux.HandleFunc("PUT /v1/system/models/default", a.handleSetDefaultLLMProfile)
 	mux.HandleFunc("PUT /v1/system/models/{profileName}", a.handleUpsertLLMProfile)
 	mux.HandleFunc("DELETE /v1/system/models/{profileName}", a.handleDeleteLLMProfile)
 	mux.HandleFunc("POST /v1/system/models/{profileName}/test", a.handleTestLLMProfile)

@@ -26,8 +26,12 @@ func newLicenseCommand() *cobra.Command {
 		Short: "Show the NopsAI proprietary software notice",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintln(command.OutOrStdout(), proprietaryLicenseNotice)
-			return err
+			return renderLicenseNotice(command)
 		},
 	}
+}
+
+func renderLicenseNotice(command *cobra.Command) error {
+	_, err := fmt.Fprintln(command.OutOrStdout(), proprietaryLicenseNotice)
+	return err
 }

@@ -89,8 +89,10 @@ preflight, and `/v1/auth/me`.
 From the home menu operators can switch into the full CLI surface: API catalog
 calls, raw API requests, route listing, route descriptions, context management,
 token login/logout, first-install flows, platform doctor, platform release,
-platform upgrade,
-completion generation, guide topics, help, or exit. Nested screens keep the
+platform upgrade, CLI self-update,
+completion generation, guide topics, the license notice, help, or exit. Every
+registered top-level command and every `platform` subcommand has a home-menu
+entry, and a test enforces that. Nested screens keep the
 same visual model: route parameters, raw transport options, install options,
 release options, completion output, help, doctor checks, guide text, and API
 responses render as separated sections or scrollable result panels instead of
@@ -119,7 +121,7 @@ has two matches or hundreds; large lists show at most 20 rows at a time, then
 scroll within that fixed viewport so the guide/details section stays in the
 same place. Choice menus use a wider centered block so long route labels remain
 visible on typical terminals. API, context, authentication, install, platform,
-completion, guide, help, and result screens all reuse the same breadcrumb,
+update, completion, guide, license, help, and result screens all reuse the same breadcrumb,
 header, footer, menu viewport, and detail positioning. Result viewers render a
 fixed `Result` section with scroll ranges in the breadcrumb only when output is
 larger than the viewport. API request parameter lists follow the same order as
@@ -427,9 +429,16 @@ nopsai platform upgrade docker-compose --version <version> --run
 nopsai platform upgrade kubernetes --version <version> --plan
 nopsai platform upgrade kubernetes --version <version> --deploy --wait
 
-# Prompt for target and version
+# Open the interactive upgrade flow: pick a target, review a form, confirm the
+# equivalent noninteractive command, then read the plan or the applied result
 nopsai platform upgrade
 ```
+
+`nopsai platform upgrade` with no subcommand opens the same flow reachable from
+the interactive console at `Home > Platform > Upgrade`. Both default to a plan,
+so a bare invocation reviews the upgrade instead of applying one. A series
+upgrade still refuses to apply until `Accept series upgrade` is set, which is
+the form's equivalent of `--accept-series-upgrade`.
 
 Upgrade order matters: run `nopsai update --version <version>` first. The CLI
 owns the Compose template and Helm inputs a release expects, so an upgrade

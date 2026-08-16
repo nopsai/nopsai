@@ -11,12 +11,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func runInteractivePlatformMenu(command *cobra.Command, options *rootOptions, prompter *interactive.Prompter) error {
-	choices := []interactive.Choice{
+// interactivePlatformChoices lists the platform workflows the console offers.
+// It is kept separate so a test can assert it covers every registered
+// `platform` subcommand.
+func interactivePlatformChoices() []interactive.Choice {
+	return []interactive.Choice{
 		{Label: "doctor", Description: "Run local tooling, API readiness, AAA, monitoring, dispatcher, and runner checks", SearchText: "doctor health monitoring aaa metrics dispatcher runner helm kubectl docker"},
 		{Label: "release", Description: "Plan or deploy a digest-pinned Kubernetes platform bundle", SearchText: "release kubernetes helm manifest digest values gitops lock deploy"},
+		{Label: "upgrade", Description: "Plan or apply an upgrade of an installed platform to a newer release", SearchText: "upgrade update migrate version changelog series docker compose kubernetes helm plan apply"},
 		{Label: "back", Description: "Return to the home menu", SearchText: "back home"},
 	}
+}
+
+func runInteractivePlatformMenu(command *cobra.Command, options *rootOptions, prompter *interactive.Prompter) error {
+	choices := interactivePlatformChoices()
 	for {
 		state := collectHomeState(command.Context(), options)
 		var (
@@ -58,6 +66,15 @@ func runInteractivePlatformMenu(command *cobra.Command, options *rootOptions, pr
 				return err
 			}
 		case 2:
+			upgradeOptions := defaultPlatformUpgradeOptions(options)
+			upgradeOptions.planOnly = true
+			if err := runInteractivePlatformUpgrade(command, options, prompter, upgradeOptions); err != nil {
+				if errors.Is(err, interactive.ErrBack) {
+					continue
+				}
+				return err
+			}
+		case 3:
 			return nil
 		}
 	}
@@ -87,6 +104,12 @@ func platformMenuScreenOptions(state homeState) interactive.ScreenOptions {
 					"Guide: Release is the advanced GitOps primitive for digest-pinned Helm bundle planning and deployment. Install remains the first-install path.",
 					"",
 					fmt.Sprintf("Example: nopsai platform release kubernetes --version %s --manifest release-manifest.json --deploy --wait", exampleVersion),
+				)
+			case 2:
+				lines = append(lines,
+					"Guide: Upgrade moves an existing install to a newer release. It reads the install or deployment lock, keeps generated secrets, and prints the changelog and required actions before anything is applied.",
+					"",
+					fmt.Sprintf("Example: nopsai platform upgrade docker-compose --version %s --plan", exampleVersion),
 				)
 			}
 			return lines
