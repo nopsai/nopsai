@@ -152,6 +152,21 @@ export function formatUpdatedAt(value?: string): string {
   return date.toLocaleString();
 }
 
+const ALLOWED_GOVERNANCE_LEVELS = new Set(['advisory', 'strict']);
+
+// An absent or empty governance_level falls back to the strict default, matching
+// the backend. Any other value is rejected here so the editor catches it instead
+// of the operator finding out when the run is submitted.
+function validateGovernanceLevelValue(record: Record<string, unknown>, label: string): string | null {
+  if (!Object.prototype.hasOwnProperty.call(record, 'governance_level')) return null;
+  const value = record.governance_level;
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (ALLOWED_GOVERNANCE_LEVELS.has(normalized)) return null;
+  return `${label} governance_level must be 'advisory' or 'strict'.`;
+}
+
 export function validateStepYaml(rawYaml: string, opts?: { expectedName?: string }): ValidationResult {
   const trimmed = rawYaml.trim();
   if (!trimmed) {
@@ -213,6 +228,22 @@ export function validateStepYaml(rawYaml: string, opts?: { expectedName?: string
         },
       ],
     };
+  }
+
+  const governanceError = validateGovernanceLevelValue(record, `Step '${name}'`);
+  if (governanceError) {
+    return { errors: [{ message: governanceError, line: findLineNumberForKey(rawYaml, 'governance_level') ?? 1 }] };
+  }
+  if (Array.isArray(record.tasks)) {
+    for (const task of record.tasks) {
+      if (!task || typeof task !== 'object' || Array.isArray(task)) continue;
+      const taskRecord = task as Record<string, unknown>;
+      const taskName = typeof taskRecord.name === 'string' && taskRecord.name.trim() ? taskRecord.name.trim() : 'unknown';
+      const taskGovernanceError = validateGovernanceLevelValue(taskRecord, `Task '${taskName}'`);
+      if (taskGovernanceError) {
+        return { errors: [{ message: taskGovernanceError, line: findLineNumberForKey(rawYaml, 'governance_level') ?? 1 }] };
+      }
+    }
   }
 
   const variablesError = validateRuntimeVariableMap(record.variables, `Step '${name}' variables`);

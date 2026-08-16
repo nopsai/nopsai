@@ -47,6 +47,43 @@ steps:
   assert.deepEqual(result.errors, []);
 });
 
+test('rejects a governance level that is not advisory or strict', () => {
+  const pipelineLevel = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+governance_level: guarded
+steps:
+  - name: build
+    script: make build
+`);
+  assert.equal(pipelineLevel.errors.length, 1);
+  assert.match(pipelineLevel.errors[0]?.message ?? '', /'advisory' or 'strict'/);
+
+  const stepLevel = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: build
+    governance_level: exception_based
+    script: make build
+`);
+  assert.equal(stepLevel.errors.length, 1);
+  assert.match(stepLevel.errors[0]?.message ?? '', /'advisory' or 'strict'/);
+
+  const taskLevel = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+steps:
+  - name: build
+    tasks:
+      - name: compile
+        governance_level: restrictive
+        script: make build
+`);
+  assert.equal(taskLevel.errors.length, 1);
+  assert.match(taskLevel.errors[0]?.message ?? '', /'advisory' or 'strict'/);
+});
+
 test('validates governance level directives without unknown-field errors', () => {
   const result = validatePipelineYaml(`
 name: deploy
