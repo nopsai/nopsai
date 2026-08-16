@@ -660,6 +660,11 @@ func kubernetesEnv(entries []string) []corev1.EnvVar {
 	return env
 }
 
+// shellEnvName matches the POSIX portable environment variable name charset.
+// Names are interpolated unquoted into the `export NAME=...` prefix, so a name
+// carrying shell metacharacters would execute as a command in the step shell.
+var shellEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 func prefixRuntimeEnv(entries []string) string {
 	if len(entries) == 0 {
 		return ""
@@ -668,6 +673,10 @@ func prefixRuntimeEnv(entries []string) string {
 	for _, entry := range entries {
 		key, value, ok := splitRuntimeEntry(entry)
 		if !ok {
+			continue
+		}
+		if !shellEnvName.MatchString(key) {
+			log.Warn().Str("variable", key).Msg("Skipping runtime variable with a non-portable environment variable name")
 			continue
 		}
 		builder.WriteString("export ")

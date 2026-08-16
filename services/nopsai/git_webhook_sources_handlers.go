@@ -317,7 +317,11 @@ func (a *App) handleGitWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := gitwebhook.Verify(source.Provider, source.AuthMode, secret, r.Header, body, time.Now()); err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		// This endpoint is unauthenticated: the specific reason distinguishes
+		// auth mode, credential state and signature shape for an attacker who
+		// only needs to know which knob to turn. Keep the detail in the log.
+		log.Warn().Err(err).Str("source_id", source.ID).Msg("Git webhook verification failed")
+		http.Error(w, "webhook verification failed", http.StatusUnauthorized)
 		return
 	}
 	event, err := gitwebhook.Normalize(source.Provider, r.Header, body)

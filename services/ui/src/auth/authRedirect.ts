@@ -18,5 +18,9 @@ function normalizeInternalReturnPath(value: unknown): string {
   if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.startsWith('/login')) {
     return '';
   }
+  // Browsers normalise backslashes to forward slashes while parsing the
+  // authority, so '/\evil.example' navigates cross-origin exactly like
+  // '//evil.example'. An internal path never needs a backslash.
+  if (trimmed.includes('\\')) return '';
   return trimmed;
 }

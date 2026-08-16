@@ -384,6 +384,12 @@ func safeReturnTo(raw string) string {
 	if !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
 		return "/pipelineruns/main"
 	}
+	// Browsers normalise backslashes to forward slashes while parsing the
+	// authority, so "/\evil.example" navigates cross-origin exactly like
+	// "//evil.example". An internal path never needs a backslash.
+	if strings.Contains(raw, `\`) {
+		return "/pipelineruns/main"
+	}
 	if strings.HasPrefix(raw, "/login") {
 		return "/pipelineruns/main"
 	}
