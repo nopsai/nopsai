@@ -265,12 +265,11 @@ export const aiSection: WikiSection = {
         '`strict` proceeds only on a clear allow. Violations, conflicts, uncertainty, and unsupported decisions all block.',
         '`advisory` logs and warns; execution proceeds despite an evaluated policy concern.',
         'Advisory never skips the evaluation. If no judgment can be obtained at all, because no model is available or the review call fails, the task fails closed at every level.',
-        'The earlier `guarded` and `exception_based` levels and the `policy_merge_mode` field have been removed. Any value other than `advisory` or `strict` is a validation error.',
+        'Any value other than `advisory` or `strict` is a validation error.',
       ],
       details: [
         'The level can be set at pipeline, step, or task, with the most specific value winning. This lets a pipeline stay strict overall while one well-understood task runs advisory.',
         'Governance interacts with Knowledge Context: the policy review is what produces the decision, and the governance level is what NopsAI does with it. Without blocking knowledge there is nothing to enforce.',
-        'Migrating an older manifest: keep `advisory` as `advisory`, and replace `guarded`, `exception_based`, `restrictive`, `fail_on_conflict`, and `override` with `strict`, which is what each of them effectively enforced.',
       ],
       fields: governanceLevels,
       examples: [

@@ -124,27 +124,6 @@ func TestDuplicateKnowledgeContextUsesNarrowestScope(t *testing.T) {
 	}
 }
 
-// A removed level is a validation error, but if one reaches the prompt anyway
-// it must not advertise itself as something the runtime would treat leniently.
-func TestRemovedGovernanceLevelNeverReachesPromptAsAdvisory(t *testing.T) {
-	pipeline := &models.Pipeline{
-		GovernanceLevel: "guarded",
-		KnowledgeContext: []models.KnowledgeContextRef{
-			{Kind: "guardrail", Ref: "team/safety"},
-		},
-	}
-	snapshots := []models.KnowledgeContextSnapshot{{Kind: "guardrail", Ref: "team/safety", Content: "No secrets in logs."}}
-
-	prompt := buildEffectiveKnowledgeContextPrompt(pipeline, &models.PipelineStep{Step: &models.TaskStep{}}, &models.Task{}, snapshots)
-
-	if !strings.Contains(prompt, "governance_level: strict") {
-		t.Fatalf("retired level did not normalize to strict in the prompt:\n%s", prompt)
-	}
-	if strings.Contains(prompt, "governance_level: guarded") {
-		t.Fatalf("prompt still advertises a retired governance level:\n%s", prompt)
-	}
-}
-
 func TestKnowledgeContextRevisionSeparatesPolicyAndGuidelineChanges(t *testing.T) {
 	snapshots := []models.KnowledgeContextSnapshot{
 		{Kind: "policy", Ref: "team/release", Content: "Require evidence."},

@@ -182,23 +182,23 @@ func TestPipelineRequiresLLMProfilesHonorsDisabledFlag(t *testing.T) {
 	}
 }
 
-func TestPipelineLLMContentSharingDefaultsFalse(t *testing.T) {
-	if PipelineLLMContentSharing(nil) {
+func TestPipelineLLMContentPreloadDefaultsFalse(t *testing.T) {
+	if PipelineLLMContentPreload(nil) {
 		t.Fatal("nil pipeline content sharing = true, want false")
 	}
-	if PipelineLLMContentSharing(&Pipeline{}) {
-		t.Fatal("omitted llm_content_sharing = true, want false")
+	if PipelineLLMContentPreload(&Pipeline{}) {
+		t.Fatal("omitted llm_content_preload = true, want false")
 	}
 }
 
-func TestPipelineLLMContentSharingUsesExplicitValue(t *testing.T) {
+func TestPipelineLLMContentPreloadUsesExplicitValue(t *testing.T) {
 	enabled := true
 	disabled := false
 
-	if !PipelineLLMContentSharing(&Pipeline{LlmContentSharing: &enabled}) {
-		t.Fatal("explicit true llm_content_sharing = false, want true")
+	if !PipelineLLMContentPreload(&Pipeline{LlmContentPreload: &enabled}) {
+		t.Fatal("explicit true llm_content_preload = false, want true")
 	}
-	if PipelineLLMContentSharing(&Pipeline{LlmContentSharing: &disabled}) {
-		t.Fatal("explicit false llm_content_sharing = true, want false")
+	if PipelineLLMContentPreload(&Pipeline{LlmContentPreload: &disabled}) {
+		t.Fatal("explicit false llm_content_preload = true, want false")
 	}
 }

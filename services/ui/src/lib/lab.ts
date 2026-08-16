@@ -40,8 +40,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'affinity_enabled', hint: 'Keep Kubernetes step pods on the agent node' },
   { key: 'knowledge_context', hint: 'Knowledge documents for goals' },
   { key: 'output', hint: 'Pipeline final outputs' },
-  { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
-  { key: 'llm_content_sharing', hint: 'Share workspace files with LLM goals' },
+  { key: 'llm_content_preload', hint: 'Share workspace files with LLM goals' },
   { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
   { key: 'llm_content_ignore', hint: 'Paths excluded from LLM context' },
   { key: 'display_options', hint: 'UI rendering preferences' },
@@ -69,7 +68,6 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'governance_level', hint: 'AI governance enforcement level' },
   { key: 'runtime_pool', hint: 'Kubernetes runtime pool override' },
   { key: 'knowledge_context', hint: 'Knowledge documents for this step' },
-  { key: 'llm_output_sharing', hint: 'Share step LLM output' },
 ];
 
 export const TASK_DIRECTIVES: LabDirective[] = [
@@ -84,12 +82,10 @@ export const TASK_DIRECTIVES: LabDirective[] = [
   { key: 'governance_level', hint: 'AI governance enforcement level' },
   { key: 'variables', hint: 'Task variable overrides' },
   { key: 'knowledge_context', hint: 'Knowledge documents for this task' },
-  { key: 'llm_output_sharing', hint: 'Share task LLM output' },
 ];
 
 export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title: string }> = {
-  llm_output_sharing: { values: ['true', 'false'], title: 'Boolean value' },
-  llm_content_sharing: { values: ['true', 'false'], title: 'Boolean value' },
+  llm_content_preload: { values: ['true', 'false'], title: 'Boolean value' },
   llm_enabled: { values: ['true', 'false'], title: 'Boolean value' },
   affinity_enabled: { values: ['true', 'false'], title: 'Boolean value' },
   ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
@@ -450,8 +446,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'affinity_enabled',
     'knowledge_context',
     'output',
-    'llm_content_sharing',
-    'llm_output_sharing',
+    'llm_content_preload',
     'llm_content_include',
     'llm_content_ignore',
     'access',
@@ -478,7 +473,6 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'governance_level',
     'runtime_pool',
     'knowledge_context',
-    'llm_output_sharing',
   ]);
   const knownTaskKeys = new Set([
     'name',
@@ -492,7 +486,6 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'governance_level',
     'variables',
     'knowledge_context',
-    'llm_output_sharing',
   ]);
   const knownOutputKeys = new Set(['model', 'items']);
   const knownOutputItemKeys = new Set(['name', 'type', 'when', 'prompt', 'model', 'dashboard']);

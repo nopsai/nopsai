@@ -138,8 +138,8 @@ Top-level pipeline features:
 - `variables` as required scope variables
 - `timeout`
 - `llm_enabled` to disable all LLM-backed behavior for script-only pipelines
-- `llm_content_sharing` defaults to false and must be explicitly enabled before workspace file contents are sent to LLM goal resolution
-- `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
+- `llm_content_preload` defaults to false and must be explicitly enabled before workspace file contents are loaded into the prompt up front. It is a prompt-size and cost control, not a confidentiality boundary: the model can still read permitted files through the workspace tools
+- `llm_content_include`, `llm_content_ignore` shape the workspace index itself, so they bound both preloading and what the workspace tools can reach. These are the directives that actually keep a file away from the model
 - `knowledge_context` for managed or repo-local project knowledge
 - `display_options.github_view`
 
@@ -191,7 +191,6 @@ Step/task controls:
 - `volumes`
 - `variables`
 - `ignore_failure`
-- `llm_output_sharing`
 
 ## Data Model
 

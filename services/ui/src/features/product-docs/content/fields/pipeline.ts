@@ -223,16 +223,16 @@ export const pipelineFields: WikiField[] = [
     evidence: 'services/nopsai/pkg/validation/pipeline.go',
   },
   {
-    path: 'llm_content_sharing',
+    path: 'llm_content_preload',
     scope: 'pipeline',
     type: 'boolean',
     required: false,
     defaultValue: 'false',
     description:
-      'Whether workspace file listings and contents are shared automatically with LLM goal resolution. Bounded workspace tools can still retrieve files on demand when this is false.',
-    example: 'llm_content_sharing: true',
+      'Whether workspace file listings and contents are loaded into the prompt up front. This is a prompt-size and cost control, not a permission: with it false the model receives no unrequested file dump, but bounded workspace tools can still retrieve files on demand.',
+    example: 'llm_content_preload: true',
     security:
-      'Shared and retrieved files carry path, SHA-256, size, and workspace revision metadata so stale file replacements are rejected.',
+      'Not a confidentiality boundary. Use `llm_content_ignore` or `llm_content_include` to keep a file out of the model’s reach, since those shape the workspace index the retrieval tools read from. Shared and retrieved files carry path, SHA-256, size, and workspace revision metadata so stale file replacements are rejected.',
     evidence: 'pkg/models/model.go',
   },
   {
@@ -252,16 +252,6 @@ export const pipelineFields: WikiField[] = [
     defaultValue: 'None',
     description: 'Ignore filters applied to files shared with LLM goal context. Applied after include filters.',
     example: 'llm_content_ignore:\n  - "**/testdata/**"',
-  },
-  {
-    path: 'llm_output_sharing',
-    scope: 'pipeline',
-    type: 'boolean',
-    required: false,
-    defaultValue: 'None',
-    description: 'Default for whether task output is written into later LLM execution history.',
-    example: 'llm_output_sharing: false',
-    overriddenBy: ['steps[].llm_output_sharing', 'tasks[].llm_output_sharing'],
   },
   {
     path: 'output',

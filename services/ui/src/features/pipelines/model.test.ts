@@ -71,8 +71,7 @@ version: latest
 description: Lab pipeline (ad-hoc)
 container_image: alpine:latest
 llm_enabled: true
-llm_content_sharing: true
-llm_output_sharing: true
+llm_content_preload: true
 model: fast
 knowledge_context:
   - kind: guardrail
