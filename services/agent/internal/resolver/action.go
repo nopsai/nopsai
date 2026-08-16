@@ -155,25 +155,14 @@ func (scriptActionResolver) Resolve(ctx context.Context, req ActionRequest) Acti
 }
 
 func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, script string) ActionResult {
+	// No model means the attached guardrails and policies cannot be checked at
+	// all, so the script must not run regardless of governance level.
 	if !req.LLMEnabled || req.SessionResolver == nil {
-		interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), nil, false)
-		if interpretation.Allowed {
-			if req.Logger != nil {
-				req.Logger.Warn().
-					Str("governance_level", models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task)).
-					Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
-					Msg("Cannot validate direct script against blocking knowledge context because LLM is disabled; governance allows continuing with warning")
-			}
-			return ActionResult{
-				Action:        commandAction(script),
-				ActionSummary: script,
-				Goal:          goal,
-			}
-		}
 		if req.Logger != nil {
 			req.Logger.Error().
+				Str("governance_level", models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task)).
 				Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
-				Msg("Cannot validate direct script against blocking knowledge context because LLM is disabled")
+				Msg("Cannot validate direct script against blocking knowledge context because no model is available")
 		}
 		return ActionResult{
 			Goal:             goal,
@@ -243,24 +232,18 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 	}, 3, time.Second, req.StopRetry)
 	llmDurationMs += time.Since(actionStart).Milliseconds()
 	if err != nil {
-		interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), nil, false)
-		if interpretation.Allowed {
-			if req.Logger != nil {
-				req.Logger.Warn().Err(err).Msg("Direct script guardrail validation was unavailable; governance allows continuing with warning")
-			}
-		} else {
-			if req.Logger != nil {
-				req.Logger.Error().Err(err).Msg("Direct script guardrail validation failed")
-			}
-			return ActionResult{
-				Goal:             goal,
-				LLMDurationMs:    llmDurationMs,
-				LLMDurationSet:   true,
-				Failed:           true,
-				FailClosed:       interpretation.FailClosed,
-				FinalizeStatus:   "failure",
-				FinalizeExitCode: 1,
-			}
+		// The validation call itself failed, so the script was never checked.
+		if req.Logger != nil {
+			req.Logger.Error().Err(err).Msg("Direct script guardrail validation was unavailable")
+		}
+		return ActionResult{
+			Goal:             goal,
+			LLMDurationMs:    llmDurationMs,
+			LLMDurationSet:   true,
+			Failed:           true,
+			FailClosed:       true,
+			FinalizeStatus:   "failure",
+			FinalizeExitCode: 1,
 		}
 	} else if answer := validationAction.GetAnswerAction(); answer != nil {
 		reason := strings.TrimSpace(answer.Answer)
@@ -268,7 +251,7 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 			reason = "Direct script blocked by guardrail or policy."
 		}
 		review := &models.PolicyReview{Decision: models.PolicyDecisionBlock, Reason: reason, Refs: req.BlockingKnowledgeKinds}
-		interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), review, false)
+		interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), review)
 		if interpretation.Allowed {
 			if req.Logger != nil {
 				req.Logger.Warn().
@@ -296,29 +279,22 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 		if cmd := validationAction.GetCommandAction(); cmd != nil {
 			allowedCommand = cmd.Command
 		}
+		// Validation returned something other than the exact script. The script
+		// as written was therefore never approved, so it must not run.
 		if strings.TrimSpace(allowedCommand) != strings.TrimSpace(script) {
-			interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task), nil, false)
-			if interpretation.Allowed {
-				if req.Logger != nil {
-					req.Logger.Warn().
-						Str("validation_action", actionSummary(validationAction)).
-						Msg("Direct script guardrail validation did not return the exact script command; governance allows continuing with warning")
-				}
-			} else {
-				if req.Logger != nil {
-					req.Logger.Error().
-						Str("validation_action", actionSummary(validationAction)).
-						Msg("Direct script guardrail validation did not return the exact script command")
-				}
-				return ActionResult{
-					Goal:             goal,
-					LLMDurationMs:    llmDurationMs,
-					LLMDurationSet:   true,
-					Failed:           true,
-					FailClosed:       interpretation.FailClosed,
-					FinalizeStatus:   "failure",
-					FinalizeExitCode: 1,
-				}
+			if req.Logger != nil {
+				req.Logger.Error().
+					Str("validation_action", actionSummary(validationAction)).
+					Msg("Direct script guardrail validation did not return the exact script command")
+			}
+			return ActionResult{
+				Goal:             goal,
+				LLMDurationMs:    llmDurationMs,
+				LLMDurationSet:   true,
+				Failed:           true,
+				FailClosed:       true,
+				FinalizeStatus:   "failure",
+				FinalizeExitCode: 1,
 			}
 		}
 	}
@@ -368,11 +344,13 @@ func runActionPolicyReview(ctx context.Context, req ActionRequest, session Actio
 	durationMs := time.Since(start).Milliseconds()
 
 	level := models.EffectiveGovernanceLevel(req.Pipeline, req.Step, req.Task)
-	interpretation := models.InterpretPolicyReview(level, review, false)
+	interpretation := models.InterpretPolicyReview(level, review)
 	if err != nil {
-		interpretation = models.InterpretPolicyReview(level, nil, false)
+		// An unavailable review is not an advisory warning: nothing was
+		// evaluated, so there is no judgment to downgrade.
+		interpretation = models.InterpretUnavailablePolicyReview(level, fmt.Sprintf("AI policy review was unavailable: %v", err))
 		if req.Logger != nil {
-			req.Logger.Warn().
+			req.Logger.Error().
 				Err(err).
 				Str("governance_level", level).
 				Str("policy_review_phase", strings.TrimSpace(phase)).

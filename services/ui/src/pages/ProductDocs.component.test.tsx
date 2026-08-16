@@ -65,7 +65,7 @@ describe('ProductDocsPage', () => {
     await user.click(screen.getByRole('button', { name: /^governance_level/ }));
 
     expect(screen.getByText('Allowed')).toBeVisible();
-    expect(screen.getByText('exception_based')).toBeVisible();
+    expect(screen.getByText('advisory')).toBeVisible();
     expect(screen.getByText(/pkg\/models\/policy_merge\.go/)).toBeVisible();
   });
 

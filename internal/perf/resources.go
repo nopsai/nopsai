@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -203,23 +204,53 @@ type dockerStatsLine struct {
 	PIDs     string `json:"PIDs"`
 }
 
+// containerNamePattern is Docker's own container name grammar. Names are
+// rejected rather than escaped because a name is either a valid Docker
+// reference or it is not, and anything outside this grammar could reach the
+// docker CLI as an option instead of an operand.
+var containerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// validateContainerNames rejects names that Docker itself would not accept. The
+// leading-character rule is what keeps a configured name such as "--format"
+// from being parsed as a flag by the docker CLI.
+func validateContainerNames(containers []string) error {
+	for _, container := range containers {
+		if !containerNamePattern.MatchString(container) {
+			return fmt.Errorf("invalid container name %q", container)
+		}
+	}
+	return nil
+}
+
+// dockerStatsOutput runs one `docker stats` invocation for the given containers.
+// Every name is validated first, so the variable arguments below are known to be
+// plain operands.
+func dockerStatsOutput(ctx context.Context, containers []string) ([]byte, error) {
+	if err := validateContainerNames(containers); err != nil {
+		return nil, err
+	}
+	args := append([]string{"stats", "--no-stream", "--format", "{{json .}}"}, containers...)
+	// #nosec G204 -- fixed binary and subcommand; every operand is validated
+	// against containerNamePattern above and no shell is involved.
+	return exec.CommandContext(ctx, "docker", args...).Output()
+}
+
 // DockerStats collects one round of statistics from the Docker daemon. Only the
 // requested containers are queried, and containers that are not running are
 // skipped rather than failing the round.
 func DockerStats(ctx context.Context, containers []string) ([]ResourceSample, error) {
-	args := []string{"stats", "--no-stream", "--format", "{{json .}}"}
-	args = append(args, containers...)
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	output, err := cmd.Output()
+	output, err := dockerStatsOutput(ctx, containers)
 	if err != nil {
+		if invalidErr := validateContainerNames(containers); invalidErr != nil {
+			return nil, fmt.Errorf("docker stats: %w", invalidErr)
+		}
 		// A container that is not running makes the whole invocation fail, so
 		// retry against the set that Docker currently knows about.
 		running, listErr := runningContainers(ctx, containers)
 		if listErr != nil || len(running) == 0 {
 			return nil, fmt.Errorf("docker stats: %w", err)
 		}
-		retryArgs := append([]string{"stats", "--no-stream", "--format", "{{json .}}"}, running...)
-		output, err = exec.CommandContext(ctx, "docker", retryArgs...).Output()
+		output, err = dockerStatsOutput(ctx, running)
 		if err != nil {
 			return nil, fmt.Errorf("docker stats: %w", err)
 		}

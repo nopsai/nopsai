@@ -3,24 +3,17 @@ package models
 import "strings"
 
 const (
-	GovernanceLevelAdvisory       = "advisory"
-	GovernanceLevelGuarded        = "guarded"
-	GovernanceLevelStrict         = "strict"
-	GovernanceLevelExceptionBased = "exception_based"
+	// Governance has exactly two levels. Advisory records the AI policy
+	// judgment without stopping execution; strict requires a clear allow.
+	GovernanceLevelAdvisory = "advisory"
+	GovernanceLevelStrict   = "strict"
 
 	PolicyDecisionAllow     = "allow"
 	PolicyDecisionBlock     = "block"
 	PolicyDecisionConflict  = "conflict"
 	PolicyDecisionUncertain = "uncertain"
 
-	GovernanceContractVersion = "2026-08-10.v1"
-
-	// Deprecated legacy policy merge constants. Existing manifests are accepted
-	// as aliases, but prompts and telemetry use governance_level.
-	PolicyMergeModeRestrictive    = "restrictive"
-	PolicyMergeModeOverride       = "override"
-	PolicyMergeModeFailOnConflict = "fail_on_conflict"
-	PolicyPrecedenceVersion       = GovernanceContractVersion
+	GovernanceContractVersion = "2026-08-16.v2"
 )
 
 type GovernanceInterpretation struct {
@@ -31,6 +24,10 @@ type GovernanceInterpretation struct {
 	Reason     string
 }
 
+// NormalizeGovernanceLevel resolves a configured level. An empty value defaults
+// to strict; anything else is returned as-is so SupportedGovernanceLevel can
+// reject it, which keeps an unrecognized level a validation error rather than a
+// silent downgrade.
 func NormalizeGovernanceLevel(value string) string {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	switch normalized {
@@ -38,22 +35,25 @@ func NormalizeGovernanceLevel(value string) string {
 		return GovernanceLevelStrict
 	case GovernanceLevelAdvisory:
 		return GovernanceLevelAdvisory
-	case GovernanceLevelGuarded:
-		return GovernanceLevelGuarded
-	case GovernanceLevelExceptionBased:
-		return GovernanceLevelExceptionBased
-	case PolicyMergeModeRestrictive, PolicyMergeModeFailOnConflict:
-		return GovernanceLevelStrict
-	case PolicyMergeModeOverride:
-		return GovernanceLevelGuarded
 	default:
 		return normalized
 	}
 }
 
+// EnforcedGovernanceLevel returns the level the runtime will actually apply.
+// Anything that is not advisory enforces as strict, including a value that
+// should have failed validation, so a prompt or a log never advertises a level
+// that nothing implements.
+func EnforcedGovernanceLevel(value string) string {
+	if NormalizeGovernanceLevel(value) == GovernanceLevelAdvisory {
+		return GovernanceLevelAdvisory
+	}
+	return GovernanceLevelStrict
+}
+
 func SupportedGovernanceLevel(value string) bool {
 	switch NormalizeGovernanceLevel(value) {
-	case GovernanceLevelAdvisory, GovernanceLevelGuarded, GovernanceLevelStrict, GovernanceLevelExceptionBased:
+	case GovernanceLevelAdvisory, GovernanceLevelStrict:
 		return true
 	default:
 		return false
@@ -63,15 +63,15 @@ func SupportedGovernanceLevel(value string) bool {
 func EffectiveGovernanceLevel(pipeline *Pipeline, step *PipelineStep, task *Task) string {
 	level := ""
 	if pipeline != nil {
-		level = firstNonEmptyPolicyValue(pipeline.GovernanceLevel, pipeline.PolicyMergeMode)
+		level = strings.TrimSpace(pipeline.GovernanceLevel)
 	}
 	if step != nil {
-		if value := firstNonEmptyPolicyValue(step.GetGovernanceLevel(), step.GetPolicyMergeMode()); value != "" {
+		if value := strings.TrimSpace(step.GetGovernanceLevel()); value != "" {
 			level = value
 		}
 	}
 	if task != nil {
-		if value := firstNonEmptyPolicyValue(task.GovernanceLevel, task.PolicyMergeMode); value != "" {
+		if value := strings.TrimSpace(task.GovernanceLevel); value != "" {
 			level = value
 		}
 	}
@@ -102,7 +102,29 @@ func SupportedPolicyDecision(value string) bool {
 	}
 }
 
-func InterpretPolicyReview(governanceLevel string, review *PolicyReview, approvedException bool) GovernanceInterpretation {
+// InterpretUnavailablePolicyReview covers the case where no AI policy judgment
+// could be obtained at all: the model is unavailable, the call failed, or the
+// validation did not come back in a usable form.
+//
+// This always fails closed, at every governance level including advisory.
+// Advisory downgrades a judgment the model actually made; it does not authorize
+// skipping the evaluation. When blocking guardrails or policies are attached to
+// a task and no review can be produced, there is no judgment to downgrade, so
+// allowing the action would execute it against unchecked constraints.
+func InterpretUnavailablePolicyReview(governanceLevel, reason string) GovernanceInterpretation {
+	if strings.TrimSpace(reason) == "" {
+		reason = "AI policy review was unavailable, so guardrails and policies could not be evaluated."
+	}
+	return GovernanceInterpretation{
+		Allowed:    false,
+		Warning:    false,
+		FailClosed: true,
+		Decision:   PolicyDecisionUncertain,
+		Reason:     reason,
+	}
+}
+
+func InterpretPolicyReview(governanceLevel string, review *PolicyReview) GovernanceInterpretation {
 	level := NormalizeGovernanceLevel(governanceLevel)
 	decision := PolicyDecisionUncertain
 	reason := "AI policy review did not return a decision."
@@ -126,63 +148,25 @@ func InterpretPolicyReview(governanceLevel string, review *PolicyReview, approve
 		Reason:   reason,
 	}
 
-	switch level {
-	case GovernanceLevelAdvisory:
-		if decision != PolicyDecisionAllow {
-			result.Warning = true
-		}
-	case GovernanceLevelGuarded:
-		if decision == PolicyDecisionBlock || decision == PolicyDecisionConflict {
-			result.Allowed = false
-			result.FailClosed = true
-		} else if decision == PolicyDecisionUncertain {
-			result.Warning = true
-		}
-	case GovernanceLevelExceptionBased:
-		switch decision {
-		case PolicyDecisionAllow:
-			// Continue.
-		case PolicyDecisionConflict:
-			if approvedException {
-				result.Warning = true
-			} else {
-				result.Allowed = false
-				result.FailClosed = true
-			}
-		default:
-			result.Allowed = false
-			result.FailClosed = true
-		}
-	default:
-		if decision != PolicyDecisionAllow {
-			result.Allowed = false
-			result.FailClosed = true
-		}
+	// A nil review means nothing was evaluated, which is never an advisory
+	// warning. Callers should use InterpretUnavailablePolicyReview directly;
+	// this guard keeps any missed path failing closed rather than open.
+	if review == nil {
+		return InterpretUnavailablePolicyReview(level, reason)
 	}
 
+	if level == GovernanceLevelAdvisory {
+		if decision != PolicyDecisionAllow {
+			result.Warning = true
+		}
+		return result
+	}
+
+	// Strict: only a clear allow proceeds.
+	if decision != PolicyDecisionAllow {
+		result.Allowed = false
+		result.FailClosed = true
+	}
 	return result
 }
 
-func firstNonEmptyPolicyValue(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
-// Deprecated: use NormalizeGovernanceLevel.
-func NormalizePolicyMergeMode(value string) string {
-	return NormalizeGovernanceLevel(value)
-}
-
-// Deprecated: use SupportedGovernanceLevel.
-func SupportedPolicyMergeMode(value string) bool {
-	return SupportedGovernanceLevel(value)
-}
-
-// Deprecated: use EffectiveGovernanceLevel.
-func EffectivePolicyMergeMode(pipeline *Pipeline, step *PipelineStep, task *Task) string {
-	return EffectiveGovernanceLevel(pipeline, step, task)
-}

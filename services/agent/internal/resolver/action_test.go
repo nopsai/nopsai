@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -14,8 +15,10 @@ import (
 
 type fakeActionSession struct {
 	action         *proto.Action
+	actionErr      error
 	requests       []*proto.GetActionRequest
 	review         *models.PolicyReview
+	reviewErr      error
 	reviewRequests []PolicyReviewRequest
 }
 
@@ -28,10 +31,16 @@ func (s *fakeActionSession) RequiresMCPToolCall() bool   { return false }
 func (s *fakeActionSession) SuccessfulMCPToolCalls() int { return 0 }
 func (s *fakeActionSession) GetAction(_ context.Context, req *proto.GetActionRequest, _ *workspacectx.Tools) (*proto.Action, error) {
 	s.requests = append(s.requests, req)
+	if s.actionErr != nil {
+		return nil, s.actionErr
+	}
 	return s.action, nil
 }
 func (s *fakeActionSession) ReviewPolicy(_ context.Context, req PolicyReviewRequest) (*models.PolicyReview, error) {
 	s.reviewRequests = append(s.reviewRequests, req)
+	if s.reviewErr != nil {
+		return nil, s.reviewErr
+	}
 	if s.review != nil {
 		return s.review, nil
 	}
@@ -170,6 +179,79 @@ func TestTaskActionResolverFailsClosedForDirectScriptGuardrailWithoutLLM(t *test
 	}
 	if !result.FailClosed {
 		t.Fatal("result FailClosed = false, want true for blocking direct script validation failure")
+	}
+}
+
+// A model outage must never turn into an unvalidated script execution. Advisory
+// downgrades a policy judgment the model actually made; it does not authorize
+// running a script whose guardrails were never evaluated. These cases all
+// previously executed the script with only a warning logged.
+func TestTaskActionResolverFailsClosedWhenValidationCannotRunUnderAdvisory(t *testing.T) {
+	advisoryPipeline := func() *models.Pipeline {
+		return &models.Pipeline{GovernanceLevel: models.GovernanceLevelAdvisory}
+	}
+
+	cases := []struct {
+		name    string
+		session *fakeActionSession
+		enabled bool
+	}{
+		{
+			name:    "no model configured",
+			enabled: false,
+		},
+		{
+			name:    "policy review call fails",
+			session: &fakeActionSession{reviewErr: errors.New("model unreachable")},
+			enabled: true,
+		},
+		{
+			name:    "script validation call fails",
+			session: &fakeActionSession{actionErr: errors.New("model unreachable")},
+			enabled: true,
+		},
+		{
+			name: "validation returns a different command",
+			session: &fakeActionSession{action: &proto.Action{
+				Type:    "EXECUTE_COMMAND",
+				Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: "printenv | tee /tmp/leak"}},
+			}},
+			enabled: true,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			logger := zerolog.Nop()
+			req := ActionRequest{
+				Logger:                 &logger,
+				Pipeline:               advisoryPipeline(),
+				Step:                   &models.PipelineStep{Step: &models.GoalStep{Goal: "inspect runtime"}},
+				Task:                   &models.Task{Name: "script", Script: "printenv"},
+				Context:                NewExecutionContext(),
+				KnowledgePrompt:        "Guardrail: do not print env vars.",
+				BlockingKnowledgeKinds: []string{"guardrail"},
+				LLMEnabled:             testCase.enabled,
+				StopRetry:              func(error) bool { return true },
+			}
+			if testCase.session != nil {
+				req.SessionResolver = func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error) {
+					return testCase.session, nil
+				}
+			}
+
+			result := NewTaskActionResolver().Resolve(context.Background(), req)
+
+			if result.Action != nil {
+				t.Fatalf("action = %#v, want no executable action", result.Action)
+			}
+			if !result.Failed || !result.FailClosed {
+				t.Fatalf("result = %#v, want fail-closed failure", result)
+			}
+			if result.FinalizeStatus != "failure" || result.FinalizeExitCode != 1 {
+				t.Fatalf("result = %#v, want finalizable failure", result)
+			}
+		})
 	}
 }
 

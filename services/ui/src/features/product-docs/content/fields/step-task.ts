@@ -185,8 +185,7 @@ export const stepCommonFields: WikiField[] = [
     defaultValue: 'Pipeline `governance_level`, otherwise strict',
     description: 'AI governance enforcement override for this step.',
     example: 'governance_level: strict',
-    allowedValues: ['advisory', 'guarded', 'strict', 'exception_based'],
-    constraints: ['Cannot be combined with the deprecated `policy_merge_mode` on the same step.'],
+    allowedValues: ['advisory', 'strict'],
     overriddenBy: ['tasks[].governance_level'],
   },
   {
@@ -413,8 +412,8 @@ export const taskFields: WikiField[] = [
     required: false,
     defaultValue: 'Step, then pipeline, otherwise strict',
     description: 'Most specific AI governance enforcement override.',
-    example: 'governance_level: exception_based',
-    allowedValues: ['advisory', 'guarded', 'strict', 'exception_based'],
+    example: 'governance_level: advisory',
+    allowedValues: ['advisory', 'strict'],
   },
   {
     path: 'tasks[].knowledge_context',

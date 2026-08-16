@@ -49,8 +49,8 @@ export const TASK_DIRECTIVES = [
   'knowledge_context',
 ];
 
-const STEP_ALLOWED_KEYS = new Set([...STEP_DIRECTIVES, 'policy_merge_mode']);
-const TASK_ALLOWED_KEYS = new Set([...TASK_DIRECTIVES, 'policy_merge_mode']);
+const STEP_ALLOWED_KEYS = new Set(STEP_DIRECTIVES);
+const TASK_ALLOWED_KEYS = new Set(TASK_DIRECTIVES);
 
 export type ValidationError = {
   message: string;

@@ -489,18 +489,11 @@ export const governanceLevels: WikiField[] = [
     type: 'enforcement',
     required: false,
     defaultValue: 'Not the default',
-    description: 'Log and warn on policy concerns. Execution usually proceeds.',
+    description: 'Log and warn on an evaluated policy concern. Execution proceeds.',
     example: 'governance_level: advisory',
-    evidence: 'pkg/models/policy_merge.go',
-  },
-  {
-    path: 'guarded',
-    scope: 'governance level',
-    type: 'enforcement',
-    required: false,
-    defaultValue: 'Not the default',
-    description: 'Block clear violations and conflicts. Treat uncertainty as a warning.',
-    example: 'governance_level: guarded',
+    constraints: [
+      'Advisory downgrades a judgment the model made. It never skips the evaluation: if no judgment can be obtained, the task still fails closed.',
+    ],
     evidence: 'pkg/models/policy_merge.go',
   },
   {
@@ -510,19 +503,12 @@ export const governanceLevels: WikiField[] = [
     required: false,
     defaultValue: 'Default when unset',
     description:
-      'Proceed only on a clear allow. Violations, conflicts, uncertainty, missing reviews, and unsupported decisions all block.',
+      'Proceed only on a clear allow. Violations, conflicts, uncertainty, and unsupported decisions all block.',
     example: 'governance_level: strict',
-    constraints: ['An empty or unrecognized legacy value normalizes to `strict`.'],
-    evidence: 'pkg/models/policy_merge.go',
-  },
-  {
-    path: 'exception_based',
-    scope: 'governance level',
-    type: 'enforcement',
-    required: false,
-    defaultValue: 'Not the default',
-    description: 'Allow normal approvals; conflicts proceed only with an effective approved exception. Violations and uncertainty still block.',
-    example: 'governance_level: exception_based',
+    constraints: [
+      'An empty value normalizes to `strict`.',
+      'Any value other than `advisory` or `strict` is a validation error. The earlier `guarded` and `exception_based` levels have been removed; replace them with `strict`.',
+    ],
     evidence: 'pkg/models/policy_merge.go',
   },
 ];

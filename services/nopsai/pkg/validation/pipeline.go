@@ -144,7 +144,7 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	if err := validateKnowledgeContextRefs(pipeline.KnowledgeContext, "pipeline"); err != nil {
 		return err
 	}
-	if err := validateGovernanceLevel(pipeline.GovernanceLevel, pipeline.PolicyMergeMode, "pipeline"); err != nil {
+	if err := validateGovernanceLevel(pipeline.GovernanceLevel, "pipeline"); err != nil {
 		return err
 	}
 
@@ -164,7 +164,7 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		if err := validateKnowledgeContextRefs(step.GetKnowledgeContext(), fmt.Sprintf("step '%s'", stepName)); err != nil {
 			return err
 		}
-		if err := validateGovernanceLevel(step.GetGovernanceLevel(), step.GetPolicyMergeMode(), fmt.Sprintf("step '%s'", stepName)); err != nil {
+		if err := validateGovernanceLevel(step.GetGovernanceLevel(), fmt.Sprintf("step '%s'", stepName)); err != nil {
 			return err
 		}
 		if err := validateReservedRuntimeOutputMounts(step.GetVolumes(), fmt.Sprintf("step '%s'", stepName)); err != nil {
@@ -244,7 +244,7 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 				if err := validateKnowledgeContextRefs(task.KnowledgeContext, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
 					return err
 				}
-				if err := validateGovernanceLevel(task.GovernanceLevel, task.PolicyMergeMode, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
+				if err := validateGovernanceLevel(task.GovernanceLevel, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
 					return err
 				}
 				if err := validateTaskOutputs(task.Outputs, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
@@ -766,23 +766,15 @@ func sortedStringSlice(values []string) []string {
 	return out
 }
 
-func validateGovernanceLevel(value, legacyValue string, location string) error {
-	if strings.TrimSpace(value) != "" && strings.TrimSpace(legacyValue) != "" {
-		return fmt.Errorf("governance_level in %s cannot be combined with deprecated policy_merge_mode", location)
-	}
-	if strings.TrimSpace(value) == "" {
-		value = legacyValue
-	}
+func validateGovernanceLevel(value string, location string) error {
 	if strings.TrimSpace(value) == "" {
 		return nil
 	}
 	if !models.SupportedGovernanceLevel(value) {
-		return fmt.Errorf("governance_level in %s must be one of %q, %q, %q, or %q",
+		return fmt.Errorf("governance_level in %s must be %q or %q",
 			location,
 			models.GovernanceLevelAdvisory,
-			models.GovernanceLevelGuarded,
 			models.GovernanceLevelStrict,
-			models.GovernanceLevelExceptionBased,
 		)
 	}
 	return nil

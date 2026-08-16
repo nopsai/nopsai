@@ -94,7 +94,7 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
   affinity_enabled: { values: ['true', 'false'], title: 'Boolean value' },
   ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
   sync: { values: ['true', 'false'], title: 'Boolean value' },
-  governance_level: { values: ['advisory', 'guarded', 'strict', 'exception_based'], title: 'Governance level' },
+  governance_level: { values: ['advisory', 'strict'], title: 'Governance level' },
 };
 
 export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
@@ -446,7 +446,6 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'model',
     'mcp_profiles',
     'governance_level',
-    'policy_merge_mode',
     'runtime_pool',
     'affinity_enabled',
     'knowledge_context',
@@ -477,7 +476,6 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'model',
     'mcp_profiles',
     'governance_level',
-    'policy_merge_mode',
     'runtime_pool',
     'knowledge_context',
     'llm_output_sharing',
@@ -492,7 +490,6 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'model',
     'mcp_profiles',
     'governance_level',
-    'policy_merge_mode',
     'variables',
     'knowledge_context',
     'llm_output_sharing',

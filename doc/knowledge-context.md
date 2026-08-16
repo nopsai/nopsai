@@ -494,7 +494,7 @@ Policy snapshots are pinned when their scope starts: pipeline policies at run
 start, step policies when the step starts, and task policies when the task
 starts. The effective policy is recomputed as the agent enters a narrower
 scope. `governance_level` tells NopsAI how strongly to enforce the AI policy
-judgment: `advisory`, `guarded`, `strict`, or `exception_based`. The agent runs
+judgment: `advisory` or `strict`. The agent runs
 AI policy checks before planning or direct execution, during action planning,
 and after the final structured action is selected. Opposite policies only
 conflict when they are effective for the same decision. Emergency policy
@@ -503,10 +503,33 @@ already-resolved snapshots.
 
 | Governance level | Meaning |
 | --- | --- |
-| `advisory` | The AI evaluates policy and NopsAI records warnings, but policy concerns normally do not stop execution. |
-| `guarded` | Clear AI policy violations or conflicts block the action. Uncertainty is warning-level. |
-| `strict` | Only a clear allow proceeds. Violations, conflicts, uncertainty, missing reviews, or unsupported decisions fail closed. |
-| `exception_based` | Allows proceed normally, but conflicts require an effective approved exception. Violations, uncertainty, and missing reviews fail closed. |
+| `advisory` | The AI evaluates policy and NopsAI records warnings, but an evaluated policy concern does not stop execution. |
+| `strict` | Only a clear allow proceeds. Violations, conflicts, uncertainty, or unsupported decisions fail closed. This is the default. |
+
+`strict` is the default, including when `governance_level` is omitted.
+
+The earlier `guarded` and `exception_based` levels have been removed, along with
+the deprecated `policy_merge_mode` field and its `restrictive`,
+`fail_on_conflict`, and `override` values. They are no longer accepted: a
+manifest still carrying one fails validation with a message naming the two
+supported levels. Replace `advisory` with `advisory`, and every other former
+value with `strict`, which is what each of them effectively enforced.
+
+### Advisory does not mean unevaluated
+
+`advisory` governs what happens to a policy judgment the model **did** make. It
+never authorizes skipping the evaluation. Whenever a blocking guardrail or
+policy is attached and no usable judgment can be obtained, the task fails
+closed at every governance level, `advisory` included. That covers:
+
+- no model is configured or resolvable for the task
+- the policy review or script validation call fails after its retries
+- validation returns something other than the exact script it was asked to approve
+- the review comes back missing or in an undecodable form
+
+The reasoning is that these are not uncertain judgments, they are absent ones.
+There is nothing for `advisory` to downgrade, and allowing the action would run
+it against constraints that were never checked.
 
 Workspace file contents appear in `Working Directory Contents` only when the
 pipeline explicitly sets `llm_content_sharing: true`. If omitted or false, the

@@ -281,3 +281,39 @@ func TestDockerStatsSkipsContainersThatAreNotRunning(t *testing.T) {
 		t.Fatal("the retry path returned no samples")
 	}
 }
+
+// A configured container name must never be able to reach the docker CLI as an
+// option. Names are rejected outright rather than escaped, because the docker
+// CLI has no way to distinguish a leading-dash operand from a flag.
+func TestDockerStatsRejectsNamesThatCouldBecomeFlags(t *testing.T) {
+	for _, name := range []string{
+		"--format",
+		"-v",
+		"--privileged",
+		"",
+		"has space",
+		"semi;colon",
+		".leading-dot",
+	} {
+		if err := validateContainerNames([]string{name}); err == nil {
+			t.Fatalf("validateContainerNames(%q) = nil, want rejection", name)
+		}
+	}
+	for _, name := range []string{
+		"nopsai-api",
+		"nopsai_agent_1",
+		"registry.local",
+		"a",
+		"0abc",
+	} {
+		if err := validateContainerNames([]string{name}); err != nil {
+			t.Fatalf("validateContainerNames(%q) = %v, want accepted", name, err)
+		}
+	}
+}
+
+func TestDockerStatsFailsOnInvalidContainerNameWithoutRunningDocker(t *testing.T) {
+	if _, err := DockerStats(context.Background(), []string{"--format"}); err == nil {
+		t.Fatal("DockerStats accepted a flag-shaped container name")
+	}
+}
