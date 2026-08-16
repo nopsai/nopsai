@@ -54,10 +54,10 @@ container_image: alpine:3.20
 governance_level: strict
 steps:
   - name: build
-    governance_level: guarded
+    governance_level: advisory
     tasks:
       - name: summarize
-        governance_level: exception_based
+        governance_level: advisory
         goal: Summarize deployment readiness.
 `);
 
@@ -91,7 +91,7 @@ steps:
 
 test('rejects blocking knowledge direct scripts when LLM is disabled', () => {
   const result = validatePipelineYaml(`
-name: guarded-script
+name: governed-script
 container_image: alpine:3.20
 llm_enabled: false
 knowledge_context:

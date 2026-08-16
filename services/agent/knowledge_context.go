@@ -201,7 +201,8 @@ func formatScopedKnowledgeContextPrompt(snapshots []scopedKnowledgeContextSnapsh
 			other = append(other, item)
 		}
 	}
-	governanceLevel = models.NormalizeGovernanceLevel(governanceLevel)
+	// Advertise the level the runtime enforces, not the raw configured string.
+	governanceLevel = models.EnforcedGovernanceLevel(governanceLevel)
 	if hasGovernance {
 		builder.WriteString("NopsAI Governance Contract\n")
 		builder.WriteString("knowledge_revision: ")
@@ -356,7 +357,7 @@ func knowledgeContextViolationFailureReason(action *proto.Action, pipeline *mode
 		Reason:   answer,
 		Refs:     blockingKinds,
 	}
-	if interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(pipeline, step, task), review, false); interpretation.Allowed {
+	if interpretation := models.InterpretPolicyReview(models.EffectiveGovernanceLevel(pipeline, step, task), review); interpretation.Allowed {
 		return "", blockingKinds, false
 	}
 	return answer, blockingKinds, true

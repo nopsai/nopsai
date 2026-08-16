@@ -73,7 +73,6 @@ type Step interface {
 	GetOutputs() []TaskOutput
 	GetKnowledgeContext() []KnowledgeContextRef
 	GetGovernanceLevel() string
-	GetPolicyMergeMode() string
 
 	// Type assertion helpers
 	AsIncludeStep() (*IncludeStep, bool)
@@ -101,7 +100,6 @@ type BaseStep struct {
 	Outputs          []TaskOutput          `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 	GovernanceLevel  string                `yaml:"governance_level,omitempty" json:"governance_level,omitempty"`
-	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"` // Deprecated: use GovernanceLevel.
 }
 
 // GetName returns the step's name.
@@ -151,9 +149,6 @@ func (s *BaseStep) GetKnowledgeContext() []KnowledgeContextRef { return s.Knowle
 
 // GetGovernanceLevel returns the step's governance level override.
 func (s *BaseStep) GetGovernanceLevel() string { return s.GovernanceLevel }
-
-// GetPolicyMergeMode returns the legacy policy merge mode override.
-func (s *BaseStep) GetPolicyMergeMode() string { return s.PolicyMergeMode }
 
 // Default type assertion implementations
 func (s *BaseStep) AsIncludeStep() (*IncludeStep, bool)   { return nil, false }
@@ -540,13 +535,6 @@ func (ps PipelineStep) GetGovernanceLevel() string {
 	return ps.Step.GetGovernanceLevel()
 }
 
-func (ps PipelineStep) GetPolicyMergeMode() string {
-	if ps.Step == nil {
-		return ""
-	}
-	return ps.Step.GetPolicyMergeMode()
-}
-
 func (ps PipelineStep) GetTasks() []Task {
 	if taskStep, ok := ps.AsTaskStep(); ok {
 		return taskStep.Tasks
@@ -720,12 +708,6 @@ func (ps *PipelineStep) SetGovernanceLevel(value string) {
 	}
 }
 
-func (ps *PipelineStep) SetPolicyMergeMode(value string) {
-	if base := ps.baseStep(); base != nil {
-		base.PolicyMergeMode = value
-	}
-}
-
 type KnowledgeContextRef struct {
 	Kind     string `yaml:"kind" json:"kind"`
 	Ref      string `yaml:"ref,omitempty" json:"ref,omitempty"`
@@ -834,7 +816,6 @@ type Pipeline struct {
 	AffinityEnabled   *bool                 `yaml:"affinity_enabled,omitempty" json:"affinity_enabled,omitempty"`
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 	GovernanceLevel   string                `yaml:"governance_level,omitempty" json:"governance_level,omitempty"`
-	PolicyMergeMode   string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"` // Deprecated: use GovernanceLevel.
 	Output            PipelineOutput        `yaml:"output,omitempty" json:"output,omitempty"`
 	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
@@ -919,7 +900,6 @@ type Task struct {
 	Outputs          []TaskOutput          `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 	GovernanceLevel  string                `yaml:"governance_level,omitempty" json:"governance_level,omitempty"`
-	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"` // Deprecated: use GovernanceLevel.
 }
 
 func (t *Task) UnmarshalYAML(value *yaml.Node) error {
