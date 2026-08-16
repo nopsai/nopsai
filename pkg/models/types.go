@@ -105,7 +105,6 @@ type StepConfiguration struct {
 	Variables        map[string]string     `json:"variables,omitempty"`
 	Outputs          []TaskOutput          `json:"outputs,omitempty"`
 	IgnoreFailure    bool                  `json:"ignore_failure"`
-	LlmOutputSharing *bool                 `json:"llm_output_sharing,omitempty"`
 	AgentProfile     string                `json:"agent_role,omitempty"`
 	LLMProfile       string                `json:"model,omitempty"`
 	MCPProfiles      []string              `json:"mcp_profiles,omitempty"`

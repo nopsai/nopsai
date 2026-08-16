@@ -659,9 +659,6 @@ func (a *App) resolveStepIncludesWithResolver(ctx context.Context, pipeline *mod
 		// 2. Transfer metadata from the placeholder
 		includedStep.SetDependsOn(step.GetDependsOn())
 		includedStep.SetIgnoreFailure(step.GetIgnoreFailure())
-		if llm := step.GetLlmOutputSharing(); llm != nil {
-			includedStep.SetLlmOutputSharing(llm)
-		}
 		if agentProfile := strings.TrimSpace(step.GetAgentProfile()); agentProfile != "" {
 			includedStep.SetAgentProfile(agentProfile)
 		}

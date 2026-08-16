@@ -507,7 +507,7 @@ export const governanceLevels: WikiField[] = [
     example: 'governance_level: strict',
     constraints: [
       'An empty value normalizes to `strict`.',
-      'Any value other than `advisory` or `strict` is a validation error. The earlier `guarded` and `exception_based` levels have been removed; replace them with `strict`.',
+      'Any value other than `advisory` or `strict` is a validation error.',
     ],
     evidence: 'pkg/models/policy_merge.go',
   },

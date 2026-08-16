@@ -66,7 +66,6 @@ export type TaskDefinition = {
   ignore_failure?: boolean;
   model?: string;
   mcp_profiles?: string[];
-  llm_output_sharing?: boolean;
   variables?: Record<string, string>;
 };
 
@@ -89,7 +88,6 @@ export type StepConfiguration = {
   model?: string;
   mcp_profiles?: string[];
   runtime_pool?: string;
-  llm_output_sharing?: boolean;
   goal?: string;
   script?: string;
   tasks?: TaskDefinition[];
@@ -149,7 +147,6 @@ export type PipelineDefinition = {
     model?: string;
     mcp_profiles?: string[];
     runtime_pool?: string;
-    llm_output_sharing?: boolean;
   }>;
 };
 

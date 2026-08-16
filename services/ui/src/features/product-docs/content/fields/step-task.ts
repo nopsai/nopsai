@@ -206,16 +206,6 @@ export const stepCommonFields: WikiField[] = [
     description: 'Knowledge references merged with pipeline and task context for this step.',
     example: 'knowledge_context:\n  - kind: policy\n    ref: platform/deploy-policy',
   },
-  {
-    path: 'steps[].llm_output_sharing',
-    scope: 'step',
-    type: 'boolean',
-    required: false,
-    defaultValue: 'Pipeline `llm_output_sharing`',
-    description: 'Whether output from this step is written into later LLM execution history.',
-    example: 'llm_output_sharing: false',
-    overriddenBy: ['tasks[].llm_output_sharing'],
-  },
 ];
 
 /** Exactly one of these must be present on every step. */
@@ -423,15 +413,6 @@ export const taskFields: WikiField[] = [
     defaultValue: 'None',
     description: 'Most specific knowledge references for this task, merged with step and pipeline context.',
     example: 'knowledge_context:\n  - kind: example\n    path: .nopsai/docs/migration-example.md',
-  },
-  {
-    path: 'tasks[].llm_output_sharing',
-    scope: 'task',
-    type: 'boolean',
-    required: false,
-    defaultValue: 'Step, then pipeline value',
-    description: 'Whether this task output is written into later LLM execution history.',
-    example: 'llm_output_sharing: true',
   },
   {
     path: 'tasks[].agent_role',

@@ -473,7 +473,7 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 	workspaceRevision := effectiveWorkspaceRevision(req.WorkspaceRevision)
 	var sharedDirectoryListing map[string]string
 	var sharedFileIdentities map[string]SharedFileIdentity
-	if models.PipelineLLMContentSharing(req.Pipeline) && req.WorkspaceIndex != nil {
+	if models.PipelineLLMContentPreload(req.Pipeline) && req.WorkspaceIndex != nil {
 		sharedDirectoryListing, sharedFileIdentities = buildSharedDirectoryContextFromWorkspaceIndex(req.WorkspaceIndex)
 		logDirectoryListingMetadata(req.Logger, sharedDirectoryListing)
 	} else {
@@ -633,7 +633,7 @@ func effectiveWorkspaceRevision(revision uint64) uint64 {
 }
 
 func collectActionDirectoryListing(req ActionRequest) map[string]string {
-	if !models.PipelineLLMContentSharing(req.Pipeline) {
+	if !models.PipelineLLMContentPreload(req.Pipeline) {
 		if req.Logger != nil {
 			req.Logger.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan")
 		}

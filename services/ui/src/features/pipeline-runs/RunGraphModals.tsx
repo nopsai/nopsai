@@ -448,12 +448,6 @@ export function StepDetailModal({
                   <span>Sync</span>
                   <span className="text-[var(--text-primary)] font-semibold">{config?.sync ? 'true' : 'false'}</span>
                 </div>
-                {config?.llm_output_sharing !== undefined && (
-                  <div className="flex items-center gap-2 col-span-2">
-                    <span>LLM Output Sharing</span>
-                    <span className="text-[var(--text-primary)] font-semibold">{config.llm_output_sharing ? 'true' : 'false'}</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
