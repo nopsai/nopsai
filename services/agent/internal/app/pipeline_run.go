@@ -543,23 +543,11 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					taskLogger.Info().Msg(logMsg)
 				}
 
-				shareOutput := true
-				if pipeline.LlmOutputSharing != nil {
-					shareOutput = *pipeline.LlmOutputSharing
-				}
-				if task.LlmOutputSharing != nil {
-					shareOutput = *task.LlmOutputSharing
-				}
 				historyGoal := goalText
 				if historyGoal == "" {
 					historyGoal = fmt.Sprintf("Execute script for task: %s", task.Name)
 				}
-				if !shareOutput {
-					taskLogger.Debug().Msg("Output sharing is DISABLED for this task. Hiding output from history")
-					output = "[Output was hidden by pipeline configuration]"
-				} else {
-					output = maskedOutput
-				}
+				output = maskedOutput
 
 				historyMutex.Lock()
 				history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, maskedActionStr, exitCode, output))

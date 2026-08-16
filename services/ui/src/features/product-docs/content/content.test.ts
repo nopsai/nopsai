@@ -104,7 +104,7 @@ test('pipeline schema documents the defaults that are easy to get wrong', () => 
   assert.equal(field('version')?.defaultValue, 'latest');
   assert.equal(field('working_directory')?.defaultValue, '/workspace');
   assert.equal(field('llm_enabled')?.defaultValue, 'true');
-  assert.equal(field('llm_content_sharing')?.defaultValue, 'false');
+  assert.equal(field('llm_content_preload')?.defaultValue, 'false');
   assert.equal(field('container_image')?.required, 'conditional');
   assert.equal(field('name')?.required, true);
   assert.equal(field('steps')?.required, true);

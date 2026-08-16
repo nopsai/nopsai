@@ -281,7 +281,7 @@ export const getStartedSection: WikiSection = {
             },
           ],
           warning:
-            'Without `llm_content_sharing: true`, workspace contents are not shared automatically. The agent can still retrieve files on demand through bounded workspace tools.',
+            'Without `llm_content_preload: true`, workspace contents are not shared automatically. The agent can still retrieve files on demand through bounded workspace tools.',
         },
         {
           title: 'Run it and read the reasoning',

@@ -27,8 +27,7 @@ export const PIPELINE_DIRECTIVES = [
   'affinity_enabled',
   'knowledge_context',
   'output',
-  'llm_output_sharing',
-  'llm_content_sharing',
+  'llm_content_preload',
   'llm_content_include',
   'llm_content_ignore',
   'display_options',
@@ -56,7 +55,6 @@ export const STEP_DIRECTIVES = [
   'governance_level',
   'runtime_pool',
   'knowledge_context',
-  'llm_output_sharing',
 ];
 
 export const TASK_DIRECTIVES = [
@@ -70,7 +68,6 @@ export const TASK_DIRECTIVES = [
   'mcp_profiles',
   'governance_level',
   'knowledge_context',
-  'llm_output_sharing',
   'variables',
 ];
 
@@ -125,7 +122,6 @@ export type PipelineGraphStepConfiguration = {
   variables?: Record<string, string>;
   outputs?: TaskOutputDeclaration[];
   ignore_failure?: boolean;
-  llm_output_sharing?: boolean;
   agent_role?: string;
   goal?: string;
   script?: string;
@@ -432,7 +428,6 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
     variables?: Record<string, string>;
     outputs?: TaskOutputDeclaration[];
     ignore_failure?: boolean;
-    llm_output_sharing?: boolean;
     goal?: string;
     script?: string;
     tasks: PipelineGraphTaskDefinition[];
@@ -483,7 +478,6 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
           variables: normalizeVariables(step.variables),
           outputs: normalizeOutputs(step.outputs),
           ignore_failure: typeof step.ignore_failure === 'boolean' ? step.ignore_failure : undefined,
-          llm_output_sharing: typeof step.llm_output_sharing === 'boolean' ? step.llm_output_sharing : undefined,
           goal: typeof step.goal === 'string' ? step.goal : undefined,
           script: typeof step.script === 'string' ? step.script : undefined,
           tasks: taskDefs,
@@ -537,7 +531,6 @@ export function buildPipelineGraphData(rawYaml?: string): PipelineGraphData {
           variables: step.variables,
           outputs: step.outputs,
           ignore_failure: step.ignore_failure,
-          llm_output_sharing: step.llm_output_sharing,
           goal: step.goal,
           script: step.script,
           tasks: step.tasks,

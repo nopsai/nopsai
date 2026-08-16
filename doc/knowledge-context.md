@@ -506,14 +506,8 @@ already-resolved snapshots.
 | `advisory` | The AI evaluates policy and NopsAI records warnings, but an evaluated policy concern does not stop execution. |
 | `strict` | Only a clear allow proceeds. Violations, conflicts, uncertainty, or unsupported decisions fail closed. This is the default. |
 
-`strict` is the default, including when `governance_level` is omitted.
-
-The earlier `guarded` and `exception_based` levels have been removed, along with
-the deprecated `policy_merge_mode` field and its `restrictive`,
-`fail_on_conflict`, and `override` values. They are no longer accepted: a
-manifest still carrying one fails validation with a message naming the two
-supported levels. Replace `advisory` with `advisory`, and every other former
-value with `strict`, which is what each of them effectively enforced.
+`strict` is the default, including when `governance_level` is omitted. Any other
+value fails validation with a message naming the two supported levels.
 
 ### Advisory does not mean unevaluated
 
@@ -532,9 +526,23 @@ There is nothing for `advisory` to downgrade, and allowing the action would run
 it against constraints that were never checked.
 
 Workspace file contents appear in `Working Directory Contents` only when the
-pipeline explicitly sets `llm_content_sharing: true`. If omitted or false, the
+pipeline explicitly sets `llm_content_preload: true`. If omitted or false, the
 agent skips the directory scan and the LLM must inspect files through approved
 runtime actions or MCP tools.
+
+`llm_content_preload` is a prompt-size and cost control, not a confidentiality
+boundary: turning it off stops the unrequested file dump but does not stop the
+model from reading a file through the workspace tools. To keep a file away from
+the model entirely, exclude it with `llm_content_ignore` or restrict the set with
+`llm_content_include`. Those patterns build the workspace index itself, so a file
+they exclude is not preloaded and cannot be reached by `read_file`,
+`search_code`, or `list_files` either.
+
+Task command output is always written into the run history that later LLM calls
+receive, with known secret values and NopsAI-provided runtime variable values
+masked. There is no per-task switch to withhold it. Keep data away from the model
+by excluding it with `llm_content_ignore` rather than by suppressing the output
+of the task that touched it.
 
 Workspace tools are available to LLM goal resolution as bounded NopsAI-managed
 retrieval actions:

@@ -132,24 +132,6 @@ Workspace tool result: tool=read_file arguments={"path":"README.md"} result={"wo
 	}
 }
 
-// The legacy policy_merge_mode and policy_precedence_version keys are gone.
-// Telemetry must not resurrect them, so a prompt carrying only the old keys
-// reports no governance metadata rather than a level nothing enforces.
-func TestPromptMetadataIgnoresRemovedPolicyMergeMetadata(t *testing.T) {
-	prompt := `NopsAI Knowledge Snapshot
-knowledge_revision: knowledge123
-policy_revision: policy456
-effective_policy_snapshot_hash: effective789
-policy_merge_mode: restrictive
-policy_precedence_version: 2026-07-20.v1`
-
-	meta := newPromptMetadata(nil, prompt)
-
-	if meta.GovernanceLevel != "" || meta.GovernanceContractVersion != "" {
-		t.Fatalf("removed policy metadata was still read: %#v", meta)
-	}
-}
-
 func TestUsageFromTokensIncludesPromptMetadata(t *testing.T) {
 	usage := usageFromTokens(appconfig.LLMProviderOpenAI, "gpt-test", "standard", "hello world", "ok", 3, 1, 4)
 

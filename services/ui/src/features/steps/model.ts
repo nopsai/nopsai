@@ -31,7 +31,6 @@ export const STEP_DIRECTIVES = [
   'agent_role',
   'governance_level',
   'runtime_pool',
-  'llm_output_sharing',
   'artifacts',
   'access',
 ];
@@ -43,7 +42,6 @@ export const TASK_DIRECTIVES = [
   'depends_on',
   'outputs',
   'ignore_failure',
-  'llm_output_sharing',
   'governance_level',
   'variables',
   'knowledge_context',

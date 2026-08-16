@@ -531,10 +531,9 @@ It should include at least these directives:
 | `runtime_pool` | pipeline | Kubernetes runtime pool default. Docker runners ignore it. |
 | `affinity_enabled` | pipeline | Kubernetes same-node affinity override for the run. |
 | `knowledge_context` | pipeline | Knowledge references merged into all effective LLM task contexts; guardrail and policy entries also validate direct scripts before execution. |
-| `llm_content_sharing` | pipeline | Optional boolean. Defaults to `false`; set `true` only when workspace file listings/content should be shared automatically with LLM goal resolution. Bounded workspace tools can still retrieve current file identities and file content on demand. Shared and retrieved files include path, SHA-256, size, and workspace revision metadata so stale file replacements can be rejected. |
+| `llm_content_preload` | pipeline | Optional boolean. Defaults to `false`; set `true` only when workspace file listings/content should be shared automatically with LLM goal resolution. Bounded workspace tools can still retrieve current file identities and file content on demand. Shared and retrieved files include path, SHA-256, size, and workspace revision metadata so stale file replacements can be rejected. |
 | `llm_content_include` | pipeline | Include filters for files shared with LLM goal context. |
 | `llm_content_ignore` | pipeline | Ignore filters for files shared with LLM goal context. |
-| `llm_output_sharing` | pipeline | Default for whether task output is written into later LLM execution history. |
 | `output` | pipeline | Final deliverables and dashboard publications generated after run execution. |
 
 Governance levels are interpreted by NopsAI after each AI policy review:
@@ -570,7 +569,6 @@ Common step directives:
 | `steps[].outputs` | Runtime output contract for single-task steps and sync `pipeline:` include imports. Reusable `step:` include outputs are owned by the reusable step definition after expansion. |
 | `steps[].volumes` | Named Docker volume or Kubernetes PVC mounts using `volume:/mount/path`; existing storage is reused and missing storage is created. |
 | `steps[].ignore_failure` | Treats failures in this step as ignored so graph progress can continue. Ignored failed tasks remain auditable as `failure (ignored)`, the step renders as warning, and an otherwise successful run finishes with status `warning`. Approval and explicit policy/guardrail enforcement failures still fail closed. |
-| `steps[].llm_output_sharing` | Step-level output-history sharing override. |
 | `steps[].agent_role` | Step persona override. Valid for conditions and LLM goals in the step. |
 | `steps[].model` | Step model-client override. Applies to the step condition and tasks unless a task has `model`. |
 | `steps[].mcp_profiles` | MCP profiles added for LLM goals in the step. Invalid on script-only and include steps. |
@@ -587,7 +585,6 @@ Common task directives:
 | `tasks[].script` | Direct shell task. Mutually exclusive with `goal`. |
 | `tasks[].depends_on` | Task dependencies. Values may be tasks in the same step or qualified producer tasks from upstream steps. |
 | `tasks[].ignore_failure` | Treats this task failure as ignored. Step-level `ignore_failure` also applies to tasks in the step; run details warn when ignored work fails and an otherwise successful run finishes with status `warning`. Approval and explicit policy/guardrail enforcement failures still fail closed. |
-| `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
 | `tasks[].model` | Most-specific LLM model-client override for this task. |
 | `tasks[].mcp_profiles` | MCP profiles for this LLM goal task. Invalid on script tasks. |
 | `tasks[].governance_level` | Task-level AI governance enforcement override. |

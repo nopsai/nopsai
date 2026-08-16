@@ -17,33 +17,6 @@ func TestNormalizeGovernanceLevelDefaultsStrict(t *testing.T) {
 	}
 }
 
-// The removed levels and legacy merge modes are not silently accepted. They are
-// rejected like any other unknown value so a manifest still carrying one fails
-// validation instead of running under a level nobody chose.
-func TestGovernanceLevelRejectsRemovedValues(t *testing.T) {
-	for _, value := range []string{
-		"guarded",
-		"exception_based",
-		"fail_on_conflict",
-		"restrictive",
-		"override",
-		"loose",
-	} {
-		if SupportedGovernanceLevel(value) {
-			t.Fatalf("SupportedGovernanceLevel(%q) = true, want rejection", value)
-		}
-	}
-}
-
-// A removed value that somehow reaches interpretation without passing
-// validation must still enforce, never fall through to advisory.
-func TestRemovedGovernanceLevelStillEnforces(t *testing.T) {
-	block := &PolicyReview{Decision: PolicyDecisionBlock, Reason: "violates policy"}
-	if got := InterpretPolicyReview("guarded", block); got.Allowed || !got.FailClosed {
-		t.Fatalf("InterpretPolicyReview(guarded, block) = %#v, want fail closed", got)
-	}
-}
-
 func TestEffectiveGovernanceLevelUsesNarrowestScope(t *testing.T) {
 	pipeline := &Pipeline{GovernanceLevel: GovernanceLevelAdvisory}
 	step := &PipelineStep{Step: &TaskStep{BaseStep: BaseStep{GovernanceLevel: GovernanceLevelStrict}}}

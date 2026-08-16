@@ -64,7 +64,6 @@ type Step interface {
 	GetVolumes() []string
 	GetImage() string
 	GetIgnoreFailure() bool
-	GetLlmOutputSharing() *bool
 	GetAgentProfile() string
 	GetLLMProfile() string
 	GetMCPProfiles() []string
@@ -91,7 +90,6 @@ type BaseStep struct {
 	DependsOn        []string              `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 	Condition        string                `yaml:"condition,omitempty" json:"condition,omitempty"`
 	IgnoreFailure    bool                  `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	AgentProfile     string                `yaml:"agent_role,omitempty" json:"agent_role,omitempty"`
 	LLMProfile       string                `yaml:"model,omitempty" json:"model,omitempty"`
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
@@ -122,9 +120,6 @@ func (s *BaseStep) GetImage() string { return s.Image }
 
 // GetIgnoreFailure returns the step's failure tolerance.
 func (s *BaseStep) GetIgnoreFailure() bool { return s.IgnoreFailure }
-
-// GetLlmOutputSharing returns the step's LLM output sharing setting.
-func (s *BaseStep) GetLlmOutputSharing() *bool { return s.LlmOutputSharing }
 
 // GetAgentProfile returns the step's AI role/persona override.
 func (s *BaseStep) GetAgentProfile() string { return s.AgentProfile }
@@ -458,13 +453,6 @@ func (ps PipelineStep) GetIgnoreFailure() bool {
 	return ps.Step.GetIgnoreFailure()
 }
 
-func (ps PipelineStep) GetLlmOutputSharing() *bool {
-	if ps.Step == nil {
-		return nil
-	}
-	return ps.Step.GetLlmOutputSharing()
-}
-
 func (ps PipelineStep) GetAgentProfile() string {
 	if ps.Step == nil {
 		return ""
@@ -660,12 +648,6 @@ func (ps *PipelineStep) SetIgnoreFailure(ignore bool) {
 	}
 }
 
-func (ps *PipelineStep) SetLlmOutputSharing(value *bool) {
-	if base := ps.baseStep(); base != nil {
-		base.LlmOutputSharing = value
-	}
-}
-
 func (ps *PipelineStep) SetAgentProfile(value string) {
 	if base := ps.baseStep(); base != nil {
 		base.AgentProfile = value
@@ -817,8 +799,7 @@ type Pipeline struct {
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
 	GovernanceLevel   string                `yaml:"governance_level,omitempty" json:"governance_level,omitempty"`
 	Output            PipelineOutput        `yaml:"output,omitempty" json:"output,omitempty"`
-	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
-	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	LlmContentPreload *bool                 `yaml:"llm_content_preload,omitempty" json:"llm_content_preload,omitempty"`
 	LlmContentInclude []string              `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`
 	LlmContentIgnore  []string              `yaml:"llm_content_ignore,omitempty" json:"llm_content_ignore,omitempty"`
 }
@@ -870,11 +851,17 @@ func knowledgeContextRefsContainBlocking(refs []KnowledgeContextRef) bool {
 	return false
 }
 
-func PipelineLLMContentSharing(pipeline *Pipeline) bool {
-	if pipeline == nil || pipeline.LlmContentSharing == nil {
+// PipelineLLMContentPreload reports whether workspace file contents are loaded
+// into the prompt up front. It is a prompt-size and cost control, not a
+// confidentiality boundary: with preloading off the model receives no
+// unrequested file dump, but it can still read permitted files through the
+// workspace tools. Use llm_content_ignore/llm_content_include to put a file out
+// of the model's reach entirely.
+func PipelineLLMContentPreload(pipeline *Pipeline) bool {
+	if pipeline == nil || pipeline.LlmContentPreload == nil {
 		return false
 	}
-	return *pipeline.LlmContentSharing
+	return *pipeline.LlmContentPreload
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
@@ -893,7 +880,6 @@ type Task struct {
 	Script           string                `yaml:"script,omitempty" json:"script,omitempty"`
 	DependsOn        []string              `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 	IgnoreFailure    bool                  `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
-	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LLMProfile       string                `yaml:"model,omitempty" json:"model,omitempty"`
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`

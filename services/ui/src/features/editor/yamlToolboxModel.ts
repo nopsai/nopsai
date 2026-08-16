@@ -49,7 +49,7 @@ export type YamlSnippetInsertResult = {
 const BOOLEAN_VALUES = ['true', 'false'];
 const GOVERNANCE_VALUES = ['advisory', 'strict'];
 const GOVERNANCE_DESCRIPTION =
-  'AI governance enforcement: advisory warns, guarded blocks clear violations/conflicts, strict requires allow, exception_based requires approved exceptions for conflicts.';
+  'AI governance enforcement: advisory warns on an evaluated policy concern, strict requires a clear allow. Defaults to strict.';
 
 const pipelineParameterGroups: YamlToolboxParameterGroup[] = [
   {
@@ -74,8 +74,7 @@ const pipelineParameterGroups: YamlToolboxParameterGroup[] = [
       { key: 'affinity_enabled', description: 'Kubernetes same-node affinity override.', validValues: BOOLEAN_VALUES },
       { key: 'knowledge_context', description: 'Governed knowledge refs.', structure: '- kind: guardrail\n  ref: security/release' },
       { key: 'output', description: 'Final deliverables and dashboard publications.', structure: 'output:\n  items:\n    - name: summary\n      type: markdown' },
-      { key: 'llm_output_sharing', description: 'Default output-history sharing for LLM work.', validValues: BOOLEAN_VALUES },
-      { key: 'llm_content_sharing', description: 'Share workspace files with LLM goals.', validValues: BOOLEAN_VALUES },
+      { key: 'llm_content_preload', description: 'Share workspace files with LLM goals.', validValues: BOOLEAN_VALUES },
       { key: 'llm_content_include', description: 'Only share matching workspace paths with LLM goals.', structure: 'llm_content_include:\n  - src/**\n  - README.md' },
       { key: 'llm_content_ignore', description: 'Exclude matching workspace paths from LLM context.', structure: 'llm_content_ignore:\n  - .git\n  - node_modules/**' },
       { key: 'display_options', description: 'UI rendering preferences for pipeline output.', structure: 'display_options:\n  github_view: list' },
@@ -110,7 +109,6 @@ const stepParameterGroup: YamlToolboxParameterGroup = {
     { key: 'governance_level', description: GOVERNANCE_DESCRIPTION, validValues: GOVERNANCE_VALUES },
     { key: 'runtime_pool', description: 'Step Kubernetes runtime pool override.' },
     { key: 'knowledge_context', description: 'Step-level governed knowledge refs.' },
-    { key: 'llm_output_sharing', description: 'Share step LLM output with later LLM history.', validValues: BOOLEAN_VALUES },
     { key: 'artifacts', description: 'Reusable step artifacts collected after execution.', structure: 'artifacts:\n  - dist/**' },
     { key: 'access', description: 'Reusable step access metadata.', structure: 'access:\n  teams:\n    - platform' },
   ],
@@ -132,7 +130,6 @@ const taskParameterGroup: YamlToolboxParameterGroup = {
     { key: 'governance_level', description: GOVERNANCE_DESCRIPTION, validValues: GOVERNANCE_VALUES },
     { key: 'variables', description: 'Task-local variable overrides.', structure: 'variables:\n  TEST_SUITE: smoke' },
     { key: 'knowledge_context', description: 'Task-level governed knowledge refs.' },
-    { key: 'llm_output_sharing', description: 'Share this task output with later LLM history.', validValues: BOOLEAN_VALUES },
   ],
 };
 

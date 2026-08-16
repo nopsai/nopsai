@@ -298,7 +298,7 @@ func TestTaskActionResolverUsesSessionAndMasksPromptContent(t *testing.T) {
 
 	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
 		Logger:       &logger,
-		Pipeline:     &models.Pipeline{LlmContentSharing: &shareContent},
+		Pipeline:     &models.Pipeline{LlmContentPreload: &shareContent},
 		Step:         &models.PipelineStep{Step: &models.GoalStep{Goal: "test changes"}},
 		Task:         &models.Task{Name: "test"},
 		Context:      executionContext,
@@ -357,7 +357,7 @@ func TestTaskActionResolverDefaultsContentSharingOff(t *testing.T) {
 		t.Fatalf("result = %#v, want successful command action", result)
 	}
 	if listerCalled {
-		t.Fatal("directory lister was called even though llm_content_sharing was omitted")
+		t.Fatal("directory lister was called even though llm_content_preload was omitted")
 	}
 	if len(session.requests) != 1 {
 		t.Fatalf("session requests = %d, want 1", len(session.requests))
@@ -380,7 +380,7 @@ func TestTaskActionResolverAddsSharedFileIdentityAndReplacePrecondition(t *testi
 
 	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
 		Logger:            &logger,
-		Pipeline:          &models.Pipeline{LlmContentSharing: &shareContent},
+		Pipeline:          &models.Pipeline{LlmContentPreload: &shareContent},
 		Step:              &models.PipelineStep{Step: &models.GoalStep{Goal: "update docs"}},
 		Task:              &models.Task{Name: "docs"},
 		Context:           NewExecutionContext(),
