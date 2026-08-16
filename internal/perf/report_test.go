@@ -271,3 +271,51 @@ func TestWriteTextOmitsBrokenSectionWhenNoneDetected(t *testing.T) {
 		t.Fatal("the broken-scenario section rendered with nothing to report")
 	}
 }
+
+// TestWriteTextReconcilesServiceBreachWithStageVerdict guards the confusing
+// output from the first real run, where the ramp said "ok" at a level the
+// service table said the API had already broken at.
+func TestWriteTextReconcilesServiceBreachWithStageVerdict(t *testing.T) {
+	report := sampleReport()
+	report.Analysis.FirstBreach = 50
+	report.Analysis.FirstBreachFound = true
+	report.Analysis.Recommended = 25
+	report.Analysis.RecommendedFound = true
+	report.ServiceCapacity = []ServiceCapacity{
+		{Service: ServiceAPI, Breached: true, BreachConcurrency: 25, LatencyGrowth: 7, TotalRequests: 100},
+	}
+
+	var out strings.Builder
+	if err := report.WriteText(&out); err != nil {
+		t.Fatalf("WriteText returned %v", err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "was already over the SLO at 25 concurrent clients") {
+		t.Fatalf("the report did not reconcile the service breach with the stage verdict:\n%s", text)
+	}
+	if !strings.Contains(text, "blends fast and slow endpoints") {
+		t.Error("the report did not explain why the two views differ")
+	}
+}
+
+func TestWriteTextReportsASharedConstraint(t *testing.T) {
+	report := sampleReport()
+	report.ServiceCapacity = []ServiceCapacity{
+		{Service: ServiceAPI, LatencyGrowth: 7.0, TotalRequests: 100},
+		{Service: ServiceAuth, LatencyGrowth: 6.5, TotalRequests: 100},
+		{Service: ServiceUI, LatencyGrowth: 5.5, TotalRequests: 100},
+	}
+
+	var out strings.Builder
+	if err := report.WriteText(&out); err != nil {
+		t.Fatalf("WriteText returned %v", err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "Shared limit") {
+		t.Fatal("a shared constraint was not reported")
+	}
+	// Naming a winner would be misleading when everything moved together.
+	if strings.Contains(text, "Degraded least") {
+		t.Error("a most-resilient service was named despite a shared constraint")
+	}
+}

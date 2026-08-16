@@ -1177,6 +1177,39 @@ func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
 	a.handleListLLMProfiles(w, r)
 }
 
+func (a *App) handleSetDefaultLLMProfile(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAAADecision(w, r, "system.update", model.ResourceRef{Type: "system", ID: "models"}) {
+		return
+	}
+	var payload struct {
+		DefaultProfile string `json:"default_profile"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid default LLM profile payload", http.StatusBadRequest)
+		return
+	}
+	defaultProfile := config.NormalizeLLMProfileName(payload.DefaultProfile)
+	if defaultProfile == "" {
+		http.Error(w, "default LLM profile is required", http.StatusBadRequest)
+		return
+	}
+
+	cfg := a.getConfigSnapshot()
+	profiles := cfg.EffectiveLLMProfiles()
+	if _, ok := profiles[defaultProfile]; !ok {
+		http.Error(w, fmt.Sprintf("default LLM profile %q is not configured", defaultProfile), http.StatusBadRequest)
+		return
+	}
+
+	cfg = configWithLLMProfiles(cfg, defaultProfile, profiles)
+	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
+		http.Error(w, "failed to persist default LLM profile", http.StatusInternalServerError)
+		return
+	}
+	a.setLLMProfiles(defaultProfile, profiles)
+	a.handleListLLMProfiles(w, r)
+}
+
 func (a *App) handleUpsertLLMProfile(w http.ResponseWriter, r *http.Request) {
 	profileName := config.NormalizeLLMProfileName(r.PathValue("profileName"))
 	if profileName == "" {

@@ -14,6 +14,8 @@ import {
 import { EditTeamItemModal, TeamConfigRepositoryModal, NewTeamItemModal, type NewTeamItemKind, type TeamItemEditPayload } from '../features/teams/TeamSettingsModals';
 import { TeamsStatusPanel, TeamsWorkspace } from '../features/teams/TeamsWorkspace';
 import { useDispatcherStatusSnapshot } from '../features/system/dispatcher/useDispatcherStatusSnapshot';
+import { setDefaultLLMProfile } from '../features/system/models/api';
+import { setDefaultAgentProfile } from '../features/system/agent-roles/api';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
 import { useTeamOperationsSummary } from '../features/teams/hooks/useTeamOperationsSummary';
 import { useTeamResourceCatalog } from '../features/teams/hooks/useTeamResourceCatalog';
@@ -110,7 +112,14 @@ export default function TeamsPage() {
   const runnerAssignments = useDispatcherStatusSnapshot({ enabled: teamsLoaded });
 
   const saveTeamDefaults = useCallback(async (teamPath: string, defaults: TeamDefaultsPayload) => {
-    await updateTeamDefaults(teamPath, defaults);
+    if (teamPath) {
+      await updateTeamDefaults(teamPath, defaults);
+    } else {
+      // Global defaults are not a team resource: model and Agent role each have
+      // their own platform-wide setter, and knowledge has no global tier.
+      if (defaults.model !== undefined) await setDefaultLLMProfile(defaults.model);
+      if (defaults.agent_role !== undefined) await setDefaultAgentProfile(defaults.agent_role);
+    }
     setOperationsRefreshKey(value => value + 1);
   }, []);
 

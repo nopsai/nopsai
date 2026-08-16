@@ -183,7 +183,14 @@ func (r *Report) writeServiceCapacity(out *strings.Builder) {
 		fmt.Fprintf(out, "  Carried most   : %s at %.1f req/s peak (p95 %s, growth %.1fx).\n",
 			busiest.Service, busiest.PeakThroughput, short(busiest.PeakP95), busiest.LatencyGrowth)
 	}
-	if resilient, ok := MostResilientService(r.ServiceCapacity); ok {
+	if SharedConstraint(r.ServiceCapacity) {
+		// Every service stretching by a similar factor is not four independent
+		// results; it is one queue they all wait on.
+		fmt.Fprintln(out, "  Shared limit   : every service degraded by a similar factor, so none of them is")
+		fmt.Fprintln(out, "                   individually weak. They are queueing behind something they share,")
+		fmt.Fprintln(out, "                   which in this topology is Postgres or the host. Check the CPU")
+		fmt.Fprintln(out, "                   column below before scaling any single service.")
+	} else if resilient, ok := MostResilientService(r.ServiceCapacity); ok {
 		fmt.Fprintf(out, "  Degraded least : %s held p95 at %s across the ramp (growth %.1fx, %.1f req/s peak).\n",
 			resilient.Service, short(resilient.PeakP95), resilient.LatencyGrowth, resilient.PeakThroughput)
 	}
@@ -334,6 +341,20 @@ func (r *Report) writeVerdict(out *strings.Builder) {
 	}
 	if analysis.SlowestPath != "" {
 		fmt.Fprintf(out, "  Slowest endpoint       : %s\n", analysis.SlowestPath)
+	}
+
+	// The stage p95 blends every endpoint, so a handful of slow queries can sit
+	// over the SLO while the blended figure still passes. When that happened,
+	// say so: the safe operating point above is optimistic for those calls.
+	if breach, ok := EarliestServiceBreach(r.ServiceCapacity); ok {
+		if !analysis.FirstBreachFound || breach.BreachConcurrency < analysis.FirstBreach {
+			fmt.Fprintf(out, "\n  NOTE: %s was already over the SLO at %d concurrent clients, below the\n",
+				breach.Service, breach.BreachConcurrency)
+			fmt.Fprintln(out, "  breach reported above. The ramp's p95 blends fast and slow endpoints, so it")
+			fmt.Fprintln(out, "  stays under the threshold while the slowest calls are already past it. Treat")
+			fmt.Fprintf(out, "  %d as the safe point only if those calls are allowed to be slow.\n",
+				analysis.Recommended)
+		}
 	}
 
 	if len(analysis.Findings) > 0 {

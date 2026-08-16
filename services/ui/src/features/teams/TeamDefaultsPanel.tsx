@@ -48,7 +48,10 @@ export function TeamDefaultsPanel({
   const title = globalScope ? 'Global Defaults' : 'Team Defaults';
   const llms = useMemo(() => [...(llmProfiles?.profiles ?? [])].sort((left, right) => left.name.localeCompare(right.name)), [llmProfiles?.profiles]);
   const agents = useMemo(() => [...(agentProfiles?.profiles ?? [])].sort((left, right) => left.id.localeCompare(right.id)), [agentProfiles?.profiles]);
-  const editable = Boolean(teamPath && canManageDefaults && onSaveDefaults);
+  // Global scope is editable too: model and Agent role both have a real
+  // platform-wide default. Knowledge has no global tier, so its rows are
+  // rendered only for a team.
+  const editable = Boolean(canManageDefaults && onSaveDefaults);
   const initialValues = useMemo<DefaultValues>(() => ({
     model: teamDefaults?.model || llmProfiles?.default_profile || '',
     agent_role: teamDefaults?.agent_role || agentProfiles?.default_profile || '',
@@ -127,8 +130,8 @@ export function TeamDefaultsPanel({
         <>
           {error ? <div className="teams-inline-status teams-inline-status--error">{error}</div> : null}
           {saveError ? <div className="teams-inline-status teams-inline-status--error">{saveError}</div> : null}
-          {!editable && !globalScope ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
-          <div className="teams-defaults-list" aria-label="Team defaults">
+          {!editable ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+          <div className="teams-defaults-list" aria-label={title}>
             <DefaultRow
               id="team-default-llm-profile"
               label="Model"
@@ -147,21 +150,23 @@ export function TeamDefaultsPanel({
               saving={savingDefault === 'agent'}
               onChange={value => void saveAgentProfile(value)}
             />
-            {kindOrder.map(kind => {
-              const options = buildKnowledgeDefaultOptions(knowledgeContexts, kind, values.knowledge_context[kind] || '', teamPath);
-              return (
-                <DefaultRow
-                  key={kind}
-                  id={`team-default-knowledge-${kind}`}
-                  label={`${knowledgeKindLabel(kind)} knowledge`}
-                  value={values.knowledge_context[kind] || ''}
-                  options={options}
-                  disabled={!editable || savingDefault !== null}
-                  saving={savingDefault === `knowledge:${kind}`}
-                  onChange={value => void saveKnowledgeDefault(kind, value)}
-                />
-              );
-            })}
+            {globalScope
+              ? null
+              : kindOrder.map(kind => {
+                const options = buildKnowledgeDefaultOptions(knowledgeContexts, kind, values.knowledge_context[kind] || '', teamPath);
+                return (
+                  <DefaultRow
+                    key={kind}
+                    id={`team-default-knowledge-${kind}`}
+                    label={`${knowledgeKindLabel(kind)} knowledge`}
+                    value={values.knowledge_context[kind] || ''}
+                    options={options}
+                    disabled={!editable || savingDefault !== null}
+                    saving={savingDefault === `knowledge:${kind}`}
+                    onChange={value => void saveKnowledgeDefault(kind, value)}
+                  />
+                );
+              })}
           </div>
         </>
       )}
@@ -269,8 +274,10 @@ function includeCurrentDefaultOption(options: DefaultOption[], currentDefault: s
 }
 
 function teamProfileDefaultSelectable(profileID: string, scope: string | undefined, profileTeamPath: string | undefined, teamPath: string) {
-  if (!teamPath) return false;
   const idTeamPath = aiResourceTeamScope(profileID).teamPath;
+  // At global scope only platform-wide profiles can become the default; a
+  // team-owned profile is not resolvable for runs outside that team.
+  if (!teamPath) return scope === 'global' && !idTeamPath && !profileTeamPath;
   if (profileTeamPath === teamPath || idTeamPath === teamPath) return true;
   return scope === 'team' && !idTeamPath && profileTeamPath === teamPath;
 }
@@ -289,6 +296,8 @@ function knowledgeKindLabel(kind: string) {
 }
 
 function defaultSummary(llmCount: number, agentCount: number, knowledgeContexts: KnowledgeContextListItem[], teamPath: string) {
-  const knowledgeCount = knowledgeContexts.filter(document => (teamPath ? document.team === teamPath : !document.team)).length;
+  // Knowledge defaults are team-owned, so the global panel does not count them.
+  if (!teamPath) return `${llmCount} LLM / ${agentCount} agent`;
+  const knowledgeCount = knowledgeContexts.filter(document => document.team === teamPath).length;
   return `${llmCount} LLM / ${agentCount} agent / ${knowledgeCount} knowledge`;
 }

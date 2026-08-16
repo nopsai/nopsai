@@ -233,6 +233,7 @@ export const apiRoutes: WikiApiRoute[] = [
   // AI configuration
   { method: 'GET', path: '/v1/system/models', area: 'AI configuration', access: 'admin', purpose: 'Lists system models.' },
   { method: 'PUT', path: '/v1/system/models', area: 'AI configuration', access: 'admin', purpose: 'Replaces the system model registry.' },
+  { method: 'PUT', path: '/v1/system/models/default', area: 'AI configuration', access: 'admin', purpose: 'Sets the platform default model.' },
   { method: 'PUT', path: '/v1/system/models/{profileName}', area: 'AI configuration', access: 'admin', purpose: 'Creates or updates one model.' },
   { method: 'DELETE', path: '/v1/system/models/{profileName}', area: 'AI configuration', access: 'admin', purpose: 'Deletes an model.' },
   { method: 'POST', path: '/v1/system/models/{profileName}/test', area: 'AI configuration', access: 'admin', purpose: 'Sends a test request through the profile and its credential.' },

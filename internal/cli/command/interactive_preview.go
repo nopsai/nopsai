@@ -149,6 +149,66 @@ func completionPreviewArgs(shell, outputDir string, stdout bool) []string {
 	return append(args, "--output-dir", strings.TrimSpace(outputDir))
 }
 
+func platformUpgradeDockerComposePreviewArgs(options *platformUpgradeOptions) []string {
+	args := []string{
+		"nopsai", "platform", "upgrade", "docker-compose",
+		"--version", strings.TrimSpace(options.version),
+	}
+	if strings.TrimSpace(options.outputDir) != "" {
+		args = append(args, "--output-dir", strings.TrimSpace(options.outputDir))
+	}
+	args = append(args, "--output", strings.TrimSpace(options.output))
+	if options.planOnly {
+		args = append(args, "--plan")
+	} else if options.run {
+		args = append(args, "--run")
+	}
+	return appendSeriesUpgradeArg(args, options)
+}
+
+func platformUpgradeKubernetesPreviewArgs(options *platformUpgradeOptions) []string {
+	args := []string{
+		"nopsai", "platform", "upgrade", "kubernetes",
+		"--version", strings.TrimSpace(options.version),
+	}
+	if strings.TrimSpace(options.lockFile) != "" {
+		args = append(args, "--lock-file", strings.TrimSpace(options.lockFile))
+	}
+	if strings.TrimSpace(options.releaseName) != "" {
+		args = append(args, "--release", strings.TrimSpace(options.releaseName))
+	}
+	if strings.TrimSpace(options.namespace) != "" {
+		args = append(args, "--namespace", strings.TrimSpace(options.namespace))
+	}
+	if strings.TrimSpace(options.chartReference) != "" {
+		args = append(args, "--chart", strings.TrimSpace(options.chartReference))
+	}
+	for _, values := range options.values {
+		if strings.TrimSpace(values) != "" {
+			args = append(args, "--values", strings.TrimSpace(values))
+		}
+	}
+	args = append(args, "--output", strings.TrimSpace(options.output))
+	if options.planOnly {
+		args = append(args, "--plan")
+	} else if options.deploy {
+		args = append(args, "--deploy")
+		if options.wait {
+			args = append(args, "--wait")
+		}
+	}
+	return appendSeriesUpgradeArg(args, options)
+}
+
+// appendSeriesUpgradeArg only shows the acknowledgement on a run that can apply:
+// a plan never consults it, so printing it there would misstate the command.
+func appendSeriesUpgradeArg(args []string, options *platformUpgradeOptions) []string {
+	if options.acknowledgeSeries && !options.planOnly {
+		args = append(args, "--accept-series-upgrade")
+	}
+	return args
+}
+
 func platformReleasePreviewArgs(options *platformReleaseOptions) []string {
 	args := []string{
 		"nopsai", "platform", "release", "kubernetes",

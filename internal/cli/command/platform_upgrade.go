@@ -51,33 +51,19 @@ func newPlatformUpgradeCommand(root *rootOptions) *cobra.Command {
 	return command
 }
 
+// runPlatformUpgradeWizard shares the interactive console's upgrade flow so
+// `nopsai platform upgrade` and Home -> Platform -> Upgrade behave identically.
+// It defaults to a plan so a bare invocation reviews the upgrade rather than
+// applying one.
 func runPlatformUpgradeWizard(command *cobra.Command, root *rootOptions) error {
 	prompter := interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
-	choices := []interactive.Choice{
-		{Label: "docker-compose", Description: "Upgrade a generated Docker Compose install", SearchText: "docker compose local single host"},
-		{Label: "kubernetes", Description: "Upgrade a Helm-deployed install", SearchText: "kubernetes k8s helm cluster"},
-	}
-	selected, err := prompter.Choose("Upgrade target", choices)
+	options := defaultPlatformUpgradeOptions(root)
+	options.planOnly = true
+	err := runInteractivePlatformUpgrade(command, root, prompter, options)
 	if errors.Is(err, interactive.ErrBack) || errors.Is(err, interactive.ErrCancelled) {
 		return nil
 	}
-	if err != nil {
-		return err
-	}
-	options := defaultPlatformUpgradeOptions(root)
-	version, err := prompter.AskRequired("Target platform version", options.version)
-	if err != nil {
-		if errors.Is(err, interactive.ErrBack) || errors.Is(err, interactive.ErrCancelled) {
-			return nil
-		}
-		return err
-	}
-	options.version = strings.TrimSpace(version)
-	options.planOnly = true
-	if selected == 0 {
-		return executePlatformUpgradeDockerCompose(command, root, options)
-	}
-	return executePlatformUpgradeKubernetes(command, root, options)
+	return err
 }
 
 func defaultPlatformUpgradeOptions(root *rootOptions) *platformUpgradeOptions {

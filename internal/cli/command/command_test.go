@@ -878,9 +878,54 @@ func TestRootInteractiveHomeExposesCurrentCLISurface(t *testing.T) {
 	for _, choice := range homeChoices() {
 		labels = append(labels, choice.Label)
 	}
-	want := []string{"api", "contexts", "authentication", "install", "platform", "completion", "guide", "help", "exit"}
+	want := []string{"api", "contexts", "authentication", "install", "platform", "update", "completion", "guide", "license", "help", "exit"}
 	if strings.Join(labels, ",") != strings.Join(want, ",") {
 		t.Fatalf("home choices = %#v", labels)
+	}
+
+	// Every registered top-level command must be reachable from the interactive
+	// home menu. Pinning the labels alone let `update`, `license`, and
+	// `platform upgrade` ship without an interactive entry.
+	present := map[string]bool{}
+	for _, label := range labels {
+		present[label] = true
+	}
+	homeLabelForCommand := map[string]string{
+		"context":    "contexts",
+		"login":      "authentication",
+		"logout":     "authentication",
+		"api":        "api",
+		"guide":      "guide",
+		"license":    "license",
+		"update":     "update",
+		"install":    "install",
+		"platform":   "platform",
+		"completion": "completion",
+	}
+	for _, command := range NewRootCommand(testDependencies(nil, nil)).Commands() {
+		name := command.Name()
+		if name == "help" {
+			continue
+		}
+		label, mapped := homeLabelForCommand[name]
+		if !mapped {
+			t.Fatalf("command %q has no interactive home entry; add one to homeChoices and map it here", name)
+		}
+		if !present[label] {
+			t.Fatalf("command %q maps to home entry %q, which homeChoices does not offer", name, label)
+		}
+	}
+}
+
+func TestInteractivePlatformMenuCoversPlatformSubcommands(t *testing.T) {
+	labels := map[string]bool{}
+	for _, choice := range interactivePlatformChoices() {
+		labels[choice.Label] = true
+	}
+	for _, command := range newPlatformCommand(&rootOptions{}).Commands() {
+		if name := command.Name(); !labels[name] {
+			t.Fatalf("platform subcommand %q is missing from the interactive platform menu", name)
+		}
 	}
 }
 
