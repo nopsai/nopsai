@@ -18,6 +18,9 @@ func TestSafeReturnToRejectsUnsafeRedirects(t *testing.T) {
 		"https://evil.example/app": "/pipelineruns/main",
 		"/login?session_code=x":    "/pipelineruns/main",
 		"/system\nHeader: value":   "/pipelineruns/main",
+		`/\evil.example`:           "/pipelineruns/main",
+		`/\/evil.example`:          "/pipelineruns/main",
+		`/system\..\..\evil`:       "/pipelineruns/main",
 	}
 	for input, want := range tests {
 		if got := safeReturnTo(input); got != want {
