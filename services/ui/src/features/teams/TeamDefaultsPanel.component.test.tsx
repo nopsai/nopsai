@@ -62,6 +62,62 @@ const agentProfiles: TeamAgentProfilesResponse = {
   ],
 };
 
+const globalLLMProfiles: TeamLLMProfilesResponse = {
+  team_id: 0,
+  team_path: '',
+  default_profile: 'standard',
+  profiles: [
+    {
+      name: 'standard',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      credential_ref: 'credential://system/llm/gemini',
+      allowed_scopes: ['pipeline_run'],
+      scope: 'global',
+      team_id: 0,
+      team_path: '',
+    },
+    {
+      name: 'balanced',
+      provider: 'gemini',
+      model: 'gemini-2.5-pro',
+      credential_ref: 'credential://system/llm/gemini',
+      allowed_scopes: ['pipeline_run'],
+      scope: 'global',
+      team_id: 0,
+      team_path: '',
+    },
+  ],
+};
+
+const globalAgentProfiles: TeamAgentProfilesResponse = {
+  team_id: 0,
+  team_path: '',
+  default_profile: 'default',
+  profiles: [
+    {
+      id: 'default',
+      display_name: 'Default',
+      role: 'general',
+      instructions: 'General purpose agent.',
+      enabled: true,
+      scope: 'global',
+      team_id: 0,
+      team_path: '',
+    },
+    {
+      id: 'release-manager',
+      display_name: 'Release Manager',
+      role: 'release',
+      instructions: 'Coordinates release readiness.',
+      enabled: true,
+      scope: 'global',
+      team_id: 0,
+      team_path: '',
+    },
+  ],
+};
+
 const teamDefaults: TeamDefaultsResponse = {
   team_id: 1,
   team_path: 'platform',
@@ -167,6 +223,30 @@ describe('TeamDefaultsPanel', () => {
 
     expect(screen.getByRole('heading', { name: 'Global Defaults' })).toBeVisible();
     expect(screen.getByLabelText('Model')).toBeDisabled();
+  });
+
+  it('offers only model and agent role at global scope', async () => {
+    const user = userEvent.setup();
+    const onSaveDefaults = vi.fn().mockResolvedValue(undefined);
+    renderPanel({
+      llmProfiles: globalLLMProfiles,
+      agentProfiles: globalAgentProfiles,
+      teamDefaults: null,
+      knowledgeContexts: [],
+      teamPath: '',
+      canManageDefaults: true,
+      onSaveDefaults,
+    });
+
+    // Knowledge defaults are team-owned, so no knowledge row exists globally.
+    expect(screen.getAllByRole('combobox')).toHaveLength(2);
+    expect(screen.queryByLabelText('Guardrail knowledge')).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Model'), 'balanced');
+    await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('', { model: 'balanced' }));
+
+    await user.selectOptions(screen.getByLabelText('Agent role'), 'release-manager');
+    await waitFor(() => expect(onSaveDefaults).toHaveBeenCalledWith('', { agent_role: 'release-manager' }));
   });
 
   it('shows loading and error states', () => {

@@ -142,7 +142,10 @@ export function TeamTabPanel({
 
   if (activeTab === 'defaults') {
     const teamPath = team ? teamPathForURL(team, teams) : '';
-    const canManageDefaults = Boolean(teamPath && operationsSummary.permissions.some(item => item.action === 'team.update' && item.allowed));
+    // Global defaults are platform settings, so they follow system.update
+    // rather than the team.update check used inside a team.
+    const manageAction = teamPath ? 'team.update' : 'system.update';
+    const canManageDefaults = operationsSummary.permissions.some(item => item.action === manageAction && item.allowed);
     return (
       <section className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-defaults" aria-labelledby="teams-tab-defaults">
         <TeamDefaultsPanel

@@ -219,3 +219,60 @@ func TestCompareServicesHandlesEmptyRamp(t *testing.T) {
 		t.Fatalf("got %d capacities from an empty ramp, want none", len(capacities))
 	}
 }
+
+// TestSharedConstraintDetectedWhenEverythingStretchesTogether reproduces the
+// real run where all four services grew by roughly 6x. That is one queue they
+// all wait on, not four independent verdicts, and naming a winner would mislead.
+func TestSharedConstraintDetectedWhenEverythingStretchesTogether(t *testing.T) {
+	capacities := []ServiceCapacity{
+		{Service: ServiceAPI, LatencyGrowth: 7.0, TotalRequests: 6634},
+		{Service: ServiceAuth, LatencyGrowth: 6.5, TotalRequests: 2235},
+		{Service: ServiceDispatcher, LatencyGrowth: 6.3, TotalRequests: 612},
+		{Service: ServiceUI, LatencyGrowth: 5.5, TotalRequests: 203},
+	}
+	if !SharedConstraint(capacities) {
+		t.Fatal("four services growing 5.5x to 7.0x should read as a shared constraint")
+	}
+}
+
+// TestSharedConstraintNotClaimedWhenServicesDiverge is the counterpart: clearly
+// different growth means the services really do have different capacity.
+func TestSharedConstraintNotClaimedWhenServicesDiverge(t *testing.T) {
+	capacities := []ServiceCapacity{
+		{Service: ServiceAPI, LatencyGrowth: 20, TotalRequests: 1000},
+		{Service: ServiceAuth, LatencyGrowth: 1.1, TotalRequests: 1000},
+	}
+	if SharedConstraint(capacities) {
+		t.Fatal("a 20x versus 1.1x spread is not a shared constraint")
+	}
+}
+
+func TestSharedConstraintNeedsMovementAndMoreThanOneService(t *testing.T) {
+	if SharedConstraint([]ServiceCapacity{{Service: ServiceAPI, LatencyGrowth: 6, TotalRequests: 10}}) {
+		t.Error("one service cannot demonstrate a shared constraint")
+	}
+	flat := []ServiceCapacity{
+		{Service: ServiceAPI, LatencyGrowth: 1.05, TotalRequests: 10},
+		{Service: ServiceAuth, LatencyGrowth: 1.02, TotalRequests: 10},
+	}
+	if SharedConstraint(flat) {
+		t.Error("services that barely moved are not evidence of a shared limit")
+	}
+}
+
+// TestEarliestServiceBreachPrecedesTheBlendedStage is the reconciliation the
+// real report was missing: a service can be over the SLO while the stage p95,
+// blended with fast endpoints, still passes.
+func TestEarliestServiceBreachPrecedesTheBlendedStage(t *testing.T) {
+	capacities := []ServiceCapacity{
+		{Service: ServiceAPI, Breached: true, BreachConcurrency: 25},
+		{Service: ServiceAuth, Breached: false},
+	}
+	breach, ok := EarliestServiceBreach(capacities)
+	if !ok {
+		t.Fatal("no service breach was identified")
+	}
+	if breach.BreachConcurrency != 25 {
+		t.Fatalf("BreachConcurrency = %d, want 25", breach.BreachConcurrency)
+	}
+}

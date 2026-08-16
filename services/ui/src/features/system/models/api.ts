@@ -51,6 +51,18 @@ export async function saveDefaultLLMProfile(nextDefault: string, profiles: LLMPr
   return normalizeLLMProfilesPayload(await response.json());
 }
 
+export async function setDefaultLLMProfile(nextDefault: string): Promise<LLMProfilesPayload> {
+  const response = await apiClient.fetch('/v1/system/models/default', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ default_profile: nextDefault.trim() }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, `Failed to set default model (${response.status})`));
+  }
+  return normalizeLLMProfilesPayload(await response.json());
+}
+
 export async function deleteLLMProfile(
   name: string,
   opts?: { force?: boolean; migrateTo?: string }

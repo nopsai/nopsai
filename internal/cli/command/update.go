@@ -30,36 +30,7 @@ func newUpdateCommand(root *rootOptions) *cobra.Command {
 		Long:  "Update this CLI to an exact release version. Release downloads use a longer timeout than normal API calls; pass --timeout to override it.",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if strings.TrimSpace(options.version) == "" {
-				return fmt.Errorf("--version is required")
-			}
-			timeout, err := updateTimeout(root, command)
-			if err != nil {
-				return err
-			}
-			httpClient := root.dependencies.HTTPClient
-			if httpClient == nil {
-				httpClient = &http.Client{Timeout: timeout}
-			} else {
-				clone := *httpClient
-				clone.Timeout = timeout
-				httpClient = &clone
-			}
-			result, err := (selfupdate.Updater{
-				HTTPClient: httpClient,
-				Token:      root.dependencies.Getenv("NOPSAI_UPDATE_TOKEN"),
-			}).Update(command.Context(), selfupdate.Options{
-				Version:      options.version,
-				Repository:   updateRepository(root, options.repository),
-				PackageRef:   updatePackageRef(root, options.packageRef),
-				AssetBaseURL: updateAssetBaseURL(root, options.assetBaseURL),
-				InstallPath:  options.installPath,
-				DryRun:       options.dryRun,
-			})
-			if err != nil {
-				return err
-			}
-			return renderUpdateResult(command, result)
+			return executeUpdate(command, root, options)
 		},
 	}
 	command.Flags().StringVar(&options.version, "version", "", "exact semantic NopsAI CLI release version to install")
@@ -69,6 +40,39 @@ func newUpdateCommand(root *rootOptions) *cobra.Command {
 	command.Flags().StringVar(&options.installPath, "install-path", "", "path to replace (default: current nopsai executable)")
 	command.Flags().BoolVar(&options.dryRun, "dry-run", false, "print the planned update without downloading or replacing the binary")
 	return command
+}
+
+func executeUpdate(command *cobra.Command, root *rootOptions, options *updateOptions) error {
+	if strings.TrimSpace(options.version) == "" {
+		return fmt.Errorf("--version is required")
+	}
+	timeout, err := updateTimeout(root, command)
+	if err != nil {
+		return err
+	}
+	httpClient := root.dependencies.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: timeout}
+	} else {
+		clone := *httpClient
+		clone.Timeout = timeout
+		httpClient = &clone
+	}
+	result, err := (selfupdate.Updater{
+		HTTPClient: httpClient,
+		Token:      root.dependencies.Getenv("NOPSAI_UPDATE_TOKEN"),
+	}).Update(command.Context(), selfupdate.Options{
+		Version:      options.version,
+		Repository:   updateRepository(root, options.repository),
+		PackageRef:   updatePackageRef(root, options.packageRef),
+		AssetBaseURL: updateAssetBaseURL(root, options.assetBaseURL),
+		InstallPath:  options.installPath,
+		DryRun:       options.dryRun,
+	})
+	if err != nil {
+		return err
+	}
+	return renderUpdateResult(command, result)
 }
 
 func updateRepository(root *rootOptions, value string) string {
