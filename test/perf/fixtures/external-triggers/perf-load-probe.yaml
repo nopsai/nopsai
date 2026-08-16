@@ -1,0 +1,45 @@
+# External trigger that the performance harness invokes.
+#
+# The harness drives pipelines through this rather than by replaying a git
+# webhook, because a git event makes the platform resolve the pipeline
+# definition from a repository at the payload's commit SHA. That would tie every
+# measurement to a real commit in a real repository, put third-party API latency
+# inside the numbers, and create real check runs as a side effect of testing.
+#
+# POST /v1/external-triggers/perf-load-probe/invoke returns the run_id it
+# created, so the harness watches exactly the run it started instead of
+# guessing which of the runs in the list belongs to it.
+#
+# EDIT BEFORE INSTALLING: pipeline, scope, run_team_path and allowed_callers
+# are environment specific. The values below assume a team named "team-1" and
+# the default local administrator.
+id: perf-load-probe
+name: Performance harness load probe
+description: Programmatic trigger used by test/perf to drive pipeline load.
+enabled: true
+
+# Must match the pipeline fixture once it is installed under your team.
+pipeline: team-1/perf-load-probe
+scope: team-1/dev
+run_team_path: team-1
+
+# Restrict this to the identity running the load test. It creates real runs, so
+# it should not be broadly invokable.
+allowed_callers:
+  - type: user
+    id: admin@example.com
+
+# Lets the harness set the synthetic work duration per invocation and label the
+# run, without needing a separate pipeline per shape.
+variable_mapping:
+  PERF_WORK_SECONDS: payload.work_seconds
+  PERF_RUN_LABEL: payload.label
+
+payload_schema:
+  type: object
+  properties:
+    work_seconds:
+      type: integer
+      minimum: 0
+    label:
+      type: string

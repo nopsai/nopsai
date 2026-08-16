@@ -2,6 +2,7 @@
 /coverage.out
 /dist/
 /package/
+/test/perf/results/
 
 # Locally built CLI/API binaries and generated shell completions
 /nopsai
