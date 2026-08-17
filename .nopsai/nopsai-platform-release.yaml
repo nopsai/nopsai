@@ -896,10 +896,31 @@ steps:
         update_release "$release_tag" "$@"
       }
 
+      release_target_matches_source() {
+        local release_tag="$1"
+        local target_commitish tag_commit
+        target_commitish="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish' 2>/dev/null || true)"
+        if [[ "$target_commitish" == "$SOURCE_COMMIT" ]]; then
+          return 0
+        fi
+        if [[ -n "$target_commitish" ]]; then
+          tag_commit="$(git rev-parse --verify --quiet "$target_commitish^{commit}" 2>/dev/null || true)"
+          if [[ "$tag_commit" == "$SOURCE_COMMIT" ]]; then
+            return 0
+          fi
+        fi
+        tag_commit="$(git rev-list -n 1 "refs/tags/$release_tag" 2>/dev/null || true)"
+        [[ "$tag_commit" == "$SOURCE_COMMIT" ]]
+      }
+
       require_existing_release_recovery() {
         local release_tag="$1"
+        if release_target_matches_source "$release_tag"; then
+          echo "Release $release_tag already exists for $SOURCE_COMMIT; replacing assets for an idempotent rerun"
+          return 0
+        fi
         if [[ "$ALLOW_EXISTING_RELEASE" != "true" ]]; then
-          echo "Release $release_tag already exists and recovery mode is disabled" >&2
+          echo "Release $release_tag already exists for another source and recovery mode is disabled; rerun with NOPSAI_RELEASE_ALLOW_EXISTING=true to replace release assets, or delete $release_tag before retrying a clean publish" >&2
           exit 1
         fi
       }
