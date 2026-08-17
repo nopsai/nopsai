@@ -117,10 +117,13 @@ export type StepDetail = {
   ai_usage?: AIUsageSummary;
 };
 
+export type PipelineDisplayOption = 'list' | 'graph';
+
 export type PipelineDefinition = {
   name?: string;
   description?: string;
   version?: string;
+  display_option?: PipelineDisplayOption;
   model?: string;
   mcp_profiles?: string[];
   runtime_pool?: string;

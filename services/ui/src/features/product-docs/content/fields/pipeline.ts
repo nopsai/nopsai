@@ -66,15 +66,20 @@ export const pipelineFields: WikiField[] = [
     evidence: 'pkg/models/pipeline_paths.go',
   },
   {
-    path: 'display_options.github_view',
+    path: 'display_option',
     scope: 'pipeline',
     type: 'string',
     required: false,
-    defaultValue: 'flat list',
-    description: 'How git-bot renders run progress inside a GitHub check run.',
-    example: 'display_options:\n  github_view: mermaid',
-    allowedValues: ['mermaid', 'tree'],
-    constraints: ['Any other value, including an empty one, renders the flat Markdown list.'],
+    defaultValue: 'graph',
+    description:
+      'How run progress is presented, both as the first tab opened in the UI run detail and as the git-bot GitHub check-run summary.',
+    example: 'display_option: list',
+    allowedValues: ['list', 'graph'],
+    constraints: [
+      'Any other value is rejected by pipeline validation.',
+      'An empty or absent value falls back to the graph.',
+      'In the UI it selects the tab that opens first; the other tabs stay reachable.',
+    ],
     evidence: 'services/git-bot/internal/checkrender/render.go',
   },
   {

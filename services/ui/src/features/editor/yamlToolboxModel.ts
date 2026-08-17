@@ -47,6 +47,7 @@ export type YamlSnippetInsertResult = {
 };
 
 const BOOLEAN_VALUES = ['true', 'false'];
+const DISPLAY_OPTION_VALUES = ['list', 'graph'];
 const GOVERNANCE_VALUES = ['advisory', 'strict'];
 const GOVERNANCE_DESCRIPTION =
   'AI governance enforcement: advisory warns on an evaluated policy concern, strict requires a clear allow. Defaults to strict.';
@@ -77,7 +78,7 @@ const pipelineParameterGroups: YamlToolboxParameterGroup[] = [
       { key: 'llm_content_preload', description: 'Share workspace files with LLM goals.', validValues: BOOLEAN_VALUES },
       { key: 'llm_content_include', description: 'Only share matching workspace paths with LLM goals.', structure: 'llm_content_include:\n  - src/**\n  - README.md' },
       { key: 'llm_content_ignore', description: 'Exclude matching workspace paths from LLM context.', structure: 'llm_content_ignore:\n  - .git\n  - node_modules/**' },
-      { key: 'display_options', description: 'UI rendering preferences for pipeline output.', structure: 'display_options:\n  github_view: list' },
+      { key: 'display_option', description: 'Run view used by the UI and GitHub check runs.', validValues: DISPLAY_OPTION_VALUES },
     ],
   },
 ];

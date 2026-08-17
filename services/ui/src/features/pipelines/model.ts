@@ -30,7 +30,7 @@ export const PIPELINE_DIRECTIVES = [
   'llm_content_preload',
   'llm_content_include',
   'llm_content_ignore',
-  'display_options',
+  'display_option',
 ];
 
 export const STEP_DIRECTIVES = [
