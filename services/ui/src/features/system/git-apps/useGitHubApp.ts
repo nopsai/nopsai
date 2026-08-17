@@ -119,13 +119,13 @@ export function useGitHubApp({
     setConnecting(true);
     setError(null);
     try {
-      submitGitHubAppManifest(await startGitHubAppRegistration(connectForm));
+      submitGitHubAppManifest(await startGitHubAppRegistration(connectForm, form.webhookURL));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to start GitHub App registration');
       addToast?.('GitHub App registration failed to start', 'error');
       setConnecting(false);
     }
-  }, [addToast, canManage, connectForm, connecting]);
+  }, [addToast, canManage, connectForm, connecting, form.webhookURL]);
 
   const installGitHubApp = useCallback(async () => {
     if (!canManage || connecting) return;

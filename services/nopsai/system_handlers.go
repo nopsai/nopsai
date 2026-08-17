@@ -58,6 +58,7 @@ type systemConfigPayload struct {
 	RunnerCapacity                *int                               `json:"runner_capacity"`
 	GitHubAppID                   *string                            `json:"github_app_id"`
 	GitHubAppSlug                 *string                            `json:"github_app_slug"`
+	GitHubWebhookURL              *string                            `json:"github_webhook_url"`
 	GitHubInstallationID          *string                            `json:"github_installation_id"`
 	GitHubInstallations           *[]config.GitHubInstallationConfig `json:"github_installations"`
 	GitHubPrivateKeyRef           *string                            `json:"github_private_key_credential_ref"`

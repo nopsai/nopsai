@@ -19,8 +19,10 @@ Most API routes pass through the same middleware stack before reaching a handler
 ## GitHub App Connect And Installation
 
 1. An administrator starts the connect flow in **System > Git Apps** or in the
-   setup wizard's GitHub step. `nopsai` builds a GitHub App manifest from
-   `public_url` and stores a single-use registration state.
+   setup wizard's GitHub step. `nopsai` builds a GitHub App manifest whose
+   webhook URL is the public address in front of `git-bot` and whose redirect and
+   setup URLs are the NopsAI address the operator's browser is on, then stores a
+   single-use registration state.
 2. The browser posts the manifest to GitHub, which creates the App after the
    operator approves it, then redirects to
    `/v1/git-apps/github/register/callback` with a one-time code.

@@ -32,9 +32,10 @@ export type GitHubAppResource = {
   app_slug: string;
   private_key_credential_ref: string;
   webhook_credential_ref: string;
+  /** Stored delivery address; empty while none is configured. */
+  webhook_url: string;
+  /** Effective delivery address: the stored one, or one derived from the public URL. */
   webhook_endpoint: string;
-  connect_supported: boolean;
-  connect_blocked_by: string;
   installations: GitHubAppInstallation[];
 };
 
@@ -69,6 +70,12 @@ export type GitHubAppFormState = {
   appID: string;
   privateKeyCredentialRef: string;
   webhookCredentialRef: string;
+  /**
+   * Where GitHub delivers webhooks. This is the only address GitHub's servers
+   * fetch, so it points at whatever tunnel or proxy fronts git-bot, while the
+   * redirect back into NopsAI uses the operator's own browser address.
+   */
+  webhookURL: string;
 };
 
 export type GitHubAppInstallationFormState = {
@@ -92,9 +99,8 @@ export const emptyGitHubApp: GitHubAppResource = {
   app_slug: '',
   private_key_credential_ref: '',
   webhook_credential_ref: '',
-  webhook_endpoint: '/webhook',
-  connect_supported: false,
-  connect_blocked_by: '',
+  webhook_url: '',
+  webhook_endpoint: '',
   installations: [],
 };
 
@@ -108,6 +114,7 @@ export const emptyGitHubAppForm: GitHubAppFormState = {
   appID: '',
   privateKeyCredentialRef: '',
   webhookCredentialRef: '',
+  webhookURL: '',
 };
 
 export const emptyGitHubAppInstallationForm: GitHubAppInstallationFormState = {
@@ -126,9 +133,8 @@ export function normalizeGitHubAppPayload(value: unknown): GitHubAppResource {
     app_slug: readString(record.app_slug),
     private_key_credential_ref: readString(record.private_key_credential_ref),
     webhook_credential_ref: readString(record.webhook_credential_ref),
-    webhook_endpoint: readString(record.webhook_endpoint) || '/webhook',
-    connect_supported: readBool(record.connect_supported, false),
-    connect_blocked_by: readString(record.connect_blocked_by),
+    webhook_url: readString(record.webhook_url),
+    webhook_endpoint: readString(record.webhook_endpoint),
     installations: readArray(record.installations)
       .map(normalizeGitHubAppInstallation)
       .filter(installation => installation.installation_id),
@@ -173,6 +179,7 @@ export function gitHubAppForm(app: GitHubAppResource): GitHubAppFormState {
     appID: app.app_id,
     privateKeyCredentialRef: app.private_key_credential_ref,
     webhookCredentialRef: app.webhook_credential_ref,
+    webhookURL: app.webhook_url,
   };
 }
 
@@ -197,9 +204,8 @@ export function gitHubAppPayloadFromForm(
     app_slug: '',
     private_key_credential_ref: form.privateKeyCredentialRef.trim(),
     webhook_credential_ref: form.webhookCredentialRef.trim(),
+    webhook_url: form.webhookURL.trim(),
     webhook_endpoint: '',
-    connect_supported: false,
-    connect_blocked_by: '',
     installations: installations.map(installation => ({
       ...installation,
       repositories: undefined,
@@ -229,20 +235,68 @@ export function gitHubAppInstallationPayloadFromForm(
   };
 }
 
-export function gitHubAppConnectPayload(form: GitHubAppConnectFormState): {
+export function gitHubAppConnectPayload(
+  form: GitHubAppConnectFormState,
+  rawWebhookURL: string
+): {
   target: GitHubAppConnectTarget;
   organization: string;
   app_name: string;
+  webhook_url: string;
 } {
   const organization = form.organization.trim();
   if (form.target === 'organization' && !/^[A-Za-z0-9-]{1,100}$/.test(organization)) {
     throw new Error('Organization must use a valid GitHub organization name.');
   }
+  const webhookURL = rawWebhookURL.trim();
+  if (!webhookURL) {
+    throw new Error('Webhook URL is required so GitHub can deliver events to git-bot.');
+  }
+  if (!isAbsoluteHTTPURL(webhookURL)) {
+    throw new Error('Webhook URL must be an absolute http or https URL.');
+  }
   return {
     target: form.target,
     organization: form.target === 'organization' ? organization : '',
     app_name: form.appName.trim(),
+    webhook_url: webhookURL,
   };
+}
+
+/**
+ * GitHub's servers have to fetch the webhook URL, so an address that only
+ * resolves inside the deployment silently drops every delivery.
+ */
+export function gitHubWebhookURLWarning(rawURL: string): string {
+  const value = rawURL.trim();
+  if (!value || !isAbsoluteHTTPURL(value)) return '';
+  const host = readURLHost(value);
+  const unreachable = host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host === 'git-bot' ||
+    host.endsWith('.svc.cluster.local') ||
+    host.endsWith('.internal');
+  return unreachable
+    ? `GitHub cannot reach ${host}. Use the public address of the tunnel or proxy in front of git-bot.`
+    : '';
+}
+
+function isAbsoluteHTTPURL(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && Boolean(parsed.host);
+  } catch {
+    return false;
+  }
+}
+
+function readURLHost(value: string): string {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 export type GitHubAppCallbackResult = {
@@ -345,6 +399,10 @@ function validateGitHubAppForm(form: GitHubAppFormState) {
   const appID = form.appID.trim();
   if (appID && !/^\d+$/.test(appID)) {
     throw new Error('App ID must be a positive number.');
+  }
+  const webhookURL = form.webhookURL.trim();
+  if (webhookURL && !isAbsoluteHTTPURL(webhookURL)) {
+    throw new Error('Webhook URL must be an absolute http or https URL.');
   }
   for (const [label, value] of [
     ['Private key credential ref', form.privateKeyCredentialRef],

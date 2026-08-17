@@ -1,6 +1,6 @@
 # The proxy binary is compiled once in the shared base image builder alongside
 # every other service binary, so this image only assembles the scratch layer.
-ARG BASE_IMAGE=hoseindocker/nopsai-base:latest
+ARG BASE_IMAGE=ghcr.io/nopsai/nopsai-base:latest
 FROM ${BASE_IMAGE} AS base
 
 FROM scratch

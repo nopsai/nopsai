@@ -1186,7 +1186,7 @@ webhook secret are written to `credential://system/github/app-private-key` and
 curl -X POST \
   -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"target":"organization","organization":"acme","app_name":"NopsAI"}' \
+  -d '{"target":"organization","organization":"acme","app_name":"NopsAI","webhook_url":"https://nopsai-git-bot.example.com/webhook"}' \
   http://localhost:8080/v1/git-apps/github/register/start
 ```
 
@@ -1198,10 +1198,15 @@ Both callbacks are reachable without a bearer token because GitHub redirects the
 operator's browser to them. Each one is authorized by the single-use state row
 created by an authorized start request, and the install callback additionally
 verifies the installation with an App-authenticated GitHub call, so a forged
-`installation_id` cannot register anything. `GET /v1/git-apps/github` reports
-`connect_supported` and `connect_blocked_by`: both callbacks and the webhook are
-built from `public_url`, so the flow refuses to start when GitHub could not
-reach this installation.
+`installation_id` cannot register anything.
+
+Only the webhook URL has to be reachable from the internet: GitHub fetches it,
+while the redirect and setup URLs are opened in the operator's browser. Pass
+`webhook_url` on the start request, or store it on the Git App, to point GitHub
+at the tunnel or proxy in front of git-bot; NopsAI itself can stay private. The
+callback base is the request's browser origin when it matches this installation,
+and `public_url` otherwise. `GET /v1/git-apps/github` returns the stored
+`webhook_url` and the effective `webhook_endpoint`.
 
 Installations also register themselves from `installation` and
 `installation_repositories` webhook events, so installing or uninstalling the
@@ -1221,6 +1226,7 @@ GitOps uses `setting/git-apps/github.yaml`:
 provider: github
 app_id: "123456"
 app_slug: nopsai-acme
+webhook_url: https://nopsai-git-bot.example.com/webhook
 private_key_credential_ref: credential://system/github/app-private-key
 webhook_credential_ref: credential://system/github/webhook-secret
 installations:

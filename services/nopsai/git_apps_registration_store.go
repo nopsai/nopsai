@@ -22,12 +22,14 @@ var gitHubAppRegistrationSchemaStatements = []string{
 		target TEXT NOT NULL DEFAULT '',
 		organization TEXT NOT NULL DEFAULT '',
 		app_name TEXT NOT NULL DEFAULT '',
+		webhook_url TEXT NOT NULL DEFAULT '',
 		return_to TEXT NOT NULL DEFAULT '',
 		actor TEXT NOT NULL DEFAULT '',
 		expires_at TIMESTAMPTZ NOT NULL,
 		consumed_at TIMESTAMPTZ,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE github_app_registration_states ADD COLUMN IF NOT EXISTS webhook_url TEXT NOT NULL DEFAULT ''`,
 	`CREATE INDEX IF NOT EXISTS idx_github_app_registration_states_expiry ON github_app_registration_states(expires_at)`,
 }
 
@@ -36,9 +38,12 @@ type gitHubAppRegistrationState struct {
 	Target       string
 	Organization string
 	AppName      string
-	ReturnTo     string
-	Actor        string
-	ExpiresAt    time.Time
+	WebhookURL   string
+	// ReturnTo is the NopsAI base URL the operator's browser came from, so the
+	// callback can send them back to the same place it redirected them out of.
+	ReturnTo  string
+	Actor     string
+	ExpiresAt time.Time
 }
 
 func ensureGitHubAppRegistrationSchema(ctx context.Context, db *pgxpool.Pool) error {
@@ -72,14 +77,15 @@ func createGitHubAppRegistrationState(
 	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO github_app_registration_states (
-			state_hash, flow, target, organization, app_name, return_to, actor, expires_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			state_hash, flow, target, organization, app_name, webhook_url, return_to, actor, expires_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`,
 		auth.HashToken(state),
 		record.Flow,
 		record.Target,
 		record.Organization,
 		record.AppName,
+		record.WebhookURL,
 		record.ReturnTo,
 		record.Actor,
 		record.ExpiresAt,
@@ -106,7 +112,7 @@ func consumeGitHubAppRegistrationState(
 	defer tx.Rollback(ctx)
 	stateHash := auth.HashToken(state)
 	row := tx.QueryRow(ctx, `
-		SELECT flow, target, organization, app_name, return_to, actor, expires_at
+		SELECT flow, target, organization, app_name, webhook_url, return_to, actor, expires_at
 		FROM github_app_registration_states
 		WHERE state_hash = $1
 		  AND flow = $2
@@ -119,6 +125,7 @@ func consumeGitHubAppRegistrationState(
 		&record.Target,
 		&record.Organization,
 		&record.AppName,
+		&record.WebhookURL,
 		&record.ReturnTo,
 		&record.Actor,
 		&record.ExpiresAt,

@@ -29,9 +29,11 @@ export default function SetupGitHubStep({ canManage }: { canManage: boolean }) {
       <GitHubAppConnectCard
         app={controller.app}
         form={controller.connectForm}
+        webhookURL={controller.form.webhookURL}
         connecting={controller.connecting}
         canManage={canManage}
         onChange={controller.setConnectForm}
+        onWebhookURLChange={value => controller.setForm(current => ({ ...current, webhookURL: value }))}
         onConnect={() => void controller.connectGitHubApp()}
         onInstall={() => void controller.installGitHubApp()}
       />

@@ -21,12 +21,14 @@ type githubAppResource struct {
 	AppSlug                 string `json:"app_slug" yaml:"app_slug"`
 	PrivateKeyCredentialRef string `json:"private_key_credential_ref" yaml:"private_key_credential_ref"`
 	WebhookCredentialRef    string `json:"webhook_credential_ref" yaml:"webhook_credential_ref"`
-	WebhookEndpoint         string `json:"webhook_endpoint,omitempty" yaml:"-"`
-	// ConnectSupported reports whether the redirect-based connect flow can run.
-	// It is false until a public URL GitHub can reach is configured.
-	ConnectSupported bool                    `json:"connect_supported" yaml:"-"`
-	ConnectBlockedBy string                  `json:"connect_blocked_by,omitempty" yaml:"-"`
-	Installations    []githubAppInstallation `json:"installations" yaml:"installations"`
+	// WebhookURL is the address GitHub delivers to. It is stored because it
+	// belongs to the deployment's ingress, which is often a tunnel or proxy in
+	// front of git-bot rather than the NopsAI public URL.
+	WebhookURL string `json:"webhook_url" yaml:"webhook_url"`
+	// WebhookEndpoint is the effective value: the stored URL, or one derived
+	// from the public URL while none is stored.
+	WebhookEndpoint string                  `json:"webhook_endpoint,omitempty" yaml:"-"`
+	Installations   []githubAppInstallation `json:"installations" yaml:"installations"`
 }
 
 type githubAppInstallation struct {
@@ -79,9 +81,19 @@ func (a *App) handlePutGitHubApp(w http.ResponseWriter, r *http.Request) {
 		}
 		installations = append(installations, next)
 	}
+	webhookURL := strings.TrimRight(strings.TrimSpace(req.WebhookURL), "/")
+	if webhookURL != "" {
+		normalized, err := normalizeGitHubWebhookURL(webhookURL)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		webhookURL = normalized
+	}
 	payload := systemConfigPayload{
 		GitHubAppID:         stringPtr(strings.TrimSpace(req.AppID)),
 		GitHubAppSlug:       stringPtr(gitHubAppSlugForUpdate(a.getConfigSnapshot(), req)),
+		GitHubWebhookURL:    stringPtr(webhookURL),
 		GitHubPrivateKeyRef: stringPtr(strings.TrimSpace(req.PrivateKeyCredentialRef)),
 		GitHubWebhookRef:    stringPtr(strings.TrimSpace(req.WebhookCredentialRef)),
 		GitHubInstallations: &installations,
@@ -298,16 +310,9 @@ func (a *App) gitHubAppResource(cfg config.Config) githubAppResource {
 		AppSlug:                 normalizeGitHubAppSlug(cfg.GitHubAppSlug),
 		PrivateKeyCredentialRef: strings.TrimSpace(cfg.GitHubPrivateKeyCredentialRef),
 		WebhookCredentialRef:    strings.TrimSpace(cfg.GitHubWebhookCredentialRef),
-		WebhookEndpoint:         strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/") + "/webhook",
-		ConnectSupported:        true,
+		WebhookURL:              strings.TrimRight(strings.TrimSpace(cfg.GitHubWebhookURL), "/"),
+		WebhookEndpoint:         effectiveGitHubWebhookURL(cfg),
 		Installations:           make([]githubAppInstallation, 0, len(installations)),
-	}
-	if strings.TrimSpace(cfg.PublicURL) == "" {
-		out.WebhookEndpoint = "/webhook"
-	}
-	if _, err := gitHubAppPublicBaseURL(cfg); err != nil {
-		out.ConnectSupported = false
-		out.ConnectBlockedBy = err.Error()
 	}
 	triggerCounts := a.githubConnectedTriggerCounts()
 	for _, installation := range installations {

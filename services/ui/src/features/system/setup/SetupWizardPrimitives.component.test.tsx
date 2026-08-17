@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
+import { WIZARD_STEPS } from './model';
 import { SetupStepNavigation, StepIntro, WarningCallout } from './SetupWizardPrimitives';
 
 test('renders setup wizard primitives and delegates step navigation', async () => {
@@ -23,5 +24,7 @@ test('renders setup wizard primitives and delegates step navigation', async () =
 
   await user.click(screen.getByRole('button', { name: /teams optional/i }));
 
-  expect(onSelectStep).toHaveBeenCalledWith(3);
+  // Derived from the step list so adding or reordering steps does not make this
+  // navigation test assert a stale position.
+  expect(onSelectStep).toHaveBeenCalledWith(WIZARD_STEPS.findIndex(step => step.id === 'repositories'));
 });

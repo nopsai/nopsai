@@ -72,8 +72,8 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    file.
 6. Optionally connect GitHub. NopsAI creates a GitHub App from a manifest,
    stores its credentials, and registers each account the App is installed on.
-   This step needs a public URL GitHub can reach and can be skipped and done
-   later from **System > Git Apps**.
+   This step needs an address GitHub can deliver webhooks to, and can be skipped
+   and done later from **System > Git Apps**.
 7. Optionally connect a global GitOps config repository and start sync.
 8. Create one or two repository teams and place selected repositories under
    them. These teams drive starter trigger generation, run navigation, and
@@ -181,9 +181,10 @@ Guided install flow (**GitHub** step, or **System > Git Apps**):
 
 1. Start the `git-bot` service with `NOPSAI_API_URL` pointing at the NopsAI API
    URL reachable from git-bot, usually `http://nopsai:8080` in Docker Compose.
-2. Set `public_url` to the address GitHub can reach, ending at the deployment
-   that routes `/webhook` to git-bot. The connect action is disabled until this
-   is set, because GitHub is handed webhook and callback URLs built from it.
+2. Enter the **Webhook URL** GitHub should deliver to. This is the public address
+   of the tunnel or reverse proxy in front of git-bot; NopsAI itself does not
+   have to be reachable from the internet, because GitHub only sends the
+   operator's browser back to the NopsAI address it is already on.
 3. Choose an organization or personal account and select **Create App on
    GitHub**. GitHub asks you to approve the App; NopsAI stores the App ID,
    private key, and webhook secret automatically.
