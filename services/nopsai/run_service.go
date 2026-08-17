@@ -132,8 +132,9 @@ func (s *runService) createPendingRun(ctx context.Context, req createPendingRunR
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
 			git_pusher_email, git_check_run_id, team_id, parent_step_name, parent_runner_id, parent_history,
 			trigger_event_id, scope, pipeline_source, trigger_source, requested_by_type, requested_by_id,
-			effective_subject_type, effective_subject_id, runtime_variable_overrides, runtime_sensitive_variable_overrides, authorization_snapshot)
-			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34::jsonb, $35::jsonb, $36::jsonb)`,
+			effective_subject_type, effective_subject_id, runtime_variable_overrides, runtime_sensitive_variable_overrides, authorization_snapshot,
+			concurrency_group)
+			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34::jsonb, $35::jsonb, $36::jsonb, $37)`,
 		req.RunID,
 		nullString(req.ParentRunID),
 		req.Pipeline.Name,
@@ -170,6 +171,7 @@ func (s *runService) createPendingRun(ctx context.Context, req createPendingRunR
 		string(variableOverridesJSON),
 		string(sensitiveOverridesJSON),
 		string(req.AuthSnapshot),
+		runConcurrencyGroupForRequest(req),
 	)
 	if err != nil {
 		return createPendingRunResult{}, err

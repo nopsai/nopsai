@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
@@ -72,11 +73,9 @@ func (a *App) recoverPendingPipelineRuns(ctx context.Context) {
 	}
 }
 
-func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, limit int) ([]pendingRunRecoveryRecord, error) {
-	if limit <= 0 {
-		return nil, nil
-	}
-	rows, err := a.db.Query(ctx, `
+// pendingRunRecoveryQuery is shared by the recovery sweep and by the
+// concurrency queue, which loads one specific run when its group frees up.
+const pendingRunRecoveryQuery = `
 		SELECT run_id::text,
 		       COALESCE(parent_run_id::text, ''),
 		       COALESCE(parent_runner_id, ''),
@@ -106,6 +105,13 @@ func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, 
 		       COALESCE(git_check_run_id::text, ''),
 		       COALESCE(trigger_event_id, '')
 		FROM pipeline_runs
+`
+
+func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, limit int) ([]pendingRunRecoveryRecord, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := a.db.Query(ctx, pendingRunRecoveryQuery+`
 		WHERE status = 'pending'
 		  AND created_at <= $1
 		ORDER BY created_at ASC
@@ -115,7 +121,30 @@ func (a *App) listPendingRunsForRecovery(ctx context.Context, cutoff time.Time, 
 		return nil, err
 	}
 	defer rows.Close()
+	return a.scanPendingRunRecoveryRecords(rows)
+}
 
+// loadPendingRunForRecovery reads one pending run so a freed concurrency group
+// can start it without waiting for the next recovery poll.
+func (a *App) loadPendingRunForRecovery(ctx context.Context, runID string) (pendingRunRecoveryRecord, error) {
+	rows, err := a.db.Query(ctx, pendingRunRecoveryQuery+`
+		WHERE run_id = $1::uuid
+	`, runID)
+	if err != nil {
+		return pendingRunRecoveryRecord{}, err
+	}
+	defer rows.Close()
+	records, err := a.scanPendingRunRecoveryRecords(rows)
+	if err != nil {
+		return pendingRunRecoveryRecord{}, err
+	}
+	if len(records) == 0 {
+		return pendingRunRecoveryRecord{}, fmt.Errorf("pending run %s not found", runID)
+	}
+	return records[0], nil
+}
+
+func (a *App) scanPendingRunRecoveryRecords(rows pgx.Rows) ([]pendingRunRecoveryRecord, error) {
 	var records []pendingRunRecoveryRecord
 	for rows.Next() {
 		var record pendingRunRecoveryRecord

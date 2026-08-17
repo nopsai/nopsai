@@ -392,22 +392,6 @@ func (c Client) InitializeCheckRun(owner, repo string, checkRunID int64, pipelin
 	return nil
 }
 
-func (c Client) CancelStaleCheckRuns(owner, repo, beforeSHA string) error {
-	if strings.TrimSpace(beforeSHA) == "" {
-		return nil
-	}
-	resp, err := c.postJSON("/v1/checks/cancel-stale", map[string]string{
-		"owner":      owner,
-		"repo":       repo,
-		"before_sha": beforeSHA,
-	})
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
-}
-
 func (c Client) NotifyFinalStatus(req FinalStatusRequest) error {
 	resp, err := c.postJSON("/v1/run/status", map[string]interface{}{
 		"status":       req.Status,

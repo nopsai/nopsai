@@ -114,6 +114,38 @@ directory.
 10. The `pipeline_runs.trigger_event_id` is set to the invocation id, so the run detail can show the trigger name, caller, event type, and idempotency key.
 11. The invocation record is updated with the queued run id or a failure status and error text.
 
+## Run Queueing Per Repository, Ref, And Pipeline
+
+Runs of the same pipeline on the same branch are serialized. A run carries a
+`concurrency_group` of `owner/repo@ref#pipeline`, and may only be dispatched when
+it is the oldest unfinished top-level run in that group.
+
+1. A trigger creates the run as `pending` with its concurrency group, exactly as
+   before.
+2. At dispatch, `nopsai` checks whether the run is at the head of its group. If
+   an earlier run is still unfinished, the run stays `pending`, a
+   `Queued behind run <id>` line is written to its log, and nothing is sent to
+   the dispatcher.
+3. When the holding run reaches a terminal status — finalized, cancelled, timed
+   out — the next queued run in the group is dispatched immediately.
+4. The pending-run recovery worker is the safety net: it retries pending runs
+   every 15 seconds, so a queue still advances if the in-process release never
+   runs, for example after an API restart.
+
+Nothing is cancelled to make room, so every triggered run reports its own
+result, and a run is never killed part-way through work it cannot undo. The
+trade-offs are deliberate:
+
+- Different pipelines, and the same pipeline on different branches, are separate
+  groups and run in parallel.
+- Child runs from included pipelines never join a group. Their parent holds it
+  while waiting for them, so queueing a child behind its parent would deadlock
+  the run.
+- Manual runs, schedules, and external triggers have no repository and ref, so
+  they are not serialized.
+- A run waiting for approval still holds its group. Approval gates therefore
+  block later runs of that pipeline on that branch until they are answered.
+
 ## 3. Dispatch And Runner Selection
 
 1. `nopsai` calls `dispatcher.SubmitJob` with a `JobRequest`.

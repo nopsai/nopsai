@@ -196,16 +196,6 @@ type InitializeCheckRunRequest struct {
 	PipelineName       string `json:"pipeline_name"`
 }
 
-type CancelStaleCheckRunsRequest struct {
-	Owner     string `json:"owner"`
-	Repo      string `json:"repo"`
-	BeforeSHA string `json:"before_sha"`
-}
-
-type CancelStaleCheckRunsResponse struct {
-	Cancelled int `json:"cancelled"`
-}
-
 type FindSuiteCheckRunRequest struct {
 	Owner     string `json:"owner"`
 	Repo      string `json:"repo"`
@@ -278,7 +268,6 @@ func (a *GitBotApp) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/checks/create", a.handleCreateCheckRun)
 	mux.HandleFunc("POST /v1/checks/initialize", a.handleInitializeCheckRun)
 	mux.HandleFunc("POST /v1/checks/find-suite-run", a.handleFindSuiteCheckRun)
-	mux.HandleFunc("POST /v1/checks/cancel-stale", a.handleCancelStaleCheckRuns)
 	mux.HandleFunc("/v1/run/status", a.handleRunStatusUpdate)
 	mux.HandleFunc("/v1/task/status", a.handleTaskStatusUpdate)
 	mux.HandleFunc("/v1/checks/create-child", a.handleCreateChildCheckRun)
@@ -992,56 +981,6 @@ func (a *GitBotApp) handleInitializeCheckRun(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Request) {
-	var req CancelStaleCheckRunsRequest
-	if err := httpapi.DecodeJSON(r, &req); err != nil {
-		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if err := httpapi.ValidateRequired(
-		httpapi.RequiredString("owner", req.Owner),
-		httpapi.RequiredString("repo", req.Repo),
-		httpapi.RequiredString("before_sha", req.BeforeSHA),
-	); err != nil {
-		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	checkRuns, err := a.checksProvider.ListForRef(context.Background(), req.Owner, req.Repo, req.BeforeSHA)
-	if err != nil {
-		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("sha", req.BeforeSHA).Msg("Failed to list check runs for stale commit")
-		writeProviderError(w, err, "failed to list check runs")
-		return
-	}
-
-	cancelled := 0
-	for _, cr := range checkRuns {
-		isOurApp := cr.HasApp && cr.AppID == a.currentAppID()
-		isRunning := cr.Status == "queued" || cr.Status == "in_progress"
-		if !isOurApp || !isRunning {
-			continue
-		}
-
-		if err := a.checksProvider.Conclude(context.Background(), checkRunConclusionUpdate{
-			Owner:       req.Owner,
-			Repo:        req.Repo,
-			CheckRunID:  cr.ID,
-			Name:        cr.Name,
-			Conclusion:  "cancelled",
-			Title:       cr.Name + " - Cancelled",
-			Summary:     "This run was cancelled because a new commit was pushed to the branch.",
-			CompletedAt: time.Now(),
-		}); err != nil {
-			log.Error().Err(err).Int64("check_run_id", cr.ID).Msg("Failed to cancel stale check run")
-			continue
-		}
-		cancelled++
-	}
-
-	_ = httpapi.WriteJSON(w, http.StatusOK, CancelStaleCheckRunsResponse{Cancelled: cancelled})
 }
 
 func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Request) {
