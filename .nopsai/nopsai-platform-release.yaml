@@ -948,10 +948,23 @@ steps:
         for asset in "${legacy_assets[@]}"; do
           gh release delete-asset "v$VERSION" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
         done
-        update_release "v$VERSION" --title "NopsAI $VERSION" --latest
+        delete_release_assets "v$VERSION"
+        gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
+        gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
       else
         echo "github_release_action=create"
-        create_release "v$VERSION" true --title "NopsAI $VERSION" --latest
+        if create_output="$(gh release create "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest 2>&1)"; then
+          printf '%s\n' "$create_output"
+        elif release_already_exists_error "$create_output"; then
+          echo "github_release_action=create_raced_existing tag=v$VERSION"
+          require_existing_release_recovery "v$VERSION"
+          delete_release_assets "v$VERSION"
+          gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
+        else
+          printf '%s\n' "$create_output" >&2
+          exit 1
+        fi
       fi
       while IFS= read -r release_tag; do
         case "$release_tag" in
