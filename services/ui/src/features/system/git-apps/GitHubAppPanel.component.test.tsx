@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import GitHubAppPanel from './GitHubAppPanel';
@@ -156,14 +156,17 @@ test('creates installations and refreshes repositories from the panel', async ()
   expect(await screen.findByText('nopsai/api')).toBeVisible();
 });
 
-test('registers a GitHub App from the panel by posting the manifest to GitHub', async () => {
+test('registers a GitHub App from the connect dialog by posting the manifest to GitHub', async () => {
   const user = userEvent.setup();
   render(<Harness />);
 
   await screen.findByRole('button', { name: 'nopsai' });
-  await user.clear(screen.getByLabelText('Organization'));
-  await user.type(screen.getByLabelText('Organization'), 'acme');
   await user.click(screen.getByRole('button', { name: 'Replace App' }));
+
+  const dialog = await screen.findByRole('dialog', { name: 'Replace GitHub App' });
+  await user.clear(within(dialog).getByLabelText('Organization'));
+  await user.type(within(dialog).getByLabelText('Organization'), 'acme');
+  await user.click(within(dialog).getByRole('button', { name: 'Continue on GitHub' }));
 
   await waitFor(() => expect(apiMocks.startGitHubAppRegistration).toHaveBeenCalledTimes(1));
   expect(apiMocks.startGitHubAppRegistration.mock.calls[0][0]).toMatchObject({
@@ -216,22 +219,24 @@ test('connects with only a webhook URL, without a public NopsAI address', async 
   });
   render(<Harness />);
 
-  const connect = await screen.findByRole('button', { name: 'Create App on GitHub' });
-  expect(connect).toBeDisabled();
+  await user.click(await screen.findByRole('button', { name: 'Connect GitHub' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Connect GitHub App' });
+  const submit = within(dialog).getByRole('button', { name: 'Continue on GitHub' });
+  expect(submit).toBeDisabled();
 
   await user.type(
-    screen.getByLabelText('Webhook URL'),
+    within(dialog).getByLabelText('Webhook URL'),
     'https://live-gecko-national.ngrok-free.app/webhook'
   );
-  expect(connect).toBeEnabled();
+  expect(submit).toBeEnabled();
 
-  await user.click(connect);
+  await user.click(submit);
   await waitFor(() => expect(apiMocks.startGitHubAppRegistration).toHaveBeenCalledTimes(1));
   expect(apiMocks.startGitHubAppRegistration.mock.calls[0][1])
     .toBe('https://live-gecko-national.ngrok-free.app/webhook');
 });
 
-test('warns when the webhook URL is an address GitHub cannot reach', async () => {
+test('warns on the Git App card when the webhook URL is an address GitHub cannot reach', async () => {
   const user = userEvent.setup();
   apiMocks.fetchGitHubApp.mockResolvedValue({
     ...app,
@@ -244,4 +249,16 @@ test('warns when the webhook URL is an address GitHub cannot reach', async () =>
   await user.type(screen.getByLabelText('Webhook URL'), 'http://localhost:8081/webhook');
 
   expect(await screen.findByText(/GitHub cannot reach localhost/)).toBeVisible();
+});
+
+// One App, many installations: the page must present a single Git App record
+// rather than repeating its fields in a second card.
+test('shows exactly one GitHub App record above the installation list', async () => {
+  render(<Harness />);
+
+  await screen.findByRole('button', { name: 'nopsai' });
+  expect(screen.getAllByLabelText('App ID')).toHaveLength(1);
+  expect(screen.getAllByLabelText('Webhook URL')).toHaveLength(1);
+  expect(screen.getByRole('heading', { name: 'GitHub App' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'GitHub accounts' })).toBeVisible();
 });

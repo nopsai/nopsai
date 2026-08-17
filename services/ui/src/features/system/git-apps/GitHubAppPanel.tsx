@@ -15,7 +15,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ObjectIcon } from '../../../components/ObjectIcon';
-import GitHubAppConnectCard from './GitHubAppConnectCard';
+import GitHubAppCard from './GitHubAppCard';
+import GitHubAppConnectDialog from './GitHubAppConnectDialog';
 import { WorkflowFormDialog } from '../../../components/WorkflowFormDialog';
 import {
   buildGitHubAppMetrics,
@@ -24,7 +25,6 @@ import {
   gitHubInstallationStatusLabel,
   gitHubInstallationStatusTone,
   installationDisplayName,
-  type GitHubAppFormState,
   type GitHubAppInstallation,
   type GitHubAppInstallationFormState,
   type GitHubAppInstallationRepository,
@@ -46,11 +46,6 @@ export default function GitHubAppPanel({
   );
   const selected = controller.selectedInstallation;
   const readonly = !canManage;
-  const saveDisabled = readonly || controller.loading || controller.saving;
-
-  const handleFormChange = (key: keyof GitHubAppFormState) => (event: ChangeEvent<HTMLInputElement>) => {
-    controller.setForm(current => ({ ...current, [key]: event.target.value }));
-  };
 
   return (
     <div data-panel="git-apps" className="space-y-5 pb-24">
@@ -60,15 +55,17 @@ export default function GitHubAppPanel({
         </div>
       ) : null}
 
-      <GitHubAppConnectCard
+      <GitHubAppCard
         app={controller.app}
-        form={controller.connectForm}
-        webhookURL={controller.form.webhookURL}
+        form={controller.form}
+        loading={controller.loading}
+        saving={controller.saving}
         connecting={controller.connecting}
         canManage={canManage}
-        onChange={controller.setConnectForm}
-        onWebhookURLChange={value => controller.setForm(current => ({ ...current, webhookURL: value }))}
-        onConnect={() => void controller.connectGitHubApp()}
+        onChange={next => controller.setForm(next)}
+        onSubmit={controller.submitApp}
+        onRefresh={() => void controller.loadApp()}
+        onConnect={controller.openConnectDialog}
         onInstall={() => void controller.installGitHubApp()}
       />
 
@@ -78,77 +75,6 @@ export default function GitHubAppPanel({
         <Metric icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Disabled" value={metrics.disabled} tone="muted" />
         <Metric icon={<GitBranch className="h-4 w-4" aria-hidden="true" />} label="Repositories" value={metrics.repositories} tone="blue" />
         <Metric icon={<ObjectIcon type="trigger" />} label="Triggers" value={metrics.connectedTriggers} tone="blue" />
-      </section>
-
-      <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-5">
-        <form className="space-y-4" onSubmit={controller.submitApp}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)]">
-                <ObjectIcon type="git-app" className="h-5 w-5" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs text-[var(--text-secondary)]">Git Apps</p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">GitHub App</h3>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="runner-pill runner-pill--muted">setting/git-apps/github.yaml</span>
-              {readonly ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
-              <button
-                type="button"
-                className="glass-button-subtle inline-flex items-center gap-2"
-                onClick={() => void controller.loadApp()}
-                disabled={controller.loading || controller.saving}
-              >
-                <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                Refresh
-              </button>
-              <button
-                type="submit"
-                className="glass-button inline-flex items-center gap-2"
-                disabled={saveDisabled}
-              >
-                <Save className="h-4 w-4" aria-hidden="true" />
-                Save
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-              <span>App ID</span>
-              <input
-                className="pipelines-input"
-                value={controller.form.appID}
-                onChange={handleFormChange('appID')}
-                inputMode="numeric"
-                placeholder="123456"
-                disabled={saveDisabled}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-              <span>Private key credential ref</span>
-              <input
-                className="pipelines-input"
-                value={controller.form.privateKeyCredentialRef}
-                onChange={handleFormChange('privateKeyCredentialRef')}
-                placeholder="credential://system/github/app-private-key"
-                disabled={saveDisabled}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-              <span>Webhook credential ref</span>
-              <input
-                className="pipelines-input"
-                value={controller.form.webhookCredentialRef}
-                onChange={handleFormChange('webhookCredentialRef')}
-                placeholder="credential://system/github/webhook-secret"
-                disabled={saveDisabled}
-              />
-            </label>
-          </div>
-        </form>
       </section>
 
       <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-5">
@@ -239,6 +165,22 @@ export default function GitHubAppPanel({
         onRefresh={installation => void controller.refreshInstallation(installation)}
         onLoad={installation => void controller.loadRepositories(installation)}
       />
+
+      {controller.connectDialogOpen ? (
+        <GitHubAppConnectDialog
+          form={controller.connectForm}
+          webhookURL={controller.form.webhookURL}
+          replacing={Boolean(controller.app.app_id)}
+          connecting={controller.connecting}
+          onChange={controller.setConnectForm}
+          onWebhookURLChange={value => controller.setForm(current => ({ ...current, webhookURL: value }))}
+          onClose={controller.closeConnectDialog}
+          onSubmit={event => {
+            event.preventDefault();
+            void controller.connectGitHubApp();
+          }}
+        />
+      ) : null}
 
       {controller.installationEditorOpen ? (
         <InstallationDialog

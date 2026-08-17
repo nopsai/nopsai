@@ -237,8 +237,12 @@ func TestHandleStartGitHubAppInstallRequiresRegisteredApp(t *testing.T) {
 	}
 }
 
-func TestHandleGitHubAppInstallCallbackRedirectsWhenInstallationIsMissing(t *testing.T) {
-	app := App{cfg: &config.Config{PublicURL: "https://nopsai.example.com"}}
+// Without a usable state the callback cannot know the address the flow started
+// from, so it stays relative. public_url must not be used here: deployments
+// where it names the public git-bot ingress would send the operator to a host
+// that serves no UI.
+func TestHandleGitHubAppInstallCallbackRedirectsRelativeWhenTheFlowOriginIsUnknown(t *testing.T) {
+	app := App{cfg: &config.Config{PublicURL: "https://git-bot.example.com"}}
 	req := httptest.NewRequest(http.MethodGet, "/v1/git-apps/github/install/callback", nil)
 	rec := httptest.NewRecorder()
 
@@ -248,8 +252,7 @@ func TestHandleGitHubAppInstallCallbackRedirectsWhenInstallationIsMissing(t *tes
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
 	}
 	location := rec.Header().Get("Location")
-	if !strings.HasPrefix(location, "https://nopsai.example.com/system/git-apps?") ||
-		!strings.Contains(location, "github_app_error=") {
+	if !strings.HasPrefix(location, "/system/git-apps?") || !strings.Contains(location, "github_app_error=") {
 		t.Fatalf("location = %q", location)
 	}
 }

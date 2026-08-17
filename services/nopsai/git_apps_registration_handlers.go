@@ -451,11 +451,11 @@ func (a *App) redirectGitHubAppResult(w http.ResponseWriter, r *http.Request, ba
 	if strings.TrimSpace(message) != "" {
 		values.Set("github_app_error", message)
 	}
-	base = strings.TrimRight(strings.TrimSpace(base), "/")
-	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(a.getConfigSnapshot().PublicURL), "/")
-	}
-	target := base + "/system/git-apps"
+	// NopsAI is serving this callback, so a relative target already resolves to
+	// the right host. public_url is deliberately not used as a fallback: in
+	// deployments where it names the public git-bot ingress it would send the
+	// operator to a host that has no UI.
+	target := strings.TrimRight(strings.TrimSpace(base), "/") + "/system/git-apps"
 	if encoded := values.Encode(); encoded != "" {
 		target += "?" + encoded
 	}
