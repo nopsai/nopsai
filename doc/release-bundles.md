@@ -128,6 +128,12 @@ and changelog discovery. The release pipeline also moves `v<major>` and
 assets, while OCI package aliases move with the same `scripts/release-tags.sh`
 contract.
 
+Release reruns can replace assets on an existing exact GitHub Release when that
+release resolves to the same source commit. If `publish-release` stops because
+`v<version>` already exists for another source, rerun with
+`NOPSAI_RELEASE_ALLOW_EXISTING=true` to replace the existing release assets, or
+delete the GitHub Release and tag before retrying a clean publish.
+
 ## CLI-Generated Installs
 
 The first-install entry point is:

@@ -181,6 +181,7 @@ awk '
 ' "$ROOT_DIR/.nopsai/nopsai-platform-release.yaml" >"$publish_helpers"
 require_text "release_exists()" "$publish_helpers" "the extracted release lookup helper"
 require_text "create_release()" "$publish_helpers" "the extracted release create helper"
+require_text "release_target_matches_source()" "$publish_helpers" "the extracted same-source release guard"
 
 fake_gh_dir="$temp_dir/fake-bin"
 mkdir -p "$fake_gh_dir" "$temp_dir/release-workdir/dist/assets" "$temp_dir/release-workdir/dist/release"
@@ -193,7 +194,14 @@ printf '%s\n' "$*" >>"$GH_CALL_LOG"
 case "${1:-} ${2:-}" in
   "release view")
     case "$FAKE_GH_VIEW" in
-      found) printf '{"tagName":"%s"}\n' "$3"; exit 0 ;;
+      found)
+        if [[ "$*" == *"targetCommitish"* && "$*" == *"--jq"* ]]; then
+          printf '%s\n' "${FAKE_GH_TARGET:-abc123}"
+        else
+          printf '{"tagName":"%s","targetCommitish":"%s"}\n' "$3" "${FAKE_GH_TARGET:-abc123}"
+        fi
+        exit 0
+        ;;
       missing) echo "release not found" >&2; exit 1 ;;
       *) echo "HTTP 502: Bad gateway" >&2; exit 1 ;;
     esac
@@ -212,19 +220,21 @@ chmod +x "$fake_gh_dir/gh"
 
 run_publish_case() {
   local view="$1" create="$2" allow_existing="$3" expected_status="$4"
+  local target_commitish="${5:-abc123}"
   local status=0
   (
     cd "$temp_dir/release-workdir"
     export PATH="$fake_gh_dir:$PATH"
     export GH_CALL_LOG="$temp_dir/gh-calls.log"
     export FAKE_GH_VIEW="$view" FAKE_GH_CREATE="$create"
+    export FAKE_GH_TARGET="$target_commitish"
     export GITHUB_REPOSITORY="nopsai/nopsai" VERSION="0.22.813" SOURCE_COMMIT="abc123"
     export ALLOW_EXISTING_RELEASE="$allow_existing"
     set -euo pipefail
     # shellcheck disable=SC1090
     . "$publish_helpers"
     if release_exists "v$VERSION"; then
-      [[ "$ALLOW_EXISTING_RELEASE" == "true" ]] || { echo "recovery disabled" >&2; exit 1; }
+      require_existing_release_recovery "v$VERSION"
       update_release "v$VERSION" --title "NopsAI $VERSION" --latest
     else
       create_release "v$VERSION" true --title "NopsAI $VERSION" --latest
@@ -242,17 +252,21 @@ run_publish_case missing ok false 0
 require_text "release create" "$temp_dir/gh-calls.log" "a create for a release that does not exist"
 
 : >"$temp_dir/gh-calls.log"
-run_publish_case found ok true 0
-require_text "release upload" "$temp_dir/gh-calls.log" "an asset upload when the release already exists"
+run_publish_case found ok false 0
+require_text "release upload" "$temp_dir/gh-calls.log" "an asset upload when the release already exists for the same source"
 if grep -q "release create" "$temp_dir/gh-calls.log"; then
   printf 'existing release was re-created instead of updated\n' >&2
   exit 1
 fi
 
 : >"$temp_dir/gh-calls.log"
-run_publish_case found ok false 1
+run_publish_case found ok true 0 deadbeef
+require_text "release upload" "$temp_dir/gh-calls.log" "an asset upload when recovery mode is enabled"
+
+: >"$temp_dir/gh-calls.log"
+run_publish_case found ok false 1 deadbeef
 if grep -q "release upload" "$temp_dir/gh-calls.log"; then
-  printf 'existing release was overwritten with recovery mode disabled\n' >&2
+  printf 'existing release for another source was overwritten with recovery mode disabled\n' >&2
   exit 1
 fi
 
