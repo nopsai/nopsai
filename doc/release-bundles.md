@@ -91,6 +91,12 @@ built-in checksums. If a release overrides
 The QEMU/binfmt helper image used for multi-architecture builds is also pinned
 by digest.
 
+GitHub Release asset uploads retry transient GitHub CLI failures such as 5xx
+responses, service-unavailable responses, gateway timeouts, and connection
+resets. The default upload backoff is `5 15 30 60 120` seconds; override
+`NOPSAI_RELEASE_GITHUB_RETRY_DELAYS` with a space-separated delay list when a
+release environment needs shorter or longer retries.
+
 ## CLI Self-Update
 
 Released CLIs can replace themselves from the public CLI OCI package for an

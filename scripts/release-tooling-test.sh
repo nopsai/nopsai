@@ -182,6 +182,7 @@ awk '
 require_text "release_exists()" "$publish_helpers" "the extracted release lookup helper"
 require_text "create_release()" "$publish_helpers" "the extracted release create helper"
 require_text "release_target_matches_source()" "$publish_helpers" "the extracted same-source release guard"
+require_text "run_gh_with_retry()" "$publish_helpers" "the extracted GitHub CLI retry helper"
 
 fake_gh_dir="$temp_dir/fake-bin"
 mkdir -p "$fake_gh_dir" "$temp_dir/release-workdir/dist/assets" "$temp_dir/release-workdir/dist/release"
@@ -213,6 +214,19 @@ case "${1:-} ${2:-}" in
     fi
     exit 0
     ;;
+  "release upload")
+    upload_attempts=0
+    if [[ -f "$GH_UPLOAD_ATTEMPT_FILE" ]]; then
+      upload_attempts="$(cat "$GH_UPLOAD_ATTEMPT_FILE")"
+    fi
+    upload_attempts=$((upload_attempts + 1))
+    printf '%s\n' "$upload_attempts" >"$GH_UPLOAD_ATTEMPT_FILE"
+    if (( upload_attempts <= ${FAKE_GH_UPLOAD_FAILS:-0} )); then
+      echo 'non-200 OK status code: 503 Service Unavailable body: {"message":"No server is currently available to service your request."}' >&2
+      exit 1
+    fi
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 FAKE_GH
@@ -221,15 +235,20 @@ chmod +x "$fake_gh_dir/gh"
 run_publish_case() {
   local view="$1" create="$2" allow_existing="$3" expected_status="$4"
   local target_commitish="${5:-abc123}"
+  local upload_fails="${6:-0}"
   local status=0
+  rm -f "$temp_dir/gh-upload-attempts"
   (
     cd "$temp_dir/release-workdir"
     export PATH="$fake_gh_dir:$PATH"
     export GH_CALL_LOG="$temp_dir/gh-calls.log"
+    export GH_UPLOAD_ATTEMPT_FILE="$temp_dir/gh-upload-attempts"
     export FAKE_GH_VIEW="$view" FAKE_GH_CREATE="$create"
+    export FAKE_GH_UPLOAD_FAILS="$upload_fails"
     export FAKE_GH_TARGET="$target_commitish"
     export GITHUB_REPOSITORY="nopsai/nopsai" VERSION="0.22.813" SOURCE_COMMIT="abc123"
     export ALLOW_EXISTING_RELEASE="$allow_existing"
+    export NOPSAI_RELEASE_GITHUB_RETRY_DELAYS="0 0 0"
     set -euo pipefail
     # shellcheck disable=SC1090
     . "$publish_helpers"
@@ -256,6 +275,14 @@ run_publish_case found ok false 0
 require_text "release upload" "$temp_dir/gh-calls.log" "an asset upload when the release already exists for the same source"
 if grep -q "release create" "$temp_dir/gh-calls.log"; then
   printf 'existing release was re-created instead of updated\n' >&2
+  exit 1
+fi
+
+: >"$temp_dir/gh-calls.log"
+run_publish_case found ok false 0 abc123 1
+upload_call_count="$(grep -c '^release upload' "$temp_dir/gh-calls.log")"
+if [[ "$upload_call_count" != "2" ]]; then
+  printf 'transient upload failure attempted %s uploads, want 2\n' "$upload_call_count" >&2
   exit 1
 fi
 
