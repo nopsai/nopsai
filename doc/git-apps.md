@@ -65,10 +65,27 @@ identity.
    NopsAI verifies with an App-authenticated GitHub call before storing it.
 
 The generated App is private, requests no OAuth on install, and asks for exactly
-the events and permissions listed below. `public_url` must be set and reachable
-by GitHub first; without it, the flow refuses to start rather than creating a
-half-configured App on GitHub. `GET /v1/git-apps/github` reports this as
-`connect_supported` and `connect_blocked_by`.
+the events and permissions listed below.
+
+### Two Different URLs
+
+A GitHub App uses two addresses, and only one of them has to be public:
+
+- The **webhook URL** is fetched by GitHub's servers and must reach git-bot's
+  `/webhook`. This is usually a tunnel or reverse proxy in front of git-bot. It
+  is stored as `webhook_url` on the Git App and is the only value the connect
+  flow requires.
+- The **redirect and setup URLs** are only ever opened in the operator's own
+  browser. NopsAI builds them from the address that browser is already using, so
+  a workspace on `http://localhost:8080` behind a tunnel that exposes nothing but
+  git-bot is a complete, supported setup. `public_url` is used when the request
+  carries no browser origin, such as a CLI call.
+
+The browser origin is accepted only when it matches the host serving the request,
+a configured CORS origin, or `public_url`, so a foreign origin cannot redirect
+GitHub's response somewhere else. When neither a browser origin nor `public_url`
+is available, the flow refuses to start rather than registering an App whose
+callbacks lead nowhere.
 
 Required GitHub App events: `push`, `pull_request`, `check_run`, `check_suite`,
 `installation`, `installation_repositories`.
@@ -84,6 +101,7 @@ Canonical path:
 provider: github
 app_id: "123456"
 app_slug: nopsai-acme
+webhook_url: https://nopsai-git-bot.example.com/webhook
 private_key_credential_ref: credential://system/github/app-private-key
 webhook_credential_ref: credential://system/github/webhook-secret
 installations:
@@ -92,6 +110,10 @@ installations:
     account_type: organization
     enabled: true
 ```
+
+`webhook_url` is where GitHub delivers events; when it is empty NopsAI falls back
+to `public_url` + `/webhook`. A base address such as `https://example.ngrok.app`
+is stored with `/webhook` appended.
 
 `app_slug` is the App's GitHub URL name and is what the install action opens.
 Editing `app_id` without a matching `app_slug` clears the slug, so an install

@@ -13,17 +13,23 @@ import (
 	"github.com/google/go-github/v53/github"
 )
 
-func TestBuildGitHubAppManifestPointsAtThisInstallation(t *testing.T) {
-	cfg := config.Config{PublicURL: "https://nopsai.example.com"}
-	manifest := buildGitHubAppManifest(cfg, "NopsAI nopsai.example.com", "https://nopsai.example.com")
+// The webhook URL is fetched by GitHub, while the redirect and setup URLs are
+// only opened in the operator's browser, so a tunnel that fronts git-bot alone
+// is a complete setup.
+func TestBuildGitHubAppManifestSeparatesWebhookFromBrowserCallbacks(t *testing.T) {
+	manifest := buildGitHubAppManifest(
+		"NopsAI localhost",
+		"http://localhost:8080",
+		"https://live-gecko-national.ngrok-free.app/webhook",
+	)
 
-	if manifest.HookAttributes.URL != "https://nopsai.example.com/webhook" {
+	if manifest.HookAttributes.URL != "https://live-gecko-national.ngrok-free.app/webhook" {
 		t.Fatalf("hook url = %q", manifest.HookAttributes.URL)
 	}
-	if manifest.RedirectURL != "https://nopsai.example.com"+gitHubAppRegisterCallbackPath {
+	if manifest.RedirectURL != "http://localhost:8080"+gitHubAppRegisterCallbackPath {
 		t.Fatalf("redirect url = %q", manifest.RedirectURL)
 	}
-	if manifest.SetupURL != "https://nopsai.example.com"+gitHubAppInstallCallbackPath {
+	if manifest.SetupURL != "http://localhost:8080"+gitHubAppInstallCallbackPath {
 		t.Fatalf("setup url = %q", manifest.SetupURL)
 	}
 	if manifest.Public || manifest.RequestOAuthOnInstall {
@@ -39,17 +45,95 @@ func TestBuildGitHubAppManifestPointsAtThisInstallation(t *testing.T) {
 	}
 }
 
-func TestGitHubAppPublicBaseURLRejectsUnusableValues(t *testing.T) {
-	for name, publicURL := range map[string]string{
-		"empty":       "",
-		"no scheme":   "nopsai.example.com",
-		"unsupported": "ftp://nopsai.example.com",
+func TestNormalizeGitHubWebhookURL(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		"tunnel base gets the webhook path": {
+			raw:  "https://live-gecko-national.ngrok-free.app",
+			want: "https://live-gecko-national.ngrok-free.app/webhook",
+		},
+		"explicit endpoint is kept": {
+			raw:  "https://hooks.example.com/git-bot/webhook/",
+			want: "https://hooks.example.com/git-bot/webhook",
+		},
+		"empty is rejected":    {raw: "  ", wantErr: true},
+		"relative is rejected": {raw: "/webhook", wantErr: true},
+		"non-http is rejected": {raw: "ftp://hooks.example.com", wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := gitHubAppPublicBaseURL(config.Config{PublicURL: publicURL}); err == nil {
-				t.Fatalf("gitHubAppPublicBaseURL(%q) error = nil, want failure", publicURL)
+			got, err := normalizeGitHubWebhookURL(testCase.raw)
+			if testCase.wantErr {
+				if err == nil {
+					t.Fatalf("normalizeGitHubWebhookURL(%q) error = nil, want failure", testCase.raw)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("normalizeGitHubWebhookURL(%q) error = %v", testCase.raw, err)
+			}
+			if got != testCase.want {
+				t.Fatalf("normalizeGitHubWebhookURL(%q) = %q, want %q", testCase.raw, got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestEffectiveGitHubWebhookURLPrefersTheStoredAddress(t *testing.T) {
+	stored := config.Config{
+		GitHubWebhookURL: "https://live-gecko-national.ngrok-free.app/webhook",
+		PublicURL:        "http://localhost:8080",
+	}
+	if got := effectiveGitHubWebhookURL(stored); got != "https://live-gecko-national.ngrok-free.app/webhook" {
+		t.Fatalf("effectiveGitHubWebhookURL() = %q", got)
+	}
+	derived := config.Config{PublicURL: "https://nopsai.example.com"}
+	if got := effectiveGitHubWebhookURL(derived); got != "https://nopsai.example.com/webhook" {
+		t.Fatalf("derived effectiveGitHubWebhookURL() = %q", got)
+	}
+	if got := effectiveGitHubWebhookURL(config.Config{}); got != "" {
+		t.Fatalf("unconfigured effectiveGitHubWebhookURL() = %q, want empty", got)
+	}
+}
+
+// The browser origin is the accurate answer for where to send the operator back
+// to, and it keeps local installs working without a public NopsAI address.
+func TestGitHubAppCallbackBaseURLUsesTheBrowserOrigin(t *testing.T) {
+	base, err := gitHubAppCallbackBaseURL(config.Config{}, "http://localhost:8080", "localhost:8080")
+	if err != nil {
+		t.Fatalf("gitHubAppCallbackBaseURL() error = %v", err)
+	}
+	if base != "http://localhost:8080" {
+		t.Fatalf("callback base = %q", base)
+	}
+}
+
+func TestGitHubAppCallbackBaseURLRejectsForeignOrigins(t *testing.T) {
+	cfg := config.Config{CORSAllowedOrigins: []string{"https://ui.example.com"}}
+
+	allowed, err := gitHubAppCallbackBaseURL(cfg, "https://ui.example.com", "api.example.com")
+	if err != nil || allowed != "https://ui.example.com" {
+		t.Fatalf("allowed origin = %q, err = %v", allowed, err)
+	}
+
+	if _, err := gitHubAppCallbackBaseURL(cfg, "https://attacker.example", "api.example.com"); err == nil {
+		t.Fatal("gitHubAppCallbackBaseURL() accepted an origin that is not this installation")
+	}
+}
+
+func TestGitHubAppCallbackBaseURLFallsBackToPublicURL(t *testing.T) {
+	cfg := config.Config{PublicURL: "https://nopsai.example.com/"}
+	base, err := gitHubAppCallbackBaseURL(cfg, "", "")
+	if err != nil {
+		t.Fatalf("gitHubAppCallbackBaseURL() error = %v", err)
+	}
+	if base != "https://nopsai.example.com" {
+		t.Fatalf("callback base = %q", base)
+	}
+	if _, err := gitHubAppCallbackBaseURL(config.Config{}, "", ""); err == nil {
+		t.Fatal("gitHubAppCallbackBaseURL() error = nil with no origin and no public_url")
 	}
 }
 
@@ -88,11 +172,13 @@ func TestGitHubAppInstallURLRequiresSlug(t *testing.T) {
 	}
 }
 
-// The flow must fail before an App is created on GitHub when GitHub could never
-// reach the webhook and callback URLs it would be given.
-func TestHandleStartGitHubAppRegistrationRequiresPublicURL(t *testing.T) {
+// The flow must fail before an App is created on GitHub when GitHub would have
+// no address to deliver webhooks to.
+func TestHandleStartGitHubAppRegistrationRequiresAWebhookURL(t *testing.T) {
 	app := App{cfg: &config.Config{}}
 	req := httptest.NewRequest(http.MethodPost, "/v1/git-apps/github/register/start", strings.NewReader(`{"target":"personal"}`))
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.Host = "localhost:8080"
 	rec := httptest.NewRecorder()
 
 	app.handleStartGitHubAppRegistration(rec, req)
@@ -100,11 +186,35 @@ func TestHandleStartGitHubAppRegistrationRequiresPublicURL(t *testing.T) {
 	if rec.Code != http.StatusPreconditionFailed {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusPreconditionFailed, rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), "webhook URL") {
+		t.Fatalf("body = %q, want the webhook URL to be named", rec.Body.String())
+	}
+}
+
+// A local NopsAI reached through a tunnel that only fronts git-bot is a
+// complete, supported setup.
+func TestHandleStartGitHubAppRegistrationAcceptsATunnelWebhookWithoutPublicURL(t *testing.T) {
+	app := App{cfg: &config.Config{}}
+	req := httptest.NewRequest(http.MethodPost, "/v1/git-apps/github/register/start", strings.NewReader(
+		`{"target":"organization","organization":"acme","webhook_url":"https://live-gecko-national.ngrok-free.app"}`,
+	))
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.Host = "localhost:8080"
+	rec := httptest.NewRecorder()
+
+	app.handleStartGitHubAppRegistration(rec, req)
+
+	// Persisting the state needs a database; the precondition checks must pass
+	// before that point.
+	if rec.Code == http.StatusPreconditionFailed || rec.Code == http.StatusBadRequest {
+		t.Fatalf("status = %d, want the tunnel webhook URL to be accepted: %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestHandleStartGitHubAppRegistrationRejectsUnknownTarget(t *testing.T) {
 	app := App{cfg: &config.Config{PublicURL: "https://nopsai.example.com"}}
 	req := httptest.NewRequest(http.MethodPost, "/v1/git-apps/github/register/start", strings.NewReader(`{"target":"enterprise"}`))
+	req.Header.Set("Origin", "https://nopsai.example.com")
 	rec := httptest.NewRecorder()
 
 	app.handleStartGitHubAppRegistration(rec, req)
@@ -117,6 +227,7 @@ func TestHandleStartGitHubAppRegistrationRejectsUnknownTarget(t *testing.T) {
 func TestHandleStartGitHubAppInstallRequiresRegisteredApp(t *testing.T) {
 	app := App{cfg: &config.Config{PublicURL: "https://nopsai.example.com"}}
 	req := httptest.NewRequest(http.MethodPost, "/v1/git-apps/github/install/start", nil)
+	req.Header.Set("Origin", "https://nopsai.example.com")
 	rec := httptest.NewRecorder()
 
 	app.handleStartGitHubAppInstall(rec, req)
@@ -224,7 +335,7 @@ func TestGitHubInstallationLifecycleIgnoresUnrelatedEvents(t *testing.T) {
 	}
 }
 
-func TestGitHubAppResourceExposesAppSlug(t *testing.T) {
+func TestGitHubAppResourceExposesAppSlugAndWebhookURL(t *testing.T) {
 	app := App{cfg: &config.Config{
 		GitHubAppID:   "123456",
 		GitHubAppSlug: "nopsai-example",
@@ -243,5 +354,19 @@ func TestGitHubAppResourceExposesAppSlug(t *testing.T) {
 	}
 	if resource.WebhookEndpoint != "https://nopsai.example.com/webhook" {
 		t.Fatalf("webhook_endpoint = %q", resource.WebhookEndpoint)
+	}
+
+	tunnelled := App{cfg: &config.Config{
+		GitHubAppID:      "123456",
+		GitHubWebhookURL: "https://live-gecko-national.ngrok-free.app/webhook",
+	}}
+	rec = httptest.NewRecorder()
+	tunnelled.handleGetGitHubApp(rec, httptest.NewRequest(http.MethodGet, "/v1/git-apps/github", nil))
+	if err := json.Unmarshal(rec.Body.Bytes(), &resource); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resource.WebhookURL != "https://live-gecko-national.ngrok-free.app/webhook" ||
+		resource.WebhookEndpoint != resource.WebhookURL {
+		t.Fatalf("webhook_url = %q, webhook_endpoint = %q", resource.WebhookURL, resource.WebhookEndpoint)
 	}
 }

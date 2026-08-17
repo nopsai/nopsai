@@ -1,6 +1,7 @@
 import type { ChangeEvent, FormEvent } from 'react';
-import { CheckCircle2, ExternalLink, Github, Loader2, Plus } from 'lucide-react';
-import type { GitHubAppConnectFormState, GitHubAppConnectTarget, GitHubAppResource } from './model';
+import { CheckCircle2, Copy, ExternalLink, Github, Loader2, Plus } from 'lucide-react';
+import { copyTextToClipboard } from '../../../lib/clipboard';
+import { gitHubWebhookURLWarning, type GitHubAppConnectFormState, type GitHubAppConnectTarget, type GitHubAppResource } from './model';
 
 /**
  * The guided path: NopsAI generates the App manifest, GitHub asks the operator
@@ -11,26 +12,32 @@ import type { GitHubAppConnectFormState, GitHubAppConnectTarget, GitHubAppResour
 export default function GitHubAppConnectCard({
   app,
   form,
+  webhookURL,
   connecting,
   canManage,
   onChange,
+  onWebhookURLChange,
   onConnect,
   onInstall,
 }: {
   app: GitHubAppResource;
   form: GitHubAppConnectFormState;
+  webhookURL: string;
   connecting: boolean;
   canManage: boolean;
   onChange: (next: GitHubAppConnectFormState) => void;
+  onWebhookURLChange: (next: string) => void;
   onConnect: () => void;
   onInstall: () => void;
 }) {
   const connected = Boolean(app.app_id);
-  const disabled = !canManage || connecting || !app.connect_supported;
+  const disabled = !canManage || connecting;
+  const webhookWarning = gitHubWebhookURLWarning(webhookURL);
+  const canConnect = !disabled && Boolean(webhookURL.trim());
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (disabled) return;
+    if (!canConnect) return;
     onConnect();
   };
 
@@ -68,16 +75,16 @@ export default function GitHubAppConnectCard({
         ) : null}
       </div>
 
-      {!app.connect_supported ? (
+      {webhookWarning ? (
         <div
           className="mb-4 rounded-lg border border-amber-500/40 bg-[var(--bg-primary)] px-4 py-3 text-sm text-amber-700 dark:text-amber-300"
           role="status"
         >
-          {app.connect_blocked_by || 'Set a public URL GitHub can reach before connecting a GitHub App.'}
+          {webhookWarning}
         </div>
       ) : null}
 
-      <form className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]" onSubmit={handleSubmit}>
+      <form className="grid gap-4 lg:grid-cols-3" onSubmit={handleSubmit}>
         <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
           <span>Account type</span>
           <select
@@ -111,8 +118,39 @@ export default function GitHubAppConnectCard({
             disabled={disabled}
           />
         </label>
-        <div className="flex flex-wrap items-end gap-2">
-          <button type="submit" className="glass-button inline-flex items-center gap-2" disabled={disabled}>
+        <div className="flex flex-col gap-1 lg:col-span-3">
+          <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
+            <span>Webhook URL</span>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <input
+                className="pipelines-input"
+                value={webhookURL}
+                onChange={event => onWebhookURLChange(event.target.value)}
+                placeholder="https://your-tunnel.example.com/webhook"
+                disabled={disabled}
+              />
+              <button
+                type="button"
+                className="glass-button-subtle inline-flex items-center justify-center px-3"
+                aria-label="Copy GitHub webhook URL"
+                title="Copy GitHub webhook URL"
+                onClick={() => {
+                  const value = webhookURL.trim();
+                  if (value) void copyTextToClipboard(value).catch(() => undefined);
+                }}
+                disabled={!webhookURL.trim()}
+              >
+                <Copy className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </label>
+          <p className="text-xs text-[var(--text-secondary)]">
+            The address GitHub delivers events to. It has to reach git-bot from the internet, for
+            example through a tunnel or reverse proxy, and NopsAI itself can stay private.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2 lg:col-span-3">
+          <button type="submit" className="glass-button inline-flex items-center gap-2" disabled={!canConnect}>
             {connecting ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
@@ -125,7 +163,7 @@ export default function GitHubAppConnectCard({
               type="button"
               className="glass-button-subtle inline-flex items-center gap-2"
               onClick={onInstall}
-              disabled={!canManage || connecting || !app.app_slug}
+              disabled={disabled || !app.app_slug}
               title={app.app_slug ? undefined : 'The App slug is unknown; add the installation manually'}
             >
               <ExternalLink className="h-4 w-4" aria-hidden="true" />
@@ -136,8 +174,8 @@ export default function GitHubAppConnectCard({
       </form>
 
       <p className="mt-3 text-xs text-[var(--text-secondary)]">
-        GitHub asks you to approve the App, then returns here. Webhook deliveries go to{' '}
-        <span className="font-mono">{app.webhook_endpoint}</span>.
+        GitHub asks you to approve the App, then returns you to this NopsAI address. Only the webhook
+        URL is fetched by GitHub, so NopsAI does not need to be reachable from the internet.
       </p>
     </section>
   );
