@@ -30,16 +30,17 @@ if [[ ! "$base_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   exit 1
 fi
 
-printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-builder_suffix="$(printf '%s-%s-%s' "$VERSION" "$image_name" "$$" | tr -c 'A-Za-z0-9_.-' '-')"
-builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}-${builder_suffix}"
+# Every image task shares the one builder that prepare-image-tools bootstrapped
+# and the registry login it performed. A builder per task meant ten cold
+# BuildKit instances that each re-pulled the base image and rebuilt the layers
+# these Dockerfiles have in common, and ten concurrent logins racing on the same
+# ~/.docker/config.json. The builder is passed with --builder rather than
+# selected with `docker buildx use` so parallel tasks never write shared state.
+builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}"
 if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
-  docker buildx create --name "$builder" --driver docker-container --use
-else
-  docker buildx use "$builder"
+  echo "Shared buildx builder $builder is missing; prepare-image-tools must run first" >&2
+  exit 1
 fi
-trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
-docker buildx inspect --bootstrap
 
 mkdir -p dist/digests dist/docker-metadata
 metadata_file="dist/docker-metadata/${image_name}.json"
@@ -57,9 +58,13 @@ oci_annotation_args=(
   --annotation "index,manifest:org.opencontainers.image.title=$image_name"
 )
 echo "Building and publishing $image_name"
+cache_ref="$REGISTRY/$image_name:buildcache"
 docker buildx build \
   --file "$dockerfile_path" \
   --platform "$PLATFORMS" \
+  --builder "$builder" \
+  --cache-from "type=registry,ref=$cache_ref" \
+  --cache-to "type=registry,ref=$cache_ref,mode=max" \
   --push \
   "${release_tag_args[@]}" \
   "${oci_annotation_args[@]}" \

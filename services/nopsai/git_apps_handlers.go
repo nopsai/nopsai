@@ -16,12 +16,17 @@ import (
 )
 
 type githubAppResource struct {
-	Provider                string                  `json:"provider" yaml:"provider"`
-	AppID                   string                  `json:"app_id" yaml:"app_id"`
-	PrivateKeyCredentialRef string                  `json:"private_key_credential_ref" yaml:"private_key_credential_ref"`
-	WebhookCredentialRef    string                  `json:"webhook_credential_ref" yaml:"webhook_credential_ref"`
-	WebhookEndpoint         string                  `json:"webhook_endpoint,omitempty" yaml:"-"`
-	Installations           []githubAppInstallation `json:"installations" yaml:"installations"`
+	Provider                string `json:"provider" yaml:"provider"`
+	AppID                   string `json:"app_id" yaml:"app_id"`
+	AppSlug                 string `json:"app_slug" yaml:"app_slug"`
+	PrivateKeyCredentialRef string `json:"private_key_credential_ref" yaml:"private_key_credential_ref"`
+	WebhookCredentialRef    string `json:"webhook_credential_ref" yaml:"webhook_credential_ref"`
+	WebhookEndpoint         string `json:"webhook_endpoint,omitempty" yaml:"-"`
+	// ConnectSupported reports whether the redirect-based connect flow can run.
+	// It is false until a public URL GitHub can reach is configured.
+	ConnectSupported bool                    `json:"connect_supported" yaml:"-"`
+	ConnectBlockedBy string                  `json:"connect_blocked_by,omitempty" yaml:"-"`
+	Installations    []githubAppInstallation `json:"installations" yaml:"installations"`
 }
 
 type githubAppInstallation struct {
@@ -76,6 +81,7 @@ func (a *App) handlePutGitHubApp(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := systemConfigPayload{
 		GitHubAppID:         stringPtr(strings.TrimSpace(req.AppID)),
+		GitHubAppSlug:       stringPtr(gitHubAppSlugForUpdate(a.getConfigSnapshot(), req)),
 		GitHubPrivateKeyRef: stringPtr(strings.TrimSpace(req.PrivateKeyCredentialRef)),
 		GitHubWebhookRef:    stringPtr(strings.TrimSpace(req.WebhookCredentialRef)),
 		GitHubInstallations: &installations,
@@ -94,6 +100,19 @@ func (a *App) handlePutGitHubApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a.gitHubAppResource(cfg))
+}
+
+// gitHubAppSlugForUpdate keeps the stored slug only while it still describes the
+// configured App. Pointing at a different App ID without a matching slug drops
+// it, so the install link can never lead to the wrong App.
+func gitHubAppSlugForUpdate(cfg config.Config, req githubAppResource) string {
+	if slug := normalizeGitHubAppSlug(req.AppSlug); slug != "" {
+		return slug
+	}
+	if strings.TrimSpace(req.AppID) != strings.TrimSpace(cfg.GitHubAppID) {
+		return ""
+	}
+	return normalizeGitHubAppSlug(cfg.GitHubAppSlug)
 }
 
 func (a *App) handleListGitHubAppInstallations(w http.ResponseWriter, _ *http.Request) {
@@ -276,13 +295,19 @@ func (a *App) gitHubAppResource(cfg config.Config) githubAppResource {
 	out := githubAppResource{
 		Provider:                "github",
 		AppID:                   strings.TrimSpace(cfg.GitHubAppID),
+		AppSlug:                 normalizeGitHubAppSlug(cfg.GitHubAppSlug),
 		PrivateKeyCredentialRef: strings.TrimSpace(cfg.GitHubPrivateKeyCredentialRef),
 		WebhookCredentialRef:    strings.TrimSpace(cfg.GitHubWebhookCredentialRef),
 		WebhookEndpoint:         strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/") + "/webhook",
+		ConnectSupported:        true,
 		Installations:           make([]githubAppInstallation, 0, len(installations)),
 	}
 	if strings.TrimSpace(cfg.PublicURL) == "" {
 		out.WebhookEndpoint = "/webhook"
+	}
+	if _, err := gitHubAppPublicBaseURL(cfg); err != nil {
+		out.ConnectSupported = false
+		out.ConnectBlockedBy = err.Error()
 	}
 	triggerCounts := a.githubConnectedTriggerCounts()
 	for _, installation := range installations {

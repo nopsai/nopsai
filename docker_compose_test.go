@@ -251,7 +251,7 @@ func TestDockerComposePinsExternalImages(t *testing.T) {
 
 func TestDockerComposeBuildsBaseConsumersFromBaseServiceContext(t *testing.T) {
 	compose := readCompose(t)
-	for _, serviceName := range []string{"nopsai", "aaa", "dispatcher", "git-bot", "agent", "docker-runner", "k8s-runner"} {
+	for _, serviceName := range []string{"nopsai", "aaa", "dispatcher", "git-bot", "agent", "docker-runner", "k8s-runner", "docker-socket-proxy"} {
 		service, exists := compose.Services[serviceName]
 		if !exists {
 			t.Fatalf("compose service %q is missing", serviceName)

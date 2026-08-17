@@ -345,6 +345,12 @@ Scope behavior:
 
 Git-aware features:
 
+- guided GitHub App connect: NopsAI registers the App from a manifest, stores its
+  private key and webhook secret, and records installations without manual entry
+- GitHub App installation self-registration from `installation` and
+  `installation_repositories` webhooks
+- live GitHub App credential reload in `git-bot`, so connecting or rotating an
+  App needs no container restart
 - GitHub webhook ingestion through `git-bot`
 - GitLab, Bitbucket, Gitea, and generic webhook ingestion through managed Git
   Webhook Sources
@@ -389,7 +395,7 @@ GitOps-style configuration sync supports:
 - `models/` -> one file per model, where the file path is the model name, so `models/<team>/<name>.yaml` is team-scoped
 - `agent-roles/` -> one file per agent role, same path rule
 - `mcp/servers/`, `mcp/profiles/` -> one file per MCP server and profile, same path rule
-- `setting/git-apps/github.yaml` -> GitHub App IDs, credential references, and installation records from a global config repo
+- `setting/git-apps/github.yaml` -> GitHub App IDs, App slug, credential references, and installation records from a global config repo
 - `setting/system/runner.yaml` -> runner install defaults, runtime defaults, and dispatcher routing from a global config repo
 - `setting/system/assistant.yaml` -> Nopsai AI Assistant provider, model, credential reference, feature flags, and memory settings from a global config repo
 - `setting/system/data-management.yaml` -> scheduled data cleanup definitions from a global config repo

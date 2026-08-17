@@ -280,7 +280,7 @@ func (p githubRepositoryProvider) collectRepositoryContents(ctx context.Context,
 }
 
 func (p githubRepositoryProvider) installations(ctx context.Context) ([]GitHubInstallation, error) {
-	resolver, ok := p.resolver.(*githubClientResolver)
+	resolver, ok := p.resolver.(*GitHubAppClientResolver)
 	if !ok {
 		return nil, githubIntegrationUnavailableError()
 	}

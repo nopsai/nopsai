@@ -28,7 +28,10 @@ type GitHubClientResolver interface {
 type GitHubInstallationFetcher func(context.Context) ([]GitHubInstallation, error)
 type GitHubClientFactory func(int64) *github.Client
 
-type githubClientResolver struct {
+// GitHubAppClientResolver caches one GitHub client per installation. The client
+// factory can be replaced while git-bot is running so rotated App credentials
+// take effect without a restart.
+type GitHubAppClientResolver struct {
 	fetcher       GitHubInstallationFetcher
 	clientFactory GitHubClientFactory
 	ttl           time.Duration
@@ -40,11 +43,11 @@ type githubClientResolver struct {
 	clientsByID map[int64]*github.Client
 }
 
-func NewGitHubClientResolver(fetcher GitHubInstallationFetcher, clientFactory GitHubClientFactory, ttl time.Duration) GitHubClientResolver {
+func NewGitHubClientResolver(fetcher GitHubInstallationFetcher, clientFactory GitHubClientFactory, ttl time.Duration) *GitHubAppClientResolver {
 	if ttl <= 0 {
 		ttl = 30 * time.Second
 	}
-	return &githubClientResolver{
+	return &GitHubAppClientResolver{
 		fetcher:       fetcher,
 		clientFactory: clientFactory,
 		ttl:           ttl,
@@ -61,7 +64,20 @@ func StaticGitHubInstallationFetcher(installations []GitHubInstallation) GitHubI
 	}
 }
 
-func (r *githubClientResolver) ClientForRepository(ctx context.Context, owner string, _ string) (*github.Client, GitHubInstallation, error) {
+// ReplaceClientFactory swaps the App credentials the resolver mints clients
+// with and drops every cached client, so no request keeps using a superseded
+// private key.
+func (r *GitHubAppClientResolver) ReplaceClientFactory(clientFactory GitHubClientFactory) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.clientFactory = clientFactory
+	r.clientsByID = map[int64]*github.Client{}
+}
+
+func (r *GitHubAppClientResolver) ClientForRepository(ctx context.Context, owner string, _ string) (*github.Client, GitHubInstallation, error) {
 	if r == nil {
 		return nil, GitHubInstallation{}, githubIntegrationUnavailableError()
 	}
@@ -76,7 +92,7 @@ func (r *githubClientResolver) ClientForRepository(ctx context.Context, owner st
 	return r.clientForInstallation(installation)
 }
 
-func (r *githubClientResolver) ClientForInstallation(ctx context.Context, installationID int64) (*github.Client, GitHubInstallation, error) {
+func (r *GitHubAppClientResolver) ClientForInstallation(ctx context.Context, installationID int64) (*github.Client, GitHubInstallation, error) {
 	installation, err := r.InstallationForID(ctx, installationID)
 	if err != nil {
 		return nil, GitHubInstallation{}, err
@@ -84,7 +100,7 @@ func (r *githubClientResolver) ClientForInstallation(ctx context.Context, instal
 	return r.clientForInstallation(installation)
 }
 
-func (r *githubClientResolver) InstallationForID(ctx context.Context, installationID int64) (GitHubInstallation, error) {
+func (r *GitHubAppClientResolver) InstallationForID(ctx context.Context, installationID int64) (GitHubInstallation, error) {
 	if r == nil {
 		return GitHubInstallation{}, githubIntegrationUnavailableError()
 	}
@@ -114,7 +130,7 @@ func (r *githubClientResolver) InstallationForID(ctx context.Context, installati
 	return installation, nil
 }
 
-func (r *githubClientResolver) findByOwner(ctx context.Context, owner string) (GitHubInstallation, error) {
+func (r *GitHubAppClientResolver) findByOwner(ctx context.Context, owner string) (GitHubInstallation, error) {
 	if err := r.refreshIfNeeded(ctx, false); err != nil {
 		return GitHubInstallation{}, err
 	}
@@ -144,7 +160,7 @@ func (r *githubClientResolver) findByOwner(ctx context.Context, owner string) (G
 	return installation, nil
 }
 
-func (r *githubClientResolver) clientForInstallation(installation GitHubInstallation) (*github.Client, GitHubInstallation, error) {
+func (r *GitHubAppClientResolver) clientForInstallation(installation GitHubInstallation) (*github.Client, GitHubInstallation, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if client := r.clientsByID[installation.InstallationID]; client != nil {
@@ -161,7 +177,7 @@ func (r *githubClientResolver) clientForInstallation(installation GitHubInstalla
 	return client, installation, nil
 }
 
-func (r *githubClientResolver) refreshIfNeeded(ctx context.Context, force bool) error {
+func (r *GitHubAppClientResolver) refreshIfNeeded(ctx context.Context, force bool) error {
 	r.mu.Lock()
 	needsRefresh := force || r.lastRefresh.IsZero() || time.Since(r.lastRefresh) > r.ttl
 	r.mu.Unlock()
@@ -195,7 +211,7 @@ func (r *githubClientResolver) refreshIfNeeded(ctx context.Context, force bool) 
 	return nil
 }
 
-func (r *githubClientResolver) singleFallbackLocked() (GitHubInstallation, bool) {
+func (r *GitHubAppClientResolver) singleFallbackLocked() (GitHubInstallation, bool) {
 	if len(r.byID) != 1 {
 		return GitHubInstallation{}, false
 	}

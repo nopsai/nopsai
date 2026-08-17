@@ -16,6 +16,29 @@ Most API routes pass through the same middleware stack before reaching a handler
 8. If the AAA service is unavailable, `nopsai` temporarily falls back to an in-process evaluator backed by the same Postgres tables.
 9. Denied decisions return `403`; denied decisions and sensitive allowed decisions are written to `authz_decision_logs`.
 
+## GitHub App Connect And Installation
+
+1. An administrator starts the connect flow in **System > Git Apps** or in the
+   setup wizard's GitHub step. `nopsai` builds a GitHub App manifest from
+   `public_url` and stores a single-use registration state.
+2. The browser posts the manifest to GitHub, which creates the App after the
+   operator approves it, then redirects to
+   `/v1/git-apps/github/register/callback` with a one-time code.
+3. `nopsai` consumes the state, exchanges the code for the App ID, slug, private
+   key, and webhook secret, writes the two secrets to the credential store, and
+   persists the App ID and slug in runtime settings.
+4. The operator is redirected to GitHub to install the App. GitHub calls
+   `/v1/git-apps/github/install/callback` with the `installation_id`, and
+   `nopsai` verifies it with an App-authenticated GitHub call before storing the
+   installation record.
+5. `git-bot` re-reads App credentials from `/v1/internal/git-bot/bootstrap` on an
+   interval, rebuilds its GitHub clients when they changed, and starts verifying
+   webhooks with the new secret without a restart.
+6. Later installs, uninstalls, suspensions, and repository-selection changes
+   arrive as `installation` and `installation_repositories` webhooks. `git-bot`
+   forwards them without the installation-registry check, and `nopsai` updates
+   the catalog from the verified payload.
+
 ## 1. GitHub Webhook To Pipeline Run
 
 1. GitHub sends a webhook to `git-bot` at `/webhook`.

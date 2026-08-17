@@ -14,6 +14,7 @@ import { bootstrapSetup, downloadSetupTemplatesZip, fetchSetupStatus, fetchSetup
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { SetupReviewOutput } from './setup/SetupReviewOutput';
 import { SetupBootstrapResult, SetupStarterFilesPreview, SetupStatusOverview } from './setup/SetupStatusPanels';
+import SetupGitHubStep from './setup/SetupGitHubStep';
 import { SetupStatusIcon, SetupStepNavigation, StepIntro, WarningCallout } from './setup/SetupWizardPrimitives';
 import {
   LLM_SKIP_WARNING,
@@ -489,6 +490,8 @@ function SetupWizard({
             </div>
           </div>
         );
+      case 'github':
+        return <SetupGitHubStep canManage={canManage} />;
       case 'gitops':
         return (
           <div className="space-y-4">

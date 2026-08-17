@@ -88,6 +88,10 @@ func isPublicPath(path string) bool {
 	switch path {
 	case "/favicon.ico", "/version", "/healthz", "/livez", "/metrics", "/v1/auth/providers", "/v1/auth/discover", "/v1/auth/session/exchange", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
 		return true
+	// GitHub redirects the operator's browser back to these callbacks without a
+	// bearer token; each one authorizes itself with a single-use state.
+	case "/v1/git-apps/github/register/callback", "/v1/git-apps/github/install/callback":
+		return true
 	default:
 		return strings.HasPrefix(path, "/v1/auth/oidc/") ||
 			strings.HasPrefix(path, "/v1/auth/oauth2/") ||
@@ -139,6 +143,13 @@ func isFirstInstallSetupAllowedPath(path string) bool {
 	path = strings.TrimSpace(path)
 	switch path {
 	case "/v1/auth/me", "/v1/auth/password":
+		return true
+	// The setup wizard connects GitHub before setup is completed, so the Git
+	// Apps surface has to stay reachable while the workspace is still locked.
+	case "/v1/git-apps/github",
+		"/v1/git-apps/github/installations",
+		"/v1/git-apps/github/register/start",
+		"/v1/git-apps/github/install/start":
 		return true
 	default:
 		return strings.HasPrefix(path, "/v1/setup/")

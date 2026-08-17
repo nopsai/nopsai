@@ -29,10 +29,40 @@ export type GitHubAppInstallation = {
 export type GitHubAppResource = {
   provider: 'github';
   app_id: string;
+  app_slug: string;
   private_key_credential_ref: string;
   webhook_credential_ref: string;
   webhook_endpoint: string;
+  connect_supported: boolean;
+  connect_blocked_by: string;
   installations: GitHubAppInstallation[];
+};
+
+export type GitHubAppConnectTarget = 'organization' | 'personal';
+
+export type GitHubAppConnectFormState = {
+  target: GitHubAppConnectTarget;
+  organization: string;
+  appName: string;
+};
+
+/**
+ * GitHub creates an App from a manifest only when the browser submits it as a
+ * form, so the API hands back the target URL and the manifest to post there.
+ */
+export type GitHubAppRegistrationStart = {
+  state: string;
+  post_url: string;
+  manifest: string;
+  app_name: string;
+  webhook_endpoint: string;
+  expires_at: string;
+};
+
+export type GitHubAppInstallStart = {
+  state: string;
+  install_url: string;
+  expires_at: string;
 };
 
 export type GitHubAppFormState = {
@@ -59,10 +89,19 @@ export type GitHubAppMetrics = {
 export const emptyGitHubApp: GitHubAppResource = {
   provider: 'github',
   app_id: '',
+  app_slug: '',
   private_key_credential_ref: '',
   webhook_credential_ref: '',
   webhook_endpoint: '/webhook',
+  connect_supported: false,
+  connect_blocked_by: '',
   installations: [],
+};
+
+export const emptyGitHubAppConnectForm: GitHubAppConnectFormState = {
+  target: 'organization',
+  organization: '',
+  appName: '',
 };
 
 export const emptyGitHubAppForm: GitHubAppFormState = {
@@ -84,9 +123,12 @@ export function normalizeGitHubAppPayload(value: unknown): GitHubAppResource {
   return {
     provider: 'github',
     app_id: readString(record.app_id),
+    app_slug: readString(record.app_slug),
     private_key_credential_ref: readString(record.private_key_credential_ref),
     webhook_credential_ref: readString(record.webhook_credential_ref),
     webhook_endpoint: readString(record.webhook_endpoint) || '/webhook',
+    connect_supported: readBool(record.connect_supported, false),
+    connect_blocked_by: readString(record.connect_blocked_by),
     installations: readArray(record.installations)
       .map(normalizeGitHubAppInstallation)
       .filter(installation => installation.installation_id),
@@ -152,9 +194,12 @@ export function gitHubAppPayloadFromForm(
   return {
     provider: 'github',
     app_id: form.appID.trim(),
+    app_slug: '',
     private_key_credential_ref: form.privateKeyCredentialRef.trim(),
     webhook_credential_ref: form.webhookCredentialRef.trim(),
     webhook_endpoint: '',
+    connect_supported: false,
+    connect_blocked_by: '',
     installations: installations.map(installation => ({
       ...installation,
       repositories: undefined,
@@ -182,6 +227,51 @@ export function gitHubAppInstallationPayloadFromForm(
     connected_triggers: 0,
     status: form.enabled ? 'connected' : 'disabled',
   };
+}
+
+export function gitHubAppConnectPayload(form: GitHubAppConnectFormState): {
+  target: GitHubAppConnectTarget;
+  organization: string;
+  app_name: string;
+} {
+  const organization = form.organization.trim();
+  if (form.target === 'organization' && !/^[A-Za-z0-9-]{1,100}$/.test(organization)) {
+    throw new Error('Organization must use a valid GitHub organization name.');
+  }
+  return {
+    target: form.target,
+    organization: form.target === 'organization' ? organization : '',
+    app_name: form.appName.trim(),
+  };
+}
+
+export type GitHubAppCallbackResult = {
+  tone: 'success' | 'error';
+  message: string;
+};
+
+/**
+ * GitHub returns the operator to the Git Apps page after the App is created or
+ * installed. The outcome travels in the query string because the redirect comes
+ * from GitHub, not from the UI.
+ */
+export function readGitHubAppCallbackResult(search: string): GitHubAppCallbackResult | null {
+  const params = new URLSearchParams(search);
+  const error = (params.get('github_app_error') || '').trim();
+  if (error) return { tone: 'error', message: error };
+  switch ((params.get('github_app') || '').trim()) {
+    case 'created':
+      return { tone: 'success', message: 'GitHub App created. Install it on an account to finish.' };
+    case 'installed':
+      return { tone: 'success', message: 'GitHub App installed and registered.' };
+    case 'requested':
+      return {
+        tone: 'success',
+        message: 'Installation requested. A GitHub organization owner has to approve it.',
+      };
+    default:
+      return null;
+  }
 }
 
 export function buildGitHubAppMetrics(app: GitHubAppResource): GitHubAppMetrics {
