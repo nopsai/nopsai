@@ -370,7 +370,8 @@ Git-aware features:
 - owner-wide `owner/all` trigger override support
 - GitHub check-run creation and updates
 - check-run re-request handling for reruns
-- stale check cancellation
+- run queueing per repository, ref, and pipeline: a second trigger waits for the
+  first run to finish instead of cancelling it
 - branch open-PR checks
 - repository access verification for config sync
 - config Git push commits to a configured review branch

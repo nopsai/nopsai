@@ -110,6 +110,9 @@ The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/g
   authenticated provider-normalized Git webhook deliveries.
 - It authenticates requests, asks AAA for route-level decisions, resolves reusable step includes, validates pipeline shape, creates DB records, resolves knowledge context, secrets, and variables, and submits jobs to the dispatcher.
 - `aaa` is the internal policy decision service. It handles introspection, check, batch-check, filter, and audit-record requests behind a shared internal token.
+- Runs of one pipeline on one branch are serialized through a `concurrency_group`
+  on `pipeline_runs`; a newer trigger queues rather than cancelling the run in
+  flight. See [runtime-flows.md](./runtime-flows.md).
 - `git-bot` is the GitHub-facing edge. It validates webhook signatures, rejects unknown or disabled GitHub App installations, proxies webhook payloads to `nopsai`, fetches repository contents through per-installation clients, and keeps GitHub checks in sync.
 - GitLab, Bitbucket, Gitea, and generic webhook adapters live in `nopsai`.
   They normalize and audit ingress but intentionally do not own provider

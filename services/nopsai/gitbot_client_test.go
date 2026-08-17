@@ -108,10 +108,6 @@ func (f *fakeGitProvider) InitializeCheckRun(owner, repo string, checkRunID int6
 	return errors.New("not implemented")
 }
 
-func (f *fakeGitProvider) CancelStaleCheckRuns(owner, repo, beforeSHA string) error {
-	return errors.New("not implemented")
-}
-
 func (f *fakeGitProvider) NotifyFinalStatus(req GitFinalStatusRequest) error {
 	return errors.New("not implemented")
 }

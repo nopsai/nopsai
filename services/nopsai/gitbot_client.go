@@ -34,7 +34,6 @@ type GitProvider interface {
 	CreateCheckRun(owner, repo, ref string, pipelineDef []byte, pipelineSource string) (int64, error)
 	CreateChildCheckRun(owner, repo, ref, parentName, includeName string, pipelineDef []byte) (int64, error)
 	InitializeCheckRun(owner, repo string, checkRunID int64, pipelineDef []byte, pipelineName string) error
-	CancelStaleCheckRuns(owner, repo, beforeSHA string) error
 	NotifyFinalStatus(req GitFinalStatusRequest) error
 	NotifyTaskStatus(req GitTaskStatusRequest) error
 }
@@ -96,12 +95,6 @@ func (a *App) createChildGitHubCheckRun(owner, repo, ref, parentName, includeNam
 
 func (a *App) initializeGitHubCheckRun(owner, repo string, checkRunID int64, pipelineDef []byte, pipelineName string) error {
 	return a.gitClient().InitializeCheckRun(owner, repo, checkRunID, pipelineDef, pipelineName)
-}
-
-func (a *App) cancelStaleCheckRuns(owner, repo, beforeSHA string) {
-	if err := a.gitClient().CancelStaleCheckRuns(owner, repo, beforeSHA); err != nil {
-		log.Error().Err(err).Msg("Failed to request stale check run cancellation")
-	}
 }
 
 func (a *App) notifyGitBotOfFinalStatus(status, failedStep, failedTask, summary string, gitContext map[string]string) {

@@ -9,6 +9,10 @@ import (
 
 var runDispatchSchemaStatements = []string{
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS parent_runner_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS concurrency_group TEXT NOT NULL DEFAULT ''`,
+	`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_concurrency_group
+		ON pipeline_runs(concurrency_group, created_at)
+		WHERE concurrency_group <> '' AND parent_run_id IS NULL`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS parent_history TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS runtime_variable_overrides JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS runtime_sensitive_variable_overrides JSONB NOT NULL DEFAULT '{}'::jsonb`,
