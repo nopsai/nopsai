@@ -168,3 +168,107 @@ require_text \
   "kind: StatefulSet" \
   "$temp_dir/chart-manifests.yaml" \
   "the bundled PostgreSQL StatefulSet"
+
+# GitHub release publication has to be idempotent: the assets are already built
+# by the time it runs, so a release that already exists must be updated rather
+# than turned into a hard failure, and a lookup that cannot answer must not be
+# read as "no release exists".
+publish_helpers="$temp_dir/publish-release-helpers.sh"
+awk '
+  /^      delete_release_assets\(\) \{$/ { capture = 1 }
+  /^      \. dist\/release\/env$/ { capture = 0 }
+  capture { sub(/^      /, ""); print }
+' "$ROOT_DIR/.nopsai/nopsai-platform-release.yaml" >"$publish_helpers"
+require_text "release_exists()" "$publish_helpers" "the extracted release lookup helper"
+require_text "create_release()" "$publish_helpers" "the extracted release create helper"
+
+fake_gh_dir="$temp_dir/fake-bin"
+mkdir -p "$fake_gh_dir" "$temp_dir/release-workdir/dist/assets" "$temp_dir/release-workdir/dist/release"
+printf 'asset\n' >"$temp_dir/release-workdir/dist/assets/nopsai.tgz"
+printf 'notes\n' >"$temp_dir/release-workdir/dist/release/CHANGELOG.md"
+cat >"$fake_gh_dir/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$GH_CALL_LOG"
+case "${1:-} ${2:-}" in
+  "release view")
+    case "$FAKE_GH_VIEW" in
+      found) printf '{"tagName":"%s"}\n' "$3"; exit 0 ;;
+      missing) echo "release not found" >&2; exit 1 ;;
+      *) echo "HTTP 502: Bad gateway" >&2; exit 1 ;;
+    esac
+    ;;
+  "release create")
+    if [[ "$FAKE_GH_CREATE" == "conflict" ]]; then
+      echo "HTTP 422: Validation Failed: a release with the same tag name already exists: $3" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+FAKE_GH
+chmod +x "$fake_gh_dir/gh"
+
+run_publish_case() {
+  local view="$1" create="$2" allow_existing="$3" expected_status="$4"
+  local status=0
+  (
+    cd "$temp_dir/release-workdir"
+    export PATH="$fake_gh_dir:$PATH"
+    export GH_CALL_LOG="$temp_dir/gh-calls.log"
+    export FAKE_GH_VIEW="$view" FAKE_GH_CREATE="$create"
+    export GITHUB_REPOSITORY="nopsai/nopsai" VERSION="0.22.813" SOURCE_COMMIT="abc123"
+    export ALLOW_EXISTING_RELEASE="$allow_existing"
+    set -euo pipefail
+    # shellcheck disable=SC1090
+    . "$publish_helpers"
+    if release_exists "v$VERSION"; then
+      [[ "$ALLOW_EXISTING_RELEASE" == "true" ]] || { echo "recovery disabled" >&2; exit 1; }
+      update_release "v$VERSION" --title "NopsAI $VERSION" --latest
+    else
+      create_release "v$VERSION" true --title "NopsAI $VERSION" --latest
+    fi
+  ) >/dev/null 2>&1 || status=$?
+  if [[ "$status" != "$expected_status" ]]; then
+    printf 'publish case view=%s create=%s allow_existing=%s exited %s, want %s\n' \
+      "$view" "$create" "$allow_existing" "$status" "$expected_status" >&2
+    exit 1
+  fi
+}
+
+: >"$temp_dir/gh-calls.log"
+run_publish_case missing ok false 0
+require_text "release create" "$temp_dir/gh-calls.log" "a create for a release that does not exist"
+
+: >"$temp_dir/gh-calls.log"
+run_publish_case found ok true 0
+require_text "release upload" "$temp_dir/gh-calls.log" "an asset upload when the release already exists"
+if grep -q "release create" "$temp_dir/gh-calls.log"; then
+  printf 'existing release was re-created instead of updated\n' >&2
+  exit 1
+fi
+
+: >"$temp_dir/gh-calls.log"
+run_publish_case found ok false 1
+if grep -q "release upload" "$temp_dir/gh-calls.log"; then
+  printf 'existing release was overwritten with recovery mode disabled\n' >&2
+  exit 1
+fi
+
+# A lookup that fails for any reason other than "not found" must abort before
+# creating anything.
+: >"$temp_dir/gh-calls.log"
+run_publish_case error ok true 1
+if grep -q "release create" "$temp_dir/gh-calls.log"; then
+  printf 'unreadable release lookup fell through to create\n' >&2
+  exit 1
+fi
+
+# The create/exists race: another run created the release after the lookup.
+: >"$temp_dir/gh-calls.log"
+run_publish_case missing conflict true 0
+require_text "release upload" "$temp_dir/gh-calls.log" "an update after losing the create race"
+
+: >"$temp_dir/gh-calls.log"
+run_publish_case missing conflict false 1
