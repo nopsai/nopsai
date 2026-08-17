@@ -287,9 +287,17 @@ Preferred behavior by integration:
   imagePullSecret for Kubernetes runners, and lets Docker runners and agents use
   that local config for per-image `RegistryAuth`.
 
-`git-bot` retrieves the required values during startup through its authenticated
-broker request and keeps them only in memory. Restart `git-bot` after rotating
-either GitHub credential so it fetches the newly active version.
+`git-bot` retrieves the required values through its authenticated broker request
+and keeps them only in memory. It repeats that request on an interval and swaps
+the values in place when they changed, dropping GitHub clients built with the
+superseded private key, so rotating either GitHub credential or connecting a new
+GitHub App does not require a `git-bot` restart. A failed refresh keeps the last
+working values rather than dropping to a degraded state.
+
+Connecting a GitHub App from **System > Git Apps** writes the App private key to
+`credential://system/github/app-private-key` and the webhook secret to
+`credential://system/github/webhook-secret`, creating them if they do not exist
+and adding a new version when an App is replaced.
 
 For agents and runners, avoid making all system credentials part of their base
 container environment. Deliver only values selected for that run, and preserve

@@ -1,21 +1,7 @@
-FROM golang:1.26.6@sha256:640a234f4bea3e399c056b7b8f9c667c4939befae8db2f14e9785e16eccd4205 AS builder
-
-ARG VERSION=dev
-ARG COMMIT=unknown
-ARG BUILD_DATE=unknown
-ARG API_VERSION
-ARG RUNNER_PROTOCOL_VERSION
-ARG CLI_COMPATIBILITY
-ARG RUNNER_COMPATIBILITY
-ARG PLATFORM_COMPATIBILITY
-ARG CAPABILITIES
-
-WORKDIR /workspace
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.APIVersion=${API_VERSION} -X nopsai/pkg/buildinfo.RunnerProtocolVersion=${RUNNER_PROTOCOL_VERSION} -X nopsai/pkg/buildinfo.CLICompatibility=${CLI_COMPATIBILITY} -X nopsai/pkg/buildinfo.RunnerCompatibility=${RUNNER_COMPATIBILITY} -X nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY} -X nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}" && \
-  CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="${BUILD_LDFLAGS}" -o /out/docker-socket-proxy ./services/docker-socket-proxy/cmd/socket-proxy
+# The proxy binary is compiled once in the shared base image builder alongside
+# every other service binary, so this image only assembles the scratch layer.
+ARG BASE_IMAGE=hoseindocker/nopsai-base:latest
+FROM ${BASE_IMAGE} AS base
 
 FROM scratch
 ARG VERSION=dev
@@ -28,8 +14,8 @@ LABEL org.opencontainers.image.version="${VERSION}" \
   org.opencontainers.image.source="${SOURCE_URL}" \
   org.opencontainers.image.licenses="LicenseRef-NopsAI-Proprietary" \
   org.opencontainers.image.vendor="NopsAI"
-COPY --from=builder /out/docker-socket-proxy /docker-socket-proxy
-COPY --from=builder /workspace/LICENSE /usr/share/licenses/nopsai/LICENSE
-COPY --from=builder /workspace/THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/THIRD_PARTY_NOTICES.md
+COPY --from=base /docker-socket-proxy /docker-socket-proxy
+COPY --from=base /usr/share/licenses/nopsai/LICENSE /usr/share/licenses/nopsai/LICENSE
+COPY --from=base /usr/share/licenses/nopsai/THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/THIRD_PARTY_NOTICES.md
 EXPOSE 2375
 ENTRYPOINT ["/docker-socket-proxy"]

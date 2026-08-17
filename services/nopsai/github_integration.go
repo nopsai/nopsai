@@ -61,6 +61,16 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if handled, err := a.handleGitHubInstallationLifecycleEvent(r.Context(), payload); handled {
+		if err != nil {
+			log.Error().Err(err).Str("event", eventType).Msg("Failed to apply GitHub App installation event")
+			http.Error(w, "failed to apply GitHub App installation event", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	var (
 		owner, repo, ref, commitSHA string
 		repoFullName                string

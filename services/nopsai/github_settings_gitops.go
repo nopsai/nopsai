@@ -54,6 +54,7 @@ type githubSettingsGitOpsFile struct {
 	Provider                *string                           `json:"provider" yaml:"provider,omitempty"`
 	GitBotAPIURL            *string                           `json:"git_bot_api_url" yaml:"git_bot_api_url,omitempty"`
 	AppID                   *string                           `json:"app_id" yaml:"app_id,omitempty"`
+	AppSlug                 *string                           `json:"app_slug" yaml:"app_slug,omitempty"`
 	GitHubAppID             *string                           `json:"github_app_id" yaml:"github_app_id,omitempty"`
 	GitHubInstallationID    *string                           `json:"github_installation_id" yaml:"github_installation_id,omitempty"`
 	PrivateKeyCredentialRef *string                           `json:"private_key_credential_ref" yaml:"private_key_credential_ref,omitempty"`
@@ -132,6 +133,7 @@ func parseGitOpsGitHubSettingsFile(content, sourcePath string) (*gitOpsGitHubSet
 
 func gitHubSettingsPayloadFromFile(file githubSettingsGitOpsFile) systemConfigPayload {
 	appID := firstStringPtr(file.AppID, file.GitHubAppID)
+	appSlug := firstStringPtr(file.AppSlug)
 	privateKeyRef := firstStringPtr(file.PrivateKeyCredentialRef, file.GitHubPrivateKeyRef)
 	webhookRef := firstStringPtr(file.WebhookCredentialRef, file.GitHubWebhookRef)
 	installations := file.Installations
@@ -142,6 +144,7 @@ func gitHubSettingsPayloadFromFile(file githubSettingsGitOpsFile) systemConfigPa
 	return systemConfigPayload{
 		GitBotAPIURL:         file.GitBotAPIURL,
 		GitHubAppID:          appID,
+		GitHubAppSlug:        appSlug,
 		GitHubInstallationID: file.GitHubInstallationID,
 		GitHubInstallations:  &installations,
 		GitHubPrivateKeyRef:  privateKeyRef,
@@ -153,6 +156,7 @@ func buildGitHubSettingsGitOpsFile(cfg config.Config) githubSettingsGitOpsFile {
 	return githubSettingsGitOpsFile{
 		Provider:                stringPtr("github"),
 		AppID:                   stringPtr(cfg.GitHubAppID),
+		AppSlug:                 stringPtr(cfg.GitHubAppSlug),
 		PrivateKeyCredentialRef: stringPtr(cfg.GitHubPrivateKeyCredentialRef),
 		WebhookCredentialRef:    stringPtr(cfg.GitHubWebhookCredentialRef),
 		Installations:           gitHubSettingsInstallationsForGitOps(cfg),
@@ -163,6 +167,7 @@ func buildGitHubSettingsRuntimeSnapshotFile(cfg config.Config) githubSettingsGit
 	return githubSettingsGitOpsFile{
 		Provider:                stringPtr("github"),
 		AppID:                   stringPtr(cfg.GitHubAppID),
+		AppSlug:                 stringPtr(cfg.GitHubAppSlug),
 		PrivateKeyCredentialRef: stringPtr(cfg.GitHubPrivateKeyCredentialRef),
 		WebhookCredentialRef:    stringPtr(cfg.GitHubWebhookCredentialRef),
 		Installations:           config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID),

@@ -61,6 +61,12 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 		}
 		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
+	case path == "/v1/git-apps/github/register/callback", path == "/v1/git-apps/github/install/callback":
+		// Browser redirects from GitHub. Authorization is the single-use
+		// registration state issued by an authorized start request.
+		return "", model.ResourceRef{}, false, nil
+	case path == "/v1/git-apps/github/register/start", path == "/v1/git-apps/github/install/start":
+		return "system.update", model.ResourceRef{Type: "system", ID: "config"}, false, nil
 	case path == "/v1/git-apps/github/installations":
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil

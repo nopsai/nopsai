@@ -145,9 +145,15 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.socket-proxy
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
+        BASE_IMAGE: base
     restart: always
+    depends_on:
+      base:
+        condition: service_completed_successfully
     environment:
       <<: *observability-env
       NOPSAI_SERVICE_NAME: docker-socket-proxy

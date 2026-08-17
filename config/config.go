@@ -312,6 +312,7 @@ type Config struct {
 	GitHubWebhookCredentialRef    string                     `yaml:"github_webhook_credential_ref" env:"GITHUB_WEBHOOK_CREDENTIAL_REF"`
 	GitHubPrivateKeyCredentialRef string                     `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
 	GitHubAppID                   string                     `yaml:"github_app_id" env:"GITHUB_APP_ID"`
+	GitHubAppSlug                 string                     `yaml:"github_app_slug" env:"GITHUB_APP_SLUG"`
 	GitHubInstallID               string                     `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
 	GitHubInstallations           []GitHubInstallationConfig `yaml:"github_installations" env:"-"`
 	NopsaiGitBotAPIURL            string                     `yaml:"git_bot_api_url" env:"GIT_BOT_API_URL"`
