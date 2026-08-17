@@ -24,6 +24,10 @@ type gitHubAppRegistrationStartRequest struct {
 	Target       string `json:"target"`
 	Organization string `json:"organization"`
 	AppName      string `json:"app_name"`
+	// WebhookURL overrides the stored webhook address for this registration. It
+	// is what GitHub delivers to, so it has to reach git-bot's /webhook from the
+	// internet even when NopsAI itself is only reachable on a private network.
+	WebhookURL string `json:"webhook_url"`
 }
 
 type gitHubAppRegistrationStartResponse struct {
@@ -33,6 +37,17 @@ type gitHubAppRegistrationStartResponse struct {
 	AppName         string `json:"app_name"`
 	WebhookEndpoint string `json:"webhook_endpoint"`
 	ExpiresAt       string `json:"expires_at"`
+}
+
+// firstNonEmptyTrimmed returns the first value with content, so an explicit
+// request value wins over the stored configuration.
+func firstNonEmptyTrimmed(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 type gitHubAppInstallStartResponse struct {
@@ -62,14 +77,19 @@ func (a *App) handleStartGitHubAppRegistration(w http.ResponseWriter, r *http.Re
 	}
 
 	cfg := a.getConfigSnapshot()
-	baseURL, err := gitHubAppPublicBaseURL(cfg)
+	callbackBaseURL, err := gitHubAppCallbackBaseURL(cfg, r.Header.Get("Origin"), r.Host)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusPreconditionFailed)
+		return
+	}
+	webhookURL, err := normalizeGitHubWebhookURL(firstNonEmptyTrimmed(req.WebhookURL, effectiveGitHubWebhookURL(cfg)))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusPreconditionFailed)
 		return
 	}
 	appName := strings.TrimSpace(req.AppName)
 	if appName == "" {
-		appName = defaultGitHubAppName(cfg)
+		appName = defaultGitHubAppName(callbackBaseURL)
 	}
 
 	state, err := generateGitHubAppRegistrationState()
@@ -88,6 +108,8 @@ func (a *App) handleStartGitHubAppRegistration(w http.ResponseWriter, r *http.Re
 		Target:       target,
 		Organization: organization,
 		AppName:      appName,
+		WebhookURL:   webhookURL,
+		ReturnTo:     callbackBaseURL,
 		Actor:        credentialActorFromContext(r.Context()),
 		ExpiresAt:    expiresAt,
 	}); err != nil {
@@ -100,7 +122,7 @@ func (a *App) handleStartGitHubAppRegistration(w http.ResponseWriter, r *http.Re
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	manifest, err := json.Marshal(buildGitHubAppManifest(cfg, appName, baseURL))
+	manifest, err := json.Marshal(buildGitHubAppManifest(appName, callbackBaseURL, webhookURL))
 	if err != nil {
 		http.Error(w, "failed to build GitHub App manifest", http.StatusInternalServerError)
 		return
@@ -110,7 +132,7 @@ func (a *App) handleStartGitHubAppRegistration(w http.ResponseWriter, r *http.Re
 		PostURL:         postURL,
 		Manifest:        string(manifest),
 		AppName:         appName,
-		WebhookEndpoint: baseURL + "/webhook",
+		WebhookEndpoint: webhookURL,
 		ExpiresAt:       expiresAt.UTC().Format(time.RFC3339),
 	})
 }
@@ -119,22 +141,24 @@ func (a *App) handleStartGitHubAppRegistration(w http.ResponseWriter, r *http.Re
 // is created. It is reachable without a bearer token, so the single-use state
 // row created by an authorized start request is the only accepted proof.
 func (a *App) handleGitHubAppRegistrationCallback(w http.ResponseWriter, r *http.Request) {
+	returnBase := ""
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
 	if code == "" || state == "" {
-		a.redirectGitHubAppResult(w, r, "", "GitHub did not return a registration code")
+		a.redirectGitHubAppResult(w, r, returnBase, "", "GitHub did not return a registration code")
 		return
 	}
 	record, err := consumeGitHubAppRegistrationState(r.Context(), a.db, "register", state)
 	if err != nil {
-		a.redirectGitHubAppResult(w, r, "", "The GitHub App registration link expired or was already used")
+		a.redirectGitHubAppResult(w, r, returnBase, "", "The GitHub App registration link expired or was already used")
 		return
 	}
+	returnBase = record.ReturnTo
 
 	conversion, err := convertGitHubAppManifestCode(r.Context(), nil, code)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to convert GitHub App manifest code")
-		a.redirectGitHubAppResult(w, r, "", err.Error())
+		a.redirectGitHubAppResult(w, r, returnBase, "", err.Error())
 		return
 	}
 
@@ -144,24 +168,30 @@ func (a *App) handleGitHubAppRegistrationCallback(w http.ResponseWriter, r *http
 	}
 	if err := a.storeGitHubAppRegistrationCredentials(r.Context(), conversion, actor); err != nil {
 		log.Error().Err(err).Msg("Failed to store GitHub App credentials")
-		a.redirectGitHubAppResult(w, r, "", err.Error())
+		a.redirectGitHubAppResult(w, r, returnBase, "", err.Error())
 		return
 	}
 
 	appID := strconv.FormatInt(conversion.ID, 10)
 	slug := normalizeGitHubAppSlug(conversion.Slug)
-	cfg, err := a.applySystemConfig(systemConfigPayload{
+	payload := systemConfigPayload{
 		GitHubAppID:         stringPtr(appID),
 		GitHubAppSlug:       stringPtr(slug),
 		GitHubPrivateKeyRef: stringPtr(gitHubAppPrivateKeyCredentialRef),
 		GitHubWebhookRef:    stringPtr(gitHubAppWebhookCredentialRef),
-	})
+	}
+	// Record the address the App was actually registered with, so the panel and
+	// GitOps file describe the App GitHub now holds.
+	if webhookURL := strings.TrimSpace(record.WebhookURL); webhookURL != "" {
+		payload.GitHubWebhookURL = stringPtr(webhookURL)
+	}
+	cfg, err := a.applySystemConfig(payload)
 	if err != nil {
-		a.redirectGitHubAppResult(w, r, "", err.Error())
+		a.redirectGitHubAppResult(w, r, returnBase, "", err.Error())
 		return
 	}
 	if err := a.persistRuntimeSettingsSnapshot(r.Context(), cfg, "database", nil, "", "", false); err != nil {
-		a.redirectGitHubAppResult(w, r, "", "failed to persist GitHub App settings")
+		a.redirectGitHubAppResult(w, r, returnBase, "", "failed to persist GitHub App settings")
 		return
 	}
 	log.Info().
@@ -172,9 +202,9 @@ func (a *App) handleGitHubAppRegistrationCallback(w http.ResponseWriter, r *http
 
 	// Send the operator straight into the install step: an App without an
 	// installation cannot see a single repository yet.
-	_, installURL, err := a.startGitHubAppInstall(r.Context(), cfg, actor)
+	_, installURL, err := a.startGitHubAppInstall(r.Context(), cfg, actor, record.ReturnTo)
 	if err != nil {
-		a.redirectGitHubAppResult(w, r, "created", "")
+		a.redirectGitHubAppResult(w, r, returnBase, "created", "")
 		return
 	}
 	http.Redirect(w, r, installURL, http.StatusFound)
@@ -184,11 +214,17 @@ func (a *App) handleGitHubAppRegistrationCallback(w http.ResponseWriter, r *http
 // registered App so repository selection happens on GitHub.
 func (a *App) handleStartGitHubAppInstall(w http.ResponseWriter, r *http.Request) {
 	cfg := a.getConfigSnapshot()
-	if _, err := gitHubAppPublicBaseURL(cfg); err != nil {
+	callbackBaseURL, err := gitHubAppCallbackBaseURL(cfg, r.Header.Get("Origin"), r.Host)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusPreconditionFailed)
 		return
 	}
-	state, installURL, err := a.startGitHubAppInstall(r.Context(), cfg, credentialActorFromContext(r.Context()))
+	state, installURL, err := a.startGitHubAppInstall(
+		r.Context(),
+		cfg,
+		credentialActorFromContext(r.Context()),
+		callbackBaseURL,
+	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusPreconditionFailed)
 		return
@@ -200,7 +236,11 @@ func (a *App) handleStartGitHubAppInstall(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (a *App) startGitHubAppInstall(ctx context.Context, cfg config.Config, actor string) (string, string, error) {
+func (a *App) startGitHubAppInstall(
+	ctx context.Context,
+	cfg config.Config,
+	actor, callbackBaseURL string,
+) (string, string, error) {
 	slug := normalizeGitHubAppSlug(cfg.GitHubAppSlug)
 	if slug == "" {
 		return "", "", fmt.Errorf("no GitHub App is registered; connect a GitHub App first")
@@ -211,6 +251,7 @@ func (a *App) startGitHubAppInstall(ctx context.Context, cfg config.Config, acto
 	}
 	if err := createGitHubAppRegistrationState(ctx, a.db, state, gitHubAppRegistrationState{
 		Flow:      "install",
+		ReturnTo:  strings.TrimSpace(callbackBaseURL),
 		Actor:     strings.TrimSpace(actor),
 		ExpiresAt: time.Now().Add(gitHubAppRegistrationStateTTL),
 	}); err != nil {
@@ -230,35 +271,39 @@ func (a *App) startGitHubAppInstall(ctx context.Context, cfg config.Config, acto
 func (a *App) handleGitHubAppInstallCallback(w http.ResponseWriter, r *http.Request) {
 	rawInstallationID := strings.TrimSpace(r.URL.Query().Get("installation_id"))
 	setupAction := strings.TrimSpace(r.URL.Query().Get("setup_action"))
+	returnBase := ""
 	if state := strings.TrimSpace(r.URL.Query().Get("state")); state != "" {
 		// A consumed state is not required for the callback to be trustworthy,
 		// but consuming it here keeps issued links single-use.
-		if _, err := consumeGitHubAppRegistrationState(r.Context(), a.db, "install", state); err != nil {
+		record, err := consumeGitHubAppRegistrationState(r.Context(), a.db, "install", state)
+		if err != nil {
 			log.Warn().Msg("GitHub App install callback carried an unknown or used state")
+		} else {
+			returnBase = record.ReturnTo
 		}
 	}
 	// An organization member who cannot install apps triggers an approval
 	// request instead of an installation; there is nothing to register yet.
 	if strings.EqualFold(setupAction, "request") {
-		a.redirectGitHubAppResult(w, r, "requested", "")
+		a.redirectGitHubAppResult(w, r, returnBase, "requested", "")
 		return
 	}
 	if rawInstallationID == "" {
-		a.redirectGitHubAppResult(w, r, "", "GitHub did not return an installation")
+		a.redirectGitHubAppResult(w, r, returnBase, "", "GitHub did not return an installation")
 		return
 	}
 	installationID, err := strconv.ParseInt(rawInstallationID, 10, 64)
 	if err != nil || installationID <= 0 {
-		a.redirectGitHubAppResult(w, r, "", "GitHub returned an invalid installation id")
+		a.redirectGitHubAppResult(w, r, returnBase, "", "GitHub returned an invalid installation id")
 		return
 	}
 
 	if err := a.registerGitHubAppInstallation(r.Context(), installationID); err != nil {
 		log.Error().Err(err).Int64("installation_id", installationID).Msg("Failed to register GitHub App installation")
-		a.redirectGitHubAppResult(w, r, "", err.Error())
+		a.redirectGitHubAppResult(w, r, returnBase, "", err.Error())
 		return
 	}
-	a.redirectGitHubAppResult(w, r, "installed", "")
+	a.redirectGitHubAppResult(w, r, returnBase, "installed", "")
 }
 
 // registerGitHubAppInstallation verifies the installation belongs to this App
@@ -395,7 +440,10 @@ func (a *App) putGitHubAppCredential(
 
 // redirectGitHubAppResult returns the operator to the Git Apps page with the
 // outcome, so a failed callback never leaves them on a bare API error page.
-func (a *App) redirectGitHubAppResult(w http.ResponseWriter, r *http.Request, status, message string) {
+// base is the NopsAI address the flow started from; when it is unknown the
+// redirect stays relative, which resolves to whichever address served this
+// request.
+func (a *App) redirectGitHubAppResult(w http.ResponseWriter, r *http.Request, base, status, message string) {
 	values := url.Values{}
 	if strings.TrimSpace(status) != "" {
 		values.Set("github_app", status)
@@ -403,7 +451,10 @@ func (a *App) redirectGitHubAppResult(w http.ResponseWriter, r *http.Request, st
 	if strings.TrimSpace(message) != "" {
 		values.Set("github_app_error", message)
 	}
-	base := strings.TrimRight(strings.TrimSpace(a.getConfigSnapshot().PublicURL), "/")
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		base = strings.TrimRight(strings.TrimSpace(a.getConfigSnapshot().PublicURL), "/")
+	}
 	target := base + "/system/git-apps"
 	if encoded := values.Encode(); encoded != "" {
 		target += "?" + encoded

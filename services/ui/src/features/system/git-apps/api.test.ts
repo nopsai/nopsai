@@ -42,6 +42,7 @@ test('loads and saves GitHub App resources with dedicated API routes', async () 
       appID: '123456',
       privateKeyCredentialRef: 'credential://system/github/app-private-key',
       webhookCredentialRef: 'credential://system/github/webhook-secret',
+      webhookURL: 'https://live-gecko-national.ngrok-free.app/webhook',
     }, app.installations);
 
     assert.deepEqual(calls.map(call => ({ path: call.path, method: call.method })), [

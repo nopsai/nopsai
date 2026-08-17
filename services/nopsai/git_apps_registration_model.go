@@ -102,31 +102,111 @@ func normalizeGitHubAppRegistrationTarget(target string) string {
 	}
 }
 
-// gitHubAppPublicBaseURL is the externally reachable NopsAI base URL. GitHub has
-// to reach the webhook, redirect, and setup URLs built from it, so an empty or
-// unparsable value fails the flow before an App is created on GitHub.
-func gitHubAppPublicBaseURL(cfg config.Config) (string, error) {
-	raw := strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")
-	if raw == "" {
-		return "", fmt.Errorf("public_url is not configured; set it in System > Config before connecting GitHub")
-	}
-	parsed, err := url.Parse(raw)
+// A GitHub App needs two different URLs, and conflating them is what forces
+// deployments to expose more than they want:
+//
+//   - the webhook URL is fetched by GitHub's servers and must reach git-bot's
+//     /webhook, typically through a tunnel or reverse proxy;
+//   - the redirect and setup URLs are only ever opened in the operator's own
+//     browser, so the NopsAI address that browser already uses is enough, even
+//     when that is http://localhost:8080.
+//
+// They are resolved separately here so a tunnel that fronts only git-bot is a
+// complete setup.
+func absoluteHTTPURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("public_url %q must be an absolute URL such as https://nopsai.example.com", raw)
+		return nil, fmt.Errorf("%q must be an absolute URL such as https://nopsai.example.com", raw)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("public_url %q must use http or https", raw)
+		return nil, fmt.Errorf("%q must use http or https", raw)
+	}
+	return parsed, nil
+}
+
+// effectiveGitHubWebhookURL is the address registered on the App as its webhook,
+// falling back to the public URL for installs that expose everything from one
+// host. An empty result means nothing is configured yet.
+func effectiveGitHubWebhookURL(cfg config.Config) string {
+	if configured := strings.TrimRight(strings.TrimSpace(cfg.GitHubWebhookURL), "/"); configured != "" {
+		return configured
+	}
+	if base := strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"); base != "" {
+		return base + "/webhook"
+	}
+	return ""
+}
+
+// normalizeGitHubWebhookURL accepts either the full webhook endpoint or the base
+// address of the tunnel or proxy that fronts git-bot.
+func normalizeGitHubWebhookURL(raw string) (string, error) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		return "", fmt.Errorf("a webhook URL GitHub can reach is required; point it at the git-bot /webhook endpoint")
+	}
+	parsed, err := absoluteHTTPURL(raw)
+	if err != nil {
+		return "", fmt.Errorf("webhook URL %w", err)
+	}
+	if strings.Trim(parsed.Path, "/") == "" {
+		return raw + "/webhook", nil
 	}
 	return raw, nil
 }
 
-func buildGitHubAppManifest(cfg config.Config, appName, baseURL string) gitHubAppManifest {
+// gitHubAppCallbackBaseURL resolves where GitHub should send the operator's
+// browser back to. The browser is already talking to NopsAI, so its own origin
+// is the most accurate answer; public_url is the fallback for callers without
+// one, such as the CLI.
+func gitHubAppCallbackBaseURL(cfg config.Config, origin, requestHost string) (string, error) {
+	if base, err := trustedGitHubCallbackOrigin(cfg, origin, requestHost); err == nil && base != "" {
+		return base, nil
+	}
+	raw := strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")
+	if raw == "" {
+		return "", fmt.Errorf(
+			"cannot tell which NopsAI address to send you back to; open Git Apps from the NopsAI UI or set public_url in System > Config",
+		)
+	}
+	if _, err := absoluteHTTPURL(raw); err != nil {
+		return "", fmt.Errorf("public_url %w", err)
+	}
+	return raw, nil
+}
+
+// trustedGitHubCallbackOrigin accepts the browser origin only when it describes
+// this installation: the host serving the request, a configured CORS origin, or
+// the public URL. An arbitrary origin would send GitHub's redirect elsewhere.
+func trustedGitHubCallbackOrigin(cfg config.Config, origin, requestHost string) (string, error) {
+	origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+	if origin == "" || strings.EqualFold(origin, "null") {
+		return "", fmt.Errorf("no browser origin on the request")
+	}
+	parsed, err := absoluteHTTPURL(origin)
+	if err != nil {
+		return "", err
+	}
+	if strings.EqualFold(parsed.Host, strings.TrimSpace(requestHost)) {
+		return origin, nil
+	}
+	if strings.EqualFold(origin, strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")) {
+		return origin, nil
+	}
+	for _, allowed := range cfg.CORSAllowedOrigins {
+		if strings.EqualFold(strings.TrimRight(strings.TrimSpace(allowed), "/"), origin) {
+			return origin, nil
+		}
+	}
+	return "", fmt.Errorf("browser origin %q does not belong to this installation", origin)
+}
+
+func buildGitHubAppManifest(appName, callbackBaseURL, webhookURL string) gitHubAppManifest {
 	return gitHubAppManifest{
 		Name:                  appName,
-		URL:                   baseURL,
-		HookAttributes:        gitHubAppManifestHook{URL: baseURL + "/webhook", Active: true},
-		RedirectURL:           baseURL + gitHubAppRegisterCallbackPath,
-		SetupURL:              baseURL + gitHubAppInstallCallbackPath,
+		URL:                   callbackBaseURL,
+		HookAttributes:        gitHubAppManifestHook{URL: webhookURL, Active: true},
+		RedirectURL:           callbackBaseURL + gitHubAppRegisterCallbackPath,
+		SetupURL:              callbackBaseURL + gitHubAppInstallCallbackPath,
 		SetupOnUpdate:         true,
 		Public:                false,
 		DefaultEvents:         append([]string(nil), gitHubAppManifestEvents...),
@@ -138,9 +218,9 @@ func buildGitHubAppManifest(cfg config.Config, appName, baseURL string) gitHubAp
 // defaultGitHubAppName keeps generated App names unique per installation.
 // GitHub rejects a manifest whose name is already taken, and the operator can
 // override it from the UI.
-func defaultGitHubAppName(cfg config.Config) string {
+func defaultGitHubAppName(callbackBaseURL string) string {
 	host := ""
-	if parsed, err := url.Parse(strings.TrimSpace(cfg.PublicURL)); err == nil {
+	if parsed, err := url.Parse(strings.TrimSpace(callbackBaseURL)); err == nil {
 		host = strings.TrimSpace(parsed.Hostname())
 	}
 	if host == "" {

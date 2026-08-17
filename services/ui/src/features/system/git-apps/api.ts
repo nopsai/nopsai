@@ -17,12 +17,13 @@ import {
 } from './model.js';
 
 export async function startGitHubAppRegistration(
-  form: GitHubAppConnectFormState
+  form: GitHubAppConnectFormState,
+  webhookURL: string
 ): Promise<GitHubAppRegistrationStart> {
   const payload = await fetchSystemJson('/v1/git-apps/github/register/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(gitHubAppConnectPayload(form)),
+    body: JSON.stringify(gitHubAppConnectPayload(form, webhookURL)),
   }) as Partial<GitHubAppRegistrationStart> | null;
   return {
     state: String(payload?.state || ''),

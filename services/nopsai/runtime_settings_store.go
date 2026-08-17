@@ -112,6 +112,7 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		GitBotAPIURL:                  file.GitBotAPIURL,
 		GitHubAppID:                   firstPresentStringPtr(file.AppID, file.GitHubAppID),
 		GitHubAppSlug:                 file.AppSlug,
+		GitHubWebhookURL:              file.WebhookURL,
 		GitHubInstallationID:          file.GitHubInstallationID,
 		GitHubPrivateKeyRef:           firstPresentStringPtr(file.PrivateKeyCredentialRef, file.GitHubPrivateKeyRef),
 		GitHubWebhookRef:              firstPresentStringPtr(file.WebhookCredentialRef, file.GitHubWebhookRef),
@@ -261,6 +262,9 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	}
 	if payload.GitHubAppSlug != nil {
 		cfg.GitHubAppSlug = normalizeGitHubAppSlug(*payload.GitHubAppSlug)
+	}
+	if payload.GitHubWebhookURL != nil {
+		cfg.GitHubWebhookURL = strings.TrimRight(strings.TrimSpace(*payload.GitHubWebhookURL), "/")
 	}
 	if payload.GitHubInstallationID != nil {
 		cfg.GitHubInstallID = strings.TrimSpace(*payload.GitHubInstallationID)

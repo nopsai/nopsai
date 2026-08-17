@@ -20,6 +20,7 @@ test('normalizes GitHub App payloads and metrics', () => {
     app_id: ' 123456 ',
     private_key_credential_ref: ' credential://system/github/app-private-key ',
     webhook_credential_ref: ' credential://system/github/webhook-secret ',
+    webhook_url: ' https://nopsai.example.com/webhook ',
     webhook_endpoint: ' https://nopsai.example.com/webhook ',
     installations: [
       {
@@ -54,6 +55,7 @@ test('builds GitHub App and installation requests without legacy scalar fields',
     app_id: '123456',
     private_key_credential_ref: 'credential://system/github/app-private-key',
     webhook_credential_ref: 'credential://system/github/webhook-secret',
+    webhook_url: 'https://nopsai.example.com/webhook',
     installations: [{
       installation_id: '987654',
       account_login: 'nopsai',
@@ -68,6 +70,7 @@ test('builds GitHub App and installation requests without legacy scalar fields',
     appID: '123456',
     privateKeyCredentialRef: 'credential://system/github/app-private-key',
     webhookCredentialRef: 'credential://system/github/webhook-secret',
+    webhookURL: 'https://nopsai.example.com/webhook',
   });
   const payload = gitHubAppPayloadFromForm(gitHubAppForm(app), app.installations);
   assert.equal(payload.provider, 'github');
@@ -105,6 +108,7 @@ test('validates GitHub App identifiers, credentials, and owner routing metadata'
       appID: 'abc',
       privateKeyCredentialRef: '',
       webhookCredentialRef: '',
+      webhookURL: '',
     }, []),
     /App ID/
   );
@@ -113,6 +117,7 @@ test('validates GitHub App identifiers, credentials, and owner routing metadata'
       appID: '123456',
       privateKeyCredentialRef: 'credential://System/github/key',
       webhookCredentialRef: '',
+      webhookURL: '',
     }, []),
     /credential:\/\//
   );

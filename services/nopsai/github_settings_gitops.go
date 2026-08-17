@@ -55,6 +55,7 @@ type githubSettingsGitOpsFile struct {
 	GitBotAPIURL            *string                           `json:"git_bot_api_url" yaml:"git_bot_api_url,omitempty"`
 	AppID                   *string                           `json:"app_id" yaml:"app_id,omitempty"`
 	AppSlug                 *string                           `json:"app_slug" yaml:"app_slug,omitempty"`
+	WebhookURL              *string                           `json:"webhook_url" yaml:"webhook_url,omitempty"`
 	GitHubAppID             *string                           `json:"github_app_id" yaml:"github_app_id,omitempty"`
 	GitHubInstallationID    *string                           `json:"github_installation_id" yaml:"github_installation_id,omitempty"`
 	PrivateKeyCredentialRef *string                           `json:"private_key_credential_ref" yaml:"private_key_credential_ref,omitempty"`
@@ -145,6 +146,7 @@ func gitHubSettingsPayloadFromFile(file githubSettingsGitOpsFile) systemConfigPa
 		GitBotAPIURL:         file.GitBotAPIURL,
 		GitHubAppID:          appID,
 		GitHubAppSlug:        appSlug,
+		GitHubWebhookURL:     file.WebhookURL,
 		GitHubInstallationID: file.GitHubInstallationID,
 		GitHubInstallations:  &installations,
 		GitHubPrivateKeyRef:  privateKeyRef,
@@ -157,6 +159,7 @@ func buildGitHubSettingsGitOpsFile(cfg config.Config) githubSettingsGitOpsFile {
 		Provider:                stringPtr("github"),
 		AppID:                   stringPtr(cfg.GitHubAppID),
 		AppSlug:                 stringPtr(cfg.GitHubAppSlug),
+		WebhookURL:              stringPtr(cfg.GitHubWebhookURL),
 		PrivateKeyCredentialRef: stringPtr(cfg.GitHubPrivateKeyCredentialRef),
 		WebhookCredentialRef:    stringPtr(cfg.GitHubWebhookCredentialRef),
 		Installations:           gitHubSettingsInstallationsForGitOps(cfg),
@@ -168,6 +171,7 @@ func buildGitHubSettingsRuntimeSnapshotFile(cfg config.Config) githubSettingsGit
 		Provider:                stringPtr("github"),
 		AppID:                   stringPtr(cfg.GitHubAppID),
 		AppSlug:                 stringPtr(cfg.GitHubAppSlug),
+		WebhookURL:              stringPtr(cfg.GitHubWebhookURL),
 		PrivateKeyCredentialRef: stringPtr(cfg.GitHubPrivateKeyCredentialRef),
 		WebhookCredentialRef:    stringPtr(cfg.GitHubWebhookCredentialRef),
 		Installations:           config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID),

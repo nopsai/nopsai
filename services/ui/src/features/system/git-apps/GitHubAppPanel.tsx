@@ -2,7 +2,6 @@ import { useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } f
 import {
   BadgeCheck,
   CheckCircle2,
-  Copy,
   ExternalLink,
   FolderSync,
   GitBranch,
@@ -18,7 +17,6 @@ import {
 import { ObjectIcon } from '../../../components/ObjectIcon';
 import GitHubAppConnectCard from './GitHubAppConnectCard';
 import { WorkflowFormDialog } from '../../../components/WorkflowFormDialog';
-import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
   buildGitHubAppMetrics,
   filterGitHubAppInstallations,
@@ -54,12 +52,6 @@ export default function GitHubAppPanel({
     controller.setForm(current => ({ ...current, [key]: event.target.value }));
   };
 
-  const copyWebhookEndpoint = () => {
-    const endpoint = controller.app.webhook_endpoint.trim();
-    if (!endpoint) return;
-    void copyTextToClipboard(endpoint).catch(() => undefined);
-  };
-
   return (
     <div data-panel="git-apps" className="space-y-5 pb-24">
       {controller.error ? (
@@ -71,9 +63,11 @@ export default function GitHubAppPanel({
       <GitHubAppConnectCard
         app={controller.app}
         form={controller.connectForm}
+        webhookURL={controller.form.webhookURL}
         connecting={controller.connecting}
         canManage={canManage}
         onChange={controller.setConnectForm}
+        onWebhookURLChange={value => controller.setForm(current => ({ ...current, webhookURL: value }))}
         onConnect={() => void controller.connectGitHubApp()}
         onInstall={() => void controller.installGitHubApp()}
       />
@@ -152,26 +146,6 @@ export default function GitHubAppPanel({
                 placeholder="credential://system/github/webhook-secret"
                 disabled={saveDisabled}
               />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)] lg:col-span-3">
-              <span>Webhook endpoint</span>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <input
-                  className="pipelines-input"
-                  value={controller.app.webhook_endpoint}
-                  readOnly
-                />
-                <button
-                  type="button"
-                  className="glass-button-subtle inline-flex items-center justify-center px-3"
-                  aria-label="Copy GitHub webhook endpoint"
-                  title="Copy GitHub webhook endpoint"
-                  onClick={copyWebhookEndpoint}
-                  disabled={!controller.app.webhook_endpoint.trim()}
-                >
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </div>
             </label>
           </div>
         </form>
