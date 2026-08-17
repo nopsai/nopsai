@@ -1,0 +1,60 @@
+version: 2
+
+updates:
+  # Go modules for the platform binary.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(go)"
+    groups:
+      go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      go-modules:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
+  # Front-end dependencies. Grouped so a lockfile refresh lands as one PR
+  # instead of one per transitive package.
+  - package-ecosystem: "npm"
+    directory: "/services/ui"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(ui)"
+    groups:
+      ui-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      ui-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
+  # Base images are digest-pinned, so these updates keep the digests current.
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/container"
+      - "/services/ui"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(docker)"
+    groups:
+      docker-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      docker-images:
+        applies-to: version-updates
+        patterns:
+          - "*"
