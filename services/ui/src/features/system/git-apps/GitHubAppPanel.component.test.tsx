@@ -10,6 +10,9 @@ const app = {
   private_key_credential_ref: 'credential://system/github/app-private-key',
   webhook_credential_ref: 'credential://system/github/webhook-secret',
   webhook_endpoint: 'https://nopsai.example.com/webhook',
+  app_slug: 'nopsai-example',
+  connect_supported: true,
+  connect_blocked_by: '',
   installations: [{
     installation_id: '987654',
     account_login: 'nopsai',
@@ -28,10 +31,18 @@ const apiMocks = vi.hoisted(() => ({
   refreshGitHubAppInstallation: vi.fn(),
   saveGitHubApp: vi.fn(),
   saveGitHubAppInstallation: vi.fn(),
+  startGitHubAppInstall: vi.fn(),
+  startGitHubAppRegistration: vi.fn(),
   verifyGitHubAppInstallation: vi.fn(),
 }));
 
+const manifestMocks = vi.hoisted(() => ({
+  clearGitHubAppCallbackParams: vi.fn(),
+  submitGitHubAppManifest: vi.fn(),
+}));
+
 vi.mock('./api', () => apiMocks);
+vi.mock('./manifestForm', () => manifestMocks);
 
 beforeEach(() => {
   apiMocks.deleteGitHubAppInstallation.mockReset();
@@ -41,7 +52,24 @@ beforeEach(() => {
   apiMocks.saveGitHubApp.mockReset();
   apiMocks.saveGitHubAppInstallation.mockReset();
   apiMocks.verifyGitHubAppInstallation.mockReset();
+  apiMocks.startGitHubAppInstall.mockReset();
+  apiMocks.startGitHubAppRegistration.mockReset();
+  manifestMocks.clearGitHubAppCallbackParams.mockReset();
+  manifestMocks.submitGitHubAppManifest.mockReset();
   apiMocks.fetchGitHubApp.mockResolvedValue(app);
+  apiMocks.startGitHubAppRegistration.mockResolvedValue({
+    state: 'state-value',
+    post_url: 'https://github.com/organizations/acme/settings/apps/new?state=state-value',
+    manifest: '{"name":"NopsAI"}',
+    app_name: 'NopsAI',
+    webhook_endpoint: 'https://nopsai.example.com/webhook',
+    expires_at: '2026-06-15T10:00:00Z',
+  });
+  apiMocks.startGitHubAppInstall.mockResolvedValue({
+    state: 'install-state',
+    install_url: 'https://github.com/apps/nopsai-example/installations/new?state=install-state',
+    expires_at: '2026-06-15T10:00:00Z',
+  });
   apiMocks.saveGitHubApp.mockImplementation(async (form, installations) => ({
     ...app,
     app_id: form.appID,
@@ -107,7 +135,7 @@ test('creates installations and refreshes repositories from the panel', async ()
   render(<Harness />);
 
   await screen.findByRole('button', { name: 'nopsai' });
-  await user.click(screen.getByRole('button', { name: 'Add installation' }));
+  await user.click(screen.getByRole('button', { name: 'Add manually' }));
   expect(screen.getByRole('dialog', { name: 'Add GitHub installation' })).toBeVisible();
   await user.type(screen.getByLabelText('Installation ID'), '456789');
   await user.type(screen.getByLabelText('Account login'), 'acme');
@@ -126,4 +154,62 @@ test('creates installations and refreshes repositories from the panel', async ()
   await user.click(screen.getByRole('button', { name: 'Refresh repositories for nopsai' }));
   await waitFor(() => expect(apiMocks.refreshGitHubAppInstallation).toHaveBeenCalledWith('987654'));
   expect(await screen.findByText('nopsai/api')).toBeVisible();
+});
+
+test('registers a GitHub App from the panel by posting the manifest to GitHub', async () => {
+  const user = userEvent.setup();
+  render(<Harness />);
+
+  await screen.findByRole('button', { name: 'nopsai' });
+  await user.clear(screen.getByLabelText('Organization'));
+  await user.type(screen.getByLabelText('Organization'), 'acme');
+  await user.click(screen.getByRole('button', { name: 'Replace App' }));
+
+  await waitFor(() => expect(apiMocks.startGitHubAppRegistration).toHaveBeenCalledTimes(1));
+  expect(apiMocks.startGitHubAppRegistration.mock.calls[0][0]).toMatchObject({
+    target: 'organization',
+    organization: 'acme',
+  });
+  await waitFor(() => expect(manifestMocks.submitGitHubAppManifest).toHaveBeenCalledTimes(1));
+  expect(manifestMocks.submitGitHubAppManifest.mock.calls[0][0]).toMatchObject({
+    manifest: '{"name":"NopsAI"}',
+  });
+});
+
+test('sends the operator to GitHub to choose repositories for an installation', async () => {
+  const user = userEvent.setup();
+  const assign = vi.fn();
+  const originalLocation = window.location;
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...originalLocation, assign, search: '' },
+  });
+
+  try {
+    render(<Harness />);
+    await screen.findByRole('button', { name: 'nopsai' });
+    await user.click(screen.getByRole('button', { name: 'Install on an account' }));
+
+    await waitFor(() => expect(apiMocks.startGitHubAppInstall).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(
+      'https://github.com/apps/nopsai-example/installations/new?state=install-state'
+    ));
+  } finally {
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+  }
+});
+
+test('explains why connecting is unavailable when no public URL is configured', async () => {
+  apiMocks.fetchGitHubApp.mockResolvedValue({
+    ...app,
+    app_id: '',
+    app_slug: '',
+    connect_supported: false,
+    connect_blocked_by: 'public_url is not configured; set it in System > Config before connecting GitHub',
+    installations: [],
+  });
+  render(<Harness />);
+
+  expect(await screen.findByText(/public_url is not configured/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Create App on GitHub' })).toBeDisabled();
 });

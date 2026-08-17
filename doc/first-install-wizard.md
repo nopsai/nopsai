@@ -40,6 +40,7 @@ admin must change password.
 There are no starter profiles in the UI. The wizard is a single guided flow:
 
 - required readiness and runtime configuration steps
+- optional GitHub App connection and installation
 - optional GitOps repository connection and sync kickoff
 - optional repository teams, limited to one or two starter teams for an
   introduction
@@ -69,27 +70,32 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    Kubernetes uses cluster DNS defaults. The final step prints variables that can
    be applied as container environment, secret-manager values, or an environment
    file.
-6. Optionally connect a global GitOps config repository and start sync.
-7. Create one or two repository teams and place selected repositories under
+6. Optionally connect GitHub. NopsAI creates a GitHub App from a manifest,
+   stores its credentials, and registers each account the App is installed on.
+   This step needs a public URL GitHub can reach and can be skipped and done
+   later from **System > Git Apps**.
+7. Optionally connect a global GitOps config repository and start sync.
+8. Create one or two repository teams and place selected repositories under
    them. These teams drive starter trigger generation, run navigation, and
    initial access assignments.
-8. Optionally configure the default model. For local development, the
+9. Optionally configure the default model. For local development, the
    default is LM Studio at `http://lmstudio:1234` with model `qwen3-coder`.
    The catalog also supports Gemini, OpenAI / ChatGPT, Anthropic Claude, Groq,
    Mistral, OpenRouter, Ollama, and Azure OpenAI. Hosted providers use one API
    key field, stored as a NopsAI secret.
-9. Optionally seed disabled MCP examples for later activation.
-10. Optionally create starter users, assign them to a team with owner,
+10. Optionally seed disabled MCP examples for later activation.
+11. Optionally create starter users, assign them to a team with owner,
     developer, or viewer role, and set or generate temporary passwords. Created
     local users must change password on first login.
-11. Review generated runtime variables, GitOps team/file layout, and
+12. Review generated runtime variables, GitOps team/file layout, and
     post-setup instructions.
-12. Apply setup, then run the starter `setup/first-run` pipeline to verify the
+13. Apply setup, then run the starter `setup/first-run` pipeline to verify the
     runner, agent, logs, and UI. When setup seeded an model, the same
     pipeline also verifies the LLM path with an AI smoke step.
 
-The setup modal is step-by-step. Optional steps such as GitOps, repository
-teams, AI, MCP examples, and users can be skipped and completed later. The
+The setup modal is step-by-step. Optional steps such as GitHub, GitOps,
+repository teams, AI, MCP examples, and users can be skipped and completed
+later. The
 review step summarises generated variables, GitOps files, repository teams,
 selected repositories, AI settings, and user assignments before anything is
 applied.
@@ -171,15 +177,32 @@ credential references in **System > Git Apps** or
 **Credentials**, and keep the internal git-bot service URL in **System >
 Config**.
 
-Install flow:
+Guided install flow (**GitHub** step, or **System > Git Apps**):
 
 1. Start the `git-bot` service with `NOPSAI_API_URL` pointing at the NopsAI API
    URL reachable from git-bot, usually `http://nopsai:8080` in Docker Compose.
-2. Create or open a GitHub App and set its webhook URL to the public git-bot
+2. Set `public_url` to the address GitHub can reach, ending at the deployment
+   that routes `/webhook` to git-bot. The connect action is disabled until this
+   is set, because GitHub is handed webhook and callback URLs built from it.
+3. Choose an organization or personal account and select **Create App on
+   GitHub**. GitHub asks you to approve the App; NopsAI stores the App ID,
+   private key, and webhook secret automatically.
+4. Select the account and repositories on GitHub. The installation registers
+   itself when GitHub returns, and so do later installs or uninstalls done
+   directly on GitHub.
+
+git-bot picks up the new credentials within a minute, so no container restart is
+needed. Installing the App on further accounts later needs no NopsAI action at
+all.
+
+Manual flow, for GitHub Enterprise Server, air-gapped installs, or an App that
+already exists:
+
+1. Create or open a GitHub App and set its webhook URL to the public git-bot
    endpoint exposed by your deployment, ending in `/webhook`.
-3. Configure the App ID, private-key credential reference, webhook credential
-   reference, and each installation account in **System > Git Apps**, then
-   install the App on the selected repositories.
+2. Store the private key and webhook secret in **Credentials**.
+3. Configure the App ID, credential references, and each installation account in
+   **System > Git Apps** using **Add manually**.
 
 Required GitHub App events:
 
@@ -187,7 +210,8 @@ Required GitHub App events:
 - `pull_request`
 - `check_run`
 - `check_suite`
-- `ping`
+- `installation`
+- `installation_repositories`
 
 Required GitHub App permissions:
 

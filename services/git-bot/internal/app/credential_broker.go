@@ -3,11 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/correlation"
@@ -25,36 +25,19 @@ type gitHubBootstrapEnvelope struct {
 	Sealed string `json:"sealed"`
 }
 
-func fetchGitHubBootstrap(
-	ctx context.Context,
-	cfg *config.Config,
-	httpClient *http.Client,
-	credentials *serviceauth.Credentials,
-) (gitHubBootstrap, error) {
-	var result gitHubBootstrap
-	if cfg == nil || strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()) == "" {
-		return result, fmt.Errorf("NOPSAI_API_URL is required")
+var errInvalidGitHubAppID = errors.New("GitHub App ID is not a positive integer")
+
+// gitHubBootstrapURL is the NopsAI endpoint that hands git-bot the GitHub App
+// credentials it is allowed to use.
+func gitHubBootstrapURL(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
 	}
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	base := strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/")
+	if base == "" {
+		return ""
 	}
-	if credentials == nil {
-		return result, fmt.Errorf("git-bot service credentials are required")
-	}
-	url := strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/") + "/v1/internal/git-bot/bootstrap"
-	var lastErr error
-	for attempt := 1; attempt <= 20; attempt++ {
-		result, lastErr = requestGitHubBootstrap(ctx, cfg, httpClient, credentials, url)
-		if lastErr == nil {
-			return result, nil
-		}
-		select {
-		case <-ctx.Done():
-			return gitHubBootstrap{}, ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
-	return gitHubBootstrap{}, fmt.Errorf("retrieve GitHub credentials from nopsai: %w", lastErr)
+	return base + "/v1/internal/git-bot/bootstrap"
 }
 
 func requestGitHubBootstrap(
@@ -65,6 +48,15 @@ func requestGitHubBootstrap(
 	url string,
 ) (gitHubBootstrap, error) {
 	var result gitHubBootstrap
+	if strings.TrimSpace(url) == "" {
+		return result, fmt.Errorf("NOPSAI_API_URL is required")
+	}
+	if credentials == nil {
+		return result, fmt.Errorf("git-bot service credentials are required")
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
 	ctx, _ = correlation.EnsureRequestID(ctx)
 	token, err := credentials.MintToken(ctx)
 	if err != nil {

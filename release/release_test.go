@@ -516,7 +516,9 @@ func TestReleaseToolInstallerIsCheckedInAndVerified(t *testing.T) {
 }
 
 func TestReleasePipelineInjectsCompatibilityContract(t *testing.T) {
-	pipeline := readNopsAIReleasePipeline(t)
+	// The image build args live in the checked-in build scripts the pipeline
+	// calls, so the contract is asserted across the pipeline and those scripts.
+	pipeline := readNopsAIReleasePath(t)
 	for _, required := range []string{
 		"release/compatibility.yaml",
 		`emit "CLI_COMPATIBILITY", normalized_range(contract, "platformCompatibility")`,
@@ -609,6 +611,7 @@ func readNopsAIReleasePath(t *testing.T) string {
 	t.Helper()
 	combined := readNopsAIReleasePipeline(t)
 	for _, path := range []string{
+		"../scripts/build-release-base-image.sh",
 		"../scripts/publish-release-image.sh",
 		"../scripts/install-release-tools.sh",
 		"../scripts/release-tags.sh",

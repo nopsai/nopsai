@@ -72,6 +72,10 @@ func (a *App) registerGitHubRoutes(mux *http.ServeMux) {
 func (a *App) registerGitAppRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/git-apps/github", a.handleGetGitHubApp)
 	mux.HandleFunc("PUT /v1/git-apps/github", a.handlePutGitHubApp)
+	mux.HandleFunc("POST /v1/git-apps/github/register/start", a.handleStartGitHubAppRegistration)
+	mux.HandleFunc("GET /v1/git-apps/github/register/callback", a.handleGitHubAppRegistrationCallback)
+	mux.HandleFunc("POST /v1/git-apps/github/install/start", a.handleStartGitHubAppInstall)
+	mux.HandleFunc("GET /v1/git-apps/github/install/callback", a.handleGitHubAppInstallCallback)
 	mux.HandleFunc("GET /v1/git-apps/github/installations", a.handleListGitHubAppInstallations)
 	mux.HandleFunc("POST /v1/git-apps/github/installations", a.handleCreateGitHubAppInstallation)
 	mux.HandleFunc("GET /v1/git-apps/github/installations/{installationID}", a.handleGetGitHubAppInstallation)

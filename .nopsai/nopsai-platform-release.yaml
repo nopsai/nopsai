@@ -349,94 +349,41 @@ steps:
       run_ui_gate build npm run build
       BASH
 
-  - name: publish-base-image
+  # The base image compiles every service binary, which is the longest single
+  # build in the release and needs nothing the gates produce. It runs beside
+  # them and exports only to the registry build cache, so no release tag is
+  # published before the gates pass. The gates remain a hard prerequisite for
+  # publish-base-image below.
+  - name: build-base-image
     image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
-      - quality-gates
-      - ui-gates
+      - release-metadata
     secrets:
       - NOPSAI_RELEASE_GHCR_TOKEN
     script: |
       set -eu
       apk add --no-cache bash docker-cli-buildx jq
-      bash <<'BASH'
-      set -euo pipefail
+      bash scripts/build-release-base-image.sh cache
 
-      . dist/release/env
-      mkdir -p dist/release
-
-      if [[ "$SHOULD_RELEASE" != "true" ]]; then
-        echo "Release v$VERSION already exists; skipping base image publication"
-        exit 0
-      fi
-      if [[ -z "${NOPSAI_RELEASE_GHCR_TOKEN:-}" ]]; then
-        echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish container images" >&2
-        exit 1
-      fi
-
-      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-      if [[ "${NOPSAI_RELEASE_ENABLE_QEMU:-true}" == "true" && "$PLATFORMS" == *","* ]]; then
-        docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install all
-      fi
-
-      builder_suffix="$(printf '%s-nopsai-base-%s' "$VERSION" "$$" | tr -c 'A-Za-z0-9_.-' '-')"
-      builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}-${builder_suffix}"
-      if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
-        docker buildx create --name "$builder" --driver docker-container --use
-      else
-        docker buildx use "$builder"
-      fi
-      trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
-      docker buildx inspect --bootstrap
-
-      rm -rf dist/digests dist/docker-metadata
-      mkdir -p dist/digests dist/docker-metadata
-
-      release_tag_args=()
-      while IFS= read -r release_tag; do
-        release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")
-      done < <(scripts/release-tags.sh "$VERSION")
-      oci_annotation_args=(
-        --annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"
-        --annotation "index,manifest:org.opencontainers.image.version=$VERSION"
-        --annotation "index,manifest:org.opencontainers.image.revision=$SOURCE_COMMIT"
-        --annotation "index,manifest:org.opencontainers.image.created=$BUILD_DATE"
-        --annotation "index,manifest:org.opencontainers.image.licenses=LicenseRef-NopsAI-Proprietary"
-        --annotation "index,manifest:org.opencontainers.image.vendor=NopsAI"
-        --annotation "index,manifest:org.opencontainers.image.title=nopsai-base"
-      )
-      docker buildx build \
-        --file Dockerfile \
-        --platform "$PLATFORMS" \
-        --push \
-        "${release_tag_args[@]}" \
-        "${oci_annotation_args[@]}" \
-        --build-arg "VERSION=$VERSION" \
-        --build-arg "COMMIT=$SOURCE_COMMIT" \
-        --build-arg "BUILD_DATE=$BUILD_DATE" \
-        --build-arg "SOURCE_URL=$SOURCE_URL" \
-        --build-arg "API_VERSION=$API_VERSION" \
-        --build-arg "RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION" \
-        --build-arg "CLI_COMPATIBILITY=$CLI_COMPATIBILITY" \
-        --build-arg "RUNNER_COMPATIBILITY=$RUNNER_COMPATIBILITY" \
-        --build-arg "PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY" \
-        --build-arg "CAPABILITIES=$CAPABILITIES" \
-        --provenance=mode=max \
-        --sbom=true \
-        --metadata-file dist/docker-metadata/nopsai-base.json \
-        .
-      base_digest="$(jq -r '."containerimage.digest"' dist/docker-metadata/nopsai-base.json)"
-      if [[ ! "$base_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-        echo "Docker buildx did not return a valid nopsai-base digest" >&2
-        exit 1
-      fi
-      printf '%s\n' "$base_digest" >dist/digests/nopsai-base.digest
-      echo "published_image=$REGISTRY/nopsai-base@$base_digest"
-      BASH
+  - name: publish-base-image
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    depends_on:
+      - quality-gates
+      - ui-gates
+      - build-base-image
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash docker-cli-buildx jq
+      bash scripts/build-release-base-image.sh push
 
   # Every release image is built and pushed by the same script and differs only
   # in name, build context, and Dockerfile. They run as parallel tasks in one
-  # step, so the release installs the image toolchain once instead of ten times.
+  # step, so the release installs the image toolchain once instead of ten times,
+  # logs in to GHCR once, and shares a single BuildKit builder. Sharing the
+  # builder is what lets the base image be pulled once for all ten and lets the
+  # layers these Dockerfiles have in common be built once rather than ten times.
   - name: publish-images
     image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
     depends_on:
@@ -448,6 +395,27 @@ steps:
         script: |
           set -eu
           apk add --no-cache bash docker-cli-buildx jq
+          bash <<'BASH'
+          set -euo pipefail
+
+          . dist/release/env
+          if [[ "$SHOULD_RELEASE" != "true" ]]; then
+            echo "Release v$VERSION already exists; skipping image toolchain preparation"
+            exit 0
+          fi
+          if [[ -z "${NOPSAI_RELEASE_GHCR_TOKEN:-}" ]]; then
+            echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish container images" >&2
+            exit 1
+          fi
+
+          printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+
+          builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}"
+          docker buildx rm --force "$builder" >/dev/null 2>&1 || true
+          docker buildx create --name "$builder" --driver docker-container
+          docker buildx inspect --bootstrap --builder "$builder"
+          echo "shared_builder=$builder"
+          BASH
 
       - name: nopsai-api
         depends_on: [prepare-image-tools]
@@ -508,6 +476,25 @@ steps:
         script: |
           set -eu
           bash scripts/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline
+
+      # Removes the shared builder container once every image is published.
+      # prepare-image-tools force-removes a builder of the same name first, so a
+      # failed release that skips this task cannot leave one behind for the next.
+      - name: cleanup-image-tools
+        depends_on:
+          - nopsai-api
+          - nopsai-aaa
+          - nopsai-agent
+          - nopsai-dispatcher
+          - nopsai-git-bot
+          - nopsai-docker-runner
+          - nopsai-k8s-runner
+          - nopsai-docker-socket-proxy
+          - nopsai-ui
+          - pipeline-image
+        script: |
+          set -eu
+          docker buildx rm --force "${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}" >/dev/null 2>&1 || true
 
   - name: verify-image-digests
     image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc

@@ -35,7 +35,8 @@ RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pk
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-aaa ./services/aaa && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-dispatcher ./services/dispatcher/cmd/dispatcher && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-docker-runner ./services/docker-runner/cmd/docker-runner && \
-  go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-k8s-runner ./services/k8s-runner/cmd/k8s-runner
+  go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-k8s-runner ./services/k8s-runner/cmd/k8s-runner && \
+  go build -trimpath -ldflags="${BUILD_LDFLAGS}" -o /out/docker-socket-proxy ./services/docker-socket-proxy/cmd/socket-proxy
 
 FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
@@ -63,6 +64,7 @@ COPY --from=builder /out/nopsai-aaa /nopsai-aaa
 COPY --from=builder /out/nopsai-dispatcher /nopsai-dispatcher
 COPY --from=builder /out/nopsai-docker-runner /nopsai-docker-runner
 COPY --from=builder /out/nopsai-k8s-runner /nopsai-k8s-runner
+COPY --from=builder /out/docker-socket-proxy /docker-socket-proxy
 COPY --from=builder /src/config.yml /app/config.yml
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/
 

@@ -88,6 +88,14 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	if _, ok := imageTasks["prepare-image-tools"]; !ok {
 		t.Fatal("publish-images must install the image toolchain once in prepare-image-tools")
 	}
+	// One BuildKit builder is bootstrapped for the whole step. A builder per
+	// task meant ten cold instances that each re-pulled the base image and
+	// rebuilt the layers these Dockerfiles share.
+	requireContains(t, imageTasks["prepare-image-tools"].Script, "docker buildx create --name \"$builder\" --driver docker-container")
+	requireContains(t, imageTasks["prepare-image-tools"].Script, "docker login ghcr.io")
+	if _, ok := imageTasks["cleanup-image-tools"]; !ok {
+		t.Fatal("publish-images must remove the shared builder in cleanup-image-tools")
+	}
 	for _, name := range imageTaskNames {
 		task, ok := imageTasks[name]
 		if !ok {
@@ -102,7 +110,17 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 
 	requireSecrets(t, steps["checkout-repository"].GetSecrets(), "NOPSAI_RELEASE_GITHUB_TOKEN")
 	requireSecrets(t, steps["release-metadata"].GetSecrets(), "NOPSAI_RELEASE_GITHUB_TOKEN")
+	requireSecrets(t, steps["build-base-image"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
 	requireSecrets(t, steps["publish-base-image"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
+	// The base image compiles every service binary and needs nothing the gates
+	// produce, so the build runs beside them and only the publication waits.
+	requireDependsOn(t, steps["build-base-image"].GetDependsOn(), "release-metadata")
+	for _, gate := range []string{"quality-gates", "ui-gates"} {
+		if containsStepDependency(steps["build-base-image"].GetDependsOn(), gate) {
+			t.Fatalf("build-base-image should not wait for %s; it publishes no release tag", gate)
+		}
+	}
+	requireDependsOn(t, steps["publish-base-image"].GetDependsOn(), "quality-gates", "ui-gates", "build-base-image")
 	requireSecrets(t, steps["publish-images"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
 	requireDependsOn(t, steps["publish-images"].GetDependsOn(), "publish-base-image")
 	requireSecrets(t, steps["publish-helm-chart"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
@@ -140,8 +158,6 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["build-cli-archives"].GetScript(), "nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY}")
 	requireContains(t, steps["release-metadata"].GetScript(), "release/compatibility.yaml")
 	requireContains(t, steps["release-metadata"].GetScript(), "CLI_COMPATIBILITY")
-	requireContains(t, steps["publish-base-image"].GetScript(), "--build-arg \"PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY\"")
-	requireContains(t, steps["publish-base-image"].GetScript(), "--build-arg \"CAPABILITIES=$CAPABILITIES\"")
 	requireContains(t, steps["release-metadata"].GetScript(), "source_url=\"https://github.com/$repo_owner_lower/$repo_name_lower\"")
 	requireContains(t, steps["release-metadata"].GetScript(), "printf 'SOURCE_URL=%q\\n' \"$source_url\"")
 	requireContains(t, steps["release-metadata"].GetScript(), "scripts/release-tags.sh \"$version\"")
@@ -150,13 +166,32 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	if strings.Contains(steps["release-metadata"].GetScript(), "cat >dist/release/install-release-tools.sh") {
 		t.Fatal("release-metadata must copy the checked-in release tool installer instead of embedding a generated copy")
 	}
-	requireContains(t, steps["publish-base-image"].GetScript(), "nopsai-base")
-	requireContains(t, steps["publish-base-image"].GetScript(), `release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")`)
-	requireContains(t, steps["publish-base-image"].GetScript(), `done < <(scripts/release-tags.sh "$VERSION")`)
-	requireContains(t, steps["publish-base-image"].GetScript(), `--annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"`)
-	requireContains(t, steps["publish-base-image"].GetScript(), `--annotation "index,manifest:org.opencontainers.image.title=nopsai-base"`)
-	requireContains(t, steps["publish-base-image"].GetScript(), `"${oci_annotation_args[@]}"`)
-	requireContains(t, steps["publish-base-image"].GetScript(), "--build-arg \"SOURCE_URL=$SOURCE_URL\"")
+	// The base image build lives in a checked-in script shared by the cache
+	// warm-up and the publishing step, so its contract is asserted there.
+	requireContains(t, steps["build-base-image"].GetScript(), "scripts/build-release-base-image.sh cache")
+	requireContains(t, steps["publish-base-image"].GetScript(), "scripts/build-release-base-image.sh push")
+	baseBuilderPath := filepath.Join("..", "..", "..", "..", "scripts", "build-release-base-image.sh")
+	baseBuilderBytes, err := os.ReadFile(baseBuilderPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", baseBuilderPath, err)
+	}
+	baseBuilder := string(baseBuilderBytes)
+	for _, required := range []string{
+		"nopsai-base",
+		`release_tag_args+=(--tag "$REGISTRY/nopsai-base:$release_tag")`,
+		`done < <(scripts/release-tags.sh "$VERSION")`,
+		`--annotation "index,manifest:org.opencontainers.image.source=$SOURCE_URL"`,
+		`--annotation "index,manifest:org.opencontainers.image.title=nopsai-base"`,
+		`"${oci_annotation_args[@]}"`,
+		"--build-arg \"SOURCE_URL=$SOURCE_URL\"",
+		"--build-arg \"PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY\"",
+		"--build-arg \"CAPABILITIES=$CAPABILITIES\"",
+	} {
+		requireContains(t, baseBuilder, required)
+	}
+	// Cache mode must not be able to publish a release tag, because it runs
+	// before the quality gates have passed.
+	requireContains(t, baseBuilder, "--output type=cacheonly")
 
 	imagePublisherPath := filepath.Join("..", "..", "..", "..", "scripts", "publish-release-image.sh")
 	imagePublisherBytes, err := os.ReadFile(imagePublisherPath)
@@ -172,8 +207,13 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 		"--build-arg \"BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest\"",
 		"--build-arg \"SOURCE_URL=$SOURCE_URL\"",
 		`printf '%s\n' "$digest" >"dist/digests/${image_name}.digest"`,
+		// Each task builds on the shared builder instead of creating its own.
+		`--builder "$builder"`,
 	} {
 		requireContains(t, imagePublisher, required)
+	}
+	if strings.Contains(imagePublisher, "docker buildx create") {
+		t.Fatal("image publisher must reuse the builder from prepare-image-tools instead of creating one per image")
 	}
 	requireContains(t, imageTasks["pipeline-image"].Script, "scripts/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline")
 	// The image publisher is a checked-in script rather than a heredoc that the

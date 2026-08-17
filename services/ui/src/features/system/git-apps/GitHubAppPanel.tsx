@@ -3,6 +3,7 @@ import {
   BadgeCheck,
   CheckCircle2,
   Copy,
+  ExternalLink,
   FolderSync,
   GitBranch,
   Github,
@@ -15,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ObjectIcon } from '../../../components/ObjectIcon';
+import GitHubAppConnectCard from './GitHubAppConnectCard';
 import { WorkflowFormDialog } from '../../../components/WorkflowFormDialog';
 import { copyTextToClipboard } from '../../../lib/clipboard';
 import {
@@ -65,6 +67,16 @@ export default function GitHubAppPanel({
           {controller.error}
         </div>
       ) : null}
+
+      <GitHubAppConnectCard
+        app={controller.app}
+        form={controller.connectForm}
+        connecting={controller.connecting}
+        canManage={canManage}
+        onChange={controller.setConnectForm}
+        onConnect={() => void controller.connectGitHubApp()}
+        onInstall={() => void controller.installGitHubApp()}
+      />
 
       <section className="grid gap-3 md:grid-cols-5" aria-label="GitHub App summary">
         <Metric icon={<Github className="h-4 w-4" aria-hidden="true" />} label="Installations" value={metrics.installations} />
@@ -185,11 +197,21 @@ export default function GitHubAppPanel({
             <button
               type="button"
               className="glass-button inline-flex items-center gap-2"
+              onClick={() => void controller.installGitHubApp()}
+              disabled={readonly || controller.connecting || !controller.app.app_slug}
+              title={controller.app.app_slug ? undefined : 'Connect a GitHub App first, or add the installation manually'}
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Install on GitHub
+            </button>
+            <button
+              type="button"
+              className="glass-button-subtle inline-flex items-center gap-2"
               onClick={controller.startCreateInstallation}
               disabled={readonly || controller.saving}
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
-              Add installation
+              Add manually
             </button>
           </div>
         </div>

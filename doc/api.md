@@ -1161,11 +1161,53 @@ curl -X PUT \
 Endpoints:
 
 - `GET|PUT /v1/git-apps/github`
+- `POST /v1/git-apps/github/register/start`
+- `GET /v1/git-apps/github/register/callback`
+- `POST /v1/git-apps/github/install/start`
+- `GET /v1/git-apps/github/install/callback`
 - `GET|POST /v1/git-apps/github/installations`
 - `GET|DELETE /v1/git-apps/github/installations/{installationID}`
 - `POST /v1/git-apps/github/installations/{installationID}/verify`
 - `POST /v1/git-apps/github/installations/{installationID}/refresh`
 - `GET /v1/git-apps/github/installations/{installationID}/repositories`
+
+### Connecting A GitHub App
+
+`POST /v1/git-apps/github/register/start` returns a GitHub App manifest, the
+GitHub URL to post it to, and a single-use state. The browser submits the
+manifest as a form, GitHub creates the App, and the redirect back to
+`/v1/git-apps/github/register/callback` carries a one-time code that NopsAI
+exchanges for the App ID, private key, and webhook secret. The private key and
+webhook secret are written to `credential://system/github/app-private-key` and
+`credential://system/github/webhook-secret`; the App ID and slug land in
+`setting/git-apps/github.yaml`.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"target":"organization","organization":"acme","app_name":"NopsAI"}' \
+  http://localhost:8080/v1/git-apps/github/register/start
+```
+
+`POST /v1/git-apps/github/install/start` returns the install URL for the
+registered App. GitHub calls `/v1/git-apps/github/install/callback` with the new
+`installation_id`, which NopsAI verifies against GitHub before storing it.
+
+Both callbacks are reachable without a bearer token because GitHub redirects the
+operator's browser to them. Each one is authorized by the single-use state row
+created by an authorized start request, and the install callback additionally
+verifies the installation with an App-authenticated GitHub call, so a forged
+`installation_id` cannot register anything. `GET /v1/git-apps/github` reports
+`connect_supported` and `connect_blocked_by`: both callbacks and the webhook are
+built from `public_url`, so the flow refuses to start when GitHub could not
+reach this installation.
+
+Installations also register themselves from `installation` and
+`installation_repositories` webhook events, so installing or uninstalling the
+App directly on GitHub keeps the catalog current. A suspended installation is
+disabled rather than deleted, and a repository-selection change never re-enables
+an installation an operator disabled.
 
 Installation records are provider/app scoped and do not accept `team_path`,
 `visibility`, or `repository_allowlist`. Trigger ownership still lives on
@@ -1178,6 +1220,7 @@ GitOps uses `setting/git-apps/github.yaml`:
 ```yaml
 provider: github
 app_id: "123456"
+app_slug: nopsai-acme
 private_key_credential_ref: credential://system/github/app-private-key
 webhook_credential_ref: credential://system/github/webhook-secret
 installations:
@@ -1186,6 +1229,10 @@ installations:
     account_type: organization
     enabled: true
 ```
+
+`app_slug` is what the install link points at. Changing `app_id` by hand without
+a matching `app_slug` clears it, so the install action can never open the wrong
+App.
 
 ---
 

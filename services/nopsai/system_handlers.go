@@ -57,6 +57,7 @@ type systemConfigPayload struct {
 	RunnerScopes                  *string                            `json:"runner_scopes"`
 	RunnerCapacity                *int                               `json:"runner_capacity"`
 	GitHubAppID                   *string                            `json:"github_app_id"`
+	GitHubAppSlug                 *string                            `json:"github_app_slug"`
 	GitHubInstallationID          *string                            `json:"github_installation_id"`
 	GitHubInstallations           *[]config.GitHubInstallationConfig `json:"github_installations"`
 	GitHubPrivateKeyRef           *string                            `json:"github_private_key_credential_ref"`

@@ -6,12 +6,18 @@ import {
   refreshGitHubAppInstallation,
   saveGitHubApp,
   saveGitHubAppInstallation,
+  startGitHubAppInstall,
+  startGitHubAppRegistration,
   verifyGitHubAppInstallation,
 } from './api.js';
+import { clearGitHubAppCallbackParams, submitGitHubAppManifest } from './manifestForm.js';
 import {
   emptyGitHubApp,
+  emptyGitHubAppConnectForm,
   gitHubAppForm,
   gitHubAppInstallationForm,
+  readGitHubAppCallbackResult,
+  type GitHubAppConnectFormState,
   type GitHubAppFormState,
   type GitHubAppInstallation,
   type GitHubAppInstallationFormState,
@@ -32,8 +38,10 @@ export function useGitHubApp({
   const [installationForm, setInstallationForm] = useState<GitHubAppInstallationFormState>(() => gitHubAppInstallationForm());
   const [editingInstallation, setEditingInstallation] = useState<GitHubAppInstallation | null | undefined>(undefined);
   const [selectedInstallationID, setSelectedInstallationID] = useState('');
+  const [connectForm, setConnectForm] = useState<GitHubAppConnectFormState>(() => ({ ...emptyGitHubAppConnectForm }));
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedInstallation = useMemo(
@@ -74,6 +82,18 @@ export function useGitHubApp({
     return () => window.clearTimeout(timeout);
   }, [enabled, loadApp]);
 
+  // GitHub sends the operator back here after the App is created or installed.
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined') return;
+    const result = readGitHubAppCallbackResult(window.location.search);
+    if (!result) return;
+    clearGitHubAppCallbackParams();
+    if (result.tone === 'error') {
+      setError(result.message);
+    }
+    addToast?.(result.message, result.tone);
+  }, [addToast, enabled]);
+
   const submitApp = useCallback(async (event: FormEvent) => {
     event.preventDefault();
     if (!canManage || saving) return;
@@ -91,6 +111,38 @@ export function useGitHubApp({
       setSaving(false);
     }
   }, [addToast, app.installations, canManage, form, saving]);
+
+  // Registration hands the browser to GitHub, so the page navigates away on
+  // success and only failures return here.
+  const connectGitHubApp = useCallback(async () => {
+    if (!canManage || connecting) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      submitGitHubAppManifest(await startGitHubAppRegistration(connectForm));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to start GitHub App registration');
+      addToast?.('GitHub App registration failed to start', 'error');
+      setConnecting(false);
+    }
+  }, [addToast, canManage, connectForm, connecting]);
+
+  const installGitHubApp = useCallback(async () => {
+    if (!canManage || connecting) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      const start = await startGitHubAppInstall();
+      if (!start.install_url) {
+        throw new Error('GitHub App install link is unavailable');
+      }
+      window.location.assign(start.install_url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to start the GitHub App installation');
+      addToast?.('GitHub App installation failed to start', 'error');
+      setConnecting(false);
+    }
+  }, [addToast, canManage, connecting]);
 
   const startCreateInstallation = useCallback(() => {
     if (!canManage) return;
@@ -213,11 +265,16 @@ export function useGitHubApp({
     selectedInstallation,
     selectedInstallationID,
     setSelectedInstallationID,
+    connectForm,
+    setConnectForm,
+    connecting,
     loading,
     saving,
     error,
     loadApp,
     submitApp,
+    connectGitHubApp,
+    installGitHubApp,
     startCreateInstallation,
     startEditInstallation,
     closeInstallationEditor,

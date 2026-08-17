@@ -26,9 +26,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// GitHubAppCredentials exposes the App values that can change while git-bot is
+// running. Registering or rotating a GitHub App updates them in place instead of
+// requiring the container to be restarted.
+type GitHubAppCredentials interface {
+	AppID() int64
+	WebhookSecret() string
+}
+
 type GitBotApp struct {
 	clientResolver     GitHubClientResolver
 	webhookSecret      string
+	githubCredentials  GitHubAppCredentials
 	checkRunStates     map[int64]*checkrender.State
 	stateLock          sync.Mutex
 	githubAppID        int64
@@ -36,6 +45,28 @@ type GitBotApp struct {
 	checksProvider     checksProvider
 	webhookForwarder   nopsaiWebhookForwarder
 	serviceAuth        *serviceauth.Authenticator
+}
+
+// currentWebhookSecret and currentAppID prefer the live credential source and
+// fall back to the values captured at construction.
+func (a *GitBotApp) currentWebhookSecret() string {
+	if a == nil {
+		return ""
+	}
+	if a.githubCredentials != nil {
+		return a.githubCredentials.WebhookSecret()
+	}
+	return a.webhookSecret
+}
+
+func (a *GitBotApp) currentAppID() int64 {
+	if a == nil {
+		return 0
+	}
+	if a.githubCredentials != nil {
+		return a.githubCredentials.AppID()
+	}
+	return a.githubAppID
 }
 
 type RunStatusUpdate struct {
@@ -216,6 +247,22 @@ func NewGitBotApp(
 	}
 }
 
+// NewGitBotAppWithCredentials wires git-bot to a live credential source, so a
+// GitHub App that is registered or rotated after startup is picked up without
+// restarting the container.
+func NewGitBotAppWithCredentials(
+	cfg *config.Config,
+	resolver GitHubClientResolver,
+	httpClient *http.Client,
+	githubCredentials GitHubAppCredentials,
+	serviceAuthenticator *serviceauth.Authenticator,
+	serviceCredentials *serviceauth.Credentials,
+) *GitBotApp {
+	app := NewGitBotApp(cfg, resolver, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
+	app.githubCredentials = githubCredentials
+	return app
+}
+
 func (a *GitBotApp) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -239,7 +286,8 @@ func (a *GitBotApp) Handler() http.Handler {
 }
 
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
-	if a == nil || strings.TrimSpace(a.webhookSecret) == "" {
+	secret := a.currentWebhookSecret()
+	if strings.TrimSpace(secret) == "" {
 		return false
 	}
 	signature := r.Header.Get("X-Hub-Signature-256")
@@ -248,7 +296,7 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	}
 	actualSignature := strings.TrimPrefix(signature, "sha256=")
 
-	mac := hmac.New(sha256.New, []byte(a.webhookSecret))
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	expectedMAC := hex.EncodeToString(mac.Sum(nil))
 
@@ -448,7 +496,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a == nil || strings.TrimSpace(a.webhookSecret) == "" || a.webhookForwarder == nil {
+	if a == nil || strings.TrimSpace(a.currentWebhookSecret()) == "" || a.webhookForwarder == nil {
 		http.Error(w, githubIntegrationUnavailableMessage, http.StatusServiceUnavailable)
 		return
 	}
@@ -461,6 +509,16 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing GitHub App installation", http.StatusBadRequest)
 		return
 	}
+	r.Header.Set("X-GitHub-Installation-ID", fmt.Sprintf("%d", installationID))
+
+	// Installation lifecycle events announce installations NopsAI does not know
+	// yet, or has just lost, so they bypass the registry check that protects
+	// repository events. The verified signature is what makes them trustworthy.
+	if isGitHubInstallationLifecycleEvent(r.Header.Get("X-GitHub-Event")) {
+		a.webhookForwarder.ForwardWebhook(w, r, body)
+		return
+	}
+
 	if a.clientResolver == nil {
 		http.Error(w, githubIntegrationUnavailableMessage, http.StatusServiceUnavailable)
 		return
@@ -469,9 +527,17 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		writeProviderError(w, err, "GitHub App installation is not registered")
 		return
 	}
-	r.Header.Set("X-GitHub-Installation-ID", fmt.Sprintf("%d", installationID))
 
 	a.webhookForwarder.ForwardWebhook(w, r, body)
+}
+
+func isGitHubInstallationLifecycleEvent(eventType string) bool {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "installation", "installation_repositories":
+		return true
+	default:
+		return false
+	}
 }
 
 func githubWebhookInstallationID(body []byte) (int64, bool) {
@@ -953,7 +1019,7 @@ func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Re
 
 	cancelled := 0
 	for _, cr := range checkRuns {
-		isOurApp := cr.HasApp && cr.AppID == a.githubAppID
+		isOurApp := cr.HasApp && cr.AppID == a.currentAppID()
 		isRunning := cr.Status == "queued" || cr.Status == "in_progress"
 		if !isOurApp || !isRunning {
 			continue
@@ -1013,7 +1079,7 @@ func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Reque
 			target = cr
 			break
 		}
-		if cr.HasApp && cr.AppID == a.githubAppID {
+		if cr.HasApp && cr.AppID == a.currentAppID() {
 			target = cr
 			break
 		}
