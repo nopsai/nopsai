@@ -67,6 +67,65 @@ test('switches between the run graph and final outputs tabs', async () => {
   expect(screen.getByText('Summary')).toBeVisible();
 });
 
+test('opens the list tab when the pipeline sets display_option: list', async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <RunDetailWorkspaceTabs
+        runID="run-2"
+        steps={[{ name: 'build', status: 'success', depends_on: [], tasks: [] }]}
+        selectedStep={null}
+        onSelectStep={vi.fn()}
+        onOpenStepLogs={vi.fn()}
+        onOpenTaskLogs={vi.fn()}
+        onOpenStepDetail={vi.fn()}
+        childRuns={[]}
+        pipelineDefinition={{ name: 'build', display_option: 'list' }}
+        outputs={[]}
+        onCancelOutput={vi.fn()}
+        onRetryOutput={vi.fn()}
+      />
+    </MemoryRouter>
+  );
+
+  expect(screen.getByRole('tab', { name: 'List' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('region', { name: 'Pipeline execution list' })).toBeVisible();
+
+  // The option picks the opening tab only; the graph stays reachable.
+  await user.click(screen.getByRole('tab', { name: 'Graph' }));
+  expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('opens the graph tab for display_option: graph and when it is unset', () => {
+  const props = {
+    steps: [{ name: 'build', status: 'success', depends_on: [], tasks: [] }],
+    selectedStep: null,
+    onSelectStep: vi.fn(),
+    onOpenStepLogs: vi.fn(),
+    onOpenTaskLogs: vi.fn(),
+    onOpenStepDetail: vi.fn(),
+    childRuns: [],
+    outputs: [],
+    onCancelOutput: vi.fn(),
+    onRetryOutput: vi.fn(),
+  };
+
+  const explicit = render(
+    <MemoryRouter>
+      <RunDetailWorkspaceTabs runID="run-3" {...props} pipelineDefinition={{ name: 'build', display_option: 'graph' }} />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute('aria-selected', 'true');
+  explicit.unmount();
+
+  render(
+    <MemoryRouter>
+      <RunDetailWorkspaceTabs runID="run-4" {...props} pipelineDefinition={{ name: 'build' }} />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole('tab', { name: 'Graph' })).toHaveAttribute('aria-selected', 'true');
+});
+
 function expandedGraphScale(container: HTMLElement) {
   const transform = container.querySelector('.run-detail-graph-modal .run-graph-overview > g')?.getAttribute('transform') || '';
   return Number(transform.match(/scale\(([^)]+)\)/)?.[1] || 0);

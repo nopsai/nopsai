@@ -785,7 +785,7 @@ type Pipeline struct {
 	Version           string                `yaml:"version,omitempty" json:"version,omitempty"`
 	Description       string                `yaml:"description" json:"description"`
 	ContainerImage    string                `yaml:"container_image" json:"container_image"`
-	DisplayOptions    DisplayOptions        `yaml:"display_options" json:"display_options"`
+	DisplayOption     string                `yaml:"display_option,omitempty" json:"display_option,omitempty"`
 	WorkingDirectory  string                `yaml:"working_directory,omitempty" json:"working_directory,omitempty"`
 	Variables         []string              `yaml:"variables" json:"variables"`
 	Steps             []PipelineStep        `yaml:"steps" json:"steps"`
@@ -864,9 +864,23 @@ func PipelineLLMContentPreload(pipeline *Pipeline) bool {
 	return *pipeline.LlmContentPreload
 }
 
-// DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
-type DisplayOptions struct {
-	GitHubView string `yaml:"github_view,omitempty" json:"github_view,omitempty"`
+// Display options control how pipeline run progress is presented, both in the
+// UI run detail and in GitHub check runs. These are the only accepted values.
+const (
+	DisplayOptionList  = "list"
+	DisplayOptionGraph = "graph"
+)
+
+// DefaultDisplayOption is used when a pipeline does not declare one.
+const DefaultDisplayOption = DisplayOptionGraph
+
+// PipelineDisplayOption resolves the display option for a pipeline, falling
+// back to the default when the pipeline leaves it unset.
+func PipelineDisplayOption(pipeline *Pipeline) string {
+	if pipeline == nil || pipeline.DisplayOption == "" {
+		return DefaultDisplayOption
+	}
+	return pipeline.DisplayOption
 }
 
 // Task is an individual command or goal within a PipelineStep.

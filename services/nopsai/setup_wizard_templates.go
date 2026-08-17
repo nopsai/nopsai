@@ -452,8 +452,7 @@ container_image: alpine:3.20
 working_directory: /workspace
 timeout: 10m
 %s
-display_options:
-  github_view: flat
+display_option: list
 variables:
   - %s:NOPSAI_SETUP_WORKSPACE
   - %s:NOPSAI_SETUP_SCOPE

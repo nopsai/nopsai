@@ -8,6 +8,12 @@ import { StepsGraph } from './RunGraph';
 
 type WorkspaceTab = 'graph' | 'list' | 'outputs';
 
+// The pipeline's display_option decides which workspace tab opens first. It is
+// only the starting tab: every tab stays reachable once the run is open.
+function initialWorkspaceTab(pipelineDefinition?: PipelineDefinition): WorkspaceTab {
+  return pipelineDefinition?.display_option === 'list' ? 'list' : 'graph';
+}
+
 const DEFAULT_GRAPH_FRAME_HEIGHT = 390;
 const MIN_GRAPH_FRAME_HEIGHT = 300;
 const MAX_GRAPH_FRAME_HEIGHT = 860;
@@ -39,11 +45,11 @@ export function RunDetailWorkspaceTabs({
   onCancelOutput: (outputId: string) => void;
   onRetryOutput: (outputId: string) => void;
 }) {
-  const [tabState, setTabState] = useState<{ runID: string; activeTab: WorkspaceTab }>({
-    runID,
-    activeTab: 'graph',
-  });
-  const activeTab = tabState.runID === runID ? tabState.activeTab : 'graph';
+  // Null until the viewer picks a tab for this run, so the pipeline's
+  // display_option still applies when the definition arrives after mount.
+  const [tabState, setTabState] = useState<{ runID: string; activeTab: WorkspaceTab } | null>(null);
+  const activeTab =
+    tabState && tabState.runID === runID ? tabState.activeTab : initialWorkspaceTab(pipelineDefinition);
   const [expandedGraphOpen, setExpandedGraphOpen] = useState(false);
   const [graphFrameHeight, setGraphFrameHeight] = useState(DEFAULT_GRAPH_FRAME_HEIGHT);
   const graphResizeCleanupRef = useRef<(() => void) | null>(null);

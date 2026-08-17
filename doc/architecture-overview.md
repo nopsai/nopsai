@@ -141,7 +141,7 @@ Top-level pipeline features:
 - `llm_content_preload` defaults to false and must be explicitly enabled before workspace file contents are loaded into the prompt up front. It is a prompt-size and cost control, not a confidentiality boundary: the model can still read permitted files through the workspace tools
 - `llm_content_include`, `llm_content_ignore` shape the workspace index itself, so they bound both preloading and what the workspace tools can reach. These are the directives that actually keep a file away from the model
 - `knowledge_context` for managed or repo-local project knowledge
-- `display_options.github_view`
+- `display_option` (`list` or `graph`, default `graph`) drives both the first tab opened in the UI run detail and the git-bot GitHub check-run summary
 
 When content sharing is enabled, shared files are annotated with path, SHA-256,
 size, and workspace revision metadata. The agent rejects stale `REPLACE_FILE`

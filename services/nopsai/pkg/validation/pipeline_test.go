@@ -75,6 +75,51 @@ func TestValidatePipelineRejectsInvalidGovernanceLevel(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineRejectsRemovedDisplayOption(t *testing.T) {
+	for _, value := range []string{"mermaid", "tree", "flat", "Graph "} {
+		p := &models.Pipeline{
+			Name:           "invalid-display-option",
+			ContainerImage: "ubuntu:latest",
+			DisplayOption:  value,
+			Steps: []models.PipelineStep{
+				{
+					Step: &models.TaskStep{
+						BaseStep: models.BaseStep{Name: "step1"},
+						Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+					},
+				},
+			},
+		}
+
+		err := ValidatePipeline(p)
+		if err == nil || !strings.Contains(err.Error(), "display_option") {
+			t.Fatalf("ValidatePipeline(%q) error = %v, want display_option error", value, err)
+		}
+	}
+}
+
+func TestValidatePipelineAcceptsDisplayOption(t *testing.T) {
+	for _, value := range []string{"", models.DisplayOptionList, models.DisplayOptionGraph} {
+		p := &models.Pipeline{
+			Name:           "valid-display-option",
+			ContainerImage: "ubuntu:latest",
+			DisplayOption:  value,
+			Steps: []models.PipelineStep{
+				{
+					Step: &models.TaskStep{
+						BaseStep: models.BaseStep{Name: "step1"},
+						Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+					},
+				},
+			},
+		}
+
+		if err := ValidatePipeline(p); err != nil {
+			t.Fatalf("ValidatePipeline(%q) error = %v, want nil", value, err)
+		}
+	}
+}
+
 func TestValidatePipelineRejectsTooManySteps(t *testing.T) {
 	p := &models.Pipeline{
 		Name:           "too-many-steps",

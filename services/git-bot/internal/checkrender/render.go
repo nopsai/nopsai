@@ -22,8 +22,8 @@ type TaskStatusUpdate struct {
 	TaskStatus string    `json:"task_status"`
 	TaskIndex  int       `json:"task_index"`
 	TotalTasks int       `json:"total_tasks"`
-	DependsOn  []string  `json:"depends_on"`
-	GitHubView string    `json:"github_view"`
+	DependsOn     []string `json:"depends_on"`
+	DisplayOption string   `json:"display_option"`
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
 }
@@ -33,7 +33,7 @@ type State struct {
 	RunID              string
 	Steps              map[string]map[string]TaskStatusUpdate
 	StepOrder          []string
-	GitHubView         string
+	DisplayOption      string
 	PipelineName       string
 	PipelineDefinition string
 }
@@ -42,85 +42,10 @@ func Render(state *State) string {
 	if state == nil {
 		return ""
 	}
-	switch state.GitHubView {
-	case "mermaid":
-		return MermaidGraph(state)
-	case "tree":
-		return MarkdownTree(state)
-	default:
-		return MarkdownFlatList(state)
+	if state.DisplayOption == models.DisplayOptionList {
+		return MarkdownList(state)
 	}
-}
-
-func MarkdownTree(state *State) string {
-	var builder strings.Builder
-	allTasks := make(map[string]TaskStatusUpdate)
-
-	children := make(map[string][]string)
-	isChild := make(map[string]bool)
-
-	for _, stepTasks := range state.Steps {
-		for taskName, task := range stepTasks {
-			allTasks[taskName] = task
-			children[taskName] = []string{}
-			isChild[taskName] = false
-		}
-	}
-
-	for taskName, task := range allTasks {
-		if len(task.DependsOn) > 0 {
-			isChild[taskName] = true
-			for _, depName := range task.DependsOn {
-				if _, ok := allTasks[depName]; ok {
-					children[depName] = append(children[depName], taskName)
-				}
-			}
-		}
-	}
-
-	renderedTasks := make(map[string]bool)
-
-	var renderNode func(taskName string, level int)
-	renderNode = func(taskName string, level int) {
-		if renderedTasks[taskName] {
-			indentation := strings.Repeat("  ", level)
-			builder.WriteString(fmt.Sprintf("%s- `%s` *(already shown above)*\n", indentation, taskName))
-			return
-		}
-		renderedTasks[taskName] = true
-
-		task := allTasks[taskName]
-		icon := taskIcon(task.TaskStatus)
-		duration := taskDuration(task)
-		indentation := strings.Repeat("  ", level)
-		builder.WriteString(fmt.Sprintf("%s- %s **%s**: `%s` - %s%s\n", indentation, icon, task.StepName, task.TaskName, task.TaskStatus, duration))
-
-		taskChildren := children[taskName]
-		sort.SliceStable(taskChildren, func(i, j int) bool {
-			return allTasks[taskChildren[i]].TaskIndex < allTasks[taskChildren[j]].TaskIndex
-		})
-
-		for _, childName := range taskChildren {
-			renderNode(childName, level+1)
-		}
-	}
-
-	var rootTasks []string
-	for taskName := range allTasks {
-		if !isChild[taskName] {
-			rootTasks = append(rootTasks, taskName)
-		}
-	}
-
-	sort.SliceStable(rootTasks, func(i, j int) bool {
-		return allTasks[rootTasks[i]].TaskIndex < allTasks[rootTasks[j]].TaskIndex
-	})
-
-	for _, taskName := range rootTasks {
-		renderNode(taskName, 0)
-	}
-
-	return builder.String()
+	return MermaidGraph(state)
 }
 
 func MermaidGraph(state *State) string {
@@ -219,7 +144,7 @@ func MermaidGraph(state *State) string {
 	return builder.String()
 }
 
-func MarkdownFlatList(state *State) string {
+func MarkdownList(state *State) string {
 	var builder strings.Builder
 	allTasks := []TaskStatusUpdate{}
 
