@@ -147,6 +147,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	if err := validateGovernanceLevel(pipeline.GovernanceLevel, "pipeline"); err != nil {
 		return err
 	}
+	if err := validatePipelineDisplayOption(pipeline.DisplayOption); err != nil {
+		return err
+	}
 
 	allStepNames := make(map[string]bool)
 	stepToTaskNames := make(map[string]map[string]bool)
@@ -778,6 +781,19 @@ func validateGovernanceLevel(value string, location string) error {
 		)
 	}
 	return nil
+}
+
+func validatePipelineDisplayOption(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", models.DisplayOptionList, models.DisplayOptionGraph:
+		return nil
+	default:
+		return fmt.Errorf("display_option must be %q or %q, got %q",
+			models.DisplayOptionList,
+			models.DisplayOptionGraph,
+			value,
+		)
+	}
 }
 
 func validateApprovalDefinition(approval models.ApprovalDefinition, stepName string) error {

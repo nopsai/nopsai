@@ -358,12 +358,7 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 		return fmt.Errorf("invalid pipeline definition: %w", err)
 	}
 
-	view := "flat"
-	if pipeline.DisplayOptions.GitHubView == "mermaid" {
-		view = "mermaid"
-	} else if pipeline.DisplayOptions.GitHubView == "tree" {
-		view = "tree"
-	}
+	view := models.PipelineDisplayOption(&pipeline)
 
 	a.stateLock.Lock()
 	defer a.stateLock.Unlock()
@@ -371,7 +366,7 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 	initialState := &checkrender.State{
 		Steps:              make(map[string]map[string]checkrender.TaskStatusUpdate),
 		StepOrder:          []string{},
-		GitHubView:         view,
+		DisplayOption:      view,
 		PipelineName:       checkName,
 		PipelineDefinition: pipelineDef, // Store the pipeline definition
 	}
@@ -1101,8 +1096,8 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		state.Steps[update.StepName][update.TaskName] = update
 	}
 
-	if update.GitHubView != "" {
-		state.GitHubView = update.GitHubView
+	if update.DisplayOption != "" {
+		state.DisplayOption = update.DisplayOption
 	}
 
 	summary := checkrender.Render(state)

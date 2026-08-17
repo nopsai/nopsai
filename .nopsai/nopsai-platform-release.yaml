@@ -6,8 +6,7 @@ working_directory: /workspace
 timeout: 3h
 llm_enabled: false
 llm_content_preload: false
-display_options:
-  github_view: mermaid
+display_option: graph
 access:
   visibility: restricted
   use_access:

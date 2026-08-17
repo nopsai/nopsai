@@ -43,7 +43,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'llm_content_preload', hint: 'Share workspace files with LLM goals' },
   { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
   { key: 'llm_content_ignore', hint: 'Paths excluded from LLM context' },
-  { key: 'display_options', hint: 'UI rendering preferences' },
+  { key: 'display_option', hint: 'Run view: list or graph' },
 ];
 
 export const STEP_DIRECTIVES: LabDirective[] = [
@@ -91,6 +91,7 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
   ignore_failure: { values: ['true', 'false'], title: 'Boolean value' },
   sync: { values: ['true', 'false'], title: 'Boolean value' },
   governance_level: { values: ['advisory', 'strict'], title: 'Governance level' },
+  display_option: { values: ['list', 'graph'], title: 'Run display' },
 };
 
 export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
@@ -432,7 +433,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'version',
     'description',
     'container_image',
-    'display_options',
+    'display_option',
     'working_directory',
     'variables',
     'steps',
@@ -490,7 +491,6 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
   const knownOutputKeys = new Set(['model', 'items']);
   const knownOutputItemKeys = new Set(['name', 'type', 'when', 'prompt', 'model', 'dashboard']);
   const knownDashboardTargetKeys = new Set(['ref', 'section', 'entry_key', 'mode', 'preset', 'ttl']);
-  const knownDisplayOptionsKeys = new Set(['github_view']);
 
   const createError = (message: string, pathHints: string[] = []): LabValidationError => {
     let line: number | null = null;
@@ -526,9 +526,6 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
 
   const checkAllKeys = (pipeline: Record<string, unknown>) => {
     let allUnknown = findUnknownKeys(pipeline, knownPipelineKeys);
-    if (pipeline.display_options) {
-      allUnknown = allUnknown.concat(findUnknownKeys(pipeline.display_options, knownDisplayOptionsKeys, 'display_options'));
-    }
     if (pipeline.output) {
       allUnknown = allUnknown.concat(findUnknownKeys(pipeline.output, knownOutputKeys, 'output'));
       const outputItems = isPlainObject(pipeline.output) && Array.isArray(pipeline.output.items) ? pipeline.output.items : [];
@@ -596,6 +593,24 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       if (!allowedGovernanceLevels.has(normalized)) {
         return {
           errors: [createError("Validation Error: 'governance_level' must be 'advisory' or 'strict'.", [entry.path])],
+        };
+      }
+    }
+
+    // display_option is validated by value so the editor rejects a removed view
+    // (mermaid, tree, flat) instead of silently falling back at render time.
+    if (hasOwn(pipeline, 'display_option')) {
+      const displayOption = pipeline.display_option;
+      // An absent or empty value falls back to the graph default, matching the backend.
+      const isEmpty =
+        displayOption === null ||
+        displayOption === undefined ||
+        (typeof displayOption === 'string' && displayOption.trim() === '');
+      // Case-sensitive, matching validatePipelineDisplayOption in the backend.
+      const normalized = typeof displayOption === 'string' ? displayOption.trim() : '';
+      if (!isEmpty && normalized !== 'list' && normalized !== 'graph') {
+        return {
+          errors: [createError("Validation Error: 'display_option' must be 'list' or 'graph'.", ['display_option'])],
         };
       }
     }
