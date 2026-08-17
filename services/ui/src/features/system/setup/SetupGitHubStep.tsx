@@ -1,5 +1,6 @@
 import { CheckCircle2, Github } from 'lucide-react';
-import GitHubAppConnectCard from '../git-apps/GitHubAppConnectCard';
+import GitHubAppCard from '../git-apps/GitHubAppCard';
+import GitHubAppConnectDialog from '../git-apps/GitHubAppConnectDialog';
 import { installationDisplayName } from '../git-apps/model';
 import { useGitHubApp } from '../git-apps/useGitHubApp';
 import { StepIntro } from './SetupWizardPrimitives';
@@ -26,17 +27,35 @@ export default function SetupGitHubStep({ canManage }: { canManage: boolean }) {
         </div>
       ) : null}
 
-      <GitHubAppConnectCard
+      <GitHubAppCard
         app={controller.app}
-        form={controller.connectForm}
-        webhookURL={controller.form.webhookURL}
+        form={controller.form}
+        loading={controller.loading}
+        saving={controller.saving}
         connecting={controller.connecting}
         canManage={canManage}
-        onChange={controller.setConnectForm}
-        onWebhookURLChange={value => controller.setForm(current => ({ ...current, webhookURL: value }))}
-        onConnect={() => void controller.connectGitHubApp()}
+        onChange={controller.setForm}
+        onSubmit={controller.submitApp}
+        onRefresh={() => void controller.loadApp()}
+        onConnect={controller.openConnectDialog}
         onInstall={() => void controller.installGitHubApp()}
       />
+
+      {controller.connectDialogOpen ? (
+        <GitHubAppConnectDialog
+          form={controller.connectForm}
+          webhookURL={controller.form.webhookURL}
+          replacing={Boolean(controller.app.app_id)}
+          connecting={controller.connecting}
+          onChange={controller.setConnectForm}
+          onWebhookURLChange={value => controller.setForm(current => ({ ...current, webhookURL: value }))}
+          onClose={controller.closeConnectDialog}
+          onSubmit={event => {
+            event.preventDefault();
+            void controller.connectGitHubApp();
+          }}
+        />
+      ) : null}
 
       <div className="rounded-lg border border-[var(--border-primary)] p-4 text-sm">
         <p className="text-xs text-[var(--text-secondary)]">Registered installations</p>

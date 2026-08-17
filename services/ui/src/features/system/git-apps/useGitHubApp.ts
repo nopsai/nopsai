@@ -39,6 +39,7 @@ export function useGitHubApp({
   const [editingInstallation, setEditingInstallation] = useState<GitHubAppInstallation | null | undefined>(undefined);
   const [selectedInstallationID, setSelectedInstallationID] = useState('');
   const [connectForm, setConnectForm] = useState<GitHubAppConnectFormState>(() => ({ ...emptyGitHubAppConnectForm }));
+  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -111,6 +112,17 @@ export function useGitHubApp({
       setSaving(false);
     }
   }, [addToast, app.installations, canManage, form, saving]);
+
+  const openConnectDialog = useCallback(() => {
+    if (!canManage) return;
+    setError(null);
+    setConnectDialogOpen(true);
+  }, [canManage]);
+
+  const closeConnectDialog = useCallback(() => {
+    if (connecting) return;
+    setConnectDialogOpen(false);
+  }, [connecting]);
 
   // Registration hands the browser to GitHub, so the page navigates away on
   // success and only failures return here.
@@ -267,6 +279,9 @@ export function useGitHubApp({
     setSelectedInstallationID,
     connectForm,
     setConnectForm,
+    connectDialogOpen,
+    openConnectDialog,
+    closeConnectDialog,
     connecting,
     loading,
     saving,

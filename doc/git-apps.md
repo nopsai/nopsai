@@ -21,8 +21,10 @@ available for GitHub Enterprise Server and air-gapped installations.
 - Installation lifecycle events: `services/nopsai/git_apps_installation_events.go`.
 - git-bot credential refresh: `services/git-bot/internal/app/github_runtime.go`.
 - Hook orchestration: `services/ui/src/features/system/git-apps/useGitHubApp.ts`.
-- Rendering: `services/ui/src/features/system/git-apps/GitHubAppPanel.tsx` and
-  `services/ui/src/features/system/git-apps/GitHubAppConnectCard.tsx`.
+- Rendering: `services/ui/src/features/system/git-apps/GitHubAppPanel.tsx`
+  composes one `GitHubAppCard.tsx` for the single App, `GitHubAppConnectDialog.tsx`
+  for registering or replacing it, and the installation table and repository
+  panel below it.
 - Setup wizard step: `services/ui/src/features/system/setup/SetupGitHubStep.tsx`.
 - Route composition: `services/nopsai/routes.go` and `services/ui/src/pages/System.tsx`.
 
@@ -86,6 +88,25 @@ a configured CORS origin, or `public_url`, so a foreign origin cannot redirect
 GitHub's response somewhere else. When neither a browser origin nor `public_url`
 is available, the flow refuses to start rather than registering an App whose
 callbacks lead nowhere.
+
+### Deployment Shapes
+
+- **Tunnel or proxy in front of git-bot only.** Set `webhook_url` to that public
+  address. NopsAI can stay on a private address such as `http://localhost:8080`;
+  the connect flow uses the browser's own origin for the redirect back.
+- **One public host for everything.** A reverse proxy that routes `/webhook` to
+  git-bot and the rest to NopsAI needs no `webhook_url`: the fallback of
+  `public_url` + `/webhook` is already correct.
+- **git-bot published directly.** Supported and no different from a tunnel: set
+  `webhook_url` to its public address. git-bot leaves only `/healthz` and
+  `/webhook` unauthenticated; every other route requires an internal service
+  token with the `nopsai` role, and `/webhook` verifies the HMAC signature before
+  anything is forwarded.
+
+`public_url` must name NopsAI, not git-bot, even when git-bot is the host exposed
+to the internet. It is the UI base used for notification links and for the
+connect flow's callbacks when a request carries no browser origin, such as a CLI
+call. Pointing it at git-bot would send those to a host with no UI.
 
 Required GitHub App events: `push`, `pull_request`, `check_run`, `check_suite`,
 `installation`, `installation_repositories`.
