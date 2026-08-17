@@ -841,19 +841,80 @@ steps:
         done < <(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
       }
 
+      # release_exists answers only what it can prove. A lookup that fails for
+      # any reason other than "not found" aborts the phase instead of reporting
+      # "does not exist", because guessing sends the release down the create
+      # path and turns a transient API error into a hard failure after every
+      # asset has already been built.
+      release_exists() {
+        local release_tag="$1"
+        local lookup_output
+        if lookup_output="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json tagName 2>&1)"; then
+          return 0
+        fi
+        if printf '%s' "$lookup_output" | grep -qi 'release not found'; then
+          return 1
+        fi
+        echo "Failed to determine whether release $release_tag exists: $lookup_output" >&2
+        exit 1
+      }
+
+      release_already_exists_error() {
+        printf '%s' "$1" | grep -qi 'already exists'
+      }
+
+      update_release() {
+        local release_tag="$1"
+        shift
+        delete_release_assets "$release_tag"
+        gh release upload "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
+        gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" "$@" --notes-file dist/release/CHANGELOG.md
+      }
+
+      # create_release falls back to updating when GitHub reports the release
+      # already exists. Another run can create it between the lookup and the
+      # create, and a release that exists is the state this phase wanted.
+      # require_recovery is true only for the version release: alias releases
+      # such as latest are moving pointers that every release replaces.
+      create_release() {
+        local release_tag="$1"
+        local require_recovery="$2"
+        shift 2
+        local create_output
+        if create_output="$(gh release create "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" "$@" --notes-file dist/release/CHANGELOG.md 2>&1)"; then
+          printf '%s\n' "$create_output"
+          return 0
+        fi
+        if ! release_already_exists_error "$create_output"; then
+          printf '%s\n' "$create_output" >&2
+          return 1
+        fi
+        echo "github_release_action=create_raced_existing tag=$release_tag"
+        if [[ "$require_recovery" == "true" ]]; then
+          require_existing_release_recovery "$release_tag"
+        fi
+        update_release "$release_tag" "$@"
+      }
+
+      require_existing_release_recovery() {
+        local release_tag="$1"
+        if [[ "$ALLOW_EXISTING_RELEASE" != "true" ]]; then
+          echo "Release $release_tag already exists and recovery mode is disabled" >&2
+          exit 1
+        fi
+      }
+
       publish_alias_release() {
         local release_alias="$1"
         local release_tag="$2"
         git tag -f "$release_tag" "$SOURCE_COMMIT"
         git push --force origin "refs/tags/$release_tag"
-        if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+        if release_exists "$release_tag"; then
           echo "github_release_alias_action=update alias=$release_alias tag=$release_tag"
-          delete_release_assets "$release_tag"
-          gh release upload "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
-          gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" --title "NopsAI $release_alias ($VERSION)" --notes-file dist/release/CHANGELOG.md --latest=false
+          update_release "$release_tag" --title "NopsAI $release_alias ($VERSION)" --latest=false
         else
           echo "github_release_alias_action=create alias=$release_alias tag=$release_tag"
-          gh release create "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $release_alias ($VERSION)" --notes-file dist/release/CHANGELOG.md --latest=false
+          create_release "$release_tag" false --title "NopsAI $release_alias ($VERSION)" --latest=false
         fi
       }
 
@@ -881,20 +942,16 @@ steps:
         "nopsai_${VERSION}_darwin_arm64.tar.gz"
         "nopsai_${VERSION}_windows_amd64.zip"
       )
-      if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-        if [[ "$ALLOW_EXISTING_RELEASE" != "true" ]]; then
-          echo "Release v$VERSION already exists and recovery mode is disabled" >&2
-          exit 1
-        fi
+      if release_exists "v$VERSION"; then
+        require_existing_release_recovery "v$VERSION"
         echo "github_release_action=update"
         for asset in "${legacy_assets[@]}"; do
           gh release delete-asset "v$VERSION" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
         done
-        gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
-        gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
+        update_release "v$VERSION" --title "NopsAI $VERSION" --latest
       else
         echo "github_release_action=create"
-        gh release create "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
+        create_release "v$VERSION" true --title "NopsAI $VERSION" --latest
       fi
       while IFS= read -r release_tag; do
         case "$release_tag" in
