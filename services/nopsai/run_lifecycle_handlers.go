@@ -54,6 +54,10 @@ func (a *App) cancelRunHierarchy(ctx context.Context, runUUID uuid.UUID, reason,
 		}
 	}
 
+	// A cancelled run releases its concurrency group like a finished one, so the
+	// next queued run starts without waiting for the recovery sweep.
+	a.releaseRunConcurrencyGroupForRun(ctx, runUUID.String())
+
 	return nil
 }
 

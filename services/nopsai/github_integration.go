@@ -87,7 +87,6 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		commitAuthorUsername        string
 		pusherName                  string
 		pusherEmail                 string
-		beforeSHA                   string
 		changedFiles                []string
 		changedFilesKnown           bool
 		isRerun                     bool
@@ -120,7 +119,6 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		}
 		headCommit = event.HeadCommit
 		pusher = event.Pusher
-		beforeSHA = event.GetBefore()
 		changedFiles = githubPushChangedFiles(event)
 		changedFilesKnown = len(event.Commits) > 0
 
@@ -355,10 +353,6 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		} else if err != nil && err != sql.ErrNoRows {
 			log.Warn().Err(err).Str("commit", commitSHA).Msg("Failed to recover original ref for rerun event")
 		}
-	}
-
-	if beforeSHA != "" && beforeSHA != "0000000000000000000000000000000000000000" {
-		a.cancelStaleCheckRuns(owner, repo, beforeSHA)
 	}
 
 	manifest, pipelineSource, err := a.fetchTriggerManifest(owner, repo, commitSHA)

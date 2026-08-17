@@ -225,6 +225,10 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The finished run held its concurrency group; start whatever queued behind
+	// it before spending time on outputs and notifications.
+	go a.releaseRunConcurrencyGroupForRun(context.Background(), runID)
+
 	if err := a.preparePipelineFinalOutputRecords(context.Background(), runID); err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Msg("Failed to prepare final outputs after run finalization")
 	} else {

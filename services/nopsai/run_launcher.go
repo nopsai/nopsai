@@ -75,6 +75,24 @@ func (a *App) launchAgent(ctx context.Context, req AgentRunLaunchRequest) {
 		return
 	}
 
+	// A run that is not at the head of its concurrency group stays pending. The
+	// group holder releases it when it finishes, and the pending-run recovery
+	// worker retries it if that release never arrives.
+	if group := a.runConcurrencyGroup(ctx, req.RunID); group != runConcurrencyGroupUnset {
+		holderRunID, mayStart := a.runHoldsConcurrencyGroup(ctx, req.RunID, group)
+		if !mayStart {
+			if !req.RecoveryAttempt && holderRunID != "" {
+				a.appendRunLogs(ctx, req.RunID, queuedBehindRunMessage(holderRunID, group))
+			}
+			log.Info().
+				Str("run_id", req.RunID).
+				Str("concurrency_group", group).
+				Str("holder_run_id", holderRunID).
+				Msg("Run is queued behind an earlier run in its concurrency group")
+			return
+		}
+	}
+
 	payload, failure := a.buildAgentLaunchPayload(ctx, req)
 	if failure != nil {
 		if req.RecoveryAttempt {

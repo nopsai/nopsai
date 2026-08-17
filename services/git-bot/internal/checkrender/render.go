@@ -13,19 +13,19 @@ import (
 )
 
 type TaskStatusUpdate struct {
-	RunID      string    `json:"run_id"`
-	RepoOwner  string    `json:"repo_owner"`
-	RepoName   string    `json:"repo_name"`
-	CheckRunID int64     `json:"check_run_id"`
-	StepName   string    `json:"step_name"`
-	TaskName   string    `json:"task_name"`
-	TaskStatus string    `json:"task_status"`
-	TaskIndex  int       `json:"task_index"`
-	TotalTasks int       `json:"total_tasks"`
-	DependsOn     []string `json:"depends_on"`
-	DisplayOption string   `json:"display_option"`
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at"`
+	RunID         string    `json:"run_id"`
+	RepoOwner     string    `json:"repo_owner"`
+	RepoName      string    `json:"repo_name"`
+	CheckRunID    int64     `json:"check_run_id"`
+	StepName      string    `json:"step_name"`
+	TaskName      string    `json:"task_name"`
+	TaskStatus    string    `json:"task_status"`
+	TaskIndex     int       `json:"task_index"`
+	TotalTasks    int       `json:"total_tasks"`
+	DependsOn     []string  `json:"depends_on"`
+	DisplayOption string    `json:"display_option"`
+	StartedAt     time.Time `json:"started_at"`
+	FinishedAt    time.Time `json:"finished_at"`
 }
 
 // State stores check-run tasks nested by step.
@@ -57,7 +57,9 @@ func MermaidGraph(state *State) string {
 	builder.WriteString("    classDef success fill:#1a3021,stroke:#3fb950,color:#c9d1d9\n")
 	builder.WriteString("    classDef failure fill:#38191c,stroke:#f85149,color:#c9d1d9\n")
 	builder.WriteString("    classDef ignored fill:#34291a,stroke:#d29922,color:#c9d1d9\n")
+	builder.WriteString("    classDef running fill:#132a3d,stroke:#58a6ff,color:#c9d1d9\n")
 	builder.WriteString("    classDef pending fill:#242930,stroke:#6e7681,color:#c9d1d9\n")
+	builder.WriteString("    classDef cancelled fill:#242930,stroke:#8b949e,color:#8b949e\n")
 	builder.WriteString("    classDef skipped fill:#242930,stroke:#6e7681,color:#c9d1d9\n")
 	builder.WriteString("    linkStyle default stroke:#6e7681,stroke-width:1px\n")
 
@@ -167,6 +169,9 @@ func MarkdownList(state *State) string {
 	return builder.String()
 }
 
+// Work that is under way must not look like work that has not started: an
+// operator watching a check run needs to see progress without reading each
+// status word.
 func taskIcon(status string) string {
 	switch {
 	case status == "success":
@@ -175,12 +180,34 @@ func taskIcon(status string) string {
 		return "⚠️"
 	case strings.Contains(strings.ToLower(status), "fail"):
 		return "❌"
+	case isRunningTaskStatus(status):
+		return "🔄"
+	case isCancelledTaskStatus(status):
+		return "🚫"
 	case status == "skipped":
 		return "⚪️"
 	case status == "not_found":
 		return "❓"
 	default:
 		return "⏳"
+	}
+}
+
+func isRunningTaskStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "running", "in_progress", "in progress", "started":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCancelledTaskStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "cancelled", "canceled":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -199,6 +226,10 @@ func mermaidTaskStyle(status string) (string, string) {
 		return "⚠️", "ignored"
 	case strings.Contains(status, "fail"):
 		return "❌", "failure"
+	case isRunningTaskStatus(status):
+		return "🔄", "running"
+	case isCancelledTaskStatus(status):
+		return "🚫", "cancelled"
 	case status == "skipped", status == "not_found":
 		return "⚪️", "skipped"
 	default:
