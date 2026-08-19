@@ -140,6 +140,19 @@ release resolves to the same source commit. If `publish-release` stops because
 `NOPSAI_RELEASE_ALLOW_EXISTING=true` to replace the existing release assets, or
 delete the GitHub Release and tag before retrying a clean publish.
 
+Every GitHub call in `publish-release` is retried on transient failures such as
+HTTP 429 and 5xx, with delays from `NOPSAI_RELEASE_GITHUB_RETRY_DELAYS`
+(default `5 15 30 60 120` seconds). A lookup that never answers stops the phase
+with a message saying so; it is never reported as a release that belongs to
+another commit, because the rerun that would have republished its own release
+would then be blocked by an outage rather than by a real conflict.
+
+A `gh release create` that fails after GitHub has already made the release
+leaves an unpublished draft behind, and a draft carries no git tag. The rerun
+recognises that draft as its own unfinished release for the same source commit,
+uploads the rebuilt assets to it, and publishes it, so an interrupted publish
+does not have to be cleaned up by hand.
+
 ## CLI-Generated Installs
 
 The first-install entry point is:

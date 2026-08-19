@@ -9,7 +9,7 @@ require_text() {
   local pattern="$1"
   local file="$2"
   local description="$3"
-  if ! grep -F "$pattern" "$file" >/dev/null; then
+  if ! grep -F -e "$pattern" "$file" >/dev/null; then
     printf '%s is missing %s\n' "$file" "$description" >&2
     return 1
   fi
@@ -183,6 +183,7 @@ require_text "release_exists()" "$publish_helpers" "the extracted release lookup
 require_text "create_release()" "$publish_helpers" "the extracted release create helper"
 require_text "release_target_matches_source()" "$publish_helpers" "the extracted same-source release guard"
 require_text "run_gh_with_retry()" "$publish_helpers" "the extracted GitHub CLI retry helper"
+require_text "load_release_metadata()" "$publish_helpers" "the extracted release metadata lookup"
 
 fake_gh_dir="$temp_dir/fake-bin"
 mkdir -p "$fake_gh_dir" "$temp_dir/release-workdir/dist/assets" "$temp_dir/release-workdir/dist/release"
@@ -192,15 +193,34 @@ cat >"$fake_gh_dir/gh" <<'FAKE_GH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"$GH_CALL_LOG"
+
+count_attempt() {
+  local attempt_file="$1"
+  local attempts=0
+  if [[ -f "$attempt_file" ]]; then
+    attempts="$(cat "$attempt_file")"
+  fi
+  attempts=$((attempts + 1))
+  printf '%s\n' "$attempts" >"$attempt_file"
+  printf '%s\n' "$attempts"
+}
+
 case "${1:-} ${2:-}" in
   "release view")
+    # Listing the assets on a release is a separate question from looking the
+    # release up, so it answers without consuming a lookup attempt.
+    if [[ "$*" == *"--json assets"* ]]; then
+      printf '%s' "${FAKE_GH_ASSETS:-}"
+      exit 0
+    fi
+    view_attempts="$(count_attempt "$GH_VIEW_ATTEMPT_FILE")"
+    if (( view_attempts <= ${FAKE_GH_VIEW_FAILS:-0} )); then
+      echo 'non-200 OK status code: 503 Service Unavailable body: {"message":"No server is currently available to service your request."}' >&2
+      exit 1
+    fi
     case "$FAKE_GH_VIEW" in
       found)
-        if [[ "$*" == *"targetCommitish"* && "$*" == *"--jq"* ]]; then
-          printf '%s\n' "${FAKE_GH_TARGET:-abc123}"
-        else
-          printf '{"tagName":"%s","targetCommitish":"%s"}\n' "$3" "${FAKE_GH_TARGET:-abc123}"
-        fi
+        printf '%s\t%s\n' "${FAKE_GH_TARGET:-abc123}" "${FAKE_GH_DRAFT:-false}"
         exit 0
         ;;
       missing) echo "release not found" >&2; exit 1 ;;
@@ -215,12 +235,7 @@ case "${1:-} ${2:-}" in
     exit 0
     ;;
   "release upload")
-    upload_attempts=0
-    if [[ -f "$GH_UPLOAD_ATTEMPT_FILE" ]]; then
-      upload_attempts="$(cat "$GH_UPLOAD_ATTEMPT_FILE")"
-    fi
-    upload_attempts=$((upload_attempts + 1))
-    printf '%s\n' "$upload_attempts" >"$GH_UPLOAD_ATTEMPT_FILE"
+    upload_attempts="$(count_attempt "$GH_UPLOAD_ATTEMPT_FILE")"
     if (( upload_attempts <= ${FAKE_GH_UPLOAD_FAILS:-0} )); then
       echo 'non-200 OK status code: 503 Service Unavailable body: {"message":"No server is currently available to service your request."}' >&2
       exit 1
@@ -232,20 +247,27 @@ esac
 FAKE_GH
 chmod +x "$fake_gh_dir/gh"
 
+publish_stderr="$temp_dir/publish-stderr.log"
+
 run_publish_case() {
   local view="$1" create="$2" allow_existing="$3" expected_status="$4"
   local target_commitish="${5:-abc123}"
   local upload_fails="${6:-0}"
+  local view_fails="${7:-0}"
+  local is_draft="${8:-false}"
   local status=0
-  rm -f "$temp_dir/gh-upload-attempts"
+  rm -f "$temp_dir/gh-upload-attempts" "$temp_dir/gh-view-attempts"
   (
     cd "$temp_dir/release-workdir"
     export PATH="$fake_gh_dir:$PATH"
     export GH_CALL_LOG="$temp_dir/gh-calls.log"
     export GH_UPLOAD_ATTEMPT_FILE="$temp_dir/gh-upload-attempts"
+    export GH_VIEW_ATTEMPT_FILE="$temp_dir/gh-view-attempts"
     export FAKE_GH_VIEW="$view" FAKE_GH_CREATE="$create"
     export FAKE_GH_UPLOAD_FAILS="$upload_fails"
+    export FAKE_GH_VIEW_FAILS="$view_fails"
     export FAKE_GH_TARGET="$target_commitish"
+    export FAKE_GH_DRAFT="$is_draft"
     export GITHUB_REPOSITORY="nopsai/nopsai" VERSION="0.22.813" SOURCE_COMMIT="abc123"
     export ALLOW_EXISTING_RELEASE="$allow_existing"
     export NOPSAI_RELEASE_GITHUB_RETRY_DELAYS="0 0 0"
@@ -258,10 +280,11 @@ run_publish_case() {
     else
       create_release "v$VERSION" true --title "NopsAI $VERSION" --latest
     fi
-  ) >/dev/null 2>&1 || status=$?
+  ) >/dev/null 2>"$publish_stderr" || status=$?
   if [[ "$status" != "$expected_status" ]]; then
     printf 'publish case view=%s create=%s allow_existing=%s exited %s, want %s\n' \
       "$view" "$create" "$allow_existing" "$status" "$expected_status" >&2
+    cat "$publish_stderr" >&2
     exit 1
   fi
 }
@@ -286,6 +309,27 @@ if [[ "$upload_call_count" != "2" ]]; then
   exit 1
 fi
 
+# A lookup is retried like any other GitHub call: a 503 on the way to the
+# answer is not the answer, and reruns used to fail on one.
+: >"$temp_dir/gh-calls.log"
+run_publish_case found ok false 0 abc123 0 1
+require_text "release upload" "$temp_dir/gh-calls.log" "an update after a transient lookup failure was retried"
+if grep -q "release create" "$temp_dir/gh-calls.log"; then
+  printf 'transient lookup failure fell through to create\n' >&2
+  exit 1
+fi
+view_call_count="$(grep '^release view' "$temp_dir/gh-calls.log" | grep -vc 'json assets')"
+if [[ "$view_call_count" != "2" ]]; then
+  printf 'transient lookup failure attempted %s lookups, want 2\n' "$view_call_count" >&2
+  exit 1
+fi
+
+# The draft that a failed create leaves behind carries no git tag, so it can
+# only be finished by publishing it.
+: >"$temp_dir/gh-calls.log"
+run_publish_case found ok false 0 abc123 0 0 true
+require_text "--draft=false" "$temp_dir/gh-calls.log" "the edit that publishes a leftover draft"
+
 : >"$temp_dir/gh-calls.log"
 run_publish_case found ok true 0 deadbeef
 require_text "release upload" "$temp_dir/gh-calls.log" "an asset upload when recovery mode is enabled"
@@ -298,11 +342,17 @@ if grep -q "release upload" "$temp_dir/gh-calls.log"; then
 fi
 
 # A lookup that fails for any reason other than "not found" must abort before
-# creating anything.
+# creating anything, and must not be reported as a release that belongs to
+# another commit: that misreading turned a transient GitHub outage into a
+# permanent "already exists for another source" failure.
 : >"$temp_dir/gh-calls.log"
 run_publish_case error ok true 1
 if grep -q "release create" "$temp_dir/gh-calls.log"; then
   printf 'unreadable release lookup fell through to create\n' >&2
+  exit 1
+fi
+if grep -q "already exists for another source" "$publish_stderr"; then
+  printf 'unreadable release lookup was reported as a release for another source\n' >&2
   exit 1
 fi
 
