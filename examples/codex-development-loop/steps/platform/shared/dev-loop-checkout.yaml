@@ -1,0 +1,81 @@
+# Reusable checkout for both development-loop pipelines.
+#
+#   include: step:platform/shared/dev-loop-checkout
+#
+# Clones the target repository into the run workspace and checks out
+# DEV_LOOP_CHECKOUT_REF. This step is deliberately self-contained: it runs
+# before the repository exists in the workspace, so it cannot use the toolkit
+# scripts that every later step relies on.
+name: dev-loop-checkout
+image: ghcr.io/acme/nopsai-codex-runner:1.0.0
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: team
+        subject_id: platform
+secrets:
+  - DEV_LOOP_GIT_TOKEN
+script: |
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  repo_url="${DEV_LOOP_REPOSITORY_URL:-${GIT_CLONE_URL:-}}"
+  if [[ -z "$repo_url" ]]; then
+    echo "dev-loop: DEV_LOOP_REPOSITORY_URL is required" >&2
+    exit 1
+  fi
+
+  checkout_ref="${DEV_LOOP_CHECKOUT_REF:-${DEV_LOOP_BASE_BRANCH:-main}}"
+
+  export GIT_TERMINAL_PROMPT=0
+
+  if [[ -d .git ]]; then
+    git remote set-url origin "$repo_url" 2>/dev/null || git remote add origin "$repo_url"
+  else
+    if find . -mindepth 1 -maxdepth 1 | grep -q .; then
+      echo "dev-loop: workspace is not empty and is not a git checkout; refusing to clone over it" >&2
+      exit 1
+    fi
+    git init .
+    git remote add origin "$repo_url"
+  fi
+
+  # The token is written into a helper rather than the remote URL so it never
+  # lands in .git/config, the reflog, or any later 'git remote -v' output.
+  askpass_path="$(git rev-parse --absolute-git-dir)/nopsai-git-askpass"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'case "$1" in' \
+    '  *Username*) printf "%s\n" "x-access-token" ;;' \
+    '  *Password*) printf "%s\n" "$DEV_LOOP_GIT_TOKEN" ;;' \
+    '  *) printf "\n" ;;' \
+    'esac' >"$askpass_path"
+  chmod 700 "$askpass_path"
+  export GIT_ASKPASS="$askpass_path"
+
+  git fetch --force --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+  if git rev-parse --verify --quiet "origin/$checkout_ref^{commit}" >/dev/null; then
+    git checkout -B "$checkout_ref" "origin/$checkout_ref"
+  else
+    echo "dev-loop: branch '$checkout_ref' does not exist on origin" >&2
+    exit 1
+  fi
+
+  git reset --hard
+  git clean -ffd
+
+  git config user.name "${DEV_LOOP_GIT_AUTHOR_NAME:-NopsAI Development Loop}"
+  git config user.email "${DEV_LOOP_GIT_AUTHOR_EMAIL:-dev-loop@nopsai.local}"
+
+  # Scratch space for the run. It lives inside the workspace because that is
+  # the only thing shared between steps, and it is excluded from Git so it can
+  # never show up as an unrelated change in a task's diff.
+  mkdir -p .dev-loop
+  exclude_file="$(git rev-parse --git-dir)/info/exclude"
+  mkdir -p "$(dirname "$exclude_file")"
+  grep -qxF '/.dev-loop/' "$exclude_file" 2>/dev/null || echo '/.dev-loop/' >>"$exclude_file"
+
+  echo "checked_out_ref=$checkout_ref"
+  echo "checked_out_commit=$(git rev-parse HEAD)"

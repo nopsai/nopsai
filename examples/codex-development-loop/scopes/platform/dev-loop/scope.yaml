@@ -1,0 +1,55 @@
+# Scope for the Codex development loop.
+#
+# Both pipelines and both external triggers run in this scope, so the loop's
+# settings are configured once here rather than repeated per pipeline. Secrets
+# are declared by key only; the values are resolved from the credential store.
+variables:
+  # Repository the loop develops in.
+  DEV_LOOP_REPOSITORY_URL: "https://github.com/acme/nopsai.git"
+  DEV_LOOP_BASE_BRANCH: "main"
+
+  # Repository layout.
+  DEV_LOOP_TASK_FILE: "development-task.md"
+  DEV_LOOP_AGENTS_FILE: "AGENTS.md"
+  DEV_LOOP_PLAN_DIR: ".nopsai/plans"
+  DEV_LOOP_REVIEW_DIR: ".nopsai/reviews"
+  DEV_LOOP_BRANCH_PREFIX: "nopsai/task"
+
+  # Where the loop's own scripts and prompts live inside that repository.
+  # Copy examples/codex-development-loop/{scripts,prompts} to this path, or
+  # point it at the example directory when the loop develops NopsAI itself.
+  DEV_LOOP_TOOLKIT_DIR: ".nopsai/dev-loop"
+
+  # Refuse to reuse a task branch that already exists. Set to "true" only to
+  # resume a task whose earlier run failed.
+  DEV_LOOP_ALLOW_EXISTING_BRANCH: "false"
+
+  # What a passing review does. "state-only" records the task complete on the
+  # base branch and leaves the code on its own branch for a human to merge.
+  # "merge" also merges the task branch, so later tasks build on earlier ones.
+  DEV_LOOP_ON_PASS: "state-only"
+
+  # The repository's real validation command. Leave empty to let
+  # validate-repo.sh detect a toolchain; it fails the run if it cannot.
+  DEV_LOOP_VALIDATE_COMMAND: "go build ./... && go vet ./... && go test ./..."
+
+  # Commit identity for the loop's own commits.
+  DEV_LOOP_GIT_AUTHOR_NAME: "NopsAI Development Loop"
+  DEV_LOOP_GIT_AUTHOR_EMAIL: "dev-loop@acme.example"
+
+  # Codex CLI settings.
+  DEV_LOOP_CODEX_MODEL: "gpt-5-codex"
+  DEV_LOOP_CODEX_EXEC_ARGS: ""
+
+  # How the two pipelines call each other.
+  DEV_LOOP_API_URL: "http://nopsai:8080"
+  DEV_LOOP_RUNNER_TRIGGER_ID: "development-task-runner"
+  DEV_LOOP_REVIEWER_TRIGGER_ID: "development-task-reviewer"
+
+secrets:
+  # Push access to the repository, for branches, plans, reviews, and task state.
+  DEV_LOOP_GIT_TOKEN:
+  # Codex CLI credential. run-codex.sh maps it onto the CLI's own variable.
+  DEV_LOOP_CODEX_API_KEY:
+  # Service-account token used to invoke the other half of the loop.
+  DEV_LOOP_NOPSAI_TOKEN:

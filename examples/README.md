@@ -7,6 +7,7 @@ This directory contains runnable or copyable examples. Keep examples here so
 | --- | --- |
 | `gitops-quickstart/` | The single GitOps sample: a global config repository and one team config repository covering settings, access, knowledge, pipelines, reusable steps, scopes, schedules, triggers, notifications, and a dashboard. |
 | `sso/` | Local Keycloak and multi-provider IdP fixtures for SSO integration testing. |
+| `codex-development-loop/` | Two pipelines that work through a task list with the Codex CLI: one plans and implements each task on its own branch, the other reviews it, records the result, and starts the next round. |
 
 ## Ownership Boundary
 

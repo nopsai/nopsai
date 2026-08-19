@@ -347,6 +347,19 @@ Identity-provider documentation must also link the runnable examples in
 test fixtures, and keep production authority on `setting/system/auth.yaml`,
 credential references, AAA ownership, and runtime IdP-managed identity state.
 
+Pipeline automation documentation should link the runnable example in
+`examples/codex-development-loop`, which shows two pipelines driving each other
+through authenticated external triggers rather than through any platform-side
+loop construct. Describe it as a copyable pattern, not a NopsAI feature: the
+platform supplies pipelines, scopes, secret resolution, isolated execution, and
+`POST /v1/external-triggers/{id}/invoke`, while the example supplies the task
+file, prompts, and the scripts that decide what runs next. It is also the
+reference for how a loop that runs unattended should fail: the pipelines keep
+`llm_enabled: false` so no model reaches control flow, task state is promoted to
+the base branch only after a review passes, and a check that cannot be evaluated -
+absent validation toolchain, missing or ambiguous review verdict - blocks the
+task instead of letting it through.
+
 ## Wiki Sections
 
 The wiki is organised in four groups by reader intent, not as a flat feature

@@ -42,6 +42,7 @@ Existing focused docs:
 - [git-apps.md](./git-apps.md): GitHub App multi-installation management, GitOps schema, git-bot routing, AAA, monitoring, and MCP boundaries.
 - [../examples/sso/README.md](../examples/sso/README.md): Runnable SSO example fixtures for local Keycloak and multi-provider IdP scenario testing.
 - [../examples/gitops-quickstart/README.md](../examples/gitops-quickstart/README.md): The GitOps sample with a global config repository, a team config repository, and one pipeline per feature area.
+- [../examples/codex-development-loop/README.md](../examples/codex-development-loop/README.md): Two pipelines that call each other through authenticated external triggers to plan, implement, and review one task at a time, with every control-flow decision made by scripts rather than a model.
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.
 - [mcp-pipeline-integration.md](./mcp-pipeline-integration.md): MCP integration details.
 - [mcp-feature-coverage.md](./mcp-feature-coverage.md): Hosted MCP feature coverage, user-scoped permissions, and enterprise automation boundaries.

@@ -1,0 +1,36 @@
+# Starts a round of the loop over the API.
+#
+#   POST /v1/external-triggers/development-task-runner/invoke
+#
+# Two callers use it: an operator kicking off the first round by hand, and the
+# review pipeline starting the next round after a task passes. Only the fields
+# listed under variable_mapping can reach the pipeline, so what a caller is
+# allowed to influence stays declared in Git rather than decided per call.
+id: development-task-runner
+name: Development task runner
+description: Start the next round of the Codex development loop.
+enabled: true
+pipeline: platform/development-task-runner
+scope: dev-loop
+run_team_path: platform
+allowed_callers:
+  - type: service_account
+    id: nopsai-dev-loop
+variable_mapping:
+  DEV_LOOP_REPOSITORY_URL: payload.repository_url
+  DEV_LOOP_BASE_BRANCH: payload.base_branch
+payload_schema:
+  type: object
+  required:
+    - repository_url
+  properties:
+    repository_url:
+      type: string
+      description: HTTPS clone URL of the repository the loop works in.
+    base_branch:
+      type: string
+      description: Branch that owns task state and that task branches are cut from.
+# One round at a time is the intended pace. This is a backstop against a
+# misconfigured caller, not a throughput setting.
+rate_limit:
+  per_minute: 4

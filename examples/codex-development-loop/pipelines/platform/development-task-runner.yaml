@@ -1,0 +1,90 @@
+name: development-task-runner
+version: "1.0.0"
+description: Take the next unchecked task from the task file, plan it with Codex, implement it on its own branch, and hand it to the review pipeline.
+container_image: ghcr.io/acme/nopsai-codex-runner:1.0.0
+working_directory: /workspace
+timeout: 2h
+# Every decision this pipeline makes - which task is next, whether the planner
+# stayed inside its lane, whether to call the reviewer - is made by a script.
+# The LLM writes code; it never decides control flow.
+llm_enabled: false
+display_option: list
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: team
+        subject_id: platform
+      - service_account: nopsai-dev-loop
+variables:
+  - DEV_LOOP_REPOSITORY_URL
+  - DEV_LOOP_BASE_BRANCH
+  - DEV_LOOP_TASK_FILE
+  - DEV_LOOP_AGENTS_FILE
+  - DEV_LOOP_TOOLKIT_DIR
+  - DEV_LOOP_PLAN_DIR
+  - DEV_LOOP_BRANCH_PREFIX
+  - DEV_LOOP_ALLOW_EXISTING_BRANCH
+  - DEV_LOOP_GIT_AUTHOR_NAME
+  - DEV_LOOP_GIT_AUTHOR_EMAIL
+  - DEV_LOOP_CODEX_MODEL
+  - DEV_LOOP_CODEX_EXEC_ARGS
+  - DEV_LOOP_API_URL
+  - DEV_LOOP_REVIEWER_TRIGGER_ID
+steps:
+  - name: checkout-base
+    include: step:platform/shared/dev-loop-checkout
+
+  # Deterministic task selection. The first '<n>- [ ]' line wins, and a
+  # malformed task file stops the run rather than reading as "nothing to do".
+  - name: select-task
+    depends_on:
+      - checkout-base
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-select-task.sh"
+
+  - name: create-task-branch
+    depends_on:
+      - select-task
+    secrets:
+      - DEV_LOOP_GIT_TOKEN
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-create-branch.sh"
+
+  # Codex writes the plan. The stage checks with Git that it wrote nothing else.
+  - name: plan-task
+    depends_on:
+      - create-task-branch
+    secrets:
+      - DEV_LOOP_CODEX_API_KEY
+      - DEV_LOOP_GIT_TOKEN
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-plan.sh"
+
+  - name: implement-task
+    depends_on:
+      - plan-task
+    secrets:
+      - DEV_LOOP_CODEX_API_KEY
+      - DEV_LOOP_GIT_TOKEN
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-implement.sh"
+
+  # Only this step holds the API token, so only this step can start another run.
+  - name: trigger-review
+    depends_on:
+      - implement-task
+    secrets:
+      - DEV_LOOP_NOPSAI_TOKEN
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-trigger-review.sh"

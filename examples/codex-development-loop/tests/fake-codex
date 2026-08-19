@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Stand-in for the Codex CLI, used by run-loop-integration-test.sh.
+#
+# The integration test exercises the loop's real stage scripts, so the only
+# thing it needs to fake is the model. FAKE_CODEX_MODE selects the behaviour
+# under test, including the misbehaviours the loop's guards exist to catch.
+set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+  echo "fake-codex 0.0.0-test"
+  exit 0
+fi
+
+# run-codex.sh probes the help text to learn which flags this build supports.
+for arg in "$@"; do
+  if [[ "$arg" == "--help" ]]; then
+    echo "Usage: codex exec [OPTIONS] [PROMPT]"
+    echo "      --ask-for-approval <POLICY>"
+    echo "      --output-last-message <FILE>"
+    echo "      --sandbox <MODE>"
+    exit 0
+  fi
+done
+
+last_message_file=""
+sandbox=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output-last-message) last_message_file="$2"; shift 2 ;;
+    --sandbox) sandbox="$2"; shift 2 ;;
+    --model|--ask-for-approval) shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+cat >/dev/null || true
+
+emit() {
+  printf '%s\n' "$1"
+  if [[ -n "$last_message_file" ]]; then
+    printf '%s\n' "$1" >"$last_message_file"
+  fi
+}
+
+case "${FAKE_CODEX_MODE:?FAKE_CODEX_MODE is required}" in
+  plan)
+    mkdir -p "$(dirname "${FAKE_CODEX_PLAN_PATH:?}")"
+    printf '# Plan\n\n## Goal\nDeliver the task.\n' >"$FAKE_CODEX_PLAN_PATH"
+    emit "Wrote the plan."
+    ;;
+  plan-overreach)
+    mkdir -p "$(dirname "${FAKE_CODEX_PLAN_PATH:?}")"
+    printf '# Plan\n' >"$FAKE_CODEX_PLAN_PATH"
+    printf 'package main\n' >unrelated-source.go
+    emit "Wrote the plan and, against instructions, a source file."
+    ;;
+  implement)
+    printf 'feature for %s\n' "${FAKE_CODEX_TASK_ID:-000}" >>"${FAKE_CODEX_SOURCE_FILE:-src.txt}"
+    emit "Implemented the task."
+    ;;
+  implement-noop)
+    emit "Decided nothing needed to change."
+    ;;
+  implement-touches-task-file)
+    printf 'feature\n' >>"${FAKE_CODEX_SOURCE_FILE:-src.txt}"
+    sed -i.bak 's/^1- \[ \]/1- [x]/' "${DEV_LOOP_TASK_FILE:-development-task.md}"
+    rm -f "${DEV_LOOP_TASK_FILE:-development-task.md}.bak"
+    emit "Implemented the task and checked it off."
+    ;;
+  review-pass)
+    if [[ "$sandbox" != "read-only" ]]; then
+      echo "fake-codex: the review stage must run read-only, got '$sandbox'" >&2
+      exit 1
+    fi
+    emit "VERDICT: PASS
+
+## Reasons
+The change matches the plan."
+    ;;
+  review-fail)
+    emit "VERDICT: FAIL
+
+## Reasons
+No tests were added.
+
+## Required changes
+Add a test."
+    ;;
+  review-no-verdict)
+    emit "This looks good to me overall."
+    ;;
+  review-writes-code)
+    printf 'sneaky\n' >>"${FAKE_CODEX_SOURCE_FILE:-src.txt}"
+    emit "VERDICT: PASS
+
+## Reasons
+I fixed it myself."
+    ;;
+  *)
+    echo "fake-codex: unknown FAKE_CODEX_MODE '$FAKE_CODEX_MODE'" >&2
+    exit 1
+    ;;
+esac

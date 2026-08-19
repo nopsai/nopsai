@@ -1,0 +1,65 @@
+# Starts the review half of the loop.
+#
+#   POST /v1/external-triggers/development-task-reviewer/invoke
+#
+# Invoked by the runner pipeline once a task's implementation is pushed. The
+# task branch arrives as both DEV_LOOP_TASK_BRANCH and DEV_LOOP_CHECKOUT_REF:
+# the first names the branch under review, the second tells the shared checkout
+# step what to check out.
+id: development-task-reviewer
+name: Development task reviewer
+description: Review one implemented task and, on PASS, record it complete and continue the loop.
+enabled: true
+pipeline: platform/development-task-reviewer
+scope: dev-loop
+run_team_path: platform
+allowed_callers:
+  - type: service_account
+    id: nopsai-dev-loop
+variable_mapping:
+  DEV_LOOP_REPOSITORY_URL: payload.repository_url
+  DEV_LOOP_BASE_BRANCH: payload.base_branch
+  DEV_LOOP_TASK_BRANCH: payload.task_branch
+  DEV_LOOP_CHECKOUT_REF: payload.task_branch
+  DEV_LOOP_TASK_ID: payload.task_id
+  DEV_LOOP_TASK_NUMBER: payload.task_number
+  DEV_LOOP_TASK_TITLE: payload.task_title
+  DEV_LOOP_TASK_SLUG: payload.task_slug
+  DEV_LOOP_TASK_PLAN_PATH: payload.plan_path
+  DEV_LOOP_COMMIT_SHA: payload.commit_sha
+payload_schema:
+  type: object
+  required:
+    - repository_url
+    - task_branch
+    - task_id
+    - task_number
+    - task_title
+    - task_slug
+    - plan_path
+    - commit_sha
+  properties:
+    repository_url:
+      type: string
+    base_branch:
+      type: string
+    task_branch:
+      type: string
+      description: Branch holding the plan and implementation for this task.
+    task_id:
+      type: string
+      description: Zero-padded permanent task identifier, such as 007.
+    task_number:
+      type: string
+      description: Permanent task number as written in the task file.
+    task_title:
+      type: string
+    task_slug:
+      type: string
+    plan_path:
+      type: string
+    commit_sha:
+      type: string
+      description: Exact commit submitted for review; the reviewer refuses anything else.
+rate_limit:
+  per_minute: 4

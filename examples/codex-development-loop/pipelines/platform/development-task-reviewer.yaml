@@ -1,0 +1,104 @@
+name: development-task-reviewer
+version: "1.0.0"
+description: Review one implemented task against its plan and the engineering rules, record the verdict, and on PASS mark the task done on the base branch and start the next round.
+container_image: ghcr.io/acme/nopsai-codex-runner:1.0.0
+working_directory: /workspace
+timeout: 1h
+# The verdict is computed by scripts from the validation result and a single
+# parsed verdict line. The model supplies judgement, not control flow.
+llm_enabled: false
+display_option: list
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - subject_type: team
+        subject_id: platform
+      - service_account: nopsai-dev-loop
+variables:
+  - DEV_LOOP_REPOSITORY_URL
+  - DEV_LOOP_BASE_BRANCH
+  - DEV_LOOP_CHECKOUT_REF
+  - DEV_LOOP_TASK_BRANCH
+  - DEV_LOOP_TASK_ID
+  - DEV_LOOP_TASK_NUMBER
+  - DEV_LOOP_TASK_TITLE
+  - DEV_LOOP_TASK_SLUG
+  - DEV_LOOP_TASK_PLAN_PATH
+  - DEV_LOOP_COMMIT_SHA
+  - DEV_LOOP_TASK_FILE
+  - DEV_LOOP_AGENTS_FILE
+  - DEV_LOOP_TOOLKIT_DIR
+  - DEV_LOOP_REVIEW_DIR
+  - DEV_LOOP_ON_PASS
+  - DEV_LOOP_VALIDATE_COMMAND
+  - DEV_LOOP_GIT_AUTHOR_NAME
+  - DEV_LOOP_GIT_AUTHOR_EMAIL
+  - DEV_LOOP_CODEX_MODEL
+  - DEV_LOOP_CODEX_EXEC_ARGS
+  - DEV_LOOP_API_URL
+  - DEV_LOOP_RUNNER_TRIGGER_ID
+steps:
+  # DEV_LOOP_CHECKOUT_REF is mapped to the task branch by the external trigger,
+  # so this shares the checkout step with the runner.
+  - name: checkout-task-branch
+    include: step:platform/shared/dev-loop-checkout
+
+  - name: collect-evidence
+    depends_on:
+      - checkout-task-branch
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-collect-evidence.sh"
+
+  - name: validate-repository
+    depends_on:
+      - collect-evidence
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-validate.sh"
+
+  # No Git credential here: the reviewer reads and judges, and cannot push.
+  - name: codex-review
+    depends_on:
+      - validate-repository
+    secrets:
+      - DEV_LOOP_CODEX_API_KEY
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-review.sh"
+
+  # Writes the verdict of record. A FAIL is committed and then fails the run,
+  # which stops every step below.
+  - name: record-review
+    depends_on:
+      - codex-review
+    secrets:
+      - DEV_LOOP_GIT_TOKEN
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-record-review.sh"
+
+  - name: promote-task-state
+    depends_on:
+      - record-review
+    secrets:
+      - DEV_LOOP_GIT_TOKEN
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-promote-state.sh"
+
+  - name: continue-loop
+    depends_on:
+      - promote-task-state
+    secrets:
+      - DEV_LOOP_NOPSAI_TOKEN
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      "${DEV_LOOP_TOOLKIT_DIR:-.nopsai/dev-loop}/scripts/stage-continue-loop.sh"

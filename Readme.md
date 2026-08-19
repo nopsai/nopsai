@@ -67,7 +67,10 @@ Four things worth noticing:
 More examples live in [`examples/`](examples/README.md): one GitOps sample with a
 global and a team config repository in
 [examples/gitops-quickstart/README.md](examples/gitops-quickstart/README.md),
-and SSO fixtures under [examples/sso](examples/sso/README.md).
+SSO fixtures under [examples/sso](examples/sso/README.md), and a self-driving
+development loop in
+[examples/codex-development-loop/README.md](examples/codex-development-loop/README.md)
+where two pipelines plan, implement, and review one task at a time.
 
 ## Quick start
 

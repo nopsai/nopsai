@@ -1,0 +1,30 @@
+# Access for the development loop.
+#
+# The loop authenticates as one service account. Invoking a trigger and running
+# the pipeline behind it are checked separately, so the role has to grant both:
+# being listed in a trigger's allowed_callers is necessary but not sufficient.
+service_accounts:
+  - sub: nopsai-dev-loop
+    email: dev-loop@acme.example
+    status: active
+    advanced_role: dev-loop-operator
+
+advanced_roles:
+  - name: dev-loop-operator
+    description: Start the Codex development loop and read its runs.
+    policies:
+      - name: Invoke the runner trigger
+        resource: external_trigger:development-task-runner
+        action: external_trigger.invoke
+      - name: Invoke the reviewer trigger
+        resource: external_trigger:development-task-reviewer
+        action: external_trigger.invoke
+      - name: Execute the runner pipeline
+        resource: pipeline:platform/development-task-runner
+        action: pipeline.execute
+      - name: Execute the reviewer pipeline
+        resource: pipeline:platform/development-task-reviewer
+        action: pipeline.execute
+      - name: Read loop runs
+        resource: pipeline_run:*
+        action: pipeline_run.read

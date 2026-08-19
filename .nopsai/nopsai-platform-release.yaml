@@ -6,7 +6,7 @@ working_directory: /workspace
 timeout: 3h
 llm_enabled: false
 llm_content_preload: false
-display_option: graph
+display_option: list
 access:
   visibility: restricted
   use_access:
