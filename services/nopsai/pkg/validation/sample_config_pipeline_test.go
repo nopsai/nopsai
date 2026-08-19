@@ -207,13 +207,14 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 		"--build-arg \"BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest\"",
 		"--build-arg \"SOURCE_URL=$SOURCE_URL\"",
 		`printf '%s\n' "$digest" >"dist/digests/${image_name}.digest"`,
-		// Each task builds on the shared builder instead of creating its own.
-		`--builder "$builder"`,
+		// Each image task builds on a builder named after the image and the
+		// process that runs it, so parallel tasks never share BuildKit state.
+		`builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}-${builder_suffix}"`,
+		// The builder is removed however the task ends, so a failed publish
+		// cannot leave one behind for the next release.
+		`trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT`,
 	} {
 		requireContains(t, imagePublisher, required)
-	}
-	if strings.Contains(imagePublisher, "docker buildx create") {
-		t.Fatal("image publisher must reuse the builder from prepare-image-tools instead of creating one per image")
 	}
 	requireContains(t, imageTasks["pipeline-image"].Script, "scripts/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline")
 	// The image publisher is a checked-in script rather than a heredoc that the
@@ -261,7 +262,16 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["publish-release"].GetScript(), "github_release_action=update")
 	requireContains(t, steps["publish-release"].GetScript(), "legacy_assets=(")
 	requireContains(t, steps["publish-release"].GetScript(), "gh release delete-asset \"v$VERSION\" \"$asset\"")
-	requireContains(t, steps["publish-release"].GetScript(), "gh release upload \"v$VERSION\" dist/assets/* --repo \"$GITHUB_REPOSITORY\" --clobber")
+	requireContains(t, steps["publish-release"].GetScript(), "gh release upload \"$release_tag\" dist/assets/* --repo \"$GITHUB_REPOSITORY\" --clobber")
+	// Every GitHub call is retried, not just the upload: a transient 5xx on a
+	// lookup is not an answer, and the phase must never turn one into one.
+	requireContains(t, steps["publish-release"].GetScript(), "run_gh_with_retry github-release-view")
+	requireContains(t, steps["publish-release"].GetScript(), "run_gh github-release-create")
+	requireContains(t, steps["publish-release"].GetScript(), "run_gh github-release-upload")
+	requireContains(t, steps["publish-release"].GetScript(), "run_gh github-release-edit")
+	// A create that fails after GitHub made the release leaves an untagged
+	// draft; the rerun publishes it instead of stalling on it forever.
+	requireContains(t, steps["publish-release"].GetScript(), "edit_args+=(--draft=false)")
 	forbidden := []string{"release-manifest.json", "release-index.json", "deployment_bundle_asset=", "compose_asset=", "render-release-bundle", "validate-release-compose", "/tmp/nopsai-git-askpass"}
 	for _, step := range pipeline.Steps {
 		script := step.GetScript()

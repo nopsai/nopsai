@@ -836,28 +836,24 @@ steps:
 
       delete_release_assets() {
         local release_tag="$1"
+        local asset assets_output
+        if ! run_gh_with_retry github-release-assets \
+          gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'; then
+          echo "Failed to list the assets on release $release_tag: $GH_OUTPUT" >&2
+          exit 1
+        fi
+        assets_output="$GH_OUTPUT"
         while IFS= read -r asset; do
           [[ -n "$asset" ]] || continue
-          gh release delete-asset "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
-        done < <(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          if ! run_gh_with_retry github-release-delete-asset \
+            gh release delete-asset "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY" -y; then
+            echo "Failed to delete asset $asset from release $release_tag; the upload below replaces it: $GH_OUTPUT" >&2
+          fi
+        done <<< "$assets_output"
       }
 
-      # release_exists answers only what it can prove. A lookup that fails for
-      # any reason other than "not found" aborts the phase instead of reporting
-      # "does not exist", because guessing sends the release down the create
-      # path and turns a transient API error into a hard failure after every
-      # asset has already been built.
-      release_exists() {
-        local release_tag="$1"
-        local lookup_output
-        if lookup_output="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json tagName 2>&1)"; then
-          return 0
-        fi
-        if printf '%s' "$lookup_output" | grep -qi 'release not found'; then
-          return 1
-        fi
-        echo "Failed to determine whether release $release_tag exists: $lookup_output" >&2
-        exit 1
+      release_not_found_error() {
+        printf '%s' "$1" | grep -qi 'release not found'
       }
 
       release_already_exists_error() {
@@ -865,45 +861,109 @@ steps:
       }
 
       retryable_gh_error() {
-        printf '%s' "$1" | grep -Eqi 'status code: 5[0-9][0-9]|HTTP 5[0-9][0-9]|Service Unavailable|Bad Gateway|Gateway Timeout|temporarily unavailable|timed out|timeout|connection reset|EOF'
+        printf '%s' "$1" | grep -Eqi 'status code: (429|5[0-9][0-9])|HTTP (429|5[0-9][0-9])|Service Unavailable|Bad Gateway|Gateway Timeout|temporarily unavailable|timed out|timeout|connection reset|EOF'
       }
 
+      # Every GitHub call runs through run_gh_with_retry, not just the asset
+      # upload. A transient 5xx on a lookup is not an answer, and a phase that
+      # treats it as one reports whatever it guessed: reading a failed lookup
+      # as "this release belongs to another commit" is what failed reruns that
+      # were republishing their own release. The combined output stays in
+      # GH_OUTPUT so callers can tell "not found" from "never answered".
+      GH_OUTPUT=""
       run_gh_with_retry() {
         local label="$1"
         shift
-        local output status attempt delay
+        local status attempt delay
         local -a retry_delays
         read -r -a retry_delays <<< "${NOPSAI_RELEASE_GITHUB_RETRY_DELAYS:-5 15 30 60 120}"
         attempt=1
         while true; do
-          if output="$("$@" 2>&1)"; then
-            [[ -z "$output" ]] || printf '%s\n' "$output"
+          status=0
+          GH_OUTPUT="$("$@" 2>&1)" || status=$?
+          if (( status == 0 )); then
             return 0
           fi
-          status=$?
-          if ! retryable_gh_error "$output" || (( attempt > ${#retry_delays[@]} )); then
-            [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+          if ! retryable_gh_error "$GH_OUTPUT" || (( attempt > ${#retry_delays[@]} )); then
             return "$status"
           fi
           delay="${retry_delays[$((attempt - 1))]}"
           if [[ ! "$delay" =~ ^[0-9]+$ ]]; then
             echo "Invalid NOPSAI_RELEASE_GITHUB_RETRY_DELAYS value: $delay" >&2
-            printf '%s\n' "$output" >&2
             return "$status"
           fi
           echo "github_release_retry label=$label attempt=$attempt delay_seconds=$delay" >&2
-          printf '%s\n' "$output" >&2
+          printf '%s\n' "$GH_OUTPUT" >&2
           sleep "$delay"
           attempt=$((attempt + 1))
         done
       }
 
+      # run_gh is run_gh_with_retry for the calls whose output belongs in the
+      # run log rather than in a variable.
+      run_gh() {
+        local status=0
+        run_gh_with_retry "$@" || status=$?
+        if (( status == 0 )); then
+          [[ -z "$GH_OUTPUT" ]] || printf '%s\n' "$GH_OUTPUT"
+          return 0
+        fi
+        [[ -z "$GH_OUTPUT" ]] || printf '%s\n' "$GH_OUTPUT" >&2
+        return "$status"
+      }
+
+      # load_release_metadata records what GitHub knows about a release: the
+      # commit it targets and whether it is still the draft that a create left
+      # behind when the call that would have published it failed midway. It
+      # answers only what it can prove, so it returns non-zero for a release
+      # GitHub positively reported as missing and aborts the phase for a lookup
+      # that never answered, because guessing "does not exist" sends the
+      # release down the create path and turns a transient API error into a
+      # hard failure after every asset has already been built.
+      EXISTING_RELEASE_TARGET=""
+      EXISTING_RELEASE_IS_DRAFT=""
+      load_release_metadata() {
+        local release_tag="$1"
+        EXISTING_RELEASE_TARGET=""
+        EXISTING_RELEASE_IS_DRAFT=""
+        if run_gh_with_retry github-release-view \
+          gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" \
+          --json tagName,targetCommitish,isDraft \
+          --jq '[.targetCommitish, (.isDraft | tostring)] | @tsv'; then
+          EXISTING_RELEASE_TARGET="${GH_OUTPUT%%$'\t'*}"
+          if [[ "$GH_OUTPUT" == *$'\t'* ]]; then
+            EXISTING_RELEASE_IS_DRAFT="${GH_OUTPUT##*$'\t'}"
+          else
+            EXISTING_RELEASE_IS_DRAFT=false
+          fi
+          return 0
+        fi
+        if release_not_found_error "$GH_OUTPUT"; then
+          return 1
+        fi
+        echo "Failed to determine whether release $release_tag exists: $GH_OUTPUT" >&2
+        exit 1
+      }
+
+      release_exists() {
+        load_release_metadata "$1"
+      }
+
       update_release() {
         local release_tag="$1"
         shift
+        local -a edit_args=("$@")
+        if [[ "$EXISTING_RELEASE_IS_DRAFT" == "true" ]]; then
+          # A draft is what gh leaves behind when publishing the release it
+          # just created fails ("cleaning up draft failed"). The draft carries
+          # no git tag, so every later attempt finds a release that exists and
+          # a tag that does not; publishing the draft is what finishes it.
+          echo "github_release_draft_action=publish tag=$release_tag"
+          edit_args+=(--draft=false)
+        fi
         delete_release_assets "$release_tag"
-        run_gh_with_retry github-release-upload gh release upload "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
-        gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" "$@" --notes-file dist/release/CHANGELOG.md
+        run_gh github-release-upload gh release upload "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
+        run_gh github-release-edit gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" "${edit_args[@]}" --notes-file dist/release/CHANGELOG.md
       }
 
       # create_release falls back to updating when GitHub reports the release
@@ -915,43 +975,67 @@ steps:
         local release_tag="$1"
         local require_recovery="$2"
         shift 2
-        local create_output
-        if create_output="$(gh release create "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" "$@" --notes-file dist/release/CHANGELOG.md 2>&1)"; then
-          printf '%s\n' "$create_output"
+        if run_gh github-release-create \
+          gh release create "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" "$@" --notes-file dist/release/CHANGELOG.md; then
           return 0
         fi
-        if ! release_already_exists_error "$create_output"; then
-          printf '%s\n' "$create_output" >&2
+        if ! release_already_exists_error "$GH_OUTPUT"; then
           return 1
         fi
         echo "github_release_action=create_raced_existing tag=$release_tag"
+        EXISTING_RELEASE_TARGET=""
+        EXISTING_RELEASE_IS_DRAFT=""
         if [[ "$require_recovery" == "true" ]]; then
           require_existing_release_recovery "$release_tag"
+        elif ! load_release_metadata "$release_tag"; then
+          # Alias releases are moving pointers, so a create that raced a
+          # release GitHub no longer lists is still replaced by this run.
+          EXISTING_RELEASE_IS_DRAFT=false
         fi
         update_release "$release_tag" "$@"
       }
 
+      # release_target_matches_source answers from metadata the lookup already
+      # proved. An unanswered lookup is not evidence of another commit, so it
+      # aborts rather than reporting a mismatch it never established.
       release_target_matches_source() {
         local release_tag="$1"
         local target_commitish tag_commit
-        target_commitish="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish' 2>/dev/null || true)"
+        if [[ -z "$EXISTING_RELEASE_TARGET" ]] && ! load_release_metadata "$release_tag"; then
+          # A release GitHub positively does not list is a release this run
+          # cannot claim as its own; the recovery guard below decides what
+          # happens next. A lookup that never answered never reaches here:
+          # load_release_metadata aborts on those rather than guessing.
+          echo "Release $release_tag was reported as existing but GitHub does not list it" >&2
+          return 1
+        fi
+        target_commitish="$EXISTING_RELEASE_TARGET"
+        if [[ -z "$target_commitish" ]]; then
+          echo "GitHub did not report which commit release $release_tag was published from" >&2
+          exit 1
+        fi
         if [[ "$target_commitish" == "$SOURCE_COMMIT" ]]; then
           return 0
         fi
-        if [[ -n "$target_commitish" ]]; then
-          tag_commit="$(git rev-parse --verify --quiet "$target_commitish^{commit}" 2>/dev/null || true)"
-          if [[ "$tag_commit" == "$SOURCE_COMMIT" ]]; then
-            return 0
-          fi
+        tag_commit="$(git rev-parse --verify --quiet "$target_commitish^{commit}" 2>/dev/null || true)"
+        if [[ "$tag_commit" == "$SOURCE_COMMIT" ]]; then
+          return 0
         fi
         tag_commit="$(git rev-list -n 1 "refs/tags/$release_tag" 2>/dev/null || true)"
-        [[ "$tag_commit" == "$SOURCE_COMMIT" ]]
+        if [[ -n "$tag_commit" && "$tag_commit" == "$SOURCE_COMMIT" ]]; then
+          return 0
+        fi
+        return 1
       }
 
       require_existing_release_recovery() {
         local release_tag="$1"
         if release_target_matches_source "$release_tag"; then
-          echo "Release $release_tag already exists for $SOURCE_COMMIT; replacing assets for an idempotent rerun"
+          if [[ "$EXISTING_RELEASE_IS_DRAFT" == "true" ]]; then
+            echo "Release $release_tag is the unpublished draft a previous attempt left for $SOURCE_COMMIT; publishing it"
+          else
+            echo "Release $release_tag already exists for $SOURCE_COMMIT; replacing assets for an idempotent rerun"
+          fi
           return 0
         fi
         if [[ "$ALLOW_EXISTING_RELEASE" != "true" ]]; then
@@ -1004,23 +1088,10 @@ steps:
         for asset in "${legacy_assets[@]}"; do
           gh release delete-asset "v$VERSION" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
         done
-        delete_release_assets "v$VERSION"
-        run_gh_with_retry github-release-upload gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
-        gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
+        update_release "v$VERSION" --title "NopsAI $VERSION" --latest
       else
         echo "github_release_action=create"
-        if create_output="$(gh release create "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest 2>&1)"; then
-          printf '%s\n' "$create_output"
-        elif release_already_exists_error "$create_output"; then
-          echo "github_release_action=create_raced_existing tag=v$VERSION"
-          require_existing_release_recovery "v$VERSION"
-          delete_release_assets "v$VERSION"
-          run_gh_with_retry github-release-upload gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
-          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md --latest
-        else
-          printf '%s\n' "$create_output" >&2
-          exit 1
-        fi
+        create_release "v$VERSION" true --title "NopsAI $VERSION" --latest
       fi
       while IFS= read -r release_tag; do
         case "$release_tag" in
