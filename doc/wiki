@@ -20,11 +20,13 @@ services/ui/src/features/product-docs/
 │   ├── ai.ts                   LLM/Agent/MCP profiles, Knowledge Context, governance levels
 │   ├── environment.ts          Every environment variable, grouped by owning service
 │   └── api.ts                  Every REST route with area and access class
-├── content/sections/           One module per wiki section
+├── content/sections/           One module per wiki section, one section per nav group
 ├── indexes.ts                  Derived directive/environment/API indexes
 ├── search.ts                   Full-body search index
 ├── blocks.ts                   Which blocks a page renders and in what order
-└── Wiki*.tsx                   Rendering
+├── DocsShell.tsx               Standalone docs chrome: header, sidebar, TOC
+├── docsShell.test.ts           Design contract: layout metrics and palette
+└── Wiki*.tsx                   Article, home, field table, and index rendering
 ```
 
 ## No Fabricated Content
@@ -140,6 +142,27 @@ Audience values:
 | `security` | Security, compliance, audit, and least-privilege reviewers. |
 | `developer` | Integration and repository developers using NopsAI from code or Git workflows. |
 
+The app runs under a `HashRouter`, so the URL hash *is* the route. Every
+in-page link — the on-this-page rail, index rows, field anchors — must go
+through the router carrying the current pathname plus its fragment; a bare
+`href="#section"` replaces the route and drops the reader on the fallback page.
+`docsShell.test.ts` fails the build if a raw fragment link reappears in a
+documentation component.
+
+A field's identity is its scope **and** its path, not the path alone: an MCP
+profile and an MCP server both document a `name`, and those are two fields
+rather than one repeated. `wikiFieldAnchor` therefore includes the scope, a
+table that mixes scopes names the owning document on every row, and the field
+table keys rows by position so two rows can never share an expansion state.
+Stateful blocks are remounted per article, so a filter or an expanded row cannot
+follow the reader to the next page.
+
+`content.test.ts` enforces the page contract rather than leaving it to review:
+every cited repository path must exist on disk, every page must carry a runnable
+example (generated index articles and orientation pages excepted), and every
+how-to or tutorial must carry prerequisites, numbered steps, and at least one
+step that states its expected result.
+
 Every procedural page should prefer structured prerequisites and procedure
 steps over hiding instructions in prose. Every reference page should prefer
 structured field rows with path, type, required/default behavior, scope,
@@ -148,10 +171,37 @@ runbooks should be structured objects, not plain strings, so the UI can render
 purpose, access, checks, diagnostics, and escalation consistently. Source
 evidence renders as non-clickable repository paths.
 
-The in-app wiki route is rendered inside the authenticated app shell. When a
-user changes articles or topics without a hash anchor, the page must restore
-`#page-content-wrapper` to the top so the next article never inherits the prior
-article's scroll position.
+The in-app wiki route renders outside the authenticated app chrome as a
+standalone documentation shell: its own fixed header (brand, platform version,
+search, theme control, back-to-app link), its own sidebar, and its own
+on-this-page rail. The operator header and sidebar are not rendered on `/docs`.
+The header carries the product brand mark rather than a letter tile, and the
+version renders as a chip beside it. Sidebar groups are separated by a rule and
+real vertical space so the eye finds the group boundary before it starts reading
+page titles, and the open page carries an accent rail marker. The on-this-page
+rail is a scroll spy: an `IntersectionObserver` marks the section currently in
+view, falling back to the last heading scrolled past when nothing is on screen
+between two long sections.
+
+Prose may link inline with `[label](article-id)`. The link names an article ID
+rather than a path, because pages move between sections and a stored path would
+rot the next time they do; `content.test.ts` fails the build on an ID that does
+not resolve.
+
+The sidebar and the on-this-page rail are `position: sticky` inside their grid
+columns rather than fixed: a fixed element with no offsets falls back to its
+static position, which a browser does not reliably resolve to a grid item's own
+column, and the rail could paint over the sidebar. Only the mobile menu leaves
+the flow. Layout metrics and the light/dark documentation palette live in the
+`.docs-*` rules in `services/ui/src/styles.css` and are asserted by
+`features/product-docs/docsShell.test.ts`, which is the design contract: change
+a metric or a palette token there and in the stylesheet together, or not at all.
+Documentation articles own their own
+`h1`, which is why `app/pageHeadingOwnership.test.ts` lists the wiki alongside
+the login screen as a standalone heading owner. When a user changes articles or
+topics without a hash anchor, the page must restore `#page-content-wrapper` to
+the top so the next article never inherits the prior article's scroll
+position.
 Authenticated operational workspaces should stay compact and enterprise:
 48px transparent app headers, roughly 220-260px default expanded sidebars, 32-40px controls,
 12-14px body text, 18-22px page headings, 8-12px frames, and 16px default page
@@ -349,94 +399,140 @@ credential references, AAA ownership, and runtime IdP-managed identity state.
 
 ## Wiki Sections
 
-The wiki is organised in four groups by reader intent, not as a flat feature
-catalog. `/docs` is a landing page with task-based entry points and search;
-articles live at `/docs/<section>/<article>`.
+The wiki is organised as seven sections named for what the reader is doing, not
+as a flat feature catalog. Each section is one sidebar group, so the navigation
+is two levels deep: group label, then pages. `/docs` is a landing page with
+task-based entry points, and articles live at `/docs/<section>/<article>`.
+
+Article IDs are stable across reorganisations. When a page moves between
+sections, `findWikiArticleRedirect` sends the old `/docs/<section>/<article>`
+URL to the page's current home instead of dropping the reader on the landing
+page.
 
 ```text
-Learn the product
-├── Start here
-│   ├── What NopsAI is
-│   ├── Concepts and glossary
-│   ├── Control plane and execution plane
-│   └── How a run executes
-└── Get started
-    ├── Install locally with Docker Compose
-    ├── Complete the first-install wizard
-    ├── Create and run your first script pipeline
-    ├── Create your first AI-assisted pipeline
-    ├── Connect a Git repository
-    ├── Trigger a pipeline from Git
-    ├── Add an approval checkpoint
-    └── Create a final deliverable
+Getting started                   (one continuous walkthrough)
+├── What NopsAI is
+├── Requirements
+├── Install locally with Docker Compose
+├── Complete the first-install wizard
+├── Architecture and networking
+├── Add a Docker runner
+├── Create and run your first pipeline
+├── Add a variable and a secret
+├── Connect a Git repository
+├── Trigger a pipeline from Git
+├── Trigger a run from outside
+└── Runs, logs, and history
 
-Build automation
-├── Authoring pipelines
-│   ├── Pipeline YAML schema
-│   ├── Step and task directives
-│   ├── Runtime outputs and dependencies
-│   ├── Approval checkpoints
-│   ├── Reusable steps and child pipelines
-│   ├── Variables, secrets, and scopes
-│   └── Final deliverables
-├── Triggers and schedules
-│   ├── How runs start
-│   ├── Git trigger manifests
-│   ├── Git webhook sources
-│   ├── Schedules
-│   └── External API triggers
-└── AI, knowledge, and governance
-    ├── The AI control layers
-    ├── Agent roles
-    ├── Models
-    ├── MCP servers and profiles
-    ├── Knowledge Context
-    └── Governance levels
+Pipelines                         (one capability per page, one growing manifest)
+├── Pipeline anatomy
+├── Script steps
+├── Dependencies and parallelism
+├── Step outputs
+├── Variables and scopes
+├── Secrets in steps
+├── Conditions and failure handling
+├── Display options
+├── Approvals
+├── AI steps
+├── Agent roles, knowledge, and tools
+├── Reusable steps and child pipelines
+├── Final deliverables
+└── The complete manifest
 
-Run the platform
-├── Install and deploy
-│   ├── Supported deployment models
-│   ├── First-install setup
-│   ├── Environment and service configuration
-│   ├── Docker Compose deployment
-│   ├── Kubernetes and Helm deployment
-│   ├── Runners and the dispatcher
-│   ├── Private registry authentication
-│   ├── Networking and exposure
-│   └── Storage and persistence
-├── Administration
-│   ├── Teams and resource ownership
-│   ├── Access control and AAA
-│   ├── Authentication and SSO
-│   ├── Tokens and service accounts
-│   ├── Credentials and secrets store
-│   ├── GitOps and configuration repositories
-│   ├── Notifications
-│   └── Backups and data cleanup
-└── Operate
-    ├── Pipeline runs
-    ├── Pipeline logs and redaction
-    ├── System logs
-    ├── Monitoring and metrics
-    ├── Analysis reviewers and AI Evaluation
-    ├── Team dashboards
-    └── Release integrity and updates
+Automation
+├── How runs start
+├── Git trigger manifests
+├── Git webhook sources
+├── External API triggers
+└── Schedules
 
-Look something up
-├── Interfaces
-│   ├── REST API
-│   ├── Command-line interface
-│   ├── Assistant chat
-│   └── Hosted NopsAI MCP endpoint
-└── Reference and limits
-    ├── All YAML directives          (generated index)
-    ├── All environment variables    (generated index)
-    ├── All REST endpoints           (generated index)
-    ├── Production hardening checklist
-    ├── Troubleshooting index
-    ├── Browser console warnings
-    └── Confirmed gaps and limits
+Platform
+├── Control plane and execution plane
+├── Supported deployment models
+├── First-install setup
+├── Environment and service configuration
+├── Docker Compose deployment
+├── Kubernetes and Helm deployment
+├── Runners and the dispatcher
+├── Private registry authentication
+├── Networking and exposure
+├── Storage and persistence
+├── GitOps and configuration repositories
+├── Teams and resource ownership
+├── Access control and AAA
+├── Authentication and SSO
+├── Tokens and service accounts
+├── Credentials and secrets store
+├── Backups and data cleanup
+├── Agent roles
+├── Models
+├── MCP servers and profiles
+├── Knowledge Context
+└── Governance levels
+
+Operations
+├── How a run executes
+├── Pipeline runs
+├── Pipeline logs and redaction
+├── System logs
+├── Monitoring and metrics
+├── Analysis reviewers and AI Evaluation
+├── Team dashboards
+├── Notifications
+├── Release integrity and updates
+├── Production hardening checklist
+├── Troubleshooting index
+└── Browser console warnings
+
+API
+├── REST API
+└── All REST endpoints            (generated index)
+
+Reference
+├── All YAML directives           (generated index)
+├── All environment variables     (generated index)
+├── Command-line interface
+├── Assistant chat
+├── Hosted NopsAI MCP endpoint
+├── Concepts and glossary
+└── Confirmed gaps and limits
 ```
+
+The Pipelines chapter introduces exactly one capability per page and grows a
+single manifest, `release-service`, from a one-step script pipeline into the
+complete example checked into
+`examples/gitops-quickstart/team-repo/pipelines/platform/release-service.yaml`.
+Every page shows the manifest as it stands under the title `Pipeline so far`,
+which is also what `blocks.ts` keys on to lead those pages with the manifest
+instead of the field table. Three rules hold the chapter together and are
+enforced by `content.test.ts`: a page may add lines to the manifest but never
+change or drop what an earlier page showed, every one of the 74 pipeline, step,
+task, and output directives is introduced on exactly one page, and every page
+carries the running manifest. `examples_pipeline_validation_test.go` runs every
+example pipeline through the same `ValidatePipeline` the API uses, so the
+chapter's finished manifest cannot drift into something that would be rejected.
+
+Pages that were replaced rather than moved are listed in
+`wikiSupersededArticleIDs`, so an old link such as
+`/docs/automation/pipeline-schema` lands on its successor.
+
+Getting started is one continuous walkthrough rather than a shelf of unrelated
+tutorials: each page ends where the next begins, every procedural page states a
+verification for its steps, and the pipeline built on **Create and run your
+first pipeline** is the same artefact the later pages extend. `content.test.ts`
+asserts both the page order and the presence of verifications. The walkthrough
+is authored from the implementation and its API calls are checked against their
+handlers, but it has not yet been executed end to end against a live Compose
+install; that verification pass is still owed, and any command it corrects
+should be corrected on the page.
+
+Every registered REST route is documented, not merely listed: in full for
+public routes, at contract depth for internal ones, and as an explicit pointer
+to the canonical form for compatibility aliases. `api-content.test.ts` enforces
+what each depth owes, and `api_documentation_coverage_test.go` compares the
+documented route set against the generated route catalogue in both directions,
+so a new handler cannot ship undocumented.
 
 The three index pages carry no field data of their own. They aggregate every
 documented field and route across the whole wiki, so an index can never drift

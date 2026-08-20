@@ -185,7 +185,7 @@ export const agentProfileFields: WikiField[] = [
     defaultValue: 'None',
     description: 'Profile identifier referenced by `agent_role` on a pipeline or step.',
     example: 'id: senior-release-engineer',
-    evidence: 'pkg/models/agent_role.go',
+    evidence: 'pkg/models/agent_profile.go',
   },
   {
     path: 'display_name',
@@ -223,7 +223,7 @@ export const agentProfileFields: WikiField[] = [
     description: 'Prompt instructions injected for conditions and LLM goals that select this profile.',
     example: 'instructions: |\n  Prefer reversible actions. Never skip a failing check.',
     security: 'Instructions shape behavior only. They do not grant provider access, tools, credentials, or permissions.',
-    evidence: 'pkg/models/agent_role.go',
+    evidence: 'pkg/models/agent_profile.go',
   },
   {
     path: 'enabled',

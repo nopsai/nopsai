@@ -87,14 +87,15 @@ The checked-in Compose file ships no fallback credentials. Set the bootstrap
 secrets first — Compose fails fast if any are missing:
 
 ```bash
-cat >> .env <<'EOF'
-POSTGRES_PASSWORD=<generated>
-DATABASE_URL=postgres://nopsai:<generated>@db:5432/nopsai?sslmode=disable
-NOPSAI_MASTER_KEY=<generated>
-JWT_SIGNING_KEY=<generated>
-SERVICE_JWT_SIGNING_KEY=<different generated value>
-AAA_SHARED_INTERNAL_TOKEN=<generated>
-NOPSAI_BOOTSTRAP_ADMIN_PASSWORD=<generated>
+POSTGRES_PASSWORD=$(openssl rand -hex 16)
+cat >> .env <<EOF
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+DATABASE_URL=postgres://nopsai:$POSTGRES_PASSWORD@db:5432/nopsai?sslmode=disable
+NOPSAI_MASTER_KEY=$(openssl rand -hex 32)
+JWT_SIGNING_KEY=$(openssl rand -hex 32)
+SERVICE_JWT_SIGNING_KEY=$(openssl rand -hex 32)
+AAA_SHARED_INTERNAL_TOKEN=$(openssl rand -hex 32)
+NOPSAI_BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -hex 12)
 EOF
 
 docker compose up -d --build
@@ -115,8 +116,13 @@ Published ports bind to `127.0.0.1` by default through `NOPSAI_BIND_ADDRESS`.
 
 Sign in as `NOPSAI_BOOTSTRAP_ADMIN_EMAIL` (default `admin@example.com`) with the
 `NOPSAI_BOOTSTRAP_ADMIN_PASSWORD` you set. The first login forces a password
-rotation. Then run **System > Setup**, and use the starter `setup/first-run`
-pipeline to confirm the runner, agent, logs, and UI all work end to end.
+rotation. Then run **System > Setup**.
+
+That is as far as this file goes. The walkthrough continues in the in-app wiki
+under **Getting started**, which takes you from here through the topology, a
+Docker runner, a three-step pipeline that passes values between steps, a scoped
+variable and secret, a trigger, and reading the run — each step with a command
+that confirms it worked.
 
 To stop and drop local state:
 
@@ -129,10 +135,13 @@ the production hardening checklist in the wiki first.
 
 ## Documentation
 
-**In the app.** Every install ships a Product Wiki at `/docs`, covering the
-platform in depth with complete indexes of every YAML directive, environment
-variable, and REST endpoint. It is the fastest way to answer "what does this
-directive do?" or "which endpoint is that?".
+**In the app.** Every install ships a Product Wiki at `/docs`. It opens with a
+**Getting started** walkthrough, then a **Pipelines** chapter that introduces one
+capability per page on a single manifest that grows as you read, sections for
+**Automation**, **Platform** and **Operations**, a per-area **API** reference,
+and a **Reference** section with complete indexes of every YAML directive,
+environment variable, and REST endpoint. It is the fastest way to answer "what
+does this directive do?" or "which endpoint is that?".
 
 **In this repository.** [`doc/`](doc/README.md) holds the code-grounded
 documentation set:
@@ -292,7 +301,7 @@ placement rules.
 
 This repository contains the NopsAI product implementation and its deployment
 shape. The documentation describes the current codebase, not a roadmap. The
-in-app wiki page **Reference and limits → Confirmed gaps and limits** lists what
+in-app wiki page **Reference → Confirmed gaps and limits** lists what
 the platform deliberately does not do yet; [doc/wiki](doc/wiki) is the
 repository-side source map that keeps it honest.
 

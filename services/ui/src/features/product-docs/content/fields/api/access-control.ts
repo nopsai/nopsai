@@ -1,0 +1,268 @@
+import type { WikiApiRoute } from '../../types.js';
+
+const GRANT_RECORD =
+  '{\n  "id": "a41c9d02-6f38-4b1d-9c77-51e3a0b4f912",\n  "subject_type": "auth_team",\n  "subject_id": "platform-sre",\n  "subject_display": "Platform SRE",\n  "role": "pipeline-operator",\n  "resource_type": "pipeline",\n  "resource_id": "platform/release-service",\n  "inherit": true\n}';
+
+/**
+ * Access control.
+ *
+ * Grants bind a subject to a role on a resource; effective permissions are the
+ * resolved answer after roles, grants, and inheritance are combined. Read the
+ * second when debugging, and the first to explain why.
+ */
+export const access_controlRoutes: WikiApiRoute[] = [
+  {
+    method: 'GET',
+    path: '/v1/access/grants',
+    area: 'Access control',
+    access: 'authorized',
+    purpose: 'Lists access grants on a resource or for a subject.',
+    depth: 'full',
+    parameters: [
+      { name: 'resource_type', in: 'query', type: 'string', required: false, description: 'Restrict to one resource kind.', example: 'resource_type=pipeline' },
+      { name: 'resource_id', in: 'query', type: 'string', required: false, description: 'Restrict to one resource. Requires `resource_type`.', example: 'resource_id=platform/release-service' },
+      { name: 'subject_type', in: 'query', type: 'string', required: false, allowedValues: ['user', 'service_account', 'auth_team'], description: 'Restrict to one kind of subject.', example: 'subject_type=auth_team' },
+      { name: 'subject_id', in: 'query', type: 'string', required: false, description: 'Restrict to one subject.', example: 'subject_id=platform-sre' },
+    ],
+    requestSample: {
+      title: 'List the grants on one pipeline',
+      language: 'bash',
+      code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  "$NOPSAI_URL/v1/access/grants?resource_type=pipeline&resource_id=platform/release-service" | jq',
+      expectedOutput: 'Every grant that mentions the resource, with the subject and role it binds.',
+    },
+    responses: [{ status: 200, description: 'Grants matching the filters.', contentType: 'application/json', sample: '[' + GRANT_RECORD + ']' }],
+    errors: [
+      { status: 400, cause: 'A filter combination that cannot be resolved, such as `resource_id` without `resource_type`.', action: 'Supply both halves of a resource filter.' },
+      { status: 401, cause: 'No usable caller identity.', action: 'Send a token.' },
+      { status: 403, cause: 'The caller may not read grants on this resource.', action: 'Reading who has access is itself an access decision.' },
+      { status: 404, cause: 'The named resource does not exist.', action: 'Confirm the resource id.' },
+      { status: 503, cause: 'Authorization is unavailable.', action: 'Check AAA.' },
+      { status: 500, cause: 'The grant query failed.', action: 'Platform fault.' },
+    ],
+    sideEffects: ['None.'],
+    coveringTests: ['services/nopsai/access_grants_test.go'],
+    evidence: ['services/nopsai/access_grants.go', 'services/nopsai/access_grants_handlers.go'],
+    notes: 'Grants explain an answer; they are not the answer. Use effective permissions to find out what a caller may actually do.',
+  },
+  {
+    method: 'POST',
+    path: '/v1/access/grants',
+    area: 'Access control',
+    access: 'authorized',
+    purpose: 'Grants a subject a role on a resource.',
+    depth: 'full',
+    parameters: [],
+    requestSample: {
+      title: 'Grant a team an operator role on a pipeline',
+      language: 'bash',
+      code:
+        'curl -sX POST "$NOPSAI_URL/v1/access/grants" \\\n  -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"subject_type":"auth_team","subject_id":"platform-sre","role":"pipeline-operator","resource_type":"pipeline","resource_id":"platform/release-service","inherit":true}\' | jq',
+      expectedOutput: 'The created grant. `inherit: true` extends it to resources nested under this one.',
+      placeholders: ['`subject_type` is `user`, `service_account`, or `auth_team`.'],
+    },
+    responses: [{ status: 201, description: 'Grant created.', contentType: 'application/json', sample: GRANT_RECORD }],
+    errors: [
+      { status: 400, cause: 'An unknown role, an unusable subject, or a malformed resource reference.', action: 'The message names the field.' },
+      { status: 401, cause: 'No usable caller identity.', action: 'Send a token.' },
+      { status: 403, cause: 'The caller may not grant access on this resource.', action: 'Granting requires owner-level access, not the role being granted.' },
+      { status: 404, cause: 'The subject or the resource does not exist.', action: 'Confirm both before retrying.' },
+      { status: 409, cause: 'The same grant already exists.', action: 'Read the grant list; re-granting is a no-op rather than an update.' },
+      { status: 503, cause: 'Authorization is unavailable.', action: 'Check AAA. Grants fail closed.' },
+    ],
+    sideEffects: ['Changes what the subject can do immediately.', 'Writes an audit record naming the granter and the grant.'],
+    coveringTests: ['services/nopsai/access_grants_test.go', 'services/nopsai/aaa_integration_test.go'],
+    evidence: ['services/nopsai/access_grants.go'],
+    notes: '`inherit` is the difference between "this pipeline" and "this pipeline and everything under it". It is the setting most often wrong when access is broader than intended.',
+  },
+  {
+    method: 'DELETE',
+    path: '/v1/access/grants/{grantID}',
+    area: 'Access control',
+    access: 'authorized',
+    purpose: 'Revokes an access grant.',
+    depth: 'full',
+    parameters: [{ name: 'grantID', in: 'path', type: 'uuid', required: true, description: 'Grant identifier from the list route.', example: 'a41c9d02-6f38-4b1d-9c77-51e3a0b4f912' }],
+    requestSample: {
+      title: 'Revoke a grant',
+      language: 'bash',
+      code: 'curl -sX DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" "$NOPSAI_URL/v1/access/grants/$GRANT_ID" -w "%{http_code}\\n"',
+      expectedOutput: '204. The subject loses that access immediately, including for requests already in flight.',
+    },
+    responses: [{ status: 204, description: 'Grant revoked.', sample: '' }],
+    errors: [
+      { status: 400, cause: 'The id is malformed.', action: 'Use the `id` from the grant list.' },
+      { status: 403, cause: 'The caller may not revoke grants on this resource.', action: 'Revoking requires owner-level access.' },
+      { status: 404, cause: 'No grant with that id.', action: 'It may already be revoked.' },
+      { status: 503, cause: 'Authorization is unavailable.', action: 'Check AAA.' },
+    ],
+    sideEffects: ['Removes the access immediately.', 'Writes an audit record.'],
+    coveringTests: ['services/nopsai/access_grants_test.go'],
+    evidence: ['services/nopsai/access_grants.go'],
+  },
+  {
+    method: 'GET',
+    path: '/v1/access/effective-permissions',
+    area: 'Access control',
+    access: 'authenticated',
+    purpose: 'Resolves what the caller may actually do, after roles, grants, and inheritance.',
+    depth: 'full',
+    parameters: [
+      { name: 'action', in: 'query', type: 'string', required: false, description: 'Narrow to one AAA action.', example: 'action=pipeline.run' },
+      { name: 'resource_type', in: 'query', type: 'string', required: false, description: 'Narrow to one resource kind.', example: 'resource_type=pipeline' },
+      { name: 'resource_id', in: 'query', type: 'string', required: false, description: 'Narrow to one resource.', example: 'resource_id=platform/release-service' },
+      { name: 'team_path', in: 'query', type: 'string', required: false, description: 'Evaluate within one team path. `run_team_path` is accepted as an alias.', example: 'team_path=platform/payments' },
+    ],
+    requestSample: {
+      title: 'Ask whether this caller can run a pipeline',
+      language: 'bash',
+      code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  "$NOPSAI_URL/v1/access/effective-permissions?action=pipeline.run&resource_type=pipeline&resource_id=platform/release-service" | jq',
+      expectedOutput: 'The resolved answer for this caller — the authoritative one, not a reconstruction from roles.',
+    },
+    responses: [
+      { status: 200, description: 'Effective permissions for the caller, narrowed by whatever filters were supplied.', contentType: 'application/json', sample: '{\n  "caller_type": "user",\n  "caller_id": "admin",\n  "allowed": true\n}' },
+    ],
+    errors: [
+      { status: 400, cause: 'A filter cannot be parsed, or a resource filter is incomplete.', action: 'Supply `resource_type` alongside `resource_id`.' },
+      { status: 401, cause: 'No usable caller identity.', action: 'Send a token.' },
+      { status: 503, cause: 'Authorization is unavailable.', action: 'Check AAA rather than assuming denial.' },
+    ],
+    sideEffects: ['None.'],
+    coveringTests: ['services/nopsai/aaa_integration_test.go'],
+    evidence: ['services/nopsai/access_grants_resolve.go'],
+    notes: 'This is the route to trust when a caller insists they should have access. Roles and grants explain the answer; this is the answer.',
+  },
+  {
+    method: 'GET',
+    path: '/v1/access/teams',
+    area: 'Access control',
+    access: 'authenticated',
+    purpose: 'Lists the teams the caller can act within.',
+    depth: 'full',
+    parameters: [],
+    requestSample: {
+      title: 'List teams the caller can use',
+      language: 'bash',
+      code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" "$NOPSAI_URL/v1/access/teams" | jq',
+      expectedOutput: 'Team paths this caller may own resources in — the list a UI renders team pickers from.',
+    },
+    responses: [
+      { status: 200, description: 'Teams available to the caller.', contentType: 'application/json', sample: '[\n  { "id": 12, "path": "platform/payments", "valid": true }\n]' },
+    ],
+    errors: [
+      { status: 401, cause: 'No usable caller identity.', action: 'Send a token.' },
+      { status: 503, cause: 'Authorization is unavailable.', action: 'Check AAA.' },
+      { status: 500, cause: 'The team query failed.', action: 'Platform fault.' },
+    ],
+    sideEffects: ['None.'],
+    coveringTests: ['services/nopsai/aaa_integration_test.go'],
+    evidence: ['services/nopsai/resource_authz.go'],
+  },
+  {
+    method: 'GET',
+    path: '/v1/access/auth-teams',
+    area: 'Access control',
+    access: 'authenticated',
+    purpose: 'Lists the identity-provider teams that can appear as grant subjects.',
+    depth: 'full',
+    parameters: [],
+    requestSample: {
+      title: 'List authorization teams',
+      language: 'bash',
+      code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" "$NOPSAI_URL/v1/access/auth-teams" | jq',
+      expectedOutput: 'The teams a grant can name with `subject_type: auth_team`.',
+    },
+    responses: [
+      { status: 200, description: 'Authorization teams known to the platform.', contentType: 'application/json', sample: '[\n  { "id": "platform-sre", "name": "Platform SRE" }\n]' },
+    ],
+    errors: [
+      { status: 401, cause: 'No usable caller identity.', action: 'Send a token.' },
+      { status: 500, cause: 'The query failed.', action: 'Platform fault.' },
+    ],
+    sideEffects: ['None.'],
+    coveringTests: ['services/nopsai/aaa_integration_test.go'],
+    evidence: ['services/nopsai/access_grants_handlers.go'],
+    notes: 'An authorization team is a group from the identity provider. A NopsAI team path is ownership. Granting to the first does not change the second.',
+  },
+  {
+    method: 'POST',
+    path: '/v1/authz/resource-use/check',
+    area: 'Access control',
+    access: 'authenticated',
+    purpose: 'Checks whether a caller may use one resource in a given context.',
+    depth: 'full',
+    parameters: [],
+    requestSample: {
+      title: 'Check one resource use',
+      language: 'bash',
+      code:
+        'curl -sX POST "$NOPSAI_URL/v1/authz/resource-use/check" \\\n  -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"model.use","resource_type":"llm_profile","resource_id":"reasoning-large"}\' | jq',
+      expectedOutput: '`allowed` with the reason, which is what a pipeline editor uses to warn before a run fails.',
+    },
+    responses: [
+      { status: 200, description: 'The decision. A denial is a 200 with `allowed: false`, not a 403.', contentType: 'application/json', sample: '{\n  "allowed": false,\n  "action": "model.use",\n  "resource_type": "llm_profile",\n  "resource_id": "reasoning-large"\n}' },
+    ],
+    errors: [
+      { status: 400, cause: 'The body is malformed or names no action.', action: 'Send `action`, `resource_type`, and `resource_id`.' },
+      { status: 403, cause: 'The caller may not ask about this resource.', action: 'Asking about a resource is itself an access decision.' },
+    ],
+    sideEffects: ['None. A check never grants or records access.'],
+    coveringTests: ['services/nopsai/resource_authz_test.go'],
+    evidence: ['services/nopsai/resource_authz.go'],
+    notes: 'Read `allowed` rather than the status code: a permitted question about a forbidden resource still answers 200.',
+  },
+  {
+    method: 'POST',
+    path: '/v1/authz/resource-use/batch-check',
+    area: 'Access control',
+    access: 'authenticated',
+    purpose: 'Checks many resource uses in one request.',
+    depth: 'full',
+    parameters: [],
+    requestSample: {
+      title: 'Check everything a pipeline would touch',
+      language: 'bash',
+      code:
+        'curl -sX POST "$NOPSAI_URL/v1/authz/resource-use/batch-check" \\\n  -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  --data @checks.json | jq',
+      expectedOutput: 'One decision per requested check, in the order they were sent.',
+      placeholders: ['`checks.json` is a list of the same objects the single-check route takes.'],
+    },
+    responses: [
+      { status: 200, description: 'A decision per check.', contentType: 'application/json', sample: '[\n  { "allowed": true, "action": "model.use", "resource_type": "llm_profile", "resource_id": "reasoning-large" },\n  { "allowed": false, "action": "mcp.use", "resource_type": "mcp_profile", "resource_id": "jira-readonly" }\n]' },
+    ],
+    errors: [
+      { status: 400, cause: 'The body is malformed or empty.', action: 'Send a non-empty list of checks.' },
+      { status: 403, cause: 'The caller may not ask about one of the resources.', action: 'The whole batch fails rather than silently dropping an entry.' },
+    ],
+    sideEffects: ['None.'],
+    coveringTests: ['services/nopsai/resource_authz_test.go'],
+    evidence: ['services/nopsai/resource_authz.go'],
+    notes: 'This is what the pipeline editor calls before a save, so an author sees "you cannot use this model" while editing rather than when the run fails.',
+  },
+  {
+    method: 'ANY',
+    path: '/v1/resources/...',
+    area: 'Access control',
+    access: 'authorized',
+    purpose: 'Reads settings, changes visibility, and adds or removes use grants for a concrete resource.',
+    depth: 'full',
+    parameters: [],
+    requestSample: {
+      title: 'Read the access settings of one resource',
+      language: 'bash',
+      code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" "$NOPSAI_URL/v1/resources/llm_profile/reasoning-large" | jq',
+      expectedOutput: 'The resource visibility and its use grants.',
+      placeholders: ['The path continues with the resource type and identifier.'],
+    },
+    responses: [
+      { status: 200, description: 'Resource access settings.', contentType: 'application/json', sample: '{\n  "resource_type": "llm_profile",\n  "resource_id": "reasoning-large",\n  "visibility": "team"\n}' },
+    ],
+    errors: [
+      { status: 404, cause: 'The path does not resolve to a known resource.', action: 'Check the resource type segment.' },
+      { status: 405, cause: 'A method the resource surface does not support.', action: 'Read the resource first to see what it offers.' },
+    ],
+    sideEffects: ['Mutating variants change visibility or use grants and write an audit record.'],
+    coveringTests: ['services/nopsai/resource_authz_test.go'],
+    evidence: ['services/nopsai/resource_authz.go', 'services/nopsai/routes.go'],
+    notes: 'Registered as a bare path prefix rather than a method-qualified route, which is why the generated CLI catalogue cannot see it. Handler-authorized: the middleware defers, then the handler resolves the concrete resource and checks owner-level manage access.',
+  },
+];

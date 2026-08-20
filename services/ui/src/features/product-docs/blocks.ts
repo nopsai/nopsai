@@ -7,6 +7,7 @@ export type WikiBlockID =
   | 'procedure'
   | 'details'
   | 'fields'
+  | 'operations'
   | 'examples'
   | 'runbooks'
   | 'limits'
@@ -19,12 +20,27 @@ const blockTitles: Record<WikiBlockID, string> = {
   procedure: 'Steps',
   details: 'How it works',
   fields: 'Field reference',
+  operations: 'Operations',
   examples: 'Examples',
   runbooks: 'Runbooks',
   limits: 'Limits',
   related: 'Related pages',
   sources: 'Implementation evidence',
 };
+
+/** Title of the running manifest a feature page in the pipeline chapter shows. */
+export const runningManifestTitle = 'Pipeline so far';
+
+/**
+ * Whether a page is built around a running manifest rather than a field table.
+ *
+ * The pipeline chapter grows one artefact across its pages, so the manifest is
+ * what the reader came for and the directives it introduces are the supporting
+ * detail — the opposite of an ordinary reference page.
+ */
+export function hasRunningManifest(article: WikiArticle) {
+  return (article.examples || []).some(example => example.title === runningManifestTitle);
+}
 
 /**
  * Block order follows the page purpose: a tutorial leads with steps, a
@@ -33,16 +49,19 @@ const blockTitles: Record<WikiBlockID, string> = {
  */
 export function wikiBlockOrder(article: WikiArticle): WikiBlockID[] {
   const tail: WikiBlockID[] = ['limits', 'related', 'sources'];
+  if (hasRunningManifest(article)) {
+    return ['key-facts', 'examples', 'fields', 'operations', 'details', 'prerequisites', 'procedure', 'runbooks', ...tail];
+  }
   if (article.docType === 'tutorial' || article.docType === 'how-to') {
-    return ['key-facts', 'prerequisites', 'procedure', 'details', 'fields', 'examples', 'runbooks', ...tail];
+    return ['key-facts', 'prerequisites', 'procedure', 'details', 'fields', 'operations', 'examples', 'runbooks', ...tail];
   }
   if (article.docType === 'reference') {
-    return ['key-facts', 'fields', 'examples', 'details', 'runbooks', ...tail];
+    return ['key-facts', 'operations', 'fields', 'examples', 'details', 'runbooks', ...tail];
   }
   if (article.docType === 'runbook' || article.docType === 'troubleshooting') {
-    return ['key-facts', 'runbooks', 'procedure', 'details', 'fields', 'examples', ...tail];
+    return ['key-facts', 'runbooks', 'procedure', 'details', 'fields', 'operations', 'examples', ...tail];
   }
-  return ['key-facts', 'details', 'fields', 'examples', 'runbooks', ...tail];
+  return ['key-facts', 'details', 'fields', 'operations', 'examples', 'runbooks', ...tail];
 }
 
 /** Only blocks the article actually carries. Empty blocks are never rendered as placeholders. */
@@ -53,6 +72,7 @@ export function visibleWikiBlocks(article: WikiArticle): WikiBlockID[] {
     procedure: (article.steps?.length || 0) > 0,
     details: article.details.length > 0,
     fields: (article.fields?.length || 0) > 0,
+    operations: (article.apiRoutes?.length || 0) > 0,
     examples: (article.examples?.length || 0) > 0,
     runbooks: (article.runbooks?.length || 0) > 0,
     limits: (article.limits?.length || 0) > 0,

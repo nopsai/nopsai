@@ -17,14 +17,23 @@ export function WikiFieldTable({
   targetAnchor?: string;
   searchable?: boolean;
 }) {
+  /**
+   * Rows are identified by position as well as path.
+   *
+   * An anchor is derived from the path, and a page can legitimately document the
+   * same path twice — a directive and the limit that bounds it. Keying rows by
+   * the anchor alone made those two rows share an identity, so expanding one
+   * expanded both and React reused the row across pages.
+   */
+  const rowKey = (field: WikiField, index: number) => `${index}:${field.scope}:${field.path}`;
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState('');
-  const [expanded, setExpanded] = useState<string[]>(() => (targetAnchor ? [targetAnchor] : []));
+  const [expanded, setExpanded] = useState<string[]>([]);
 
   const scopes = useMemo(() => Array.from(new Set(fields.map(field => field.scope))), [fields]);
   const visible = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return fields.filter(field => {
+    return fields.map((field, index) => ({ field, key: rowKey(field, index) })).filter(({ field }) => {
       if (scope && field.scope !== scope) return false;
       if (!normalized) return true;
       return (
@@ -35,8 +44,8 @@ export function WikiFieldTable({
     });
   }, [fields, query, scope]);
 
-  const toggle = (anchor: string) =>
-    setExpanded(current => (current.includes(anchor) ? current.filter(item => item !== anchor) : [...current, anchor]));
+  const toggle = (key: string) =>
+    setExpanded(current => (current.includes(key) ? current.filter(item => item !== key) : [...current, key]));
 
   return (
     <div>
@@ -82,9 +91,10 @@ export function WikiFieldTable({
             </tr>
           </thead>
           <tbody>
-            {visible.map(field => {
-              const anchor = wikiFieldAnchor(field.path);
-              const isOpen = expanded.includes(anchor);
+            {visible.map(({ field, key }) => {
+              const anchor = wikiFieldAnchor(field.path, field.scope);
+              // A deep link opens the first row carrying that anchor.
+              const isOpen = expanded.includes(key) || (Boolean(targetAnchor) && targetAnchor === anchor);
               const hasDetail = Boolean(
                 field.allowedValues?.length ||
                   field.constraints?.length ||
@@ -96,12 +106,13 @@ export function WikiFieldTable({
               );
               return (
                 <FieldRows
-                  key={anchor}
+                  key={key}
                   field={field}
                   anchor={anchor}
+                  showScope={scopes.length > 1}
                   isOpen={isOpen}
                   hasDetail={hasDetail}
-                  onToggle={() => toggle(anchor)}
+                  onToggle={() => toggle(key)}
                 />
               );
             })}
@@ -122,12 +133,15 @@ export function WikiFieldTable({
 function FieldRows({
   field,
   anchor,
+  showScope,
   isOpen,
   hasDetail,
   onToggle,
 }: {
   field: WikiField;
   anchor: string;
+  /** Tables that mix scopes name the owning document on every row. */
+  showScope: boolean;
   isOpen: boolean;
   hasDetail: boolean;
   onToggle: () => void;
@@ -155,6 +169,9 @@ function FieldRows({
             )}
             <span className="min-w-0">
               <code className="break-all text-sm font-semibold text-[var(--text-primary)]">{field.path}</code>
+              {showScope ? (
+                <span className="ml-2 text-xs text-[var(--text-tertiary)]">{field.scope}</span>
+              ) : null}
               {field.deprecatedIn ? <span className="ml-2 text-xs text-amber-500">deprecated</span> : null}
               <span className="mt-0.5 block text-sm leading-6 text-[var(--text-secondary)]">
                 <InlineMarkup value={field.description} />
