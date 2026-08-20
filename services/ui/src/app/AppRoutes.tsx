@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { AppAccess } from '../auth/capabilities';
 import { PermissionGuard } from '../auth/permissionGuards';
-import type { CurrentUser } from './types';
+import type { CurrentUser, Theme } from './types';
 import { isInitialSetupAllowedRoute, type InitialSetupGate } from './useInitialSetupRedirect';
 
 const PipelineRunsPage = lazy(() => import('../pages/PipelineRuns'));
@@ -37,6 +37,8 @@ export function AppRoutes({
   currentUserLoading,
   mustChangePassword,
   setupGate,
+  theme,
+  onToggleTheme,
   onLogout,
   onPasswordChanged,
   onSetupStatusChange,
@@ -47,6 +49,9 @@ export function AppRoutes({
   currentUserLoading: boolean;
   mustChangePassword: boolean;
   setupGate?: InitialSetupGate;
+  /** The documentation shell renders outside the app chrome and owns its own theme control. */
+  theme?: Theme;
+  onToggleTheme?: () => void;
   onLogout: () => void;
   onPasswordChanged: () => void;
   onSetupStatusChange?: InitialSetupGate['recordStatus'];
@@ -108,7 +113,7 @@ export function AppRoutes({
             </PermissionGuard>
           }
         />
-        <Route path="/docs/*" element={<ProductDocsPage />} />
+        <Route path="/docs/*" element={<ProductDocsPage theme={theme} onToggleTheme={onToggleTheme} />} />
         <Route
           path="/pipelines/*"
           element={

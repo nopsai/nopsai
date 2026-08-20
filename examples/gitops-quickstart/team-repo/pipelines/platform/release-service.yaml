@@ -1,0 +1,153 @@
+name: release-service
+description: Build, verify, and publish the payments service.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 45m
+display_option: list
+llm_enabled: true
+model: reasoning-large
+agent_role: senior-release-engineer
+governance_level: strict
+mcp_profiles:
+  - jira-readonly
+knowledge_context:
+  - kind: guardrail
+    ref: security/repo-check
+    required: true
+llm_content_preload: false
+llm_content_include:
+  - "src/**/*.go"
+llm_content_ignore:
+  - "**/testdata/**"
+variables:
+  - RELEASE_CHANNEL
+  - platform/shared:ARTIFACT_BUCKET
+steps:
+  - name: checkout
+    include: step:platform/shared/checkout
+
+  - name: build
+    depends_on: [checkout]
+    script: |
+      make build
+      echo "1.0.$(date +%s)" > /nopsai/outputs/BUILD_TAG
+    outputs:
+      - name: BUILD_TAG
+
+  - name: verify
+    image: golang:1.24
+    depends_on: [build]
+    runtime_pool: ci
+    volumes:
+      - build-cache:/root/.cache
+    script: |
+      go vet ./...
+      go test ./...
+
+  - name: checks
+    depends_on: [verify]
+    tasks:
+      - name: licenses
+        ignore_failure: true
+        script: |
+          ./scripts/license-check.sh
+      - name: sbom
+        script: |
+          ./scripts/sbom.sh > /workspace/sbom.json
+          sha256sum /workspace/sbom.json | cut -d' ' -f1 > /nopsai/outputs/SBOM_DIGEST
+        outputs:
+          - name: SBOM_DIGEST
+      - name: risk-review
+        depends_on: [checks.sbom]
+        goal: Review the changed files and list the risks this release carries.
+        model: reasoning-large
+        governance_level: advisory
+        mcp_profiles:
+          - jira-readonly
+        knowledge_context:
+          - kind: example
+            path: .nopsai/docs/risk-review-example.md
+      - name: report
+        depends_on: [checks.licenses, checks.sbom]
+        variables:
+          SBOM_DIGEST: $steps.checks.sbom.outputs.SBOM_DIGEST
+        script: |
+          echo "checks complete"
+          echo "sbom $SBOM_DIGEST"
+
+  - name: package
+    depends_on: [checks]
+    secrets:
+      - REGISTRY_TOKEN
+      - platform/shared:SIGNING_KEY
+    variables:
+      BUILD_TAG: $steps.build.outputs.BUILD_TAG
+    script: |
+      ./scripts/package.sh "$BUILD_TAG"
+      echo "channel $RELEASE_CHANNEL, bucket $ARTIFACT_BUCKET"
+      ./scripts/mint-token.sh > /nopsai/outputs/PUBLISH_TOKEN
+      ./scripts/sign.sh --key "$SIGNING_KEY" --token "$REGISTRY_TOKEN"
+    outputs:
+      - name: PUBLISH_TOKEN
+        sensitive: true
+
+  - name: announce
+    depends_on: [package]
+    condition: Only run when the release channel is stable.
+    ignore_failure: true
+    script: |
+      ./scripts/announce.sh
+
+  - name: production-gate
+    depends_on: [package]
+    approval:
+      type: production-release
+      teams:
+        - platform/sre
+      allow_self_approval: false
+      timeout: 24h
+
+  - name: publish
+    depends_on: [production-gate]
+    script: |
+      ./scripts/promote.sh
+
+  - name: release-notes
+    depends_on: [publish]
+    goal: Read the commits since the last tag and write release notes to /workspace/NOTES.md.
+    model: reasoning-large
+    agent_role: release-writer
+    governance_level: advisory
+    mcp_profiles:
+      - github-readonly
+    knowledge_context:
+      - kind: policy
+        ref: platform/release-notes
+        required: true
+
+  - name: deploy
+    depends_on: [publish]
+    include: pipeline:platform/deploy-service
+    sync: true
+    outputs:
+      - name: DEPLOY_ID
+
+output:
+  model: reasoning-large
+  items:
+    - name: Release summary
+      type: markdown
+      when: always
+      prompt: Summarize the release, its approvals, and anything that failed.
+      model: reasoning-large
+    - name: Release health
+      type: dashboard
+      when: success
+      prompt: Publish the release health entry for this service.
+      dashboard:
+        ref: platform/service-health
+        section: releases
+        entry_key: payments
+        mode: series
+        preset: metrics
+        ttl: 30d

@@ -1,14 +1,5 @@
 import { Link } from 'react-router-dom';
-import {
-  summarizeWiki,
-  wikiArticlePath,
-  wikiGroupDescriptions,
-  wikiGroupLabels,
-  wikiGroupedSections,
-  wikiMetadata,
-} from './content/index.js';
-import { WikiSearchBox } from './WikiNavigation.js';
-import type { WikiSearchResult } from './search.js';
+import { summarizeWiki, wikiArticlePath, wikiMetadata, wikiSections } from './content/index.js';
 
 /**
  * Task-based entry points.
@@ -21,25 +12,25 @@ const startingPoints: { label: string; description: string; sectionID: string; a
   {
     label: 'I am new here',
     description: 'What the product is and how a run actually executes.',
-    sectionID: 'start',
+    sectionID: 'getting-started',
     articleID: 'what-nopsai-is',
   },
   {
     label: 'I want to install it',
     description: 'Run a local stack and finish first-install setup.',
-    sectionID: 'get-started',
+    sectionID: 'getting-started',
     articleID: 'install-local-docker-compose',
   },
   {
     label: 'I am writing a pipeline',
-    description: 'Every pipeline, step, task, and output directive.',
-    sectionID: 'automation',
-    articleID: 'pipeline-schema',
+    description: 'One capability per page, on a manifest that grows as you read.',
+    sectionID: 'pipelines',
+    articleID: 'pipeline-anatomy',
   },
   {
     label: 'Something is broken',
     description: 'Symptom to likely cause, with the page that explains the fix.',
-    sectionID: 'reference',
+    sectionID: 'operations',
     articleID: 'troubleshooting',
   },
 ];
@@ -47,55 +38,37 @@ const startingPoints: { label: string; description: string; sectionID: string; a
 const quickReference: { label: string; sectionID: string; articleID: string }[] = [
   { label: 'All YAML directives', sectionID: 'reference', articleID: 'directive-index' },
   { label: 'All environment variables', sectionID: 'reference', articleID: 'environment-index' },
-  { label: 'All REST endpoints', sectionID: 'reference', articleID: 'api-index' },
-  { label: 'Glossary', sectionID: 'start', articleID: 'concepts-glossary' },
-  { label: 'Production hardening', sectionID: 'reference', articleID: 'production-hardening' },
+  { label: 'All REST endpoints', sectionID: 'api', articleID: 'api-index' },
+  { label: 'Glossary', sectionID: 'reference', articleID: 'concepts-glossary' },
+  { label: 'Production hardening', sectionID: 'operations', articleID: 'production-hardening' },
   { label: 'Confirmed limits', sectionID: 'reference', articleID: 'known-limits' },
 ];
 
-export function WikiHome({
-  query,
-  results,
-  onQueryChange,
-  onSelectResult,
-}: {
-  query: string;
-  results: WikiSearchResult[];
-  onQueryChange: (value: string) => void;
-  onSelectResult: (result: WikiSearchResult) => void;
-}) {
+export function WikiHome() {
   const summary = summarizeWiki();
 
   return (
-    <div className="mx-auto max-w-4xl pb-16">
-      <header>
-        <h2 className="text-[22px] font-semibold tracking-tight text-[var(--text-primary)]">{wikiMetadata.title}</h2>
-        <p className="mt-1.5 max-w-[62ch] text-[15px] leading-7 text-[var(--text-secondary)]">{wikiMetadata.tagline}</p>
-      </header>
+    <div>
+      <p className="docs-breadcrumb">NopsAI / Documentation</p>
+      <h1 className="docs-h1">{wikiMetadata.title}</h1>
+      <p className="docs-lead">{wikiMetadata.tagline}</p>
 
-      <WikiSearchBox large query={query} results={results} onQueryChange={onQueryChange} onSelectResult={onSelectResult} />
-
-      <section aria-labelledby="wiki-start" className="mt-8">
-        <h2 id="wiki-start" className="text-sm font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+      <section aria-labelledby="wiki-start">
+        <h2 id="wiki-start" className="docs-h2">
           Start with what you need
         </h2>
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="docs-grid">
           {startingPoints.map(item => (
-            <li key={item.articleID}>
-              <Link
-                to={wikiArticlePath(item.sectionID, item.articleID)}
-                className="block h-full rounded border border-[var(--border-primary)] px-3 py-2.5 hover:bg-[var(--bg-tertiary)]"
-              >
-                <span className="block text-sm font-medium text-[var(--text-primary)]">{item.label}</span>
-                <span className="mt-0.5 block text-sm leading-6 text-[var(--text-secondary)]">{item.description}</span>
-              </Link>
-            </li>
+            <Link key={item.articleID} to={wikiArticlePath(item.sectionID, item.articleID)} className="docs-card">
+              <strong>{item.label}</strong>
+              <span>{item.description}</span>
+            </Link>
           ))}
-        </ul>
+        </div>
       </section>
 
-      <section aria-labelledby="wiki-quick" className="mt-8">
-        <h2 id="wiki-quick" className="text-sm font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+      <section aria-labelledby="wiki-quick">
+        <h2 id="wiki-quick" className="docs-h2">
           Look something up
         </h2>
         <ul className="mt-3 flex flex-wrap gap-2">
@@ -103,7 +76,7 @@ export function WikiHome({
             <li key={item.articleID}>
               <Link
                 to={wikiArticlePath(item.sectionID, item.articleID)}
-                className="inline-flex items-center rounded border border-[var(--border-primary)] px-2.5 py-1 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex items-center rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-[13px] text-[var(--docs-muted)] hover:border-[var(--docs-accent-border)] hover:text-[var(--docs-accent)]"
               >
                 {item.label}
               </Link>
@@ -112,32 +85,24 @@ export function WikiHome({
         </ul>
       </section>
 
-      <section aria-labelledby="wiki-browse" className="mt-8">
-        <h2 id="wiki-browse" className="text-sm font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+      <section aria-labelledby="wiki-browse">
+        <h2 id="wiki-browse" className="docs-h2">
           Browse everything
         </h2>
-        <div className="mt-3 space-y-6">
-          {wikiGroupedSections().map(({ group, sections }) => (
-            <div key={group}>
-              <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">{wikiGroupLabels[group]}</h3>
-              <p className="mt-0.5 text-sm leading-6 text-[var(--text-secondary)]">{wikiGroupDescriptions[group]}</p>
-              <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-                {sections.map(section => (
-                  <li key={section.id} className="rounded border border-[var(--border-primary)] px-3 py-2.5">
-                    <p className="text-sm font-medium text-[var(--text-primary)]">{section.title}</p>
-                    <p className="mt-0.5 text-sm leading-6 text-[var(--text-secondary)]">{section.description}</p>
-                    <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                      {section.articles.map(article => (
-                        <li key={article.id}>
-                          <Link
-                            to={wikiArticlePath(section.id, article.id)}
-                            className="text-sm text-[var(--text-secondary)] underline-offset-2 hover:text-[var(--text-primary)] hover:underline"
-                          >
-                            {article.title}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
+        <div className="docs-grid">
+          {wikiSections.map(section => (
+            <div key={section.id} className="docs-card">
+              <strong>{section.title}</strong>
+              <span>{section.description}</span>
+              <ul className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1">
+                {section.articles.map(article => (
+                  <li key={article.id}>
+                    <Link
+                      to={wikiArticlePath(section.id, article.id)}
+                      className="text-[13px] text-[var(--docs-muted)] underline-offset-2 hover:text-[var(--docs-accent)] hover:underline"
+                    >
+                      {article.title}
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -146,10 +111,10 @@ export function WikiHome({
         </div>
       </section>
 
-      <footer className="mt-10 border-t border-[var(--border-primary)] pt-4 text-sm text-[var(--text-secondary)]">
+      <p className="mt-12 border-t border-[var(--docs-border)] pt-4 text-[12px] text-[var(--docs-faint)]">
         {summary.sections} sections · {summary.articles} pages · {summary.fields} documented fields ·{' '}
         {summary.examples} examples · {summary.sources} implementation references
-      </footer>
+      </p>
     </div>
   );
 }

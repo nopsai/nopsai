@@ -45,6 +45,7 @@ team-repo/     the platform team's pipelines, steps, scopes, schedules, dashboar
 | `pipelines/platform/deploy-service.yaml` | Scope secrets, restricted access, and a human approval checkpoint. |
 | `pipelines/platform/release-notes.yaml` | An LLM goal task with an model, agent role, and Knowledge Context. |
 | `pipelines/platform/service-health-dashboard.yaml` | A dashboard final output published from run evidence. |
+| `pipelines/platform/release-service.yaml` | Every pipeline capability in one manifest: the finished example the wiki's Pipelines chapter builds page by page. |
 | `steps/platform/shared/checkout.yaml`, `notify.yaml` | Reusable steps included by other pipelines. |
 | `scopes/platform/dev/scope.yaml`, `prod/scope.yaml` | Per-scope variables and declared secret keys. |
 | `schedules/platform/nightly-service-health.yaml` | A cron schedule bound to a scope. |

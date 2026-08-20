@@ -19,9 +19,6 @@ export type WikiAudience =
 /** Purpose of a page, independent of who reads it. */
 export type WikiDocType = 'tutorial' | 'how-to' | 'concept' | 'reference' | 'runbook' | 'troubleshooting';
 
-/** Top-level shelf a section belongs to on the wiki home page. */
-export type WikiGroup = 'learn' | 'build' | 'run' | 'look-up';
-
 export type WikiStatus = 'current' | 'preview' | 'deprecated';
 
 /**
@@ -69,6 +66,48 @@ export type WikiRouteAccess =
   /** Internal service token only; not part of the public surface. */
   | 'service';
 
+/**
+ * How completely a route is documented.
+ *
+ * Not every route deserves the same treatment. `full` is the supported surface a
+ * customer calls; `contract` is an internal service route that gets a purpose and
+ * a boundary statement but no call samples; `probe` is an operational endpoint
+ * where the response and what to assert on is the whole story.
+ */
+export type WikiApiDepth = 'full' | 'contract' | 'probe';
+
+export type WikiApiParameter = {
+  name: string;
+  in: 'path' | 'query' | 'header';
+  type: string;
+  required: boolean;
+  defaultValue?: string;
+  allowedValues?: string[];
+  repeatable?: boolean;
+  description: string;
+  example?: string;
+};
+
+export type WikiApiResponse = {
+  status: number;
+  description: string;
+  /**
+   * Response body shape. Traceable to a DTO or a test fixture — never invented,
+   * because a plausible-looking sample is worse than no sample.
+   */
+  sample?: string;
+  contentType?: string;
+};
+
+export type WikiApiError = {
+  status: number;
+  /** Error code the handler returns, when it names one. */
+  code?: string;
+  cause: string;
+  /** What the caller should do about it. */
+  action: string;
+};
+
 export type WikiApiRoute = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'ANY';
   path: string;
@@ -79,6 +118,22 @@ export type WikiApiRoute = {
   /** AAA action or role the handler checks, when the route names one. */
   permission?: string;
   notes?: string;
+
+  /** Absent means the route still carries only its index row. */
+  depth?: WikiApiDepth;
+  parameters?: WikiApiParameter[];
+  /** Request body fields, reusing the authored field shape. */
+  requestFields?: WikiField[];
+  requestSample?: WikiExample;
+  responses?: WikiApiResponse[];
+  errors?: WikiApiError[];
+  /** Audit records, metrics, dispatch, GitOps writes — or nothing. */
+  sideEffects?: string[];
+  streaming?: { contentType: string; framing: string };
+  /** Repository tests that exercise this route. */
+  coveringTests?: string[];
+  /** Handler and schema files that prove the documented behavior. */
+  evidence?: string[];
 };
 
 export const wikiRouteAccessLabels: Record<WikiRouteAccess, string> = {
@@ -153,6 +208,8 @@ export type WikiArticle = {
   prerequisites?: WikiPrerequisite[];
   steps?: WikiStep[];
   fields?: WikiField[];
+  /** REST operations this page documents in full, rendered as operation blocks. */
+  apiRoutes?: WikiApiRoute[];
   examples?: WikiExample[];
   runbooks?: WikiRunbook[];
   /** Confirmed current limits. Not a roadmap. */
@@ -166,28 +223,11 @@ export type WikiArticle = {
 export type WikiSection = {
   id: string;
   title: string;
-  group: WikiGroup;
   owner: string;
   /** One sentence answering "what will I find in here?". */
   description: string;
   articles: WikiArticle[];
 };
-
-export const wikiGroupLabels: Record<WikiGroup, string> = {
-  learn: 'Learn the product',
-  build: 'Build automation',
-  run: 'Run the platform',
-  'look-up': 'Look something up',
-};
-
-export const wikiGroupDescriptions: Record<WikiGroup, string> = {
-  learn: 'What NopsAI is, how a run actually executes, and guided first tasks.',
-  build: 'Authoring pipelines, wiring triggers, and configuring the AI control layers.',
-  run: 'Installing, administering, and operating the platform day to day.',
-  'look-up': 'Complete indexes, interface contracts, and confirmed limits.',
-};
-
-export const wikiGroupOrder: WikiGroup[] = ['learn', 'build', 'run', 'look-up'];
 
 export const wikiDocTypeLabels: Record<WikiDocType, string> = {
   tutorial: 'Tutorial',
@@ -229,8 +269,16 @@ export function wikiArticlePath(sectionID: string, articleID: string) {
   return `/docs/${encodeURIComponent(sectionID)}/${encodeURIComponent(articleID)}`;
 }
 
-export function wikiFieldAnchor(path: string) {
-  return `field-${wikiSlug(path)}`;
+/**
+ * Anchor for one documented field.
+ *
+ * The scope is part of the identity because two different documents can share a
+ * key — an MCP profile and an MCP server both have a `name` — and without it
+ * they collide on one anchor, so a deep link lands on whichever renders first.
+ */
+export function wikiFieldAnchor(path: string, scope?: string) {
+  const slug = wikiSlug(path);
+  return scope ? `field-${wikiSlug(scope)}-${slug}` : `field-${slug}`;
 }
 
 export function wikiSlug(value: string) {

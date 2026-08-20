@@ -9,26 +9,27 @@ import {
   type WikiSection,
 } from './content/index.js';
 import { wikiBlockTitle, type WikiBlockID } from './blocks.js';
+import { WikiApiOperations } from './WikiApiOperations.js';
 import { WikiFieldTable } from './WikiFieldTable.js';
 import { InlineMarkup, WikiBlock, WikiBulletList, WikiChip, WikiCodeBlock, WikiNotice } from './WikiPrimitives.js';
 
 export function WikiArticleHeader({ section, article }: { section: WikiSection; article: WikiArticleModel }) {
   return (
     <header>
-      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-sm text-[var(--text-secondary)]">
-        <Link to="/docs" className="hover:text-[var(--text-primary)]">
-          Wiki
-        </Link>
-        <span aria-hidden="true">/</span>
+      <nav aria-label="Breadcrumb" className="docs-breadcrumb">
+        <Link to="/docs">NopsAI</Link>
+        <span aria-hidden="true"> / </span>
         <span>{section.title}</span>
+        <span aria-hidden="true"> / </span>
+        <span>{article.title}</span>
       </nav>
-      <h2 id="wiki-article-title" className="mt-2 text-[22px] font-semibold tracking-tight text-[var(--text-primary)]">
+      <h1 id="wiki-article-title" className="docs-h1">
         {article.title}
-      </h2>
-      <p className="mt-2 max-w-[62ch] text-[15px] leading-7 text-[var(--text-secondary)]">
+      </h1>
+      <p className="docs-lead">
         <InlineMarkup value={article.summary} />
       </p>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+      <div className="mt-4 flex flex-wrap items-center gap-1.5">
         <WikiChip tone="accent">{wikiDocTypeLabel(article.docType)}</WikiChip>
         {article.audiences.map(audience => (
           <WikiChip key={audience}>{wikiAudienceLabel(audience)}</WikiChip>
@@ -53,7 +54,7 @@ export function WikiArticleBody({
   onCopy: (key: string, code: string) => void;
 }) {
   return (
-    <div className="divide-y divide-[var(--border-primary)]">
+    <div className="docs-article-body">
       {blocks.map(block => {
         switch (block) {
           case 'key-facts':
@@ -145,7 +146,20 @@ export function WikiArticleBody({
           case 'fields':
             return (
               <WikiBlock key={block} id="fields" title={wikiBlockTitle('fields')}>
-                <WikiFieldTable fields={article.fields || []} targetAnchor={targetAnchor} />
+                <WikiFieldTable key={article.id} fields={article.fields || []} targetAnchor={targetAnchor} />
+              </WikiBlock>
+            );
+          case 'operations':
+            return (
+              <WikiBlock key={block} id="operations" title={wikiBlockTitle('operations')}>
+                <WikiApiOperations
+                  key={article.id}
+                  routes={article.apiRoutes || []}
+                  articleID={article.id}
+                  targetAnchor={targetAnchor}
+                  copiedKey={copiedKey}
+                  onCopy={onCopy}
+                />
               </WikiBlock>
             );
           case 'examples':

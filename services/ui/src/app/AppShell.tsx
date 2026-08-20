@@ -217,6 +217,28 @@ function AppShell() {
   const title = titleMap[pageKey] || 'Dashboard';
   const description = descriptionMap[pageKey] || '';
   const isLoginRoute = location.pathname === '/login';
+  /**
+   * The product wiki is a documentation site, not an operator workspace: it owns
+   * the whole viewport and renders its own header, sidebar, and on-this-page
+   * rail.
+   */
+  const isDocsRoute = location.pathname === '/docs' || location.pathname.startsWith('/docs/');
+
+  const appRoutes = (
+    <AppRoutes
+      access={access}
+      currentUser={currentUser}
+      currentUserLoading={currentUserLoading}
+      mustChangePassword={Boolean(authSession.mustChangePassword)}
+      setupGate={setupGate}
+      theme={theme}
+      onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      onLogout={handleLogout}
+      onPasswordChanged={markPasswordChanged}
+      onSetupStatusChange={setupGate.recordStatus}
+      onUserUpdated={handleUserUpdated}
+    />
+  );
 
   return (
     <div className="app-root-shell min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -228,6 +250,10 @@ function AppShell() {
         </div>
       ) : !isAuthenticated ? (
         <Navigate to="/login" replace />
+      ) : isDocsRoute ? (
+        <div id="page-content-wrapper" className="h-screen overflow-auto overscroll-contain">
+          {appRoutes}
+        </div>
       ) : (
         <>
           <div id="hover-hint" aria-hidden="true"></div>
@@ -273,17 +299,7 @@ function AppShell() {
                 onOpenSidebar={sidebar.openSidebar}
               />
               <div id="page-content-wrapper" className="flex-1 min-h-0 overflow-auto overscroll-contain">
-                <AppRoutes
-                  access={access}
-                  currentUser={currentUser}
-                  currentUserLoading={currentUserLoading}
-                  mustChangePassword={Boolean(authSession.mustChangePassword)}
-                  setupGate={setupGate}
-                  onLogout={handleLogout}
-                  onPasswordChanged={markPasswordChanged}
-                  onSetupStatusChange={setupGate.recordStatus}
-                  onUserUpdated={handleUserUpdated}
-                />
+                {appRoutes}
               </div>
             </main>
           </div>

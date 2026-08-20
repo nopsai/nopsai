@@ -1,5 +1,5 @@
 import { apiRouteIndex, directiveIndex, environmentIndex } from './indexes.js';
-import { wikiArticleLocations, wikiArticlePath, type WikiArticle } from './content/index.js';
+import { findWikiArticle, wikiArticleLocations, wikiArticlePath, type WikiArticle } from './content/index.js';
 
 export type WikiSearchKind = 'article' | 'directive' | 'environment' | 'endpoint' | 'example' | 'runbook';
 
@@ -88,13 +88,19 @@ function buildSearchIndex(): WikiSearchResult[] {
     });
   }
 
+  // Endpoint hits land on the API index wherever that page currently lives.
+  const apiIndexLocation = findWikiArticle('api-index');
+  const apiIndexHref = apiIndexLocation
+    ? wikiArticlePath(apiIndexLocation.section.id, apiIndexLocation.article.id)
+    : '';
+
   for (const route of apiRouteIndex) {
     records.push({
       id: `endpoint:${route.method}:${route.path}`,
       kind: 'endpoint',
       title: `${route.method} ${route.path}`,
       context: `${route.area} · ${route.purpose}`,
-      href: '/docs/reference/api-index',
+      href: apiIndexHref,
       score: 0,
     });
   }

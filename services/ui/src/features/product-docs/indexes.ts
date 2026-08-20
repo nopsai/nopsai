@@ -1,4 +1,4 @@
-import { apiRoutes } from './content/fields/api.js';
+import { apiRoutes } from './content/fields/api/index.js';
 import { allEnvironmentFields } from './content/fields/environment.js';
 import {
   wikiArticleLocations,
@@ -36,7 +36,7 @@ function collectFields(predicate: (field: WikiField, articleID: string) => boole
         articleID: article.id,
         articleTitle: article.title,
         sectionID: section.id,
-        href: `${wikiArticlePath(section.id, article.id)}#${wikiFieldAnchor(field.path)}`,
+        href: `${wikiArticlePath(section.id, article.id)}#${wikiFieldAnchor(field.path, field.scope)}`,
       });
     }
   }

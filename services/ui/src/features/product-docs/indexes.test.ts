@@ -88,7 +88,14 @@ test('the API index covers every area with a stated access class', () => {
 
   assert.equal(find('GET', '/healthz')?.access, 'public');
   assert.equal(find('GET', '/v1/setup/preflight')?.access, 'public');
-  assert.equal(find('POST', '/v1/git/events')?.access, 'service');
+  // Verified against http_middleware.go: the gate is authentication, not a
+  // service token. git-bot is the intended caller, not the enforced one.
+  assert.equal(find('POST', '/v1/git/events')?.access, 'authenticated');
+  // Only preflight is public; the rest of the setup surface needs the bootstrap
+  // administrator's token even though it stays reachable while setup is locked.
+  assert.equal(find('POST', '/v1/setup/bootstrap')?.access, 'authenticated');
+  assert.equal(find('POST', '/v1/git/webhooks/{sourceID}')?.access, 'public');
+  assert.equal(find('POST', '/v1/auth/logout')?.access, 'public');
   assert.equal(find('GET', '/v1/admin/users')?.access, 'admin');
   assert.equal(find('POST', '/v1/run')?.access, 'authorized');
   assert.equal(find('GET', '/v1/auth/me')?.access, 'authenticated');

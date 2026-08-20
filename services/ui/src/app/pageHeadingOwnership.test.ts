@@ -17,14 +17,25 @@ test('keeps authenticated route h1 ownership in the app shell', () => {
   const shellSource = readFileSync(resolve(sourceRoot, 'app/AppShell.tsx'), 'utf8');
   assert.match(shellSource, /<h1 id="main-header"[\s\S]*?\{title\}<\/h1>/);
 
-  const standaloneLoginPath = resolve(sourceRoot, 'pages/Login.tsx');
-  const standaloneLoginSource = readFileSync(standaloneLoginPath, 'utf8');
-  assert.match(standaloneLoginSource, /<h1\b/);
+  /**
+   * Standalone routes render outside the app chrome, so they own their own h1:
+   * the login screen, and the product wiki, which renders its own documentation
+   * header, sidebar, and article headings.
+   */
+  const standaloneHeadingPaths = [
+    resolve(sourceRoot, 'pages/Login.tsx'),
+    resolve(sourceRoot, 'features/product-docs/WikiArticle.tsx'),
+    resolve(sourceRoot, 'features/product-docs/WikiHome.tsx'),
+  ];
+
+  for (const path of standaloneHeadingPaths) {
+    assert.match(readFileSync(path, 'utf8'), /<h1\b/, `${path} should own its standalone h1`);
+  }
 
   const authenticatedRenderFiles = [
-    ...typescriptReactFiles(resolve(sourceRoot, 'pages')).filter(path => path !== standaloneLoginPath),
+    ...typescriptReactFiles(resolve(sourceRoot, 'pages')),
     ...typescriptReactFiles(resolve(sourceRoot, 'features')),
-  ];
+  ].filter(path => !standaloneHeadingPaths.includes(path));
 
   for (const path of authenticatedRenderFiles) {
     const source = readFileSync(path, 'utf8');

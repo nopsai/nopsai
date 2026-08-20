@@ -274,7 +274,7 @@ export const pipelineFields: WikiField[] = [
 /** Limits the pipeline validator enforces before a run is accepted. */
 export const pipelineStructuralLimits: WikiField[] = [
   {
-    path: 'steps',
+    path: 'steps (max per pipeline)',
     scope: 'limit',
     type: 'count',
     required: false,
@@ -284,7 +284,7 @@ export const pipelineStructuralLimits: WikiField[] = [
     evidence: 'services/nopsai/pkg/validation/pipeline.go',
   },
   {
-    path: 'steps[].tasks',
+    path: 'steps[].tasks (max per step)',
     scope: 'limit',
     type: 'count',
     required: false,
@@ -324,7 +324,7 @@ export const pipelineStructuralLimits: WikiField[] = [
     evidence: 'services/nopsai/pkg/validation/pipeline.go',
   },
   {
-    path: 'steps[].volumes',
+    path: 'steps[].volumes (max per step)',
     scope: 'limit',
     type: 'count',
     required: false,

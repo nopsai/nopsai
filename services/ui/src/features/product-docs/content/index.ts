@@ -1,14 +1,11 @@
-import { administrationSection } from './sections/administration.js';
-import { aiSection } from './sections/ai.js';
+import { apiSection } from './sections/api.js';
 import { automationSection } from './sections/automation.js';
-import { eventsSection } from './sections/events.js';
-import { getStartedSection } from './sections/get-started.js';
-import { installSection } from './sections/install.js';
-import { interfacesSection } from './sections/interfaces.js';
+import { gettingStartedSection } from './sections/getting-started.js';
 import { operationsSection } from './sections/operations.js';
+import { pipelinesSection } from './sections/pipelines.js';
+import { platformSection } from './sections/platform.js';
 import { referenceSection } from './sections/reference.js';
-import { startSection } from './sections/start.js';
-import { wikiGroupOrder, type WikiArticle, type WikiGroup, type WikiSection } from './types.js';
+import { wikiArticlePath, type WikiArticle, type WikiSection } from './types.js';
 
 export * from './types.js';
 
@@ -26,17 +23,19 @@ export const wikiMetadata = {
   ],
 };
 
-/** Section order is the reading order in the sidebar and on the home page. */
+/**
+ * Section order is the reading order in the sidebar and on the home page.
+ *
+ * Sections are named for what the reader is doing, and each one is a nav group:
+ * onboarding first, then the feature chapters, then the lookup material.
+ */
 export const wikiSections: WikiSection[] = [
-  startSection,
-  getStartedSection,
+  gettingStartedSection,
+  pipelinesSection,
   automationSection,
-  eventsSection,
-  aiSection,
-  installSection,
-  administrationSection,
+  platformSection,
   operationsSection,
-  interfacesSection,
+  apiSection,
   referenceSection,
 ];
 
@@ -68,14 +67,49 @@ export function findWikiArticleByPath(pathname: string) {
   return location && location.section.id === sectionID ? location : undefined;
 }
 
-export function wikiSectionsByGroup(group: WikiGroup) {
-  return wikiSections.filter(section => section.group === group);
+/**
+ * Pages that were replaced by a successor covering the same ground.
+ *
+ * The Pipelines chapter split the two large schema references into one page per
+ * capability and folded the standalone tutorials into the page that owns the
+ * feature. A reader arriving on an old link should land on the successor rather
+ * than on the home page.
+ */
+export const wikiSupersededArticleIDs: Record<string, string> = {
+  'pipeline-schema': 'pipeline-anatomy',
+  'step-task-directives': 'script-steps',
+  'runtime-outputs': 'step-outputs',
+  'variables-secrets-scopes': 'pipeline-variables',
+  'add-approval-checkpoint': 'approvals',
+  'first-ai-assisted-pipeline': 'ai-steps',
+  'create-final-deliverable': 'final-deliverables',
+  'ai-control-layers': 'ai-context-and-tools',
+};
+
+/**
+ * Canonical path for a stale `/docs/<section>/<article>` URL.
+ *
+ * Two things go stale: a page moves between sections, and a page is replaced by
+ * a successor. Both resolve by article ID, so an old bookmark still lands on the
+ * material it named.
+ */
+export function findWikiArticleRedirect(pathname: string) {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'docs' || segments.length < 3) return undefined;
+  const sectionID = decodeRouteSegment(segments[1] || '');
+  const requestedID = decodeRouteSegment(segments[2] || '');
+  const articleID = wikiSupersededArticleIDs[requestedID] || requestedID;
+  const location = articleIndex.get(articleID);
+  if (!location || (location.section.id === sectionID && location.article.id === requestedID)) return undefined;
+  return wikiArticlePath(location.section.id, location.article.id);
 }
 
-export function wikiGroupedSections() {
-  return wikiGroupOrder
-    .map(group => ({ group, sections: wikiSectionsByGroup(group) }))
-    .filter(entry => entry.sections.length > 0);
+/** Superseded IDs that no longer resolve. Must be empty: a dead alias is a dead link. */
+export function findBrokenSupersededArticleIDs(sections: WikiSection[] = wikiSections) {
+  const known = new Set(sections.flatMap(section => section.articles.map(article => article.id)));
+  return Object.entries(wikiSupersededArticleIDs)
+    .filter(([oldID, newID]) => !known.has(newID) || known.has(oldID))
+    .map(([oldID, newID]) => ({ oldID, newID }));
 }
 
 export function getWikiNeighbors(articleID: string) {
@@ -91,7 +125,6 @@ export function getFirstWikiArticleID() {
 }
 
 export type WikiSummary = {
-  groups: number;
   sections: number;
   articles: number;
   fields: number;
@@ -108,7 +141,6 @@ export function summarizeWiki(sections: WikiSection[] = wikiSections): WikiSumma
     articles.reduce((total, article) => total + (pick(article)?.length || 0), 0);
 
   return {
-    groups: new Set(sections.map(section => section.group)).size,
     sections: sections.length,
     articles: articles.length,
     fields: count(article => article.fields),

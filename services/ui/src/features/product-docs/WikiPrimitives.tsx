@@ -1,12 +1,13 @@
 import { Check, Copy } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { WikiExample } from './content/index.js';
+import { Link } from 'react-router-dom';
+import { findWikiArticle, wikiArticlePath, type WikiExample } from './content/index.js';
 
 export function WikiBlock({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-8 pt-8">
-      <h2 className="text-lg font-semibold tracking-tight text-[var(--text-primary)]">{title}</h2>
-      <div className="mt-3">{children}</div>
+    <section id={id} className="scroll-mt-20">
+      <h2 className="docs-h2">{title}</h2>
+      <div>{children}</div>
     </section>
   );
 }
@@ -21,22 +22,18 @@ export function WikiNotice({
   children: ReactNode;
 }) {
   return (
-    <div
-      className={`mt-3 rounded border px-3 py-2 ${
-        tone === 'warning' ? 'border-amber-500/50' : 'border-[var(--border-primary)]'
-      }`}
-    >
-      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">{title}</p>
-      <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{children}</div>
+    <div className={`docs-note${tone === 'warning' ? ' docs-note--warning' : ''}`}>
+      <span className="docs-note-title">{title}</span>
+      <div>{children}</div>
     </div>
   );
 }
 
 export function WikiBulletList({ items, id }: { items: string[]; id: string }) {
   return (
-    <ul className="space-y-2 pl-5 text-sm leading-6 text-[var(--text-secondary)]">
+    <ul className="docs-prose">
       {items.map((item, index) => (
-        <li key={`${id}-${index}`} className="list-disc">
+        <li key={`${id}-${index}`}>
           <InlineMarkup value={item} />
         </li>
       ))}
@@ -59,16 +56,34 @@ export function WikiChip({ children, tone = 'neutral' }: { children: ReactNode; 
 }
 
 /**
- * Renders `**bold**` and `` `code` `` spans.
+ * Renders `**bold**`, `` `code` `` and `[label](article-id)` spans.
  *
  * Wiki copy is plain data, not markdown documents, so a full parser would be
- * more machinery than the two marks the content actually uses.
+ * more machinery than the three marks the content actually uses. A link names an
+ * article ID rather than a path: pages move between sections, and a stored path
+ * would rot the next time they do.
  */
 export function InlineMarkup({ value }: { value: string }) {
-  const parts = value.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  const parts = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([a-z0-9-]+\))/g).filter(Boolean);
   return (
     <>
       {parts.map((part, index) => {
+        const link = /^\[([^\]]+)\]\(([a-z0-9-]+)\)$/.exec(part);
+        if (link) {
+          const location = findWikiArticle(link[2]);
+          // An unresolvable link renders as plain text rather than a dead link;
+          // content.test.ts fails the build so it never ships that way.
+          if (!location) return <span key={index}>{link[1]}</span>;
+          return (
+            <Link
+              key={index}
+              to={wikiArticlePath(location.section.id, location.article.id)}
+              className="docs-inline-link"
+            >
+              {link[1]}
+            </Link>
+          );
+        }
         if (part.startsWith('**') && part.endsWith('**')) {
           return (
             <strong key={index} className="font-semibold text-[var(--text-primary)]">
@@ -78,7 +93,7 @@ export function InlineMarkup({ value }: { value: string }) {
         }
         if (part.startsWith('`') && part.endsWith('`')) {
           return (
-            <code key={index} className="rounded border border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-1 py-0.5 text-[0.92em] text-[var(--text-primary)]">
+            <code key={index} className="docs-inline-code">
               {part.slice(1, -1)}
             </code>
           );
@@ -102,15 +117,15 @@ export function WikiCodeBlock({
 }) {
   const copied = copiedKey === copyKey;
   return (
-    <figure className="overflow-hidden rounded border border-[var(--border-primary)]">
-      <figcaption className="flex items-center justify-between gap-3 border-b border-[var(--border-primary)] px-3 py-1.5">
-        <span className="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">{example.title}</span>
+    <figure className="docs-figure">
+      <figcaption className="docs-figure-bar">
+        <span className="min-w-0 truncate font-medium text-[var(--docs-text)]">{example.title}</span>
         <span className="flex shrink-0 items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">{example.language}</span>
+          <span className="text-[11px] uppercase tracking-wide text-[var(--docs-faint)]">{example.language}</span>
           <button
             type="button"
             onClick={() => onCopy(copyKey, example.code)}
-            className="inline-flex h-7 items-center gap-1 rounded px-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[12px] text-[var(--docs-muted)] hover:bg-[var(--docs-hover)] hover:text-[var(--docs-text)]"
             aria-label={copied ? `Copied ${example.title}` : `Copy ${example.title}`}
           >
             {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
@@ -118,7 +133,7 @@ export function WikiCodeBlock({
           </button>
         </span>
       </figcaption>
-      <pre className="overflow-x-auto px-3 py-2.5 text-sm leading-6 text-[var(--text-secondary)]">
+      <pre className="docs-pre">
         <code>{example.code}</code>
       </pre>
       {example.expectedOutput ? (
