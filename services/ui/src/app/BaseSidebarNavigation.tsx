@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   groupNavItemsByTopic,
@@ -22,29 +22,14 @@ export function BaseSidebarNavigation({
   systemSubNav: NavItem[];
   locationPathname: string;
 }) {
-  const isSystemRoute = locationPathname.startsWith('/system');
   const topLevelNav = navItems.filter(item => !item.path.startsWith('/system'));
   const topics = groupNavItemsByTopic(topLevelNav);
-  const [collapsedSectionState, setCollapsedSections] = useState<Set<string>>(
-    () => new Set(isSystemRoute ? [] : [SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID])
-  );
-  const [administrationManualCollapsePath, setAdministrationManualCollapsePath] = useState('');
-  const collapsedSections = useMemo(() => {
-    const shouldAutoExpandAdministration =
-      isSystemRoute &&
-      systemSubNav.length > 0 &&
-      administrationManualCollapsePath !== locationPathname &&
-      collapsedSectionState.has(SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID);
-    if (!shouldAutoExpandAdministration) return collapsedSectionState;
-    const next = new Set(collapsedSectionState);
-    next.delete(SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID);
-    return next;
-  }, [administrationManualCollapsePath, collapsedSectionState, isSystemRoute, locationPathname, systemSubNav.length]);
+  // Administration opens expanded like every other category. It used to start
+  // collapsed and auto-expand on a /system route, which meant the settings a
+  // user was looking for were hidden exactly when they were browsing for them.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set());
 
   const toggleSection = (sectionID: string) => {
-    if (sectionID === SIDEBAR_NAV_ADMINISTRATION_TOPIC_ID && isSystemRoute && systemSubNav.length > 0) {
-      setAdministrationManualCollapsePath(collapsedSections.has(sectionID) ? '' : locationPathname);
-    }
     setCollapsedSections(current => {
       const next = new Set(current);
       if (next.has(sectionID)) {

@@ -251,7 +251,7 @@ function AppShell() {
       ) : !isAuthenticated ? (
         <Navigate to="/login" replace />
       ) : isDocsRoute ? (
-        <div id="page-content-wrapper" className="h-screen overflow-auto overscroll-contain">
+        <div id="page-content-wrapper" className="h-screen overflow-auto">
           {appRoutes}
         </div>
       ) : (
@@ -298,7 +298,7 @@ function AppShell() {
                 description={description}
                 onOpenSidebar={sidebar.openSidebar}
               />
-              <div id="page-content-wrapper" className="flex-1 min-h-0 overflow-auto overscroll-contain">
+              <div id="page-content-wrapper" className="flex-1 min-h-0 overflow-auto">
                 {appRoutes}
               </div>
             </main>

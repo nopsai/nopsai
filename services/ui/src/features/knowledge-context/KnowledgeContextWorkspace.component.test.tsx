@@ -35,6 +35,10 @@ const documents: KnowledgeContextListItem[] = [
   },
 ];
 
+function assertRow(row: HTMLElement | null): asserts row is HTMLElement {
+  expect(row).not.toBeNull();
+}
+
 function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWorkspace>[0]> = {}) {
   const tree = buildKnowledgeTree(documents, []);
   const activeTeam = overrides.activeTeam ?? '';
@@ -138,6 +142,26 @@ describe('KnowledgeContextWorkspace', () => {
     expect(props.onOpenTeam).toHaveBeenCalledWith('runbook');
     expect(props.onCreateDocument).toHaveBeenCalledOnce();
     expect(props.onSelectDocument).toHaveBeenCalledWith('platform/restart');
+  });
+
+  it('keeps the document table to plain values, with the team as the only tag', () => {
+    renderWorkspace();
+
+    // Kind and source are attributes of the row, not states worth a coloured
+    // pill, and the sync state belongs to the document detail rather than to a
+    // column repeated down the table.
+    expect(screen.getByRole('columnheader', { name: 'Kind' })).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: 'Source' })).toBeVisible();
+    expect(screen.queryByRole('columnheader', { name: 'Sync' })).not.toBeInTheDocument();
+
+    const row = screen.getAllByRole('button', { name: 'Open restart' })[0].closest('tr');
+    assertRow(row);
+    expect(row.querySelector('.kc-demo-badge')).toBeNull();
+
+    // The team keeps the tag treatment the MCP and AI resource tables use.
+    const team = row.querySelector('.ai-resource-team-badge');
+    expect(team).not.toBeNull();
+    expect(team?.textContent?.trim()).toBe('platform');
   });
 
   it('opens document row actions before deleting and dismisses on outside click', () => {

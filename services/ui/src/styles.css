@@ -1,4 +1,39 @@
 :root {
+    /* Resource tree scale.
+       Every team/resource tree in the product reads the same: the schedules and
+       AI explorer rails in features/system/aiResourcePanel.css and the pipeline,
+       run, step, and scope rails below. Change a value here, not in one family,
+       or the trees drift apart again. */
+    --tree-row-font-size: 0.78rem;
+    --tree-leaf-font-size: 0.76rem;
+    --tree-count-font-size: 0.7rem;
+    --tree-root-min-height: 36px;
+    --tree-row-min-height: 32px;
+    --tree-leaf-min-height: 31px;
+    --tree-row-radius: 8px;
+    --tree-row-gap: 8px;
+    --tree-row-padding: 5px 8px;
+    --tree-root-padding: 6px 8px;
+    --tree-toggle-width: 25px;
+    --tree-toggle-height: 28px;
+    --tree-toggle-radius: 7px;
+    --tree-icon-color: #0a9b69;
+    --tree-accent: var(--border-accent);
+    --tree-accent-soft: color-mix(in srgb, var(--border-accent) 12%, transparent);
+    --tree-accent-border: color-mix(in srgb, var(--border-accent) 38%, var(--border-primary));
+
+    /* Sidebar category accents. Each navigation group carries its own hue so a
+       destination is recognisable by colour before the label is read. Dark
+       values are the lighter step of the same hue, for contrast on the dark
+       sidebar. */
+    --nav-topic-observe: #0284c7;
+    --nav-topic-build-automate: #4f46e5;
+    --nav-topic-lab: #d97706;
+    --nav-topic-ai-knowledge: #9333ea;
+    --nav-topic-workspace: #0d9488;
+    --nav-topic-administration: #e11d48;
+    --nav-topic-other: var(--icon-default);
+
     /* Light Theme Color Palette - REFINED */
     --bg-primary: #ffffff;      /* white - Page background */
     --bg-secondary: #fdfdfd;    /* gray-50 - Softer content background for cards/modals */
@@ -64,6 +99,14 @@
 }
 
 html.dark {
+    /* Sidebar category accents, lightened for the dark sidebar. */
+    --nav-topic-observe: #38bdf8;
+    --nav-topic-build-automate: #818cf8;
+    --nav-topic-lab: #fbbf24;
+    --nav-topic-ai-knowledge: #c084fc;
+    --nav-topic-workspace: #2dd4bf;
+    --nav-topic-administration: #fb7185;
+
     /* Dark Theme Color Palette */
     --page-bg: #111827;
     --sidebar-bg: #131C2E;
@@ -429,11 +472,37 @@ html.dark [class*="text-neutral-200"] {
     display: inline-flex;
     flex: 0 0 auto;
     color: var(--icon-default);
-    opacity: 0.95;
 }
 
-.sidebar-nav-link.active .sidebar-nav-icon {
-    color: currentColor;
+/* The topic colour survives selection; the active row is already marked by its
+   background and accent bar. */
+
+.sidebar-nav-section[data-topic-id="observe"] .sidebar-nav-icon {
+    color: var(--nav-topic-observe);
+}
+
+.sidebar-nav-section[data-topic-id="build-automate"] .sidebar-nav-icon {
+    color: var(--nav-topic-build-automate);
+}
+
+.sidebar-nav-section[data-topic-id="lab"] .sidebar-nav-icon {
+    color: var(--nav-topic-lab);
+}
+
+.sidebar-nav-section[data-topic-id="ai-knowledge"] .sidebar-nav-icon {
+    color: var(--nav-topic-ai-knowledge);
+}
+
+.sidebar-nav-section[data-topic-id="workspace"] .sidebar-nav-icon {
+    color: var(--nav-topic-workspace);
+}
+
+.sidebar-nav-section[data-topic-id="administration"] .sidebar-nav-icon {
+    color: var(--nav-topic-administration);
+}
+
+.sidebar-nav-section[data-topic-id="other"] .sidebar-nav-icon {
+    color: var(--nav-topic-other);
 }
 
 .sidebar-nav-icon svg {
@@ -523,67 +592,32 @@ html.dark .sidebar-nav-toggle:focus-visible {
     display: grid;
     gap: 0;
     flex: 0 0 auto;
-    padding: 0.35rem 0.5rem 0.65rem;
+    padding: 0.45rem 0.5rem 0.6rem;
+    border-top: 1px solid color-mix(in srgb, var(--border-primary) 78%, transparent);
     color: var(--text-secondary);
 }
 
-.sidebar-footer-section {
-    min-width: 0;
-    padding: 0.35rem 0;
-}
-
-.sidebar-footer-section + .sidebar-footer-section {
-    border-top: 1px solid color-mix(in srgb, var(--border-primary) 78%, transparent);
-}
-
-.sidebar-footer-section--help {
-    border-top: 1px solid color-mix(in srgb, var(--border-primary) 78%, transparent);
-    padding-top: 0.45rem;
-}
-
-.sidebar-footer-section--account .sidebar-footer-profile {
-    background: color-mix(in srgb, var(--bg-tertiary) 48%, transparent);
-}
-
-.sidebar-footer-section--version {
+/* One row of equal icon buttons: profile, wiki, about, theme, sign out. */
+.sidebar-footer-utilities {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    min-height: 1.8rem;
-    padding: 0.45rem 0.6rem 0;
-    color: var(--text-tertiary);
-    font-size: 0.69rem;
-    line-height: 1.1;
-}
-
-.sidebar-footer-version-label {
-    text-transform: uppercase;
-    font-weight: 700;
-}
-
-.sidebar-footer-version-value {
+    gap: 0.2rem;
     min-width: 0;
-    overflow: hidden;
-    text-align: right;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .sidebar-footer-action {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.55rem;
-    width: 100%;
-    min-height: 2.25rem;
-    padding: 0 0.6rem;
+    justify-content: center;
+    flex: 1 1 0;
+    min-width: 2rem;
+    height: 2.1rem;
+    padding: 0;
     border: 0;
     border-radius: 8px;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 0.83rem;
-    line-height: 1.15;
-    text-align: left;
     transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -593,6 +627,12 @@ html.dark .sidebar-nav-toggle:focus-visible {
     background: var(--bg-hover);
     color: var(--text-primary);
     outline: none;
+}
+
+.sidebar-footer-action--logout:hover,
+.sidebar-footer-action--logout:focus-visible {
+    background: color-mix(in srgb, var(--status-error, #dc2626) 12%, transparent);
+    color: var(--status-error, #dc2626);
 }
 
 .sidebar-footer-action:focus-visible {
@@ -605,137 +645,139 @@ html.dark .sidebar-nav-toggle:focus-visible {
     flex: 0 0 auto;
 }
 
-.sidebar-footer-action-label,
-.sidebar-footer-profile-text {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
 
-.sidebar-footer-profile-wrap {
-    position: relative;
-}
-
-.sidebar-footer-profile {
-    justify-content: flex-start;
-}
-
-.sidebar-footer-profile-text {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 0.05rem;
-}
-
-.sidebar-footer-profile-name {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-primary);
-    font-size: 0.82rem;
-    font-weight: 650;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.sidebar-footer-profile-kicker {
-    color: var(--text-tertiary);
-    font-size: 0.68rem;
-}
-
-.sidebar-footer-profile-chevron {
-    width: 0.85rem;
-    height: 0.85rem;
-    flex: 0 0 auto;
-    opacity: 0.8;
-    transition: transform 0.16s ease;
-}
-
-.sidebar-footer-profile[aria-expanded="true"] .sidebar-footer-profile-chevron {
-    transform: rotate(180deg);
-}
-
-.sidebar-user-menu {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 0.45rem);
-    left: 0;
-    z-index: 500;
-    overflow: hidden;
-    border: 1px solid var(--border-primary);
-    border-radius: 8px;
-    background: var(--bg-secondary);
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
-}
-
-html.dark .sidebar-user-menu {
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.36);
-}
-
-.sidebar-user-menu-header {
-    padding: 0.8rem 0.85rem;
-    background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent);
-}
-
-.sidebar-user-menu-eyebrow {
-    margin: 0 0 0.25rem;
-    color: var(--text-secondary);
-    font-size: 0.68rem;
-    font-weight: 700;
-    line-height: 1.1;
-    text-transform: uppercase;
-}
-
-.sidebar-user-menu-name {
-    margin: 0;
-    overflow: hidden;
-    color: var(--text-primary);
-    font-size: 0.88rem;
-    font-weight: 650;
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.sidebar-user-menu-detail {
-    margin: 0.45rem 0 0;
-    color: var(--text-secondary);
-    font-size: 0.74rem;
-}
-
-.sidebar-user-menu-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    padding: 0.35rem;
-}
-
-.sidebar-user-menu-item {
+/* About dialog: version, licence notice, policy pointers. */
+.about-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
     display: flex;
     align-items: center;
-    gap: 0.55rem;
-    width: 100%;
-    min-height: 2.25rem;
-    padding: 0 0.55rem;
-    border: 0;
-    border-radius: 7px;
-    background: transparent;
-    color: var(--text-primary);
-    font-size: 0.83rem;
-    text-align: left;
+    justify-content: center;
+    padding: 1.5rem;
+    background: var(--bg-overlay);
 }
 
-.sidebar-user-menu-item:hover,
-.sidebar-user-menu-item:focus-visible {
-    background: var(--bg-hover);
+.about-dialog {
+    display: flex;
+    max-height: min(80vh, 44rem);
+    width: min(34rem, 100%);
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+}
+
+html.dark .about-dialog {
+    box-shadow: 0 26px 64px rgba(0, 0, 0, 0.46);
+}
+
+.about-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--border-primary);
+    padding: 0.85rem 1rem;
+}
+
+.about-dialog-head h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.about-dialog-close {
+    display: inline-flex;
+    height: 1.9rem;
+    width: 1.9rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+}
+
+.about-dialog-close:hover,
+.about-dialog-close:focus-visible {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
     outline: none;
 }
 
-.sidebar-user-menu-item-icon {
-    width: 1rem;
-    height: 1rem;
-    flex: 0 0 auto;
+.about-dialog-body {
+    display: grid;
+    gap: 1.1rem;
+    overflow: auto;
+    padding: 1rem;
+}
+
+.about-dialog-body h3 {
+    margin: 0 0 0.5rem;
     color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.about-dialog-facts {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+}
+
+.about-dialog-facts > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.about-dialog-facts dt {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.about-dialog-facts dd {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.76rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.about-dialog-notice {
+    margin: 0;
+    max-height: 14rem;
+    overflow: auto;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    background: var(--bg-code);
+    padding: 0.75rem;
+    color: var(--text-primary);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.about-dialog-note {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.about-dialog-note a {
+    color: var(--text-link);
+    text-decoration: underline;
 }
 
 .app-sidebar-shell .sidebar-context-nav {
@@ -928,54 +970,28 @@ html.dark .brand-identity__word {
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding-right: 0.5rem;
-        padding-left: 0.5rem;
+        padding-right: 0.4rem;
+        padding-left: 0.4rem;
     }
 
-    .app-sidebar-shell--collapsed .sidebar-footer-version {
-        display: none;
-    }
-
-    .app-sidebar-shell--collapsed .sidebar-footer-section {
-        display: flex;
-        justify-content: center;
+    /* Too narrow for one row: the same buttons wrap two to a line. */
+    .app-sidebar-shell--collapsed .sidebar-footer-utilities {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.2rem;
         width: 100%;
-        padding: 0.35rem 0;
-    }
-
-    .app-sidebar-shell--collapsed .sidebar-footer-section + .sidebar-footer-section {
-        margin-top: 0.1rem;
-    }
-
-    .app-sidebar-shell--collapsed .sidebar-footer-section--version {
-        display: none;
     }
 
     .app-sidebar-shell--collapsed .sidebar-footer-action {
-        justify-content: center;
-        width: 2.5rem;
-        min-height: 2.5rem;
-        padding: 0;
-        gap: 0;
+        width: 100%;
+        min-width: 0;
+        height: 2.2rem;
         border-radius: 0.65rem;
-    }
-
-    .app-sidebar-shell--collapsed .sidebar-footer-action-label,
-    .app-sidebar-shell--collapsed .sidebar-footer-profile-text,
-    .app-sidebar-shell--collapsed .sidebar-footer-profile-chevron {
-        display: none;
     }
 
     .app-sidebar-shell--collapsed .sidebar-footer-action-icon {
         width: 1.1rem;
         height: 1.1rem;
-    }
-
-    .app-sidebar-shell--collapsed .sidebar-user-menu {
-        right: auto;
-        bottom: 0;
-        left: calc(100% + 0.55rem);
-        width: 18rem;
     }
 }
 
@@ -1133,7 +1149,7 @@ html.dark .brand-identity__word {
 }
 
 .pipeline-runs-main-scroll {
-    overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
 }
 
 .run-list-info {
@@ -1689,6 +1705,45 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
 }
 
 /* Hide page scrollbars when viewing graphs */
+/* Sideways scrollers.
+   Content that genuinely does not fit — wide tables, code blocks, tab strips
+   that outgrow a narrow window — scrolls itself, and keeps the gesture rather
+   than chaining out to the browser when it reaches its own edge. Everything
+   else leaves a horizontal swipe alone. */
+.pipeline-runs-table-wrap,
+.dispatcher-table-wrap,
+.access-table-wrap,
+.triggers-resource-table-shell,
+.pipeline-detail-object-table,
+[data-page="knowledge-context"] .kc-demo-table-wrap,
+[data-page="knowledge-context"] .kc-demo-usage,
+.docs-table-scroll,
+.docs-pre,
+.kc-markdown pre,
+.pipeline-sync-card pre,
+.pipeline-sync-log-wrap,
+.dispatcher-install-command,
+.logs-unwrapped,
+.pipeline-runs-segmented,
+.event-automation-switch,
+.system-settings-tablist,
+.dispatcher-page-tabs,
+.pipeline-detail-tabs,
+.access-provider-nav,
+.access-sectioned-editor__nav,
+[data-page="knowledge-context"] .kc-demo-tabs {
+    overscroll-behavior-x: contain;
+}
+
+/* The page frame scrolls vertically and never rubber-bands sideways. A
+   horizontal gesture over ordinary content is not the page's to consume — it
+   chains out to the browser, where it means back and forward. Only the elements
+   listed under "sideways scrollers" below keep such a gesture. */
+#page-content-wrapper {
+    overscroll-behavior-y: contain;
+    overscroll-behavior-x: auto;
+}
+
 #page-content-wrapper.no-scroll { overflow: hidden !important; }
 #page-content-wrapper.no-scroll { scrollbar-width: none; -ms-overflow-style: none; }
 #page-content-wrapper.no-scroll::-webkit-scrollbar { display: none; }
@@ -4142,20 +4197,36 @@ html.dark .pipeline-runs-segment {
     gap: 0.25rem;
 }
 
+/* Rows match the explorer rails in features/system/aiResourcePanel.css; the
+   shared scale lives in the --tree-* tokens at the top of this file. */
 .pipeline-runs-scope-item,
 .pipeline-runs-scope-select {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--tree-row-gap);
     width: 100%;
-    min-height: 2.25rem;
-    border: 0;
-    border-radius: 0.55rem;
+    min-height: var(--tree-row-min-height);
+    border: 1px solid transparent;
+    border-radius: var(--tree-row-radius);
     background: transparent;
-    color: var(--text-primary);
-    padding: 0.45rem 0.55rem;
+    color: var(--text-secondary);
+    padding: var(--tree-row-padding);
     text-align: left;
-    font-size: 0.82rem;
+    font-size: var(--tree-row-font-size);
+    transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+/* The root row ("All teams") sits a step above its children, as it does in the
+   explorer rails. */
+.pipeline-runs-scope-item {
+    min-height: var(--tree-root-min-height);
+    padding: var(--tree-root-padding);
+    color: var(--text-primary);
+}
+
+.pipeline-runs-scope-item > svg,
+.pipeline-runs-scope-select > svg {
+    color: var(--tree-icon-color);
 }
 
 .pipeline-runs-scope-row {
@@ -4175,14 +4246,14 @@ html.dark .pipeline-runs-segment {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex: 0 0 1.45rem;
-    width: 1.45rem;
-    height: 1.45rem;
+    flex: 0 0 var(--tree-toggle-width);
+    width: var(--tree-toggle-width);
+    height: var(--tree-toggle-height);
 }
 
 .pipeline-runs-scope-toggle {
     border: 0;
-    border-radius: 0.4rem;
+    border-radius: var(--tree-toggle-radius);
     background: transparent;
     color: var(--text-secondary);
 }
@@ -4204,15 +4275,16 @@ html.dark .pipeline-runs-segment {
 .pipeline-runs-scope-item:hover,
 .pipeline-runs-scope-select:hover {
     background: var(--bg-tertiary);
+    color: var(--text-primary);
 }
 
 .pipeline-runs-scope-item--active,
 .pipeline-runs-scope-item[aria-pressed="true"],
 .pipeline-runs-scope-select--active,
 .pipeline-runs-scope-select[aria-pressed="true"] {
-    background: var(--bg-hover);
-    color: var(--text-link);
-    font-weight: 700;
+    background: var(--tree-accent-soft);
+    border-color: var(--tree-accent-border);
+    color: var(--tree-accent);
 }
 
 .pipeline-runs-scope-label {
@@ -4225,9 +4297,8 @@ html.dark .pipeline-runs-segment {
 .resource-collection-tree-count {
     margin-left: auto;
     color: var(--text-secondary);
-    font-size: 0.72rem;
+    font-size: var(--tree-count-font-size);
     font-weight: 800;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
 }
 
 .pipeline-runs-scope-empty,
@@ -5180,7 +5251,7 @@ html.dark .pipeline-runs-segment {
     max-height: calc(100vh - var(--app-header-height) - 2rem);
     overflow-y: auto;
     padding-right: 2px;
-    overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
 }
 
 .access-editor-surface,
@@ -7160,7 +7231,7 @@ html.dark .access-editor-backdrop {
     border-left: 1px solid var(--border-primary);
     background: var(--bg-secondary);
     box-shadow: -24px 0 70px rgba(15, 23, 42, 0.28);
-    overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
 }
 
 .access-editor-pane--drawer > .access-editor-surface {
@@ -18828,7 +18899,7 @@ html.dark .kc-empty-state {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
     padding: 1.1rem 1.4rem;
 }
 

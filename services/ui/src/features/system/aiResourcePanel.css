@@ -892,6 +892,8 @@
   font-size: 0.72rem;
 }
 
+/* The shared tree scale lives in the --tree-* tokens in src/styles.css; the
+   pipeline, run, step, and scope rails read the same ones. */
 .ai-resource-explorer-root,
 .ai-resource-explorer-owner,
 .ai-resource-explorer-resource {
@@ -899,9 +901,9 @@
   width: 100%;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: var(--tree-row-gap);
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--tree-row-radius);
   background: transparent;
   color: var(--text-secondary);
   text-align: left;
@@ -910,9 +912,9 @@
 }
 
 .ai-resource-explorer-root {
-  min-height: 36px;
+  min-height: var(--tree-root-min-height);
   margin-bottom: 7px;
-  padding: 6px 8px;
+  padding: var(--tree-root-padding);
   color: var(--text-primary);
 }
 
@@ -920,7 +922,7 @@
 .ai-resource-explorer-owner strong {
   margin-left: auto;
   color: var(--text-secondary);
-  font-size: 0.7rem;
+  font-size: var(--tree-count-font-size);
   font-weight: 800;
 }
 
@@ -961,12 +963,12 @@
 
 .ai-resource-explorer-toggle {
   display: inline-flex;
-  width: 25px;
-  height: 28px;
+  width: var(--tree-toggle-width);
+  height: var(--tree-toggle-height);
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--tree-toggle-radius);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -982,21 +984,21 @@
 }
 
 .ai-resource-explorer-owner {
-  min-height: 32px;
-  padding: 5px 8px;
-  font-size: 0.78rem;
+  min-height: var(--tree-row-min-height);
+  padding: var(--tree-row-padding);
+  font-size: var(--tree-row-font-size);
 }
 
 .ai-resource-explorer-resource {
-  min-height: 31px;
+  min-height: var(--tree-leaf-min-height);
   padding: 5px 8px 5px 33px;
-  font-size: 0.76rem;
+  font-size: var(--tree-leaf-font-size);
 }
 
 .ai-resource-explorer-folder {
   width: 20px;
   height: 20px;
-  color: #0a9b69;
+  color: var(--tree-icon-color);
 }
 
 .ai-resource-explorer-resource-icon {
@@ -1325,14 +1327,17 @@
   font-weight: 740;
 }
 
+/* Also used by the knowledge context table, which is outside .ai-resource-panel
+   and so does not inherit --ai-panel-accent; the fallback is the value that
+   scope sets. */
 .ai-resource-team-badge {
   display: inline-flex;
   max-width: 100%;
   min-height: 22px;
   align-items: center;
-  border: 1px solid color-mix(in srgb, var(--ai-panel-accent) 24%, var(--border-primary));
+  border: 1px solid color-mix(in srgb, var(--ai-panel-accent, var(--border-accent)) 24%, var(--border-primary));
   border-radius: 6px;
-  background: color-mix(in srgb, var(--ai-panel-accent) 8%, var(--bg-secondary));
+  background: color-mix(in srgb, var(--ai-panel-accent, var(--border-accent)) 8%, var(--bg-secondary));
   color: var(--text-primary);
   padding: 0 7px;
   font-size: 11.5px;
