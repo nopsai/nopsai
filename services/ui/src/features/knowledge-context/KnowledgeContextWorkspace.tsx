@@ -18,7 +18,6 @@ import {
   knowledgeDocumentTreePathFromID,
   knowledgeConnectionDisplayName,
   knowledgeContentSource,
-  knowledgeSyncStatusLabel,
   normalizeTeamPath,
   sourceLabel,
   splitKnowledgePath,
@@ -740,7 +739,6 @@ function KnowledgeDocumentCollection({
                   <th>Kind</th>
                   <th>Team</th>
                   <th>Source</th>
-                  <th>Sync</th>
                   <th>Used by</th>
                   <th aria-label="Actions" />
                 </tr>
@@ -750,7 +748,7 @@ function KnowledgeDocumentCollection({
                   const teamPath = documentTeamPath(document) || GLOBAL_RESOURCE_TEAM_PATH;
                   const usedByCount = document.used_by_count ?? document.used_by?.length ?? 0;
                   const source = documentSourceLabel(document);
-                  const sync = documentSyncBadge(document);
+                  const isGlobalTeam = isGlobalResourceTeamPath(teamPath);
                   return (
                     <tr key={document.id}>
                       <td>
@@ -763,16 +761,13 @@ function KnowledgeDocumentCollection({
                           </span>
                         </button>
                       </td>
-                      <td><span className={`kc-demo-badge ${kindBadgeTone(document.kind)}`}><span className="dot" />{kindTitle(document.kind)}</span></td>
-                      <td><span className="kc-demo-mono">{teamPath}</span></td>
-                      <td><span className={`kc-demo-badge ${source.tone}`}><span className="dot" />{source.label}</span></td>
+                      <td>{kindTitle(document.kind)}</td>
                       <td>
-                        {sync.label ? (
-                          <span className={`kc-demo-badge ${sync.tone}`}><span className="dot" />{sync.label}</span>
-                        ) : (
-                          <span className="kc-demo-mono">-</span>
-                        )}
+                        <span className={`ai-resource-team-badge ${isGlobalTeam ? 'ai-resource-team-badge--global' : ''}`}>
+                          {isGlobalTeam ? GLOBAL_RESOURCE_TEAM_LABEL : teamPath}
+                        </span>
                       </td>
+                      <td>{source}</td>
                       <td><span className="kc-demo-mono">{usedByCount ? `${usedByCount} ${usedByCount === 1 ? 'pipeline' : 'pipelines'}` : 'None'}</span></td>
                       <td>
                         <KnowledgeDocumentRowActions
@@ -949,27 +944,11 @@ function KnowledgeDocumentRowActions({
   );
 }
 
-function documentSourceLabel(document: KnowledgeContextListItem): { label: string; tone: string } {
+function documentSourceLabel(document: KnowledgeContextListItem): string {
   const label = sourceLabel(document.source);
-  if (knowledgeContentSource(document) === 'inline' && (label === 'Database' || label === 'UI')) {
-    return { label: 'Inline', tone: 'blue' };
-  }
-  if (label === 'GitOps' || label === 'Repo') return { label: 'GitOps', tone: 'blue' };
-  if (label === 'Notion') return { label, tone: 'neutral' };
-  if (label === 'Confluence' || label === 'External page') return { label, tone: 'blue' };
-  return { label, tone: 'neutral' };
-}
-
-function documentSyncBadge(document: KnowledgeContextListItem): { label: string; tone: string } {
-  if (isGitManagedDocument(document)) return { label: 'GitOps synced', tone: 'green' };
-  if (isExternalKnowledgeDocument(document)) return knowledgeSyncStatusLabel(document.sync_status, true);
-  return { label: '', tone: 'neutral' };
-}
-
-function kindBadgeTone(kind: string) {
-  if (kind === 'guardrail' || kind === 'policy') return 'amber';
-  if (kind === 'runbook') return 'green';
-  return 'purple';
+  if (knowledgeContentSource(document) === 'inline' && (label === 'Database' || label === 'UI')) return 'Inline';
+  if (label === 'GitOps' || label === 'Repo') return 'GitOps';
+  return label;
 }
 
 function ConnectionRows({

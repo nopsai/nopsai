@@ -1,11 +1,19 @@
-import { BookOpen, ChevronDown, LogOut, Moon, Sun, UserRound } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { BookOpen, Info, LogOut, Moon, Sun, UserRound } from 'lucide-react';
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { appVersionFooterText } from './platformVersion';
+import { AboutDialog } from './AboutDialog';
 import type { CurrentUser, Theme } from './types';
 import { currentUserDisplayName } from './userIdentity';
 import { usePlatformVersionInfo } from './usePlatformVersion';
 
+/**
+ * One row of icons, each a single click.
+ *
+ * The footer used to stack a Wiki row, a profile row with a dropdown menu, and a
+ * version line, which is three bands of chrome for four actions. Everything is
+ * now one strip: profile, wiki, about, theme, sign out. The version moved into
+ * About, which is also where the licence notice and the policy pointers live.
+ */
 export function SidebarFooter({
   collapsed,
   currentUser,
@@ -25,54 +33,29 @@ export function SidebarFooter({
   theme: Theme;
   userLoading?: boolean;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const versionInfo = usePlatformVersionInfo();
-  const footerText = appVersionFooterText(versionInfo);
   const displayName = currentUserDisplayName(currentUser);
   const signedInLabel = userLoading ? 'Loading...' : displayName;
+  const themeLabel = theme === 'dark' ? 'Use light mode' : 'Use dark mode';
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handleClick = (event: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false);
-        requestAnimationFrame(() => menuButtonRef.current?.focus());
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, [menuOpen]);
-
-  const closeMenu = () => setMenuOpen(false);
   const handleProfileOpen = () => {
-    closeMenu();
     onOpenProfile?.();
     onNavigate?.();
-  };
-  const handleThemeToggle = () => {
-    closeMenu();
-    onToggleTheme();
-  };
-  const handleLogout = () => {
-    closeMenu();
-    onLogout?.();
   };
 
   return (
     <footer className="sidebar-footer" aria-label="Account and help" data-collapsed={collapsed ? 'true' : 'false'}>
-      <div className="sidebar-footer-section sidebar-footer-section--help">
+      <div className="sidebar-footer-utilities" role="group" aria-label="Account and help actions">
+        <button
+          type="button"
+          className="sidebar-footer-action"
+          onClick={handleProfileOpen}
+          aria-label={`Open profile for ${signedInLabel}`}
+          title={signedInLabel}
+        >
+          <UserRound className="sidebar-footer-action-icon" aria-hidden="true" />
+        </button>
         <NavLink
           to="/docs"
           className={({ isActive }) => `sidebar-footer-action ${isActive ? 'active' : ''}`}
@@ -81,66 +64,44 @@ export function SidebarFooter({
           onClick={onNavigate}
         >
           <BookOpen className="sidebar-footer-action-icon" aria-hidden="true" />
-          <span className="sidebar-footer-action-label">Wiki</span>
         </NavLink>
-      </div>
-      <div className="sidebar-footer-section sidebar-footer-section--account">
-        <div className="sidebar-footer-profile-wrap" ref={menuRef}>
-          <button
-            ref={menuButtonRef}
-            type="button"
-            className={`sidebar-footer-action sidebar-footer-profile ${menuOpen ? 'active' : ''}`}
-            onClick={() => setMenuOpen(open => !open)}
-            aria-label={`Open user menu for ${displayName}`}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-controls={menuOpen ? 'sidebar-user-menu' : undefined}
-            title={displayName}
-          >
-            <UserRound className="sidebar-footer-action-icon" aria-hidden="true" />
-            <span className="sidebar-footer-profile-text">
-              <span className="sidebar-footer-profile-name">{signedInLabel}</span>
-              <span className="sidebar-footer-profile-kicker">Profile</span>
-            </span>
-            <ChevronDown className="sidebar-footer-profile-chevron" aria-hidden="true" />
-          </button>
-          {menuOpen && (
-            <div id="sidebar-user-menu" className="sidebar-user-menu" role="menu" aria-label="User menu">
-              <div className="sidebar-user-menu-header">
-                <p className="sidebar-user-menu-eyebrow">Signed in as</p>
-                <p className="sidebar-user-menu-name">{signedInLabel}</p>
-                <p className="sidebar-user-menu-detail">Global access model</p>
-              </div>
-              <div className="sidebar-user-menu-actions">
-                <button role="menuitem" className="sidebar-user-menu-item" type="button" onClick={handleProfileOpen}>
-                  <UserRound className="sidebar-user-menu-item-icon" aria-hidden="true" />
-                  <span>View profile</span>
-                </button>
-                <button role="menuitem" className="sidebar-user-menu-item" type="button" onClick={handleThemeToggle}>
-                  {theme === 'dark' ? (
-                    <Sun className="sidebar-user-menu-item-icon" aria-hidden="true" />
-                  ) : (
-                    <Moon className="sidebar-user-menu-item-icon" aria-hidden="true" />
-                  )}
-                  <span>{theme === 'dark' ? 'Use light mode' : 'Use dark mode'}</span>
-                </button>
-                {onLogout && (
-                  <button role="menuitem" className="sidebar-user-menu-item" type="button" onClick={handleLogout}>
-                    <LogOut className="sidebar-user-menu-item-icon" aria-hidden="true" />
-                    <span>Logout</span>
-                  </button>
-                )}
-              </div>
-            </div>
+        <button
+          type="button"
+          className={`sidebar-footer-action ${aboutOpen ? 'active' : ''}`}
+          onClick={() => setAboutOpen(true)}
+          aria-label="About NopsAI, version and licence"
+          title={versionInfo ? `About NopsAI ${versionInfo.productVersion}` : 'About NopsAI'}
+          aria-haspopup="dialog"
+          aria-expanded={aboutOpen}
+        >
+          <Info className="sidebar-footer-action-icon" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="sidebar-footer-action"
+          onClick={onToggleTheme}
+          aria-label={themeLabel}
+          title={themeLabel}
+        >
+          {theme === 'dark' ? (
+            <Sun className="sidebar-footer-action-icon" aria-hidden="true" />
+          ) : (
+            <Moon className="sidebar-footer-action-icon" aria-hidden="true" />
           )}
-        </div>
+        </button>
+        {onLogout ? (
+          <button
+            type="button"
+            className="sidebar-footer-action sidebar-footer-action--logout"
+            onClick={onLogout}
+            aria-label="Logout"
+            title="Logout"
+          >
+            <LogOut className="sidebar-footer-action-icon" aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
-      {footerText ? (
-        <div className="sidebar-footer-section sidebar-footer-section--version sidebar-footer-version" aria-label="Application version" title={footerText}>
-          <span className="sidebar-footer-version-label">Version</span>
-          <span className="sidebar-footer-version-value">{versionInfo?.productVersion}</span>
-        </div>
-      ) : null}
+      {aboutOpen ? <AboutDialog versionInfo={versionInfo} onClose={() => setAboutOpen(false)} /> : null}
     </footer>
   );
 }

@@ -4,19 +4,57 @@ import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { appVersionFooterText, normalizePlatformVersionInfo } from './platformVersion.js';
 
+const empty = {
+  commit: '',
+  buildDate: '',
+  apiVersion: '',
+  cliCompatibility: '',
+  runnerCompatibility: '',
+  runnerProtocolVersion: '',
+  releaseManifestDigest: '',
+};
+
 test('normalizes public platform version payloads', () => {
   assert.deepEqual(normalizePlatformVersionInfo({ productVersion: ' dev ' }), {
     productVersion: 'dev',
+    ...empty,
   });
   assert.deepEqual(normalizePlatformVersionInfo({ version: 'dev' }), {
     productVersion: 'dev',
+    ...empty,
   });
   assert.equal(normalizePlatformVersionInfo({ productVersion: '' }), null);
   assert.equal(normalizePlatformVersionInfo(null), null);
 });
 
+test('carries the rest of the build info the About dialog shows', () => {
+  assert.deepEqual(
+    normalizePlatformVersionInfo({
+      productVersion: '1.4.0',
+      commit: ' abc1234 ',
+      buildDate: '2026-08-20',
+      apiVersion: 'v1',
+      cliCompatibility: '>=0.9',
+      runnerCompatibility: '>=0.9',
+      // The endpoint sends this one as a number.
+      runnerProtocolVersion: 3,
+      releaseManifestDigest: 'sha256:feed',
+    }),
+    {
+      productVersion: '1.4.0',
+      commit: 'abc1234',
+      buildDate: '2026-08-20',
+      apiVersion: 'v1',
+      cliCompatibility: '>=0.9',
+      runnerCompatibility: '>=0.9',
+      runnerProtocolVersion: '3',
+      releaseManifestDigest: 'sha256:feed',
+    }
+  );
+});
+
 test('formats footer as version only', () => {
-  assert.equal(appVersionFooterText({ productVersion: 'dev' }), 'Version dev');
+  assert.equal(appVersionFooterText({ productVersion: 'dev', ...empty }), 'Version dev');
   assert.equal(appVersionFooterText(null), '');
 });
 

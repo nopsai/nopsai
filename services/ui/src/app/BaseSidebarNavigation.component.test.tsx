@@ -73,7 +73,7 @@ describe('BaseSidebarNavigation', () => {
     expect(screen.getByRole('link', { name: 'Lab' }).closest('[aria-label="Lab navigation"]')).not.toBeNull();
   });
 
-  it('defaults Administration to collapsed and lets categories toggle', () => {
+  it('opens every category, Administration included, and lets them toggle', () => {
     render(
       <MemoryRouter initialEntries={['/pipelines']}>
         <BaseSidebarNavigation
@@ -90,19 +90,64 @@ describe('BaseSidebarNavigation', () => {
     const buildButton = screen.getByRole('button', { name: 'Build & Automate' });
     const administrationButton = screen.getByRole('button', { name: 'Administration' });
 
+    // Administration used to start collapsed and open itself only once the user
+    // was already on a /system route.
     expect(buildButton).toHaveAttribute('aria-expanded', 'true');
-    expect(administrationButton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('link', { name: 'General' })).not.toBeInTheDocument();
+    expect(administrationButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: 'General' })).toBeVisible();
 
     fireEvent.click(administrationButton);
 
-    expect(administrationButton).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('link', { name: 'General' })).toBeVisible();
+    expect(administrationButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: 'General' })).not.toBeInTheDocument();
 
     fireEvent.click(buildButton);
 
     expect(buildButton).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('link', { name: 'Pipelines' })).not.toBeInTheDocument();
+  });
+
+  it('stays expanded on a system route without special-casing it', () => {
+    render(
+      <MemoryRouter initialEntries={['/system/config']}>
+        <BaseSidebarNavigation
+          locationPathname="/system/config"
+          navItems={[{ label: 'Pipelines', path: '/pipelines', icon: <span /> }]}
+          systemSubNav={[{ label: 'General', path: '/system/config', icon: <span /> }]}
+        />
+      </MemoryRouter>
+    );
+
+    const administrationButton = screen.getByRole('button', { name: 'Administration' });
+    expect(administrationButton).toHaveAttribute('aria-expanded', 'true');
+
+    // Collapsing it on a /system route keeps it collapsed; the old auto-expand
+    // fought the user here and needed a remembered path to stay out of the way.
+    fireEvent.click(administrationButton);
+    expect(administrationButton).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('gives each category its own icon colour', () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={['/pipelines']}>
+        <BaseSidebarNavigation
+          locationPathname="/pipelines"
+          navItems={[
+            { label: 'Pipeline runs', path: '/pipelineruns/main', icon: <span /> },
+            { label: 'Pipelines', path: '/pipelines', icon: <span /> },
+            { label: 'Teams', path: '/teams', icon: <span /> },
+          ]}
+          systemSubNav={[{ label: 'General', path: '/system/config', icon: <span /> }]}
+        />
+      </MemoryRouter>
+    );
+
+    // The colours are CSS keyed on the topic, so what the component owes is a
+    // stable topic id on every section.
+    const topics = Array.from(container.querySelectorAll('[data-topic-id]')).map(node =>
+      node.getAttribute('data-topic-id')
+    );
+    expect(topics).toEqual(['observe', 'build-automate', 'workspace', 'administration']);
   });
 
   it('uses one Triggers entry for event automation routes', () => {
