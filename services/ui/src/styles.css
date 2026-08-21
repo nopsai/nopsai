@@ -3045,6 +3045,212 @@ html.dark .kc-markdown code {
     color: #7f1d1d;
 }
 
+/*
+ * Git Apps page surfaces. These mirror the dispatcher section-card treatment so
+ * the two System pages read as one system, and keep body copy at 13px rather
+ * than 12px because this page is reviewed in dark mode, where the secondary
+ * token loses contrast fastest at the smallest size.
+ */
+.git-app-card {
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    padding: 20px;
+}
+
+.git-app-card__head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 12px;
+}
+
+.git-app-card__mark {
+    display: flex;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    background: var(--bg-primary);
+}
+
+.git-app-card__kicker {
+    color: var(--text-secondary);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+
+.git-app-card__title {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 17px;
+    font-weight: 760;
+}
+
+.git-app-card__lede {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.git-app-card__state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.git-app-card__warning {
+    margin-top: 12px;
+    border: 1px solid rgba(245, 158, 11, 0.32);
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.08);
+    padding: 10px 12px;
+    color: #b45309;
+    font-size: 13px;
+}
+
+html.dark .git-app-card__warning {
+    color: #fcd34d;
+}
+
+.git-app-facts {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.git-app-fact {
+    min-width: 0;
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    background: var(--bg-primary);
+    padding: 10px 12px;
+}
+
+.git-app-fact dt {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.git-app-fact dd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    min-width: 0;
+}
+
+.git-app-fact__mono {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-app-fact__empty {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.git-app-disclosure {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 6px 0;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 620;
+}
+
+.git-app-disclosure:hover {
+    color: #2563eb;
+}
+
+html.dark .git-app-disclosure:hover {
+    color: #93c5fd;
+}
+
+.git-app-disclosure__hint {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.git-app-advanced {
+    display: grid;
+    gap: 16px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border-primary);
+    padding-top: 16px;
+}
+
+.git-app-advanced__note {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.git-app-advanced__note code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+}
+
+.git-app-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border: 1px solid rgba(245, 158, 11, 0.32);
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.08);
+    padding: 12px 14px;
+    color: #b45309;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+html.dark .git-app-notice {
+    color: #fcd34d;
+}
+
+.git-app-empty {
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    background: var(--bg-primary);
+    padding: 20px 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.git-app-empty--action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+@media (max-width: 720px) {
+    .git-app-card__head {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .git-app-card__state {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+}
+
 .github-app-action {
     display: inline-flex;
     width: 32px;

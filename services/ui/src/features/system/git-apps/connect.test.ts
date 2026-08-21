@@ -4,6 +4,7 @@ import { apiClient } from '../../../lib/api.js';
 import { startGitHubAppInstall, startGitHubAppRegistration } from './api.js';
 import {
   gitHubAppConnectPayload,
+  gitHubWebhookEndpoint,
   gitHubWebhookURLWarning,
   normalizeGitHubAppPayload,
   readGitHubAppCallbackResult,
@@ -66,6 +67,26 @@ test('requires an absolute webhook URL and flags addresses GitHub cannot reach',
     gitHubWebhookURLWarning('http://nopsai-git-bot.nopsai.svc.cluster.local:8081/webhook'),
     /GitHub cannot reach/
   );
+});
+
+// A bare tunnel address is the common case, so the UI has to answer "does it
+// need /webhook?" the same way the API does when it normalizes the value.
+test("resolves a bare tunnel address to git-bot's webhook path for display", () => {
+  assert.equal(
+    gitHubWebhookEndpoint('https://live-gecko-national.ngrok-free.app'),
+    tunnelWebhook
+  );
+  assert.equal(
+    gitHubWebhookEndpoint('  https://live-gecko-national.ngrok-free.app/  '),
+    tunnelWebhook
+  );
+  assert.equal(gitHubWebhookEndpoint(tunnelWebhook), tunnelWebhook);
+  assert.equal(
+    gitHubWebhookEndpoint('https://proxy.example.com/git-bot/webhook'),
+    'https://proxy.example.com/git-bot/webhook'
+  );
+  assert.equal(gitHubWebhookEndpoint(''), '');
+  assert.equal(gitHubWebhookEndpoint('not-a-url'), '');
 });
 
 test('reads the registration outcome GitHub returns in the query string', () => {

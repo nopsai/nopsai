@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { expect, test, vi } from 'vitest';
-import { SetupBootstrapResult, SetupStarterFilesPreview, SetupStatusOverview } from './SetupStatusPanels';
+import { expect, test } from 'vitest';
+import { SetupBootstrapResult, SetupStatusOverview } from './SetupStatusPanels';
 import type { BootstrapResponse, SetupStatus } from './model';
 
 const setupStatus: SetupStatus = {
@@ -57,22 +56,3 @@ test('renders bootstrap result warnings, messages, secrets, and temporary creden
   expect(screen.getByText(/alice@example.com/)).toBeInTheDocument();
 });
 
-test('renders starter file preview and delegates template selection', async () => {
-  const user = userEvent.setup();
-  const onSelectedTemplatePathChange = vi.fn();
-
-  render(
-    <SetupStarterFilesPreview
-      templates={{ profile: 'team', files: { 'access/bootstrap.yaml': 'access: []', 'pipelines/setup.yaml': 'steps: []' } }}
-      templatePaths={['access/bootstrap.yaml', 'pipelines/setup.yaml']}
-      selectedTemplatePath="access/bootstrap.yaml"
-      selectedTemplate="access: []"
-      onSelectedTemplatePathChange={onSelectedTemplatePathChange}
-    />
-  );
-
-  expect(screen.getByText('access: []')).toBeInTheDocument();
-  await user.selectOptions(screen.getByRole('combobox'), 'pipelines/setup.yaml');
-
-  expect(onSelectedTemplatePathChange).toHaveBeenCalledWith('pipelines/setup.yaml');
-});

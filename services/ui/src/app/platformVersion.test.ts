@@ -78,3 +78,19 @@ test('nginx serves the SPA with restrictive browser security headers', () => {
   assert.match(nginxConfig, /add_header X-Frame-Options "DENY" always;/);
   assert.match(nginxConfig, /add_header X-Content-Type-Options "nosniff" always;/);
 });
+
+// GitHub registers an App only from a manifest the operator's own browser POSTs
+// to github.com. A form-action that omits it makes the browser cancel that
+// navigation with no error, which strands the Git Apps connect flow on a
+// spinner, so every policy copy has to carry the exemption.
+test('nginx lets the browser post a GitHub App manifest to github.com', () => {
+  const nginxConfig = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
+  const policies = nginxConfig
+    .split('\n')
+    .filter(line => line.includes('add_header Content-Security-Policy'));
+
+  assert.ok(policies.length > 0, 'nginx must set a Content-Security-Policy');
+  for (const policy of policies) {
+    assert.match(policy, /form-action 'self' https:\/\/github\.com"/);
+  }
+});

@@ -37,13 +37,17 @@ const (
 // gitHubAppManifestEvents and gitHubAppManifestPermissions are the single source
 // for what the generated App may do. The same values are documented in
 // doc/git-apps.md for operators who register an App by hand.
+//
+// Only subscribable events belong here. GitHub delivers the App lifecycle
+// events - installation, installation_repositories, github_app_authorization,
+// and meta - to every App unconditionally, and rejects a manifest that lists
+// them with "Default events unsupported". git-bot still receives and handles
+// them; they simply cannot be asked for.
 var gitHubAppManifestEvents = []string{
 	"push",
 	"pull_request",
 	"check_run",
 	"check_suite",
-	"installation",
-	"installation_repositories",
 }
 
 var gitHubAppManifestPermissions = map[string]string{
@@ -208,7 +212,12 @@ func buildGitHubAppManifest(appName, callbackBaseURL, webhookURL string) gitHubA
 		RedirectURL:           callbackBaseURL + gitHubAppRegisterCallbackPath,
 		SetupURL:              callbackBaseURL + gitHubAppInstallCallbackPath,
 		SetupOnUpdate:         true,
-		Public:                false,
+		// One App serves every account, which is only possible when GitHub
+		// lets accounts other than the owner install it. A public App is not
+		// advertised anywhere and grants nothing on its own: installing still
+		// needs admin rights on the target account, and NopsAI holds
+		// installations from unknown accounts for approval.
+		Public:                true,
 		DefaultEvents:         append([]string(nil), gitHubAppManifestEvents...),
 		DefaultPermissions:    gitHubAppManifestPermissions,
 		RequestOAuthOnInstall: false,

@@ -16,6 +16,7 @@ import {
   emptyGitHubAppConnectForm,
   gitHubAppForm,
   gitHubAppInstallationForm,
+  gitHubInstallationApprovalForm,
   readGitHubAppCallbackResult,
   type GitHubAppConnectFormState,
   type GitHubAppFormState,
@@ -156,6 +157,35 @@ export function useGitHubApp({
     }
   }, [addToast, canManage, connecting]);
 
+  // First install is a single decision, not a form: with no App registered the
+  // manifest flow creates one and GitHub continues straight into choosing
+  // repositories, and with an App already registered this jumps to the install
+  // page. The account is passed in so this never depends on the connect dialog.
+  const setUpGitHubApp = useCallback(async (account: { organization: string; webhookURL: string }) => {
+    if (!canManage || connecting) return;
+    if (app.app_slug) {
+      await installGitHubApp();
+      return;
+    }
+    setConnecting(true);
+    setError(null);
+    try {
+      const organization = account.organization.trim();
+      submitGitHubAppManifest(await startGitHubAppRegistration(
+        {
+          target: organization ? 'organization' : 'personal',
+          organization,
+          appName: '',
+        },
+        account.webhookURL
+      ));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to start GitHub App registration');
+      addToast?.('GitHub App registration failed to start', 'error');
+      setConnecting(false);
+    }
+  }, [addToast, app.app_slug, canManage, connecting, installGitHubApp]);
+
   const startCreateInstallation = useCallback(() => {
     if (!canManage) return;
     setEditingInstallation(null);
@@ -193,6 +223,25 @@ export function useGitHubApp({
       setSaving(false);
     }
   }, [addToast, canManage, installationForm, saving, updateInstallation]);
+
+  // Approving is enabling: a held installation is already verified against the
+  // App, the operator is only deciding that this account belongs here.
+  const approveInstallation = useCallback(async (installation: GitHubAppInstallation) => {
+    if (!canManage || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const approved = await saveGitHubAppInstallation(gitHubInstallationApprovalForm(installation));
+      updateInstallation(approved);
+      setSelectedInstallationID(approved.installation_id);
+      addToast?.(`${installation.account_login || installation.installation_id} approved`, 'success');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to approve the GitHub App installation');
+      addToast?.('GitHub App installation approval failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }, [addToast, canManage, saving, updateInstallation]);
 
   const removeInstallation = useCallback(async (installation: GitHubAppInstallation) => {
     if (!canManage || saving) return;
@@ -290,10 +339,12 @@ export function useGitHubApp({
     submitApp,
     connectGitHubApp,
     installGitHubApp,
+    setUpGitHubApp,
     startCreateInstallation,
     startEditInstallation,
     closeInstallationEditor,
     submitInstallation,
+    approveInstallation,
     removeInstallation,
     verifyInstallation,
     refreshInstallation,

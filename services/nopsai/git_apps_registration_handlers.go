@@ -177,6 +177,7 @@ func (a *App) handleGitHubAppRegistrationCallback(w http.ResponseWriter, r *http
 	payload := systemConfigPayload{
 		GitHubAppID:         stringPtr(appID),
 		GitHubAppSlug:       stringPtr(slug),
+		GitHubAppOwner:      stringPtr(strings.TrimSpace(conversion.Owner.Login)),
 		GitHubPrivateKeyRef: stringPtr(gitHubAppPrivateKeyCredentialRef),
 		GitHubWebhookRef:    stringPtr(gitHubAppWebhookCredentialRef),
 	}
@@ -318,12 +319,68 @@ func (a *App) registerGitHubAppInstallation(ctx context.Context, installationID 
 	if err != nil {
 		return fmt.Errorf("GitHub did not confirm installation %d for this App", installationID)
 	}
-	record := gitHubInstallationConfigFromAPI(installation)
-	installations := upsertGitHubInstallationConfig(
-		config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID),
-		record,
-	)
-	return a.persistGitHubInstallations(ctx, installations)
+	cfg = a.ensureGitHubAppOwner(ctx, cfg, client)
+	existing := config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID)
+	record := applyGitHubInstallationApproval(gitHubInstallationConfigFromAPI(installation), cfg, existing)
+	return a.persistGitHubInstallations(ctx, upsertGitHubInstallationConfig(existing, record))
+}
+
+// ensureGitHubAppOwner backfills the owning account for an App that was
+// registered before NopsAI recorded one, by asking GitHub who owns it. Without
+// it every account would look unknown and even the operator's own installation
+// would be held for approval. A failure is not fatal: the caller then falls back
+// to holding the installation, which is the safe direction.
+func (a *App) ensureGitHubAppOwner(
+	ctx context.Context,
+	cfg config.Config,
+	client *github.Client,
+) config.Config {
+	if strings.TrimSpace(cfg.GitHubAppOwner) != "" || client == nil {
+		return cfg
+	}
+	app, _, err := client.Apps.Get(ctx, "")
+	if err != nil || app == nil {
+		log.Debug().Err(err).Msg("Could not resolve the GitHub App owner")
+		return cfg
+	}
+	owner := strings.TrimSpace(app.GetOwner().GetLogin())
+	if owner == "" {
+		return cfg
+	}
+	updated, err := a.applySystemConfig(systemConfigPayload{GitHubAppOwner: stringPtr(owner)})
+	if err != nil {
+		log.Debug().Err(err).Msg("Could not persist the GitHub App owner")
+		return cfg
+	}
+	if err := a.persistRuntimeSettingsSnapshot(ctx, updated, "database", nil, "", "", false); err != nil {
+		log.Debug().Err(err).Msg("Could not persist the GitHub App owner snapshot")
+	}
+	return updated
+}
+
+// applyGitHubInstallationApproval decides whether a freshly confirmed
+// installation may start working immediately. The App is public so it can serve
+// many accounts, which also means anyone who reaches its install URL can attach
+// their own account, so only the account that owns the App is trusted on sight.
+// An installation the operator already ruled on keeps that decision.
+func applyGitHubInstallationApproval(
+	record config.GitHubInstallationConfig,
+	cfg config.Config,
+	existing []config.GitHubInstallationConfig,
+) config.GitHubInstallationConfig {
+	if current, found := findGitHubInstallationConfig(existing, record.InstallationID); found {
+		record.Enabled = current.Enabled
+		record.PendingApproval = current.PendingApproval
+		return record
+	}
+	owner := strings.TrimSpace(cfg.GitHubAppOwner)
+	if owner != "" && strings.EqualFold(strings.TrimSpace(record.AccountLogin), owner) {
+		return record
+	}
+	held := false
+	record.Enabled = &held
+	record.PendingApproval = true
+	return record
 }
 
 func (a *App) removeGitHubAppInstallationRecord(ctx context.Context, installationID string) error {

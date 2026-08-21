@@ -20,16 +20,7 @@ function restoreURLMethod(name: 'createObjectURL' | 'revokeObjectURL', value: ty
   Reflect.deleteProperty(URL, name);
 }
 
-test('renders setup review output and delegates preview, zip, and env downloads', async () => {
-  const user = userEvent.setup();
-  const onLoadTemplates = vi.fn();
-  const onDownloadGitOpsZip = vi.fn();
-  const createObjectURL = vi.fn(() => 'blob:setup-env');
-  const revokeObjectURL = vi.fn();
-  const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
-  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
-
+function renderReviewOutput() {
   render(
     <SetupReviewOutput
       aiEnabled={false}
@@ -44,28 +35,37 @@ test('renders setup review output and delegates preview, zip, and env downloads'
         },
       ]}
       environmentSnippet="# shared by services\nAAA_SHARED_INTERNAL_TOKEN=<generate-strong-value>"
-      gitOpsStructureSnippet="platform:\n  apps:\n    - name: api"
-      gitOpsFiles={['access/bootstrap.yaml', 'pipelines/setup/first-run.yaml']}
-      templateLoading={false}
-      templatesLoaded={false}
-      downloadingGitOpsZip={false}
-      onLoadTemplates={onLoadTemplates}
-      onDownloadGitOpsZip={onDownloadGitOpsZip}
     />
   );
+}
+
+test('renders setup review output and delegates env downloads', async () => {
+  const user = userEvent.setup();
+  const createObjectURL = vi.fn(() => 'blob:setup-env');
+  const revokeObjectURL = vi.fn();
+  const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+
+  renderReviewOutput();
 
   expect(screen.getByText(/LLM profile setup was skipped/i)).toBeInTheDocument();
   expect(screen.getByText('AAA_SHARED_INTERNAL_TOKEN=<generate-strong-value>')).toBeInTheDocument();
-  expect(screen.getByText('access/bootstrap.yaml')).toBeInTheDocument();
   expect(screen.getByText(/configure provider webhook settings on the git-bot deployment/i)).toBeInTheDocument();
 
-  await user.click(screen.getByRole('button', { name: /preview gitops files/i }));
-  await user.click(screen.getByRole('button', { name: /download gitops zip/i }));
   await user.click(screen.getByRole('button', { name: /download all env/i }));
 
-  expect(onLoadTemplates).toHaveBeenCalledOnce();
-  expect(onDownloadGitOpsZip).toHaveBeenCalledOnce();
   expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
   expect(anchorClick).toHaveBeenCalledOnce();
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:setup-env');
+});
+
+// Config resources reach the config repository through GitOps sync, so the
+// finished setup page does not offer a starter-file preview or a zip to commit.
+test('offers no GitOps preview or download', () => {
+  renderReviewOutput();
+
+  expect(screen.queryByRole('button', { name: /gitops/i })).not.toBeInTheDocument();
+  expect(screen.queryByText('access/bootstrap.yaml')).not.toBeInTheDocument();
+  expect(screen.queryByText(/download gitops zip/i)).not.toBeInTheDocument();
 });

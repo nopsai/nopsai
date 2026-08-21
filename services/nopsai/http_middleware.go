@@ -151,6 +151,14 @@ func isFirstInstallSetupAllowedPath(path string) bool {
 		"/v1/git-apps/github/register/start",
 		"/v1/git-apps/github/install/start":
 		return true
+	// git-bot consumes the credentials that step just created. Locking it out
+	// until the whole wizard is applied leaves it retrying in degraded mode with
+	// an App that is already connected. Both routes prove a git-bot service
+	// identity themselves and expose nothing an operator could reach, so the
+	// setup gate adds no protection here.
+	case "/v1/internal/git-bot/bootstrap",
+		"/v1/internal/git-bot/installations":
+		return true
 	default:
 		return strings.HasPrefix(path, "/v1/setup/")
 	}

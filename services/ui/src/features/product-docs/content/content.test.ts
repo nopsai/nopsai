@@ -147,6 +147,27 @@ test('allowed values match the validator rather than prose', () => {
   ]);
 });
 
+// The GitHub App page carries the two facts that are expensive to rediscover:
+// why one App can serve many accounts at all, and what stops that from letting
+// a stranger attach their organization to the installation.
+test('the GitHub App page documents the installation model and the approval guard', () => {
+  const article = findWikiArticle('github-app')?.article;
+  assert.ok(article, 'the wiki needs a GitHub App page');
+
+  const prose = [...article.keyFacts, ...article.details, ...(article.limits || [])].join(' ').toLowerCase();
+  assert.ok(prose.includes('one github app per nopsai installation'), 'the one-App model must be stated');
+  assert.ok(prose.includes('public'), 'why the App is public must be stated');
+  assert.ok(prose.includes('pending approval') || prose.includes('pending_approval'));
+  assert.ok(prose.includes('inert'), 'a held installation must be described as inert, not merely flagged');
+
+  const field = (path: string) => article.fields?.find(candidate => candidate.path === path);
+  assert.equal(field('github_app_owner')?.required, false);
+  assert.equal(field('github_installations[].pending_approval')?.defaultValue, 'false');
+  assert.equal(field('github_installations[].enabled')?.defaultValue, 'true');
+  assert.ok(field('github_app_owner')?.security, 'the owner field decides trust and must say so');
+  assert.ok(field('github_installations[].pending_approval')?.security);
+});
+
 test('the wiki does not claim unimplemented capabilities as current behavior', () => {
   const limits = findWikiArticle('known-limits')?.article.keyFacts.join(' ').toLowerCase() || '';
 

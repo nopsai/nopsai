@@ -46,8 +46,8 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
   introduction
 - optional default AI setup with one API key field
 - optional user creation with team, role, and temporary password assignment
-- final generated output for runtime variables, service/container environment,
-  and GitOps files
+- final generated output for runtime variables and service/container
+  environment
 
 ## Wizard Flow
 
@@ -70,10 +70,10 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    Kubernetes uses cluster DNS defaults. The final step prints variables that can
    be applied as container environment, secret-manager values, or an environment
    file.
-6. Optionally connect GitHub. NopsAI creates a GitHub App from a manifest,
-   stores its credentials, and registers each account the App is installed on.
-   This step needs an address GitHub can deliver webhooks to, and can be skipped
-   and done later from **System > Git Apps**.
+6. Optionally connect GitHub with one button. NopsAI creates a GitHub App from
+   a manifest, stores its credentials, and registers each account the App is
+   installed on. The step needs an address GitHub can deliver webhooks to, and
+   can be skipped and done later from **System > Git Apps**.
 7. Optionally connect a global GitOps config repository and start sync.
 8. Create one or two repository teams and place selected repositories under
    them. These teams drive starter trigger generation, run navigation, and
@@ -87,23 +87,25 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 11. Optionally create starter users, assign them to a team with owner,
     developer, or viewer role, and set or generate temporary passwords. Created
     local users must change password on first login.
-12. Review generated runtime variables, GitOps team/file layout, and
-    post-setup instructions.
+12. Review generated runtime variables and post-setup instructions.
 13. Apply setup, then run the starter `setup/first-run` pipeline to verify the
     runner, agent, logs, and UI. When setup seeded an model, the same
     pipeline also verifies the LLM path with an AI smoke step.
 
 The setup modal is step-by-step. Optional steps such as GitHub, GitOps,
 repository teams, AI, MCP examples, and users can be skipped and completed
-later. The
-review step summarises generated variables, GitOps files, repository teams,
+later. The review step summarises generated variables, repository teams,
 selected repositories, AI settings, and user assignments before anything is
 applied.
 
-After setup is completed, **System > Setup** remains available as an operator
-reference page. The page keeps the same step navigation and opens on the output
-step by default so runtime env blocks, GitOps zip download, and generated file
-preview can be inspected again later.
+After setup is completed, **System > Setup** becomes a status page: health checks
+and resource counts, and nothing else. The step navigation and the setup forms
+belong to the one-time wizard and are not shown again, because re-walking a
+finished bootstrap is not an operator task. Copy the generated runtime env blocks
+from the output step before applying setup; afterwards the values themselves live
+in the environment, secret manager, or env file they were applied to. Everything
+else setup creates is a config resource that config sync carries to the global
+config repository.
 
 ## Preflight Mode
 
@@ -181,20 +183,30 @@ Guided install flow (**GitHub** step, or **System > Git Apps**):
 
 1. Start the `git-bot` service with `NOPSAI_API_URL` pointing at the NopsAI API
    URL reachable from git-bot, usually `http://nopsai:8080` in Docker Compose.
-2. Enter the **Webhook URL** GitHub should deliver to. This is the public address
-   of the tunnel or reverse proxy in front of git-bot; NopsAI itself does not
-   have to be reachable from the internet, because GitHub only sends the
-   operator's browser back to the NopsAI address it is already on.
-3. Choose an organization or personal account and select **Create App on
-   GitHub**. GitHub asks you to approve the App; NopsAI stores the App ID,
-   private key, and webhook secret automatically.
-4. Select the account and repositories on GitHub. The installation registers
-   itself when GitHub returns, and so do later installs or uninstalls done
-   directly on GitHub.
+2. Select **Install GitHub App on GitHub**. The wizard step asks for nothing
+   else when the deployment already knows the webhook address: App ID, private
+   key, and webhook secret are issued by GitHub and stored automatically. Name a
+   **GitHub organization** to create the App there instead of on your personal
+   account, since a private App can only be installed on the account that owns
+   it. Only a real organization belongs in that field: a personal username there
+   sends the manifest to `github.com/organizations/<user>/settings/apps/new`,
+   which GitHub answers with a 404.
+3. If no webhook address is configured yet, the step asks for the one value
+   NopsAI cannot infer: the public address of the tunnel or reverse proxy in
+   front of git-bot. Give it either the bare address or the full endpoint — a
+   value with no path gets git-bot's `/webhook` appended, and the step shows the
+   resolved address before you leave for GitHub. NopsAI itself does not have to
+   be reachable from the internet, because GitHub only sends the operator's
+   browser back to the NopsAI address it is already on.
+4. Approve the App on GitHub, then select the account and repositories there.
+   The installation registers itself when GitHub returns, and so do later
+   installs or uninstalls done directly on GitHub.
 
 git-bot picks up the new credentials within a minute, so no container restart is
-needed. Installing the App on further accounts later needs no NopsAI action at
-all.
+needed, including while the wizard is still open: the first-install gate that
+locks the rest of the workspace exempts git-bot's internal bootstrap and
+installations routes, which prove a git-bot service identity of their own.
+Installing the App on further accounts later needs no NopsAI action at all.
 
 Manual flow, for GitHub Enterprise Server, air-gapped installs, or an App that
 already exists:
@@ -211,8 +223,10 @@ Required GitHub App events:
 - `pull_request`
 - `check_run`
 - `check_suite`
-- `installation`
-- `installation_repositories`
+
+Do not add `installation` or `installation_repositories`. GitHub sends App
+lifecycle events to every App without a subscription and refuses a manifest that
+lists them, so NopsAI receives them without asking.
 
 Required GitHub App permissions:
 
@@ -233,8 +247,10 @@ GitHub App installation.
 
 ## Starter Templates
 
-The template preview returns a GitOps-ready file set for the starter workspace
-and selected repositories:
+`/v1/setup/templates` returns a GitOps-ready file set for the starter workspace
+and selected repositories. It is an API and CLI surface; the setup page does not
+preview or download it, because config sync already carries setup's resources to
+the config repository:
 
 ```text
 README.md
@@ -250,9 +266,8 @@ mcp/servers/<name>.yaml
 config-repositories/teams/<team>/structure.yaml
 ```
 
-The wizard can seed equivalent starter resources directly into the database for
-a fast introduction. When GitOps is enabled, commit these files to the global
-config repository and sync them through config sync.
+The wizard seeds equivalent starter resources directly into the database. When
+GitOps is enabled, config sync carries them to the global config repository.
 
 ## Security Guardrails
 
@@ -337,5 +352,14 @@ Important response fields:
 - **GitHub webhooks do not arrive**: Check the public webhook URL, webhook
   secret, git-bot service networking, and that git-bot can forward to
   `nopsai_api_url`.
+- **The connect button spins and never reaches GitHub**: the browser blocked the
+  manifest form post. NopsAI's own `Content-Security-Policy` allows it with
+  `form-action 'self' https://github.com`; a reverse proxy in front of the UI
+  that sets a stricter policy has to allow the same.
+- **git-bot logs `credential broker returned 403`**: git-bot could not read the
+  GitHub App credentials and is retrying in degraded mode. Expected before the
+  GitHub step has connected an App; if it persists afterwards, check that
+  git-bot's `NOPSAI_API_URL` reaches the API and that both services share the
+  same `SERVICE_JWT_SIGNING_KEY`.
 - **Starter run cannot execute**: Check dispatcher/runner health, runner
   registration, Docker access, and the configured model.

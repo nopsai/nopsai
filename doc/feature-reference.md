@@ -16,15 +16,17 @@ Supported setup capabilities:
   before login
 - step-by-step setup modal with required gates and skippable optional steps, shown
   after the first admin password change
-- persistent setup reference page after completion, including generated runtime
-  env blocks, GitOps zip download, and starter file preview
+- setup status page after completion, showing health checks and resource counts;
+  the step navigation and setup forms are not shown again once the one-time
+  wizard has run
 - local generation of missing signing, AAA, and dispatcher secret values
 - global GitOps config repository creation and optional sync kickoff
 - generated runtime variable output for container environment, secret-manager
   entries, or environment files
-- starter GitOps template preview for pipelines, reusable steps, scopes,
-  triggers, access bootstrap, knowledge docs, Agent roles, models, MCP
-  settings, and run team structure
+- starter GitOps template preview and zip export over `/v1/setup/templates` for
+  pipelines, reusable steps, scopes, triggers, access bootstrap, knowledge docs,
+  Agent roles, models, MCP settings, and run team structure, for CLI and
+  automation use
 - direct starter database seeding for teams, starter pipeline, reusable step,
   triggers, variables, knowledge context, optional model, optional MCP
   examples, and optional users

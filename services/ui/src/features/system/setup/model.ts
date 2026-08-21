@@ -42,11 +42,6 @@ export type SetupStatus = {
   };
 };
 
-export type SetupTemplates = {
-  profile: string;
-  files: Record<string, string>;
-};
-
 export type TemporaryCredential = {
   sub: string;
   email?: string;
@@ -141,7 +136,6 @@ export const WIZARD_STEPS: Array<{ id: SetupStepID; label: string; required: boo
   { id: 'review', label: 'Output', required: true },
 ];
 
-export const REVIEW_STEP_INDEX = WIZARD_STEPS.findIndex(step => step.id === 'review');
 export const LLM_SKIP_WARNING = 'LLM profile setup was skipped. Pipelines with AI-enabled goal tasks may not work until an LLM profile is configured.';
 
 export function makeID(prefix: string): string {
@@ -153,51 +147,6 @@ export function initialRepositoryTeams(): RepositoryTeamDraft[] {
     { id: makeID('team'), name: 'platform', repositoriesText: '' },
     { id: makeID('team'), name: 'applications', repositoriesText: '' },
   ];
-}
-
-export function buildSetupGitOpsStructurePreview(teams: RepositoryTeamSummary[]): string {
-  if (teams.length === 0) return '{}';
-
-  return teams
-    .map(team => {
-      const lines = [
-        `# config-repositories/teams/${team.name}/structure.yaml`,
-        'description: Repository team',
-      ];
-      if (team.repositories.length === 0) {
-        lines.push('apps: []');
-      } else {
-        lines.push('apps:');
-        team.repositories.forEach(repo => {
-          const appName = repo.split('/').filter(Boolean).pop() || repo;
-          lines.push(`  - name: ${appName}`);
-          lines.push(`    repo_url: https://github.com/${repo}`);
-        });
-      }
-      return lines.join('\n');
-    })
-    .join('\n\n');
-}
-
-export function buildSetupGitOpsFileList(
-  teams: RepositoryTeamSummary[],
-  repositories: string[],
-  options: { includeLLM: boolean; includeMCP: boolean }
-): string[] {
-  const files = [
-    ...teams.map(team => `config-repositories/teams/${team.name}/structure.yaml`),
-    'pipelines/setup/first-run.yaml',
-    'steps/setup/announce.yaml',
-    'scopes/dev/scope.yaml',
-    'scopes/prod/scope.yaml',
-    'access/bootstrap.yaml',
-  ];
-  const knowledgeTeam = teams[0]?.name;
-  if (knowledgeTeam) files.push(`knowledge/guideline/${knowledgeTeam}/setup-run.md`);
-  if (options.includeLLM) files.push('models/standard.yaml');
-  if (options.includeMCP) files.push('mcp/servers/github-readonly.yaml', 'mcp/profiles/github-readonly.yaml');
-  repositories.forEach(repo => files.push(`triggers/${repo}.yaml`));
-  return Array.from(new Set(files));
 }
 
 export function parseRepositories(value: string): string[] {

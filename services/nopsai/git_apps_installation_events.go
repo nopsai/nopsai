@@ -70,10 +70,21 @@ func (a *App) syncGitHubInstallationRecord(
 	cfg := a.getConfigSnapshot()
 	installations := config.NormalizeGitHubInstallations(cfg.GitHubInstallations, cfg.GitHubInstallID)
 	record := gitHubInstallationConfigFromAPI(installation)
-	if enabled != nil {
-		record.Enabled = enabled
-	} else if current, found := findGitHubInstallationConfig(installations, record.InstallationID); found {
+	if current, found := findGitHubInstallationConfig(installations, record.InstallationID); found {
 		record.Enabled = current.Enabled
+		record.PendingApproval = current.PendingApproval
+		if enabled != nil {
+			record.Enabled = enabled
+		}
+	} else {
+		// An account NopsAI has never seen reaches the same approval rule as the
+		// install callback, whichever of the two arrives first.
+		record = applyGitHubInstallationApproval(record, cfg, installations)
+	}
+	// GitHub un-suspending an installation is not the operator approving it.
+	if record.PendingApproval {
+		held := false
+		record.Enabled = &held
 	}
 	return a.persistGitHubInstallations(ctx, upsertGitHubInstallationConfig(installations, record))
 }

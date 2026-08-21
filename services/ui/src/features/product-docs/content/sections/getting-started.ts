@@ -240,7 +240,7 @@ export const gettingStartedSection: WikiSection = {
         },
         {
           title: 'Run the wizard',
-          description: 'Open the UI and work through the setup steps: administrator, secrets, starter profiles, and GitOps seeding.',
+          description: 'Open the UI and work through the setup steps: readiness, runtime, GitHub, GitOps, teams, AI, and users. Optional steps can be skipped and configured later. The GitHub step is a single button that creates the App and hands you to GitHub to choose repositories; it asks for no App ID, key, or secret.',
           verification: '`GET /v1/setup/status` reports that setup has completed.',
           warning:
             'Setup apply errors include the actionable write or configuration reason. Read the message rather than retrying blindly.',
@@ -711,7 +711,8 @@ export const gettingStartedSection: WikiSection = {
       summary: 'Give NopsAI access to a repository so it can read pipelines, knowledge, and trigger manifests.',
       keywords: ['git', 'github', 'repository', 'connect', 'integration'],
       keyFacts: [
-        'GitHub uses a GitHub App with one or more installations, configured in `setting/git-apps/github.yaml`.',
+        'GitHub uses one GitHub App per NopsAI installation, installed on as many organizations and personal accounts as you need. It is stored in `setting/git-apps/github.yaml`.',
+        'NopsAI creates the App and stores its App ID, private key, and webhook secret itself. There is nothing to copy by hand.',
         'GitLab, Bitbucket, Gitea, and generic providers use managed Git Webhook Sources instead.',
         'Repository access is what lets a run check out code and read repo-local Knowledge Context at the run commit.',
       ],
@@ -719,13 +720,13 @@ export const gettingStartedSection: WikiSection = {
         { label: 'Provider', value: 'A repository on GitHub, GitLab, Bitbucket, or Gitea' },
         { label: 'Permission', value: 'Administrator access to configure Git Apps or webhook sources' },
         { label: 'Reachability', value: 'The provider must be able to reach your NopsAI webhook endpoint' },
-        { label: 'Credentials', value: 'A GitHub App private key, or a webhook signing secret for other providers' },
+        { label: 'Credentials', value: 'None for GitHub \u2014 GitHub issues them and NopsAI stores them. A webhook signing secret for other providers.' },
       ],
       steps: [
         {
           title: 'Register the App or webhook source',
           description:
-            'For GitHub, add the App ID and private key credential reference, then add the installation. For other providers, create a Git Webhook Source and copy its signing secret into the provider.',
+            'For GitHub, use Connect GitHub in System > Git Apps, or the GitHub step of the first-install wizard: it creates the App on GitHub, stores the credentials it issues, and sends you on to pick the account and repositories. For other providers, create a Git Webhook Source and copy its signing secret into the provider.',
           verification: 'Use the installation Verify action, or check recent deliveries on the webhook source.',
         },
         {
@@ -747,12 +748,13 @@ export const gettingStartedSection: WikiSection = {
         },
       ],
       details: [
-        'Store the App private key and webhook secret as credential references, not as inline environment values. The legacy inline variables remain only for migration.',
+        'One GitHub App serves every account: install it again on each further organization rather than registering a second App. An installation from an account other than the one that owns the App is held as `Pending approval` until an operator accepts it.',
+        'The App private key and webhook secret are stored as credential references, which is what the connect flow writes. The legacy inline environment variables remain only for migration.',
         'Internal service URLs such as `git_bot_api_url` stay in system configuration and do not belong in the app-scoped Git App file.',
       ],
-      related: ['git-triggers', 'git-webhook-sources', 'credentials'],
+      related: ['github-app', 'git-triggers', 'git-webhook-sources', 'credentials'],
       sources: [
-        { repositoryPath: 'doc/git-apps.md', purpose: 'Multi-installation management, GitOps schema, and git-bot routing.' },
+        { repositoryPath: 'doc/git-apps.md', purpose: 'Connect flow, multi-installation management, GitOps schema, and git-bot routing.' },
         { repositoryPath: 'doc/git-webhook-sources.md', purpose: 'Non-GitHub provider configuration and security.' },
       ],
     },

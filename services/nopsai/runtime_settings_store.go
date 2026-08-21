@@ -263,6 +263,9 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	if payload.GitHubAppSlug != nil {
 		cfg.GitHubAppSlug = normalizeGitHubAppSlug(*payload.GitHubAppSlug)
 	}
+	if payload.GitHubAppOwner != nil {
+		cfg.GitHubAppOwner = strings.TrimSpace(*payload.GitHubAppOwner)
+	}
 	if payload.GitHubWebhookURL != nil {
 		cfg.GitHubWebhookURL = strings.TrimRight(strings.TrimSpace(*payload.GitHubWebhookURL), "/")
 	}

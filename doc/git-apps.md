@@ -66,8 +66,37 @@ identity.
    `/v1/git-apps/github/install/callback` with the `installation_id`, which
    NopsAI verifies with an App-authenticated GitHub call before storing it.
 
-The generated App is private, requests no OAuth on install, and asks for exactly
+The generated App is public, requests no OAuth on install, and asks for exactly
 the events and permissions listed below.
+
+### One App, Many Installations
+
+There is one GitHub App per NopsAI installation, installed on as many accounts as
+needed: organizations and personal accounts alike, each granting the repositories
+chosen on GitHub. That is why the App is created public. GitHub only lets an
+account other than the owner install an App that is public, so a private App
+would force one App registration per organization.
+
+Public here means installable, not advertised: the App is listed nowhere, and
+installing it still requires admin rights on the target account and grants only
+the repositories that admin selects. It does mean anyone who reaches
+`github.com/apps/{slug}` can install it, so NopsAI decides whether a new
+installation counts:
+
+- An installation on the account that owns the App is enabled on sight. The
+  owner is recorded at registration as `github_app_owner`, and backfilled from
+  GitHub for an App registered before NopsAI stored one.
+- Any other account is registered with `pending_approval` and stays disabled,
+  which makes it inert - git-bot skips disabled installations, so no repository
+  is read and no trigger runs. **System > Git Apps** shows it as *Pending
+  approval* with a one-click **Approve**.
+- GitHub un-suspending a held installation does not approve it. Only an operator
+  action does.
+- An installation the operator has already ruled on keeps that ruling; later
+  events refresh its metadata without resetting the decision.
+
+When the owner is unknown and cannot be resolved, every new installation is held.
+Being unable to tell whether an account is trusted is never treated as trusted.
 
 ### Two Different URLs
 
@@ -108,8 +137,12 @@ to the internet. It is the UI base used for notification links and for the
 connect flow's callbacks when a request carries no browser origin, such as a CLI
 call. Pointing it at git-bot would send those to a host with no UI.
 
-Required GitHub App events: `push`, `pull_request`, `check_run`, `check_suite`,
-`installation`, `installation_repositories`.
+Required GitHub App events: `push`, `pull_request`, `check_run`, `check_suite`.
+
+`installation` and `installation_repositories` are not in that list and must not
+be added to it. GitHub delivers App lifecycle events to every App whether or not
+it subscribes, and rejects a manifest that asks for them with "Default events
+unsupported". NopsAI relies on receiving them; it just cannot request them.
 
 Required GitHub App permissions: `contents` read and write, `metadata` read,
 `pull_requests` read, `checks` read and write.

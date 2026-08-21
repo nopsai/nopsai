@@ -17,10 +17,22 @@ const app = {
     account_login: 'nopsai',
     account_type: 'organization' as const,
     enabled: true,
+    pending_approval: false,
     accessible_repositories: 3,
     connected_triggers: 2,
     status: 'connected',
   }],
+};
+
+const pendingInstallation = {
+  installation_id: '778899',
+  account_login: 'stranger',
+  account_type: 'organization' as const,
+  enabled: false,
+  pending_approval: true,
+  accessible_repositories: 0,
+  connected_triggers: 0,
+  status: 'pending',
 };
 
 const apiMocks = vi.hoisted(() => ({
@@ -102,6 +114,7 @@ test('renders GitHub App settings and saves app-scoped fields', async () => {
 
   expect(await screen.findByRole('heading', { name: 'GitHub App' })).toBeVisible();
   expect(screen.getByText('setting/git-apps/github.yaml')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: /advanced/i }));
   expect(screen.queryByText('GitHub installation ID')).not.toBeInTheDocument();
   expect(await screen.findByRole('button', { name: 'nopsai' })).toBeVisible();
   expect(apiMocks.fetchGitHubAppInstallationRepositories).not.toHaveBeenCalled();
@@ -194,7 +207,7 @@ test('sends the operator to GitHub to choose repositories for an installation', 
   try {
     render(<Harness />);
     await screen.findByRole('button', { name: 'nopsai' });
-    await user.click(screen.getByRole('button', { name: 'Install on an account' }));
+    await user.click(screen.getByRole('button', { name: 'Install on GitHub' }));
 
     await waitFor(() => expect(apiMocks.startGitHubAppInstall).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(assign).toHaveBeenCalledWith(
@@ -246,6 +259,7 @@ test('warns on the Git App card when the webhook URL is an address GitHub cannot
   render(<Harness />);
 
   await screen.findByRole('button', { name: 'nopsai' });
+  await user.click(screen.getByRole('button', { name: /advanced/i }));
   await user.type(screen.getByLabelText('Webhook URL'), 'http://localhost:8081/webhook');
 
   expect(await screen.findByText(/GitHub cannot reach localhost/)).toBeVisible();
@@ -254,11 +268,106 @@ test('warns on the Git App card when the webhook URL is an address GitHub cannot
 // One App, many installations: the page must present a single Git App record
 // rather than repeating its fields in a second card.
 test('shows exactly one GitHub App record above the installation list', async () => {
+  const user = userEvent.setup();
   render(<Harness />);
 
   await screen.findByRole('button', { name: 'nopsai' });
+  await user.click(screen.getByRole('button', { name: /advanced/i }));
   expect(screen.getAllByLabelText('App ID')).toHaveLength(1);
   expect(screen.getAllByLabelText('Webhook URL')).toHaveLength(1);
   expect(screen.getByRole('heading', { name: 'GitHub App' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'GitHub accounts' })).toBeVisible();
+});
+
+// GitHub issues the App ID, private key, and webhook secret and NopsAI stores
+// them, so the card leads with what an operator checks - is an App connected,
+// and where does GitHub deliver - rather than with fields nobody types into.
+test('keeps issued credentials out of the way until asked for', async () => {
+  const user = userEvent.setup();
+  render(<Harness />);
+
+  await screen.findByRole('button', { name: 'nopsai' });
+  expect(screen.queryByLabelText('App ID')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Private key credential ref')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Webhook URL')).not.toBeInTheDocument();
+  expect(screen.getByText('App 123456')).toBeVisible();
+  expect(screen.getByText('https://live-gecko-national.ngrok-free.app/webhook')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: /advanced/i }));
+  expect(screen.getByLabelText('App ID')).toBeVisible();
+});
+
+// Two buttons firing the same install flow made the page look like it offered a
+// choice it did not, so the action lives once, beside the accounts it creates.
+test('offers exactly one way to start an installation', async () => {
+  render(<Harness />);
+
+  await screen.findByRole('button', { name: 'nopsai' });
+  expect(screen.getAllByRole('button', { name: /install on github/i })).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'Install on an account' })).not.toBeInTheDocument();
+});
+
+// A bare "No repositories loaded" was a dead end: the list is fetched on demand,
+// so the empty state has to carry the action that fills it.
+test('makes the empty repository state actionable', async () => {
+  const user = userEvent.setup();
+  render(<Harness />);
+
+  await screen.findByRole('button', { name: 'nopsai' });
+  const emptyState = screen.getByText(/fetched on demand/i);
+  expect(emptyState).toBeVisible();
+
+  await user.click(within(emptyState.closest('div') as HTMLElement).getByRole('button', { name: /load repositories/i }));
+  await waitFor(() => expect(apiMocks.fetchGitHubAppInstallationRepositories).toHaveBeenCalledWith('987654'));
+});
+
+// One public App serves many accounts, which means anyone who reaches its
+// install URL can attach their own. A held installation has to be visible and
+// clearly inert, not just quietly disabled among the rest.
+test('flags installations waiting for approval and explains they are inert', async () => {
+  apiMocks.fetchGitHubApp.mockResolvedValue({
+    ...app,
+    installations: [...app.installations, pendingInstallation],
+  });
+  render(<Harness />);
+
+  expect(await screen.findByRole('button', { name: 'stranger' })).toBeVisible();
+  expect(screen.getByText('Pending approval')).toBeVisible();
+  expect(screen.getByText(/stays inert until approved/i)).toBeVisible();
+  expect(screen.getByText(/1 pending approval/i)).toBeVisible();
+});
+
+test('approves a held installation in one click', async () => {
+  const user = userEvent.setup();
+  apiMocks.fetchGitHubApp.mockResolvedValue({
+    ...app,
+    installations: [...app.installations, pendingInstallation],
+  });
+  apiMocks.saveGitHubAppInstallation.mockResolvedValue({
+    ...pendingInstallation,
+    enabled: true,
+    pending_approval: false,
+    status: 'connected',
+  });
+  render(<Harness />);
+
+  await screen.findByRole('button', { name: 'stranger' });
+  await user.click(screen.getByRole('button', { name: 'Approve stranger' }));
+
+  await waitFor(() => expect(apiMocks.saveGitHubAppInstallation).toHaveBeenCalledTimes(1));
+  expect(apiMocks.saveGitHubAppInstallation.mock.calls[0][0]).toMatchObject({
+    installationID: '778899',
+    accountLogin: 'stranger',
+    enabled: true,
+  });
+});
+
+// Approve is a decision that only exists while one is pending; offering it on
+// every row would read as a second Verify.
+test('offers approve only for installations that need it', async () => {
+  render(<Harness />);
+
+  await screen.findByRole('button', { name: 'nopsai' });
+  expect(screen.queryByRole('button', { name: 'Approve nopsai' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/pending approval/i)).not.toBeInTheDocument();
 });

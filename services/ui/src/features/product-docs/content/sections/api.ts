@@ -443,7 +443,7 @@ export const apiSection: WikiSection = {
         'The delivery status codes separate three states an integrator otherwise conflates: 401 means the signature did not match, 403 means the repository is not in the allowlist, and 422 means the event was understood and carried nothing runnable. Only the first two are configuration mistakes.',
         'When a push produces no run, read the delivery list before anything else. It distinguishes "the provider never called" from "the provider called and we rejected it", and those have entirely different fixes.',
         'Overrides are the reason a repository can run something its own manifest does not mention. They are easy to set and easy to forget, so list them when trigger resolution surprises you.',
-        'The GitHub App registration and installation routes are a browser flow driven by the System UI. They carry index rows here; the flow itself is documented in `doc/git-apps.md`.',
+        'The GitHub App registration and installation routes are a browser flow driven by the System UI. They carry index rows here; the flow itself is documented in [GitHub App and installations](github-app).',
       ],
       related: ['api-external-triggers', 'git-webhook-sources', 'git-triggers', 'connect-git-repository'],
       sources: [
