@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 
 type AssistantRichContentProps = {
   content: string;
-  inverted?: boolean;
 };
 
 type InlineSegment =
@@ -10,18 +9,18 @@ type InlineSegment =
   | { type: 'code'; value: string }
   | { type: 'link'; label: string; href: string };
 
-export function AssistantRichContent({ content, inverted = false }: AssistantRichContentProps) {
+export function AssistantRichContent({ content }: AssistantRichContentProps) {
   const blocks = parseAssistantBlocks(content);
   if (blocks.length === 0) return null;
 
   return (
-    <div className={inverted ? 'space-y-2 text-white' : 'space-y-2 text-[var(--text-primary)]'}>
+    <div className="space-y-2 text-[var(--text-primary)]">
       {blocks.map((block, index) => {
         if (block.type === 'heading') {
           const Heading = block.level === 1 ? 'h3' : 'h4';
           return (
             <Heading key={index} className={`font-semibold leading-snug ${block.level === 1 ? 'text-sm' : 'text-[13px]'}`}>
-              {renderInlineText(block.text, inverted)}
+              {renderInlineText(block.text)}
             </Heading>
           );
         }
@@ -29,20 +28,20 @@ export function AssistantRichContent({ content, inverted = false }: AssistantRic
           const List = block.ordered ? 'ol' : 'ul';
           return (
             <List key={index} className={`space-y-1 pl-5 leading-relaxed ${block.ordered ? 'list-decimal' : 'list-disc'}`}>
-              {block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInlineText(item, inverted)}</li>)}
+              {block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInlineText(item)}</li>)}
             </List>
           );
         }
         if (block.type === 'code') {
           return (
-            <pre key={index} className={`max-h-72 overflow-auto rounded-md p-3 text-xs leading-relaxed ${inverted ? 'bg-black/25 text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'}`}>
+            <pre key={index} className="max-h-72 overflow-auto rounded-md bg-[var(--bg-tertiary)] p-3 text-xs leading-relaxed text-[var(--text-primary)]">
               <code>{block.text}</code>
             </pre>
           );
         }
         return (
           <p key={index} className="leading-relaxed">
-            {renderInlineText(block.text, inverted)}
+            {renderInlineText(block.text)}
           </p>
         );
       })}
@@ -131,18 +130,18 @@ function parseAssistantBlocks(content: string): AssistantBlock[] {
   return blocks;
 }
 
-function renderInlineText(text: string, inverted: boolean): ReactNode[] {
+function renderInlineText(text: string): ReactNode[] {
   return parseInlineSegments(text).map((segment, index) => {
     if (segment.type === 'code') {
       return (
-        <code key={index} className={`rounded px-1 py-0.5 text-[0.92em] ${inverted ? 'bg-white/15 text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'}`}>
+        <code key={index} className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[0.92em] text-[var(--text-primary)]">
           {segment.value}
         </code>
       );
     }
     if (segment.type === 'link') {
       return (
-        <a key={index} className={inverted ? 'underline decoration-white/50 underline-offset-2' : 'text-[var(--text-accent)] underline underline-offset-2'} href={segment.href} target="_blank" rel="noreferrer">
+        <a key={index} className="text-[var(--text-accent)] underline underline-offset-2" href={segment.href} target="_blank" rel="noreferrer">
           {segment.label}
         </a>
       );

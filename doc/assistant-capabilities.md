@@ -167,17 +167,23 @@ metadata available on demand.
   we solving today?" with starter prompts for failed-run analysis, pipeline
   improvement, system health, and rollout planning. Starters prefill the
   composer so users can edit before sending.
-- The composer is a rounded ask bar with a goal-oriented placeholder, visible
-  Send label, `Cmd/Ctrl + Enter` shortcut hint, and a draggable top border for
-  vertical resizing.
-- The visible session line stays human-readable: "Ready · changes always need
-  your review." MCP, memory, confirmation policy, and chat-level model
-  selection are available in a compact Session details disclosure. New
-  conversations default to the configured assistant/default model unless
-  the user chooses another chat profile.
-- Message bubbles show only user/assistant content plus compact actions such as
-  copy and retry. Raw internal planner and synthesis calls are not rendered
-  under each message.
+- The composer floats over the bottom of the transcript as a rounded ask bar
+  that grows with the draft up to a cap and then scrolls. It carries an
+  attachment control, the message box, and a send button, and it still sends on
+  `Cmd/Ctrl + Enter`.
+- The attachment control inlines a local text file (logs, YAML, JSON, and
+  similar) into the draft as a fenced block labelled with its file name,
+  truncated so it still fits the prompt. Nothing is uploaded or stored: the
+  content travels as part of the message the user reviews before sending.
+- Chat-level model selection sits in the top bar next to the conversation's
+  spend, and the review policy line ("Ready · changes always need your review.")
+  stays under the composer. New conversations default to the configured
+  assistant/default model unless the user chooses another chat profile.
+- The transcript reads as a conversation: user prompts sit right-aligned in a
+  bubble beside the signed-in user's initials, assistant replies read as plain
+  prose beside the NopsAI mark. Timing, cost, copy, and retry appear on hover so
+  they never crowd the answer. Raw internal planner and synthesis calls are not
+  rendered under each message.
 - Assistant replies can show a compact execution plan above the answer. This is
   the safe, user-facing plan summary with source, phase, and confidence labels;
   it is not hidden model chain-of-thought.
@@ -229,20 +235,23 @@ metadata available on demand.
   proposal. If the LLM still tries to pick a tool outside the selected schema
   subset, NopsAI blocks the tool before execution and returns user-facing
   guidance instead of exposing planner internals.
-- The full assistant view keeps NopsAI evidence in the context panel, filtering
-  out internal `nopsai.llm.plan` and `nopsai.llm.complete` entries so product
-  evidence remains scannable. Evidence is progressive disclosure: the default
-  row shows tool, status, and resources, while "View details" reveals bounded
-  input/output JSON for deeper investigation.
-- Conversation memory, NopsAI evidence, usage, and proposed changes live in
-  collapsible detail sections. The dock stays lightweight and leaves deep
-  evidence/configuration to the full assistant page.
-- The left rail focuses on conversations and conversation deletion. Delete
-  actions stay visible for scannability; only the conversation currently
-  running an assistant turn is locked from deletion, so users can clean up other
-  chats while a long model request is still in flight. Chat-level actions stay
-  close to the relevant message or session detail, avoiding duplicate new/copy
-  controls in the conversation header.
+- When a turn ends on a provider failure, the reply carries a failure card: a
+  plain-language title such as "Connection timeout" or "Rate limit or quota
+  exceeded", the raw provider reason (JSON payloads indented so they are
+  readable), and Retry request / Copy error actions. The reason is shown once,
+  in the card, so the prose above it stays readable. Send and load failures use
+  the same card at the end of the transcript.
+- The conversation's spend is reported in the top bar as the single number tied
+  to money, with the full usage breakdown available on hover. Token counts stay
+  internal.
+- The left rail lists conversations grouped by recency (Today, Yesterday,
+  Previous 7 days, Previous 30 days, Older), with the signed-in identity at its
+  foot. Delete actions appear on hover and on the active conversation; only the
+  conversation currently running an assistant turn is locked from deletion, so
+  users can clean up other chats while a long model request is still in flight.
+- The chat surface deliberately carries no memory, evidence, or proposed-change
+  side panel. The conversation, its execution plans, and its failures are the
+  interface; audit detail belongs to the API and the stored records.
 - Conversation deletion uses the authenticated user's assistant subject and
   removes the conversation, messages, and memory through the existing database
   cascade. It does not modify GitOps-managed product configuration.

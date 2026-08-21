@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
+import type { CurrentUser } from '../app/types.js';
 import { fetchAssistantConfig } from '../features/assistant/api.js';
 import { AssistantPanel } from '../features/assistant/AssistantPanel.js';
 import { buildAssistantPageContext, type AssistantPageContext } from '../features/assistant/pageContext.js';
 import { ObjectIcon } from './ObjectIcon.js';
 
-export function AssistantDock() {
+export function AssistantDock({ currentUser = null }: { currentUser?: CurrentUser | null }) {
   const location = useLocation();
   const navigate = useNavigate();
   const isAssistantPage = location.pathname === '/assistant' || location.pathname.startsWith('/assistant/');
@@ -18,10 +19,18 @@ export function AssistantDock() {
   // without scheduling a second render from an effect.
   if (isAssistantPage) return null;
 
-  return <AssistantDockContent navigate={navigate} pageContext={pageContext} />;
+  return <AssistantDockContent navigate={navigate} pageContext={pageContext} currentUser={currentUser} />;
 }
 
-function AssistantDockContent({ navigate, pageContext }: { navigate: NavigateFunction; pageContext: AssistantPageContext }) {
+function AssistantDockContent({
+  navigate,
+  pageContext,
+  currentUser,
+}: {
+  navigate: NavigateFunction;
+  pageContext: AssistantPageContext;
+  currentUser: CurrentUser | null;
+}) {
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
 
@@ -45,26 +54,28 @@ function AssistantDockContent({ navigate, pageContext }: { navigate: NavigateFun
     <>
       <button
         type="button"
-        className="fixed bottom-5 right-5 z-[90] inline-flex h-12 w-12 items-center justify-center rounded-md bg-[var(--border-accent)] text-white shadow-lg transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+        className="fixed bottom-6 right-6 z-[90] inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] shadow-xl transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)]"
         onClick={() => setOpen(true)}
         aria-label="Open Nopsai AI Assistant"
+        title="Ask NopsAI"
       >
-        <ObjectIcon type="assistant" className="h-5 w-5" />
+        <ObjectIcon type="assistant" className="h-5 w-5" strokeWidth={2.4} />
       </button>
 
       {open && (
         <div className="fixed inset-0 z-[95]">
           <button
             type="button"
-            className="absolute inset-0 h-full w-full cursor-default bg-black/20"
+            className="absolute inset-0 h-full w-full cursor-default bg-black/25 backdrop-blur-[1px]"
             aria-label="Close assistant overlay"
             onClick={() => setOpen(false)}
           />
-          <aside className="absolute right-0 top-0 h-full w-full max-w-[420px] border-l border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-xl">
+          <aside className="absolute right-0 top-0 h-full w-full max-w-[440px] overflow-hidden border-l border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-2xl">
             <AssistantPanel
               variant="dock"
               startFresh
               pageContext={pageContext}
+              currentUser={currentUser}
               onClose={() => setOpen(false)}
               onExpand={() => {
                 setOpen(false);
