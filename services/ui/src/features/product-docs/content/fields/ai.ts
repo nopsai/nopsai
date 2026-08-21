@@ -98,6 +98,16 @@ export const llmProfileFields: WikiField[] = [
     evidence: 'config/config.go',
   },
   {
+    path: 'pricing',
+    scope: 'llm profile',
+    type: 'object',
+    required: false,
+    defaultValue: 'Unpriced (zero for local providers)',
+    description: 'Optional rate card in USD per million tokens, used to report AI usage as money. Takes input_per_million_usd and output_per_million_usd, plus optional cached_input_per_million_usd and cache_write_per_million_usd that default to the input rate. Leave it out when the rate is unknown: the model still runs and its cost records as unknown rather than zero, so dashboards report it as unpriced instead of understating spend. Local providers default to explicit zeroes because they have no per-token charge.',
+    example: 'pricing:\n  input_per_million_usd: 0.30\n  output_per_million_usd: 2.50',
+    evidence: 'config/config.go',
+  },
+  {
     path: 'temperature',
     scope: 'llm profile',
     type: 'float',

@@ -1526,7 +1526,12 @@ func (a *App) recordPipelineFinalOutputAttemptUsage(
 	result pipelineFinalOutputGenerationResult,
 ) {
 	for _, report := range pipelineFinalOutputAttemptUsageReports(output, result) {
-		_ = a.recordAIUsage(ctx, runID, report)
+		if err := a.recordAIUsage(ctx, runID, report); err != nil {
+			log.Error().Err(err).
+				Str("run_id", runID).
+				Str("output_id", output.ID).
+				Msg("Failed to record final output AI usage")
+		}
 	}
 }
 
@@ -1541,13 +1546,16 @@ func pipelineFinalOutputAttemptUsageReports(
 			continue
 		}
 		reports = append(reports, models.AIUsageReport{
-			Feature:          pipelineFinalOutputFeature,
-			Provider:         usage.Provider,
-			ProviderModel:    usage.Model,
-			LLMProfile:       usage.Profile,
-			PromptTokens:     usage.PromptTokens,
-			CompletionTokens: usage.CompletionTokens,
-			TotalTokens:      usage.TotalTokens,
+			Feature:           pipelineFinalOutputFeature,
+			Provider:          usage.Provider,
+			ProviderModel:     usage.Model,
+			LLMProfile:        usage.Profile,
+			PromptTokens:      usage.PromptTokens,
+			CompletionTokens:  usage.CompletionTokens,
+			TotalTokens:       usage.TotalTokens,
+			CachedInputTokens: usage.CachedInputTokens,
+			CacheWriteTokens:  usage.CacheWriteTokens,
+			Estimated:         usage.Estimated,
 			Metadata: map[string]any{
 				"output_id":      output.ID,
 				"output_name":    output.Name,

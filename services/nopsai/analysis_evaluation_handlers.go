@@ -6,12 +6,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/llmclient"
+	"nopsai/pkg/models"
 )
 
-const maxAnalysisEvaluationPromptBytes = 120000
+const (
+	maxAnalysisEvaluationPromptBytes = 120000
+	analysisEvaluationFeature        = "analysis_evaluation"
+)
 
 type analysisEvaluationRequest struct {
 	SubjectType        string `json:"subject_type"`
@@ -92,6 +98,8 @@ func (a *App) handleEvaluateAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.recordAnalysisEvaluationUsage(r, req, completion.Usage)
+
 	_ = httpapi.WriteJSON(w, http.StatusOK, analysisEvaluationResponse{
 		Content:     content,
 		ProfileName: profileName,
@@ -100,6 +108,50 @@ func (a *App) handleEvaluateAnalysis(w http.ResponseWriter, r *http.Request) {
 		GeneratedAt: time.Now().UTC(),
 		Usage:       analysisEvaluationUsageFromLLMUsage(completion.Usage, time.Since(start)),
 	})
+}
+
+// recordAnalysisEvaluationUsage files the spend of an analysis evaluation.
+//
+// An evaluation of a run is attributed to that run so it lands in the run's
+// spend. An evaluation of a pipeline has no run to attribute to and is recorded
+// standalone; either way the money is accounted for, because a call that costs
+// real money and appears in no total is how a spend figure quietly drifts away
+// from the invoice.
+func (a *App) recordAnalysisEvaluationUsage(r *http.Request, req analysisEvaluationRequest, usage llmclient.Usage) {
+	report := models.AIUsageReport{
+		Feature:           analysisEvaluationFeature,
+		Provider:          usage.Provider,
+		ProviderModel:     usage.Model,
+		LLMProfile:        usage.Profile,
+		PromptTokens:      usage.PromptTokens,
+		CompletionTokens:  usage.CompletionTokens,
+		TotalTokens:       usage.TotalTokens,
+		CachedInputTokens: usage.CachedInputTokens,
+		CacheWriteTokens:  usage.CacheWriteTokens,
+		Estimated:         usage.Estimated,
+		Metadata: map[string]any{
+			"subject_type": req.SubjectType,
+			"subject_id":   req.SubjectID,
+		},
+	}
+	if report.PromptTokens == 0 && report.CompletionTokens == 0 && report.TotalTokens == 0 {
+		return
+	}
+
+	ctx := r.Context()
+	var err error
+	if runID := analysisSelectedRun(req); runID != "" {
+		err = a.recordAIUsage(ctx, runID, report)
+	} else {
+		subject, _ := a.currentAAASubject(r)
+		err = a.recordStandaloneAIUsage(ctx, subject, report)
+	}
+	if err != nil {
+		log.Error().Err(err).
+			Str("subject_type", req.SubjectType).
+			Str("subject_id", req.SubjectID).
+			Msg("Failed to record analysis evaluation AI usage")
+	}
 }
 
 func (a *App) requireAnalysisEvaluationEnabled(w http.ResponseWriter) bool {

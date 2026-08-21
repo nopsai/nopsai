@@ -910,9 +910,13 @@ CREATE TABLE ai_usage_events (
     prompt_tokens BIGINT NOT NULL DEFAULT 0,
     completion_tokens BIGINT NOT NULL DEFAULT 0,
     total_tokens BIGINT NOT NULL DEFAULT 0,
-    input_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
-    output_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
-    total_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
+    cached_input_tokens BIGINT NOT NULL DEFAULT 0,
+    cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+    -- NULL cost means the call could not be priced, which is not the same as
+    -- costing nothing. A priced free model records 0.
+    input_cost_usd NUMERIC(18, 8),
+    output_cost_usd NUMERIC(18, 8),
+    total_cost_usd NUMERIC(18, 8),
     requested_by_type TEXT NOT NULL DEFAULT '',
     requested_by_id TEXT NOT NULL DEFAULT '',
     effective_subject_type TEXT NOT NULL DEFAULT '',
@@ -953,6 +957,7 @@ CREATE TABLE pipeline_run_usage_summary (
     ai_completion_tokens BIGINT NOT NULL DEFAULT 0,
     ai_total_tokens BIGINT NOT NULL DEFAULT 0,
     ai_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
+    ai_unpriced_calls BIGINT NOT NULL DEFAULT 0,
     total_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -461,4 +462,117 @@ func (c staticProviderClient) Name() string {
 
 func (c staticProviderClient) Complete(context.Context, string) (string, error) {
 	return c.response, c.err
+}
+
+// TestAnthropicClientCountsCacheTokensAsPrompt pins the billing shape of the
+// Anthropic usage block: input_tokens excludes both cache figures, so a client
+// that reads it alone reports a prompt far smaller than the one it paid for.
+func TestAnthropicClientCountsCacheTokensAsPrompt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":120,"output_tokens":40,"cache_creation_input_tokens":500,"cache_read_input_tokens":9000}}`)
+	}))
+	defer server.Close()
+
+	client := NewLLMClientWithOptions(LLMClientOptions{
+		Provider: appconfig.LLMProviderAnthropic,
+		APIKey:   "secret",
+		Model:    "claude-test",
+		BaseURL:  server.URL,
+	})
+	collector := NewUsageCollector()
+	if _, err := client.providerClient.Complete(ContextWithUsageCollector(t.Context(), collector), "go"); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	usages := collector.Snapshot()
+	if len(usages) != 1 {
+		t.Fatalf("recorded %d usages, want 1", len(usages))
+	}
+	usage := usages[0]
+	if usage.PromptTokens != 9620 {
+		t.Errorf("PromptTokens = %d, want 9620 (120 uncached + 500 cache write + 9000 cache read)", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 40 {
+		t.Errorf("CompletionTokens = %d, want 40", usage.CompletionTokens)
+	}
+	if usage.TotalTokens != 9660 {
+		t.Errorf("TotalTokens = %d, want 9660", usage.TotalTokens)
+	}
+	if usage.CachedInputTokens != 9000 {
+		t.Errorf("CachedInputTokens = %d, want 9000", usage.CachedInputTokens)
+	}
+	if usage.CacheWriteTokens != 500 {
+		t.Errorf("CacheWriteTokens = %d, want 500", usage.CacheWriteTokens)
+	}
+	if usage.Estimated {
+		t.Error("Estimated = true, want false for provider-reported counts")
+	}
+}
+
+// TestGeminiClientCountsThoughtsAsOutput pins the billing shape of the Gemini
+// usage block: candidatesTokenCount excludes thoughtsTokenCount even though both
+// bill at the output rate, which is why totalTokenCount does not reconcile
+// against prompt + candidates on a thinking model.
+func TestGeminiClientCountsThoughtsAsOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]}}],"usageMetadata":{"promptTokenCount":300,"candidatesTokenCount":50,"thoughtsTokenCount":2000,"cachedContentTokenCount":200,"toolUsePromptTokenCount":25,"totalTokenCount":2375}}`)
+	}))
+	defer server.Close()
+
+	client := NewLLMClientWithOptions(LLMClientOptions{
+		Provider: appconfig.LLMProviderGemini,
+		APIKey:   "secret",
+		Model:    "gemini-test",
+	})
+	gemini, ok := client.providerClient.(*geminiClient)
+	if !ok {
+		t.Fatalf("provider client = %T, want *geminiClient", client.providerClient)
+	}
+	gemini.owner.httpClient = &http.Client{
+		Transport: rewriteHostTransport{target: server.URL, base: server.Client().Transport},
+	}
+
+	collector := NewUsageCollector()
+	if _, err := gemini.Complete(ContextWithUsageCollector(t.Context(), collector), "go"); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	usages := collector.Snapshot()
+	if len(usages) != 1 {
+		t.Fatalf("recorded %d usages, want 1", len(usages))
+	}
+	usage := usages[0]
+	if usage.CompletionTokens != 2050 {
+		t.Errorf("CompletionTokens = %d, want 2050 (50 candidates + 2000 thoughts)", usage.CompletionTokens)
+	}
+	if usage.PromptTokens != 325 {
+		t.Errorf("PromptTokens = %d, want 325 (300 prompt + 25 tool-use prompt)", usage.PromptTokens)
+	}
+	if usage.TotalTokens != 2375 {
+		t.Errorf("TotalTokens = %d, want 2375 as reported", usage.TotalTokens)
+	}
+	if usage.CachedInputTokens != 200 {
+		t.Errorf("CachedInputTokens = %d, want 200", usage.CachedInputTokens)
+	}
+}
+
+// rewriteHostTransport points the Gemini client's hardcoded endpoint at a test
+// server without changing production code to accept a base URL it does not
+// otherwise support.
+type rewriteHostTransport struct {
+	target string
+	base   http.RoundTripper
+}
+
+func (t rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	rewritten, err := url.Parse(t.target)
+	if err != nil {
+		return nil, err
+	}
+	req = req.Clone(req.Context())
+	req.URL.Scheme = rewritten.Scheme
+	req.URL.Host = rewritten.Host
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
 }

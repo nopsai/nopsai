@@ -326,7 +326,7 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 	conversation.Usage = assistantConversationUsageFromMessages(messages)
 	turnStarted := time.Now()
 	orchestration := a.runAssistantConversationTurnWithPageContext(r.Context(), subject, userID, conversation, req.Content, selectedProfile, req.PageContext)
-	replyUsage := assistantUsageForAssistantReply(orchestration.Reply, orchestration.ToolCalls, time.Since(turnStarted))
+	replyUsage := assistantUsageForAssistantReply(orchestration.Reply, orchestration.ToolCalls, time.Since(turnStarted), a.assistantLLMPricer())
 	reply, err := insertAssistantMessageTx(r.Context(), a.db, conversationID, assistantRoleAssistant, orchestration.Reply, orchestration.ToolCalls, replyUsage)
 	if err != nil {
 		http.Error(w, "failed to append assistant reply", http.StatusInternalServerError)
@@ -460,7 +460,7 @@ func (a *App) loadAssistantMessages(ctx context.Context, conversationID uuid.UUI
 	rows, err := a.db.Query(ctx, `
 		SELECT id, conversation_id, role, content, tool_calls,
 		       content_tokens, prompt_tokens, completion_tokens, total_tokens,
-		       usage_estimated, duration_ms, llm_calls, created_at
+		       usage_estimated, duration_ms, llm_calls, cost_usd, created_at
 		FROM assistant_messages
 		WHERE conversation_id = $1
 		ORDER BY created_at ASC
@@ -489,6 +489,7 @@ func (a *App) loadAssistantMessages(ctx context.Context, conversationID uuid.UUI
 			&message.Usage.Estimated,
 			&message.Usage.DurationMS,
 			&message.Usage.LLMCalls,
+			&message.Usage.CostUSD,
 			&message.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -527,15 +528,15 @@ func insertAssistantMessageTx(ctx context.Context, tx assistantMessageTx, conver
 		INSERT INTO assistant_messages (
 			conversation_id, role, content, tool_calls,
 			content_tokens, prompt_tokens, completion_tokens, total_tokens,
-			usage_estimated, duration_ms, llm_calls
+			usage_estimated, duration_ms, llm_calls, cost_usd
 		)
-		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, conversation_id, role, content, tool_calls,
 		          content_tokens, prompt_tokens, completion_tokens, total_tokens,
-		          usage_estimated, duration_ms, llm_calls, created_at
+		          usage_estimated, duration_ms, llm_calls, cost_usd, created_at
 	`, conversationID, role, content, string(raw),
 		usage.ContentTokens, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens,
-		usage.Estimated, usage.DurationMS, usage.LLMCalls).Scan(
+		usage.Estimated, usage.DurationMS, usage.LLMCalls, usage.CostUSD).Scan(
 		&message.ID,
 		&message.ConversationID,
 		&message.Role,
@@ -548,6 +549,7 @@ func insertAssistantMessageTx(ctx context.Context, tx assistantMessageTx, conver
 		&message.Usage.Estimated,
 		&message.Usage.DurationMS,
 		&message.Usage.LLMCalls,
+		&message.Usage.CostUSD,
 		&message.CreatedAt,
 	)
 	if err != nil {

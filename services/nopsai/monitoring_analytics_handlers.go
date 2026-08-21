@@ -96,14 +96,17 @@ type monitoringRunRow struct {
 }
 
 type monitoringNamedCount struct {
-	Key     string  `json:"key"`
-	Label   string  `json:"label"`
-	Count   int64   `json:"count"`
-	Failed  int64   `json:"failed,omitempty"`
-	Tokens  int64   `json:"tokens,omitempty"`
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Count  int64  `json:"count"`
+	Failed int64  `json:"failed,omitempty"`
+	// Tokens stays internal. Spend is the figure the product reports, and
+	// exposing both invites a reader to reconcile two numbers that answer
+	// different questions.
+	Tokens  int64   `json:"-"`
 	Rate    float64 `json:"rate,omitempty"`
 	Seconds float64 `json:"seconds,omitempty"`
-	CostUSD float64 `json:"-"`
+	CostUSD float64 `json:"cost_usd"`
 }
 
 type monitoringTimeBucket struct {
@@ -147,7 +150,7 @@ type monitoringSummaryResponse struct {
 	RunnerUtilization            float64                  `json:"runner_utilization"`
 	ExternalTriggerInvocations   int64                    `json:"external_trigger_invocations"`
 	NotificationFailures         int64                    `json:"notification_failures"`
-	EstimatedAITokens            int64                    `json:"estimated_ai_tokens"`
+	AISpendUSD                   float64                  `json:"ai_spend_usd"`
 	RunnerSummary                monitoringRunnerSummary  `json:"runner_summary"`
 	DispatcherError              string                   `json:"dispatcher_error,omitempty"`
 	ComparePreviousPeriodEnabled bool                     `json:"compare_previous_period_enabled"`
@@ -197,7 +200,7 @@ type monitoringTriggerAnalyticsResponse struct {
 	TriggerSourceTrend       []monitoringTimeBucket   `json:"trigger_source_trend"`
 	FailuresByTriggerSource  []monitoringNamedCount   `json:"failures_by_trigger_source"`
 	DurationByTriggerSource  []monitoringNamedCount   `json:"duration_by_trigger_source"`
-	TokenByTriggerSource     []monitoringNamedCount   `json:"token_by_trigger_source"`
+	SpendByTriggerSource     []monitoringNamedCount   `json:"spend_by_trigger_source"`
 	TriggerSourceReliability []monitoringNamedCount   `json:"trigger_source_reliability"`
 }
 
@@ -228,20 +231,22 @@ type monitoringExternalTriggerAnalyticsResponse struct {
 	RateLimitViolationTriggers []monitoringNamedCount               `json:"rate_limit_violation_triggers"`
 }
 
+// monitoringAIUsageResponse reports AI usage as money.
+//
+// SpendUSD is the one figure the product shows. UnpricedCalls exists so that it
+// can never be read as complete when it is not: a call that could not be priced
+// is missing from the total, and saying so is the difference between a number
+// that is trustworthy and one that merely looks it.
 type monitoringAIUsageResponse struct {
 	Window                monitoringWindowResponse `json:"window"`
-	TotalPromptTokens     int64                    `json:"total_prompt_tokens"`
-	TotalCompletionTokens int64                    `json:"total_completion_tokens"`
-	TotalTokens           int64                    `json:"total_tokens"`
-	ExactTokens           int64                    `json:"exact_tokens"`
-	EstimatedTokens       int64                    `json:"estimated_tokens"`
-	ExactTokenEvents      int64                    `json:"exact_token_events"`
-	EstimatedTokenEvents  int64                    `json:"estimated_token_events"`
-	AssistantChatTokens   int64                    `json:"assistant_chat_tokens"`
+	SpendUSD              float64                  `json:"spend_usd"`
+	PricedCalls           int64                    `json:"priced_calls"`
+	UnpricedCalls         int64                    `json:"unpriced_calls"`
+	AssistantSpendUSD     float64                  `json:"assistant_spend_usd"`
 	AssistantChatMessages int64                    `json:"assistant_chat_messages"`
 	ByPipeline            []monitoringNamedCount   `json:"by_pipeline"`
 	BySchedule            []monitoringNamedCount   `json:"by_schedule"`
-	LowestTokenSchedules  []monitoringNamedCount   `json:"lowest_token_schedules"`
+	LowestSpendSchedules  []monitoringNamedCount   `json:"lowest_spend_schedules"`
 	ByStep                []monitoringNamedCount   `json:"by_step"`
 	ByTask                []monitoringNamedCount   `json:"by_task"`
 	ByFeature             []monitoringNamedCount   `json:"by_feature"`
@@ -250,7 +255,7 @@ type monitoringAIUsageResponse struct {
 	ByModel               []monitoringNamedCount   `json:"by_model"`
 	BySubject             []monitoringNamedCount   `json:"by_subject"`
 	Trend                 []monitoringTimeBucket   `json:"trend"`
-	TopTokenRuns          []monitoringNamedCount   `json:"top_token_runs"`
+	TopSpendRuns          []monitoringNamedCount   `json:"top_spend_runs"`
 }
 
 type monitoringReliabilityResponse struct {
@@ -266,17 +271,17 @@ type monitoringReliabilityResponse struct {
 }
 
 type monitoringEfficiencyResponse struct {
-	Window                        monitoringWindowResponse   `json:"window"`
-	TotalRuntimeSeconds           float64                    `json:"total_runtime_seconds"`
-	TotalRunnerMinutes            float64                    `json:"total_runner_minutes"`
-	TotalAITokens                 int64                      `json:"total_ai_tokens"`
-	TokenByPipeline               []monitoringNamedCount     `json:"token_by_pipeline"`
-	TokenByTeam                   []monitoringNamedCount     `json:"token_by_team"`
-	TokenByStep                   []monitoringNamedCount     `json:"token_by_step"`
-	TokenHeavyLowSuccessPipelines []monitoringPerformanceRow `json:"token_heavy_low_success_pipelines"`
-	FrequentReruns                []monitoringPerformanceRow `json:"frequent_reruns"`
-	HighQueueTeams                []monitoringNamedCount     `json:"high_queue_teams"`
-	Recommendations               []string                   `json:"recommendations"`
+	Window                    monitoringWindowResponse   `json:"window"`
+	TotalRuntimeSeconds       float64                    `json:"total_runtime_seconds"`
+	TotalRunnerMinutes        float64                    `json:"total_runner_minutes"`
+	TotalAISpendUSD           float64                    `json:"total_ai_spend_usd"`
+	SpendByPipeline           []monitoringNamedCount     `json:"spend_by_pipeline"`
+	SpendByTeam               []monitoringNamedCount     `json:"spend_by_team"`
+	SpendByStep               []monitoringNamedCount     `json:"spend_by_step"`
+	CostlyLowSuccessPipelines []monitoringPerformanceRow `json:"costly_low_success_pipelines"`
+	FrequentReruns            []monitoringPerformanceRow `json:"frequent_reruns"`
+	HighQueueTeams            []monitoringNamedCount     `json:"high_queue_teams"`
+	Recommendations           []string                   `json:"recommendations"`
 }
 
 type monitoringSecurityResponse struct {
@@ -804,12 +809,12 @@ func (a *App) loadMonitoringSummary(ctx context.Context, filters monitoringAnaly
 				(SELECT COUNT(*) FROM task_runs tr WHERE tr.run_id::text = ANY($1)),
 				(SELECT COUNT(*) FROM external_trigger_invocations eti WHERE eti.run_id::text = ANY($1)),
 				(SELECT COUNT(*) FROM notification_deliveries nd WHERE nd.run_id::text = ANY($1) AND LOWER(nd.status) = 'failed'),
-				COALESCE((SELECT SUM(total_tokens) FROM ai_usage_events au WHERE au.run_id::text = ANY($1)), 0)::bigint
+				COALESCE((SELECT SUM(total_cost_usd) FROM ai_usage_events au WHERE au.run_id::text = ANY($1)), 0)::float8
 			`, runIDs)
 		if err := row.Scan(&resp.TotalRuns, &resp.SuccessfulRuns, &resp.FailedRuns, &resp.CancelledRuns, &resp.RunningRuns, &resp.PendingRuns,
 			&resp.WaitingApprovalRuns, &resp.SkippedRuns, &resp.AverageDurationSeconds, &resp.MedianDurationSeconds, &resp.P95DurationSeconds,
 			&resp.P99DurationSeconds, &resp.TotalRuntimeSeconds, &resp.TotalStepsExecuted, &resp.TotalTasksExecuted, &resp.ExternalTriggerInvocations,
-			&resp.NotificationFailures, &resp.EstimatedAITokens); err != nil {
+			&resp.NotificationFailures, &resp.AISpendUSD); err != nil {
 			return resp, err
 		}
 		longest, err := a.loadMonitoringLongestRun(ctx, runIDs)
@@ -1156,9 +1161,9 @@ func (a *App) loadMonitoringTriggerAnalytics(ctx context.Context, filters monito
 	if err != nil {
 		return resp, err
 	}
-	resp.TokenByTriggerSource, err = a.loadMonitoringTokenCounts(ctx, `
+	resp.SpendByTriggerSource, err = a.loadMonitoringTokenCounts(ctx, `
 		SELECT COALESCE(NULLIF(pr.trigger_source, ''), 'unknown'), COALESCE(NULLIF(pr.trigger_source, ''), 'Unknown'), COUNT(DISTINCT pr.run_id),
-		       COALESCE(SUM(au.total_tokens), 0)::bigint, 0::float8
+		       COALESCE(SUM(au.total_tokens), 0)::bigint, COALESCE(SUM(au.total_cost_usd), 0)::float8
 		FROM pipeline_runs pr
 		JOIN ai_usage_events au ON au.run_id = pr.run_id
 			AND au.created_at >= $2 AND au.created_at <= $3
@@ -1341,13 +1346,9 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 	if len(runIDs) > 0 {
 		queryArgs := monitoringAIUsageQueryArgs(runIDs, filters)
 		if err := a.db.QueryRow(ctx, monitoringAIUsageTotalsQuery(), queryArgs...).Scan(
-			&resp.TotalPromptTokens,
-			&resp.TotalCompletionTokens,
-			&resp.TotalTokens,
-			&resp.ExactTokens,
-			&resp.EstimatedTokens,
-			&resp.ExactTokenEvents,
-			&resp.EstimatedTokenEvents,
+			&resp.SpendUSD,
+			&resp.PricedCalls,
+			&resp.UnpricedCalls,
 		); err != nil {
 			return resp, err
 		}
@@ -1359,7 +1360,7 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 		if err != nil {
 			return resp, err
 		}
-		resp.LowestTokenSchedules, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(true), queryArgs...)
+		resp.LowestSpendSchedules, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(true), queryArgs...)
 		if err != nil {
 			return resp, err
 		}
@@ -1395,7 +1396,7 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 		if err != nil {
 			return resp, err
 		}
-		resp.TopTokenRuns, err = a.loadMonitoringTokenCounts(ctx, monitoringAITopTokenRunsQuery(), queryArgs...)
+		resp.TopSpendRuns, err = a.loadMonitoringTokenCounts(ctx, monitoringAISpendRunsQuery(), queryArgs...)
 		if err != nil {
 			return resp, err
 		}
@@ -1514,18 +1515,18 @@ func (a *App) loadMonitoringEfficiency(ctx context.Context, filters monitoringAn
 	}
 	resp.TotalRunnerMinutes = resp.TotalRuntimeSeconds / 60
 	if err := a.db.QueryRow(ctx, `
-		SELECT COALESCE(SUM(total_tokens), 0)::bigint
+		SELECT COALESCE(SUM(total_cost_usd), 0)::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3
-	`, runIDs, filters.From, filters.To).Scan(&resp.TotalAITokens); err != nil {
+	`, runIDs, filters.From, filters.To).Scan(&resp.TotalAISpendUSD); err != nil {
 		return resp, err
 	}
 	var err error
-	resp.TokenByPipeline, err = a.loadMonitoringTokenCounts(ctx, `
+	resp.SpendByPipeline, err = a.loadMonitoringTokenCounts(ctx, `
 		SELECT COALESCE(pr.pipeline_path, '') || '/' || COALESCE(pr.pipeline_name, ''),
 		       COALESCE(NULLIF(pr.pipeline_name, ''), COALESCE(pr.pipeline_path, '') || '/'),
-		       COUNT(DISTINCT pr.run_id), COALESCE(SUM(au.total_tokens), 0)::bigint, 0::float8
+		       COUNT(DISTINCT pr.run_id), COALESCE(SUM(au.total_tokens), 0)::bigint, COALESCE(SUM(au.total_cost_usd), 0)::float8
 		FROM pipeline_runs pr
 		JOIN ai_usage_events au ON au.run_id = pr.run_id
 			AND au.created_at >= $2 AND au.created_at <= $3
@@ -1537,9 +1538,9 @@ func (a *App) loadMonitoringEfficiency(ctx context.Context, filters monitoringAn
 	if err != nil {
 		return resp, err
 	}
-	resp.TokenByTeam, err = a.loadMonitoringTokenCounts(ctx, `
+	resp.SpendByTeam, err = a.loadMonitoringTokenCounts(ctx, `
 		SELECT COALESCE(g.id::text, 'root'), COALESCE(g.name, 'Root'), COUNT(DISTINCT pr.run_id),
-		       COALESCE(SUM(au.total_tokens), 0)::bigint, 0::float8
+		       COALESCE(SUM(au.total_tokens), 0)::bigint, COALESCE(SUM(au.total_cost_usd), 0)::float8
 		FROM pipeline_runs pr
 		LEFT JOIN teams g ON g.id = pr.team_id
 		JOIN ai_usage_events au ON au.run_id = pr.run_id
@@ -1552,9 +1553,9 @@ func (a *App) loadMonitoringEfficiency(ctx context.Context, filters monitoringAn
 	if err != nil {
 		return resp, err
 	}
-	resp.TokenByStep, err = a.loadMonitoringTokenCounts(ctx, `
+	resp.SpendByStep, err = a.loadMonitoringTokenCounts(ctx, `
 		SELECT COALESCE(NULLIF(step_name, ''), 'unknown'), COALESCE(NULLIF(step_name, ''), 'Unknown'),
-		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
+		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, COALESCE(SUM(total_cost_usd), 0)::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3
@@ -1569,13 +1570,13 @@ func (a *App) loadMonitoringEfficiency(ctx context.Context, filters monitoringAn
 	if err != nil {
 		return resp, err
 	}
-	tokenByPipeline := make(map[string]int64, len(resp.TokenByPipeline))
-	for _, item := range resp.TokenByPipeline {
-		tokenByPipeline[item.Key] = item.Tokens
+	spendByPipeline := make(map[string]float64, len(resp.SpendByPipeline))
+	for _, item := range resp.SpendByPipeline {
+		spendByPipeline[item.Key] = item.CostUSD
 	}
 	for _, item := range perf {
-		if item.TotalRuns >= 3 && item.SuccessRate < 0.6 && tokenByPipeline[item.Key] > 0 {
-			resp.TokenHeavyLowSuccessPipelines = append(resp.TokenHeavyLowSuccessPipelines, item)
+		if item.TotalRuns >= 3 && item.SuccessRate < 0.6 && spendByPipeline[item.Key] > 0 {
+			resp.CostlyLowSuccessPipelines = append(resp.CostlyLowSuccessPipelines, item)
 		}
 	}
 	resp.FrequentReruns, err = a.loadMonitoringPipelineReruns(ctx, runIDs)
@@ -1871,32 +1872,24 @@ func (a *App) loadAIUsageTrend(ctx context.Context, runIDs []string, filters mon
 }
 
 type monitoringAssistantChatUsage struct {
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
-	ExactTokens      int64
-	EstimatedTokens  int64
-	ExactEvents      int64
-	EstimatedEvents  int64
-	MessageCount     int64
-	ByProvider       []monitoringNamedCount
-	ByProfile        []monitoringNamedCount
-	ByModel          []monitoringNamedCount
-	BySubject        []monitoringNamedCount
-	Trend            []monitoringTimeBucket
+	SpendUSD      float64
+	PricedTurns   int64
+	UnpricedTurns int64
+	MessageCount  int64
+	ByProvider    []monitoringNamedCount
+	ByProfile     []monitoringNamedCount
+	ByModel       []monitoringNamedCount
+	BySubject     []monitoringNamedCount
+	Trend         []monitoringTimeBucket
 }
 
 func (a *App) loadMonitoringAssistantChatUsage(ctx context.Context, filters monitoringAnalyticsFilters) (monitoringAssistantChatUsage, error) {
 	var usage monitoringAssistantChatUsage
 	args := monitoringAssistantChatUsageQueryArgs(filters)
 	if err := a.db.QueryRow(ctx, monitoringAssistantChatUsageTotalsQuery(), args...).Scan(
-		&usage.PromptTokens,
-		&usage.CompletionTokens,
-		&usage.TotalTokens,
-		&usage.ExactTokens,
-		&usage.EstimatedTokens,
-		&usage.ExactEvents,
-		&usage.EstimatedEvents,
+		&usage.SpendUSD,
+		&usage.PricedTurns,
+		&usage.UnpricedTurns,
 		&usage.MessageCount,
 	); err != nil {
 		return usage, err
@@ -1940,23 +1933,19 @@ func (a *App) loadMonitoringAssistantChatUsageTrend(ctx context.Context, filters
 }
 
 func (resp *monitoringAIUsageResponse) addAssistantChatUsage(usage monitoringAssistantChatUsage) {
-	if usage.TotalTokens == 0 && usage.MessageCount == 0 {
+	if usage.MessageCount == 0 {
 		return
 	}
-	resp.TotalPromptTokens += usage.PromptTokens
-	resp.TotalCompletionTokens += usage.CompletionTokens
-	resp.TotalTokens += usage.TotalTokens
-	resp.ExactTokens += usage.ExactTokens
-	resp.EstimatedTokens += usage.EstimatedTokens
-	resp.ExactTokenEvents += usage.ExactEvents
-	resp.EstimatedTokenEvents += usage.EstimatedEvents
-	resp.AssistantChatTokens = usage.TotalTokens
+	resp.SpendUSD += usage.SpendUSD
+	resp.PricedCalls += usage.PricedTurns
+	resp.UnpricedCalls += usage.UnpricedTurns
+	resp.AssistantSpendUSD = usage.SpendUSD
 	resp.AssistantChatMessages = usage.MessageCount
 	resp.ByFeature = mergeMonitoringTokenCounts(resp.ByFeature, []monitoringNamedCount{{
-		Key:    "assistant_chat",
-		Label:  "Assistant chat",
-		Count:  usage.MessageCount,
-		Tokens: usage.TotalTokens,
+		Key:     "assistant_chat",
+		Label:   "Assistant chat",
+		Count:   usage.MessageCount,
+		CostUSD: usage.SpendUSD,
 	}})
 	resp.ByProvider = mergeMonitoringTokenCounts(resp.ByProvider, usage.ByProvider)
 	resp.ByProfile = mergeMonitoringTokenCounts(resp.ByProfile, usage.ByProfile)
@@ -2001,15 +1990,11 @@ func monitoringAssistantChatUserIDPredicate() string {
 }
 
 func monitoringAssistantChatUsageTotalsQuery() string {
-	estimatedPredicate := `am.usage_estimated`
-	tokenEventPredicate := `am.total_tokens > 0`
+	llmTurnPredicate := `am.llm_calls > 0`
 	return `
-		SELECT COALESCE(SUM(am.prompt_tokens), 0)::bigint, COALESCE(SUM(am.completion_tokens), 0)::bigint,
-		       COALESCE(SUM(am.total_tokens), 0)::bigint,
-		       COALESCE(SUM(am.total_tokens) FILTER (WHERE NOT (` + estimatedPredicate + `)), 0)::bigint,
-		       COALESCE(SUM(am.total_tokens) FILTER (WHERE ` + estimatedPredicate + `), 0)::bigint,
-		       (COUNT(*) FILTER (WHERE ` + tokenEventPredicate + ` AND NOT (` + estimatedPredicate + `)))::bigint,
-		       (COUNT(*) FILTER (WHERE ` + tokenEventPredicate + ` AND ` + estimatedPredicate + `))::bigint,
+		SELECT COALESCE(SUM(am.cost_usd), 0)::float8,
+		       (COUNT(*) FILTER (WHERE ` + llmTurnPredicate + ` AND am.cost_usd IS NOT NULL))::bigint,
+		       (COUNT(*) FILTER (WHERE ` + llmTurnPredicate + ` AND am.cost_usd IS NULL))::bigint,
 		       COUNT(*)::bigint
 		FROM assistant_messages am
 		JOIN assistant_conversations ac ON ac.id = am.conversation_id
@@ -2090,7 +2075,12 @@ func mergeMonitoringTokenCounts(base, additions []monitoringNamedCount) []monito
 	for _, key := range order {
 		out = append(out, merged[key])
 	}
+	// Ranked by money, because money is what the reader is being asked to act
+	// on. Tokens remain as a tiebreaker for rows that carry no price.
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].CostUSD != out[j].CostUSD {
+			return out[i].CostUSD > out[j].CostUSD
+		}
 		if out[i].Tokens != out[j].Tokens {
 			return out[i].Tokens > out[j].Tokens
 		}
@@ -2165,15 +2155,15 @@ func monitoringAIUsageEventFilterPredicate() string {
 		  AND ($9::text = '' OR LOWER(COALESCE(task_name, '')) = LOWER($9))`
 }
 
+// monitoringAIUsageTotalsQuery sums money and counts what it could not price.
+//
+// SUM ignores NULL, so an unpriced call contributes nothing to the total; the
+// separate count is what stops that silence from reading as zero cost.
 func monitoringAIUsageTotalsQuery() string {
-	estimatedPredicate := monitoringEstimatedTokenPredicate()
 	return `
-		SELECT COALESCE(SUM(prompt_tokens), 0)::bigint, COALESCE(SUM(completion_tokens), 0)::bigint,
-		       COALESCE(SUM(total_tokens), 0)::bigint,
-		       COALESCE(SUM(total_tokens) FILTER (WHERE NOT (` + estimatedPredicate + `)), 0)::bigint,
-		       COALESCE(SUM(total_tokens) FILTER (WHERE ` + estimatedPredicate + `), 0)::bigint,
-		       (COUNT(*) FILTER (WHERE NOT (` + estimatedPredicate + `)))::bigint,
-		       (COUNT(*) FILTER (WHERE ` + estimatedPredicate + `))::bigint
+		SELECT COALESCE(SUM(total_cost_usd), 0)::float8,
+		       (COUNT(*) FILTER (WHERE total_cost_usd IS NOT NULL))::bigint,
+		       (COUNT(*) FILTER (WHERE total_cost_usd IS NULL))::bigint
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate()
@@ -2186,7 +2176,7 @@ func monitoringEstimatedTokenPredicate() string {
 func monitoringAIUsageByPipelineQuery() string {
 	return `
 		SELECT pipeline_path || '/' || pipeline_name, COALESCE(NULLIF(pipeline_name, ''), pipeline_path || '/'), COUNT(*),
-		       COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
+		       COALESCE(SUM(total_tokens), 0)::bigint, COALESCE(SUM(total_cost_usd), 0)::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
@@ -2209,7 +2199,7 @@ func monitoringAIUsageByScheduleQuery(lowestFirst bool) string {
 		)
 		SELECT pr.schedule_id::text,
 		       COALESCE(NULLIF(CONCAT_WS('/', NULLIF(ps.path, ''), NULLIF(ps.name, '')), ''), pr.schedule_id::text),
-		       COUNT(*), COALESCE(SUM(au.total_tokens), 0)::bigint, 0::float8
+		       COUNT(*), COALESCE(SUM(au.total_tokens), 0)::bigint, COALESCE(SUM(au.total_cost_usd), 0)::float8
 		FROM filtered_usage au
 		JOIN pipeline_runs pr ON pr.run_id = au.run_id
 		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
@@ -2219,9 +2209,9 @@ func monitoringAIUsageByScheduleQuery(lowestFirst bool) string {
 		LIMIT 20`
 }
 
-func monitoringAITopTokenRunsQuery() string {
+func monitoringAISpendRunsQuery() string {
 	return `
-		SELECT run_id::text, run_id::text, COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
+		SELECT run_id::text, run_id::text, COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, COALESCE(SUM(total_cost_usd), 0)::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
@@ -2234,7 +2224,7 @@ func monitoringAIUsageByTaskQuery() string {
 	return `
 		SELECT COALESCE(NULLIF(CONCAT_WS('/', NULLIF(step_name, ''), NULLIF(task_name, '')), ''), 'unknown'),
 		       COALESCE(NULLIF(CONCAT_WS('/', NULLIF(step_name, ''), NULLIF(task_name, '')), ''), 'Unknown'),
-		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
+		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, COALESCE(SUM(total_cost_usd), 0)::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
@@ -2247,7 +2237,7 @@ func monitoringAIUsageByTaskQuery() string {
 func monitoringAIUsageTeamQuery(expression string) string {
 	return `
 		SELECT COALESCE(NULLIF(` + expression + `, ''), 'unknown'), COALESCE(NULLIF(` + expression + `, ''), 'Unknown'),
-		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
+		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, COALESCE(SUM(total_cost_usd), 0)::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
@@ -2263,7 +2253,7 @@ func monitoringAIUsageTrendQuery() string {
 		       COALESCE(SUM(total_tokens), 0)::bigint,
 		       0::bigint,
 		       0::float8,
-		       0::float8
+		       COALESCE(SUM(total_cost_usd), 0)::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
 		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
@@ -2305,17 +2295,17 @@ func (a *App) loadMonitoringPipelineReruns(ctx context.Context, runIDs []string)
 
 func monitoringEfficiencyRecommendations(resp monitoringEfficiencyResponse) []string {
 	recommendations := []string{}
-	if len(resp.TokenHeavyLowSuccessPipelines) > 0 {
-		item := resp.TokenHeavyLowSuccessPipelines[0]
+	if len(resp.CostlyLowSuccessPipelines) > 0 {
+		item := resp.CostlyLowSuccessPipelines[0]
 		recommendations = append(recommendations, fmt.Sprintf("Pipeline %s has a %.0f%% success rate across %d runs.", item.Key, item.SuccessRate*100, item.TotalRuns))
 	}
 	if len(resp.HighQueueTeams) > 0 && resp.HighQueueTeams[0].Seconds > 300 {
 		item := resp.HighQueueTeams[0]
 		recommendations = append(recommendations, fmt.Sprintf("Team %s has average queue time above five minutes.", item.Label))
 	}
-	if resp.TotalAITokens > 0 && len(resp.TokenByPipeline) > 0 {
-		item := resp.TokenByPipeline[0]
-		recommendations = append(recommendations, fmt.Sprintf("Pipeline %s is the highest AI token consumer in this window.", item.Label))
+	if resp.TotalAISpendUSD > 0 && len(resp.SpendByPipeline) > 0 {
+		item := resp.SpendByPipeline[0]
+		recommendations = append(recommendations, fmt.Sprintf("Pipeline %s is the highest AI spend in this window, at $%.2f.", item.Label, item.CostUSD))
 	}
 	return recommendations
 }

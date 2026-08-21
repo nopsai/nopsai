@@ -399,18 +399,23 @@ For a user-facing guide to assistant capabilities and example chat prompts, see
 - `POST /v1/assistant/conversations/{id}/summarize-memory` updates conversation-scoped memory.
 - `POST /v1/mcp` exposes Nopsai-hosted MCP JSON-RPC operations: `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
 
-Assistant message payloads include a `usage` object with estimated visible
-`content_tokens`, LLM `prompt_tokens`, `completion_tokens`, `total_tokens`,
-`estimated`, `duration_ms`, and `llm_calls`. User messages use content-token
-estimates. Assistant replies sum planner/synthesis provider usage when
-available and fall back to estimates when the provider omits usage metadata.
-Conversation payloads include matching usage rollups for monitoring views.
+Assistant message payloads include a `usage` object with `cost_usd`,
+`estimated`, `duration_ms`, and `llm_calls`. `cost_usd` is absent when the turn
+could not be priced, which is deliberately distinct from a cost of zero; a turn
+is unpriced when its token counts were estimated rather than reported by the
+provider, or when the model it used declares no `pricing` block. Conversation
+payloads roll the same figures up into `spend_usd` and `unpriced_turns`.
+
+Token counts are no longer serialised on these payloads. Spend is the figure the
+product reports, and offering both invites a reader to reconcile two numbers
+that answer different questions. Token-level detail remains available through
+`nopsai_ai_tokens_total` in the Prometheus exporter and in `ai_usage_events`.
 The Prometheus exporter also exposes `nopsai_assistant_tokens_total`,
 `nopsai_assistant_message_duration_seconds_total`, and
 `nopsai_assistant_llm_calls_total`.
 Global monitoring AI usage also adds assistant chat message usage from these
 stored fields as the `assistant_chat` feature, with
-`assistant_chat_tokens` and `assistant_chat_messages` in the response. Run,
+`assistant_spend_usd` and `assistant_chat_messages` in the response. Run,
 pipeline, step, task, schedule, provider, and model-scoped AI usage filters
 remain scoped to recorded run AI usage events.
 

@@ -10,10 +10,10 @@ import {
   extractLatestRunSummary,
   findTeamByURLValue,
   formatRunTimestamp,
-  formatAIUsageBreakdown,
+  formatAIUsageCompleteness,
   formatBranchDisplay,
   formatRepoLabel,
-  formatTokenCount,
+  formatSpendUSD,
   formatTriggerId,
   getRunSourceKind,
   getStatusDotClass,
@@ -99,11 +99,18 @@ test('formats, searches, and links run metadata', () => {
   assert.deepEqual(formatTriggerId('1234567890123456'), { display: '12345678', full: '1234567890123456' });
 });
 
-test('formats LLM token usage for run summaries', () => {
-  assert.equal(formatTokenCount(1), '1 token');
-  assert.equal(formatTokenCount(4200), '4.2k tokens');
-  assert.equal(formatAIUsageBreakdown({ prompt_tokens: 300, completion_tokens: 120 }), '300 tokens prompt / 120 tokens completion');
-  assert.equal(formatAIUsageBreakdown(null), 'No prompt/completion split recorded');
+test('formats AI spend for run summaries', () => {
+  assert.equal(formatSpendUSD(0), '$0.00');
+  assert.equal(formatSpendUSD(4.2), '$4.20');
+  // A run of many cheap calls must not round away to nothing and read as free.
+  assert.equal(formatSpendUSD(0.0004), '$0.0004');
+});
+
+test('states when a run spend figure is missing unpriced calls', () => {
+  assert.equal(formatAIUsageCompleteness({ spend_usd: 1.2, unpriced_calls: 3 }), '3 calls not priced');
+  assert.equal(formatAIUsageCompleteness({ spend_usd: 1.2, unpriced_calls: 1 }), '1 call not priced');
+  assert.equal(formatAIUsageCompleteness({ spend_usd: 1.2 }), '');
+  assert.equal(formatAIUsageCompleteness(null), '');
 });
 
 test('summarizes status and latest activity deterministically', () => {

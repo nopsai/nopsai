@@ -30,8 +30,12 @@ func TestNormalizeAIUsageReportComputesTotalsAndDefaults(t *testing.T) {
 	if report.TotalTokens != 14 {
 		t.Fatalf("TotalTokens = %d, want 14", report.TotalTokens)
 	}
-	if report.InputCostUSD != 0 || report.TotalCostUSD != 0.25 {
-		t.Fatalf("costs = (%f,%f), want (0,0.25)", report.InputCostUSD, report.TotalCostUSD)
+	// Cost is deliberately discarded here. The rate card lives with the model
+	// definition, which only this service can read, so a cost supplied by the
+	// reporter is a number it had no basis to compute; recordAIUsage prices the
+	// event itself.
+	if report.InputCostUSD != 0 || report.OutputCostUSD != 0 || report.TotalCostUSD != 0 {
+		t.Fatalf("costs = (%f,%f,%f), want all zero; pricing is the server's job", report.InputCostUSD, report.OutputCostUSD, report.TotalCostUSD)
 	}
 	if report.Metadata == nil {
 		t.Fatal("Metadata is nil, want empty map")

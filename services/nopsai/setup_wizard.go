@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"nopsai/config"
 	"nopsai/pkg/models"
 )
 
@@ -81,17 +82,21 @@ type setupConfigRepositoryInput struct {
 }
 
 type setupLLMProfileInput struct {
-	Name           string            `json:"name"`
-	Provider       string            `json:"provider"`
-	Model          string            `json:"model"`
-	BaseURL        string            `json:"base_url"`
-	CredentialRef  string            `json:"credential_ref"`
-	APIKeyValue    string            `json:"api_key_value"`
-	AllowedScopes  []string          `json:"allowed_scopes"`
-	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
-	MaxTokens      int               `json:"max_tokens,omitempty"`
-	Temperature    *float64          `json:"temperature,omitempty"`
-	Extra          map[string]string `json:"extra,omitempty"`
+	Name           string   `json:"name"`
+	Provider       string   `json:"provider"`
+	Model          string   `json:"model"`
+	BaseURL        string   `json:"base_url"`
+	CredentialRef  string   `json:"credential_ref"`
+	APIKeyValue    string   `json:"api_key_value"`
+	AllowedScopes  []string `json:"allowed_scopes"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+	MaxTokens      int      `json:"max_tokens,omitempty"`
+	Temperature    *float64 `json:"temperature,omitempty"`
+	// Optional rate card. A self-hosted provider defaults to zero because it has
+	// no per-token charge; a hosted provider is left unpriced unless the operator
+	// supplies rates, since only they know what they are paying.
+	Pricing *config.LLMPricing `json:"pricing,omitempty"`
+	Extra   map[string]string  `json:"extra,omitempty"`
 }
 
 type setupRepositoryTeamInput struct {

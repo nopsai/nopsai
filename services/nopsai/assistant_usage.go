@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/config"
 	"nopsai/pkg/llmclient"
 )
 
@@ -15,12 +16,22 @@ func assistantUsageForUserMessage(content string) assistantMessageUsage {
 	})
 }
 
-func assistantUsageForAssistantReply(content string, toolCalls []assistantToolActivity, duration time.Duration) assistantMessageUsage {
+// assistantLLMPricer resolves the rate card for a model by name. It is passed in
+// rather than looked up here so that usage assembly stays independent of the
+// configuration snapshot.
+type assistantLLMPricer func(profileName string) *config.LLMPricing
+
+func assistantUsageForAssistantReply(content string, toolCalls []assistantToolActivity, duration time.Duration, pricer assistantLLMPricer) assistantMessageUsage {
 	usage := assistantMessageUsage{
 		ContentTokens: assistantEstimateTokenCount(content),
 		DurationMS:    assistantDurationMilliseconds(duration),
 	}
 	missingSuccessfulLLMUsage := false
+	// Every LLM call in a turn is priced on its own, because a turn can mix
+	// models: the planner and the synthesis step need not share a profile, and
+	// summing their tokens before pricing would charge both at one rate.
+	priced := true
+	cost := 0.0
 	for _, call := range toolCalls {
 		if !assistantIsLLMToolCall(call) {
 			continue
@@ -30,6 +41,7 @@ func assistantUsageForAssistantReply(content string, toolCalls []assistantToolAc
 			if call.Status == assistantToolStatusSuccess {
 				missingSuccessfulLLMUsage = true
 				usage.LLMCalls++
+				priced = false
 			}
 			continue
 		}
@@ -38,6 +50,14 @@ func assistantUsageForAssistantReply(content string, toolCalls []assistantToolAc
 		usage.TotalTokens += callUsage.TotalTokens
 		usage.LLMCalls++
 		usage.Estimated = usage.Estimated || callUsage.Estimated
+		if callCost, ok := assistantLLMCallCost(call, callUsage, pricer); ok {
+			cost += callCost
+		} else {
+			priced = false
+		}
+	}
+	if usage.LLMCalls > 0 && priced {
+		usage.CostUSD = &cost
 	}
 	if missingSuccessfulLLMUsage && usage.PromptTokens == 0 && usage.CompletionTokens == 0 && usage.TotalTokens == 0 {
 		usage.CompletionTokens = usage.ContentTokens
@@ -45,6 +65,48 @@ func assistantUsageForAssistantReply(content string, toolCalls []assistantToolAc
 		usage.Estimated = usage.ContentTokens > 0
 	}
 	return normalizeAssistantMessageUsage(content, usage)
+}
+
+// assistantLLMCallCost prices one LLM call. It declines to produce a figure for
+// an estimated token count, since pricing a guess yields a number that reads as
+// authoritative and is not.
+func assistantLLMCallCost(call assistantToolActivity, usage assistantMessageUsage, pricer assistantLLMPricer) (float64, bool) {
+	if pricer == nil || usage.Estimated {
+		return 0, false
+	}
+	pricing := pricer(assistantToolCallProfileName(call))
+	if pricing == nil {
+		return 0, false
+	}
+	cached, cacheWrite := assistantToolCallCacheTokens(call)
+	input, output := pricing.CostUSD(usage.PromptTokens, usage.CompletionTokens, cached, cacheWrite)
+	return input + output, true
+}
+
+func assistantToolCallProfileName(call assistantToolActivity) string {
+	switch usage := call.Output["usage"].(type) {
+	case llmclient.Usage:
+		return usage.Profile
+	case map[string]any:
+		if name, ok := usage["profile"].(string); ok {
+			return name
+		}
+	}
+	if name, ok := call.Output["profile"].(string); ok {
+		return name
+	}
+	return ""
+}
+
+func assistantToolCallCacheTokens(call assistantToolActivity) (cached int64, cacheWrite int64) {
+	switch usage := call.Output["usage"].(type) {
+	case llmclient.Usage:
+		return usage.CachedInputTokens, usage.CacheWriteTokens
+	case map[string]any:
+		return assistantUsageInt64(usage["cached_input_tokens"]), assistantUsageInt64(usage["cache_write_tokens"])
+	default:
+		return 0, 0
+	}
 }
 
 func assistantIsLLMToolCall(call assistantToolActivity) bool {
@@ -121,6 +183,14 @@ func assistantConversationUsageFromMessages(messages []assistantMessage) assista
 		if message.Usage.Estimated {
 			usage.EstimatedTokenMessages++
 		}
+		if message.Usage.LLMCalls == 0 {
+			continue
+		}
+		if message.Usage.CostUSD == nil {
+			usage.UnpricedTurns++
+			continue
+		}
+		usage.SpendUSD += *message.Usage.CostUSD
 	}
 	return usage
 }
@@ -186,4 +256,19 @@ func assistantUsageBool(value any) bool {
 
 type jsonNumber interface {
 	Int64() (int64, error)
+}
+
+// assistantLLMPricer resolves rate cards from the current configuration
+// snapshot. A model that has since been removed from the configuration
+// repository prices as nil, so its spend is reported as unpriced rather than as
+// zero.
+func (a *App) assistantLLMPricer() assistantLLMPricer {
+	_, profiles := a.llmProfilesSnapshot()
+	return func(profileName string) *config.LLMPricing {
+		profile, ok := profiles[config.NormalizeLLMProfileName(profileName)]
+		if !ok {
+			return nil
+		}
+		return profile.Pricing
+	}
 }

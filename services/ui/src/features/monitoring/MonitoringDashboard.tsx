@@ -185,7 +185,7 @@ function OverviewTab({ summary, previousSummary, runAnalytics, loading }: { summ
         <MetricCard icon={<Timer />} label="Median duration" value={formatDurationSeconds(summary?.median_duration_seconds)} detail={`p99 ${formatDurationSeconds(summary?.p99_duration_seconds)}`} delta={deltaValue(summary?.median_duration_seconds, previousSummary?.median_duration_seconds)} deltaFormat="duration" tone="blue" loading={loading} />
         <MetricCard icon={<Gauge />} label="Runner utilization" value={formatPercent(summary?.runner_utilization)} detail={`${formatNumber(summary?.queued_jobs)} queued jobs`} delta={deltaValue(summary?.runner_utilization, previousSummary?.runner_utilization)} deltaFormat="percent" tone="green" loading={loading} />
         <MetricCard icon={<Workflow />} label="Steps executed" value={formatNumber(summary?.total_steps_executed)} detail={`${formatNumber(summary?.total_tasks_executed)} tasks`} delta={deltaValue(summary?.total_steps_executed, previousSummary?.total_steps_executed)} tone="amber" loading={loading} />
-        <MetricCard icon={<Bot />} label="LLM tokens" value={formatNumber(summary?.estimated_ai_tokens)} detail="recorded usage" delta={deltaValue(summary?.estimated_ai_tokens, previousSummary?.estimated_ai_tokens)} tone="red" loading={loading} />
+        <MetricCard icon={<Bot />} label="AI spend" value={formatUSD(summary?.ai_spend_usd)} detail="this window" delta={deltaValue(summary?.ai_spend_usd, previousSummary?.ai_spend_usd)} tone="red" loading={loading} />
       </section>
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
         <Panel title="Run Trend" icon={<BarChart3 className="h-4 w-4" />}>
@@ -277,14 +277,14 @@ function TriggersTab({ analytics, previousAnalytics, loading }: { analytics: Mon
   const previousInvocations = sumNamedCounts(previousAnalytics?.trigger_sources || [], 'count');
   const currentFailures = sumNamedCounts(analytics?.failures_by_trigger_source || [], 'count');
   const previousFailures = sumNamedCounts(previousAnalytics?.failures_by_trigger_source || [], 'count');
-  const currentTokens = sumNamedCounts(analytics?.token_by_trigger_source || [], 'tokens');
-  const previousTokens = sumNamedCounts(previousAnalytics?.token_by_trigger_source || [], 'tokens');
+  const currentSpend = sumNamedCounts(analytics?.spend_by_trigger_source || [], 'cost');
+  const previousSpend = sumNamedCounts(previousAnalytics?.spend_by_trigger_source || [], 'cost');
   return (
     <div className="space-y-4">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<Zap />} label="Trigger runs" value={formatNumber(currentInvocations)} detail={`${formatNumber((analytics?.trigger_sources || []).length)} sources`} delta={deltaValue(currentInvocations, previousInvocations)} tone="blue" loading={loading} />
         <MetricCard icon={<XCircle />} label="Trigger failures" value={formatNumber(currentFailures)} detail="failed runs" delta={deltaValue(currentFailures, previousFailures)} tone="red" loading={loading} />
-        <MetricCard icon={<Bot />} label="Trigger tokens" value={formatNumber(currentTokens)} detail="LLM token usage" delta={deltaValue(currentTokens, previousTokens)} tone="amber" loading={loading} />
+        <MetricCard icon={<Bot />} label="Trigger spend" value={formatUSD(currentSpend)} detail="AI spend from triggers" delta={deltaValue(currentSpend, previousSpend)} tone="amber" loading={loading} />
         <MetricCard icon={<CheckCircle2 />} label="Reliability teams" value={formatNumber((analytics?.trigger_source_reliability || []).length)} detail="tracked sources" delta={deltaValue((analytics?.trigger_source_reliability || []).length, (previousAnalytics?.trigger_source_reliability || []).length)} positiveIsGood tone="green" loading={loading} />
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
@@ -294,8 +294,8 @@ function TriggersTab({ analytics, previousAnalytics, loading }: { analytics: Mon
         <Panel title="Reliability" icon={<CheckCircle2 className="h-4 w-4" />}>
           <NamedCountList items={analytics?.trigger_source_reliability || []} loading={loading} value="rate" />
         </Panel>
-        <Panel title="AI Tokens By Source" icon={<Bot className="h-4 w-4" />}>
-          <NamedCountList items={analytics?.token_by_trigger_source || []} loading={loading} value="tokens" />
+        <Panel title="AI Spend By Source" icon={<Bot className="h-4 w-4" />}>
+          <NamedCountList items={analytics?.spend_by_trigger_source || []} loading={loading} value="cost" />
         </Panel>
       </section>
       <Panel title="Trigger Source Trend" icon={<BarChart3 className="h-4 w-4" />}>
@@ -367,42 +367,52 @@ function RunnersTab({ services, runners, summary, history, unavailable, loading 
 }
 
 function AIUsageTab({ usage, previousUsage, loading }: { usage: MonitoringAIUsage | null; previousUsage: MonitoringAIUsage | null; loading: boolean }) {
-  const assistantChatTokens = safeNumber(usage?.assistant_chat_tokens);
-  const assistantChatDetail = assistantChatTokens > 0
-    ? ` · ${formatNumber(assistantChatTokens)} assistant chat`
+  const assistantChatSpend = safeNumber(usage?.assistant_spend_usd);
+  const assistantChatDetail = assistantChatSpend > 0
+    ? ` · ${formatUSD(assistantChatSpend)} assistant chat`
     : '';
   return (
     <div className="space-y-4">
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<Bot />} label="Total tokens" value={formatNumber(usage?.total_tokens)} detail={`${formatNumber(usage?.total_prompt_tokens)} prompt / ${formatNumber(usage?.total_completion_tokens)} completion${assistantChatDetail}`} delta={deltaValue(usage?.total_tokens, previousUsage?.total_tokens)} tone="blue" loading={loading} />
-        <MetricCard icon={<Activity />} label="Exact tokens" value={formatNumber(usage?.exact_tokens)} detail={`${formatNumber(usage?.exact_token_events)} provider events`} delta={deltaValue(usage?.exact_tokens, previousUsage?.exact_tokens)} positiveIsGood tone="green" loading={loading} />
-        <MetricCard icon={<Gauge />} label="Estimated tokens" value={formatNumber(usage?.estimated_tokens)} detail={`${formatNumber(usage?.estimated_token_events)} estimated events`} delta={deltaValue(usage?.estimated_tokens, previousUsage?.estimated_tokens)} tone="amber" loading={loading} />
-        <MetricCard icon={<Clock3 />} label="Token trend" value={formatNumber((usage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0))} detail={`${(usage?.trend || []).length} buckets`} delta={deltaValue((usage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0), (previousUsage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0))} tone="red" loading={loading} />
+      {/*
+        One number. Everything below breaks the same figure down; nothing below
+        introduces a second unit for the reader to reconcile against it.
+      */}
+      <section className="grid gap-4">
+        <MetricCard
+          icon={<Bot />}
+          label="AI spend"
+          value={formatUSD(usage?.spend_usd)}
+          detail={`${spendDetail(usage?.priced_calls, usage?.unpriced_calls)}${assistantChatDetail}`}
+          delta={deltaValue(usage?.spend_usd, previousUsage?.spend_usd)}
+          tone="blue"
+          loading={loading}
+        />
       </section>
+      <UnpricedSpendNotice unpricedCalls={usage?.unpriced_calls} />
       <section className="grid gap-4 xl:grid-cols-3">
         <Panel title="By Pipeline" icon={<Workflow className="h-4 w-4" />}>
-          <NamedCountList items={usage?.by_pipeline || []} loading={loading} value="tokens" linkForItem={pipelineNamedCountHref} />
+          <NamedCountList items={usage?.by_pipeline || []} loading={loading} value="cost" linkForItem={pipelineNamedCountHref} />
         </Panel>
         <Panel title="By Step" icon={<Layers className="h-4 w-4" />}>
-          <NamedCountList items={usage?.by_step || []} loading={loading} value="tokens" />
+          <NamedCountList items={usage?.by_step || []} loading={loading} value="cost" />
         </Panel>
         <Panel title="By Task" icon={<Bot className="h-4 w-4" />}>
-          <NamedCountList items={usage?.by_task || []} loading={loading} value="tokens" />
+          <NamedCountList items={usage?.by_task || []} loading={loading} value="cost" />
         </Panel>
         <Panel title="By Feature" icon={<Bot className="h-4 w-4" />}>
-          <NamedCountList items={usage?.by_feature || []} loading={loading} value="tokens" />
+          <NamedCountList items={usage?.by_feature || []} loading={loading} value="cost" />
         </Panel>
         <Panel title="By Provider" icon={<Bot className="h-4 w-4" />}>
-          <NamedCountList items={usage?.by_provider || []} loading={loading} value="tokens" />
+          <NamedCountList items={usage?.by_provider || []} loading={loading} value="cost" />
         </Panel>
         <Panel title="By LLM Profile" icon={<ShieldCheck className="h-4 w-4" />}>
-          <NamedCountList items={usage?.by_profile || []} loading={loading} value="tokens" />
+          <NamedCountList items={usage?.by_profile || []} loading={loading} value="cost" />
         </Panel>
         <Panel title="By Model" icon={<Gauge className="h-4 w-4" />}>
-          <NamedCountList items={usage?.by_model || []} loading={loading} value="tokens" />
+          <NamedCountList items={usage?.by_model || []} loading={loading} value="cost" />
         </Panel>
-        <Panel title="Top Token Runs" icon={<AlertTriangle className="h-4 w-4" />}>
-          <NamedCountList items={usage?.top_token_runs || []} loading={loading} value="tokens" linkForItem={item => runHref(item.key)} />
+        <Panel title="Most Expensive Runs" icon={<AlertTriangle className="h-4 w-4" />}>
+          <NamedCountList items={usage?.top_spend_runs || []} loading={loading} value="cost" linkForItem={item => runHref(item.key)} />
         </Panel>
       </section>
     </div>
@@ -454,27 +464,27 @@ function EfficiencyTab({ efficiency, previousEfficiency, loading }: { efficiency
     <div className="space-y-4">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<Clock3 />} label="Runtime" value={formatDurationSeconds(efficiency?.total_runtime_seconds)} detail={`${formatNumber(efficiency?.total_runner_minutes)} runner minutes`} delta={deltaValue(efficiency?.total_runtime_seconds, previousEfficiency?.total_runtime_seconds)} deltaFormat="duration" tone="blue" loading={loading} />
-        <MetricCard icon={<Bot />} label="LLM tokens" value={formatNumber(efficiency?.total_ai_tokens)} detail="recorded usage" delta={deltaValue(efficiency?.total_ai_tokens, previousEfficiency?.total_ai_tokens)} tone="amber" loading={loading} />
+        <MetricCard icon={<Bot />} label="AI spend" value={formatUSD(efficiency?.total_ai_spend_usd)} detail="this window" delta={deltaValue(efficiency?.total_ai_spend_usd, previousEfficiency?.total_ai_spend_usd)} tone="amber" loading={loading} />
         <MetricCard icon={<GitBranch />} label="Rerun teams" value={formatNumber(efficiency?.frequent_reruns?.length)} detail="pipelines with reruns" delta={deltaValue(efficiency?.frequent_reruns?.length, previousEfficiency?.frequent_reruns?.length)} tone="green" loading={loading} />
         <MetricCard icon={<Gauge />} label="High queue teams" value={formatNumber(efficiency?.high_queue_teams?.length)} detail="capacity pressure" delta={deltaValue(efficiency?.high_queue_teams?.length, previousEfficiency?.high_queue_teams?.length)} tone="red" loading={loading} />
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
-        <Panel title="Tokens By Pipeline" icon={<Workflow className="h-4 w-4" />}>
-          <NamedCountList items={efficiency?.token_by_pipeline || []} loading={loading} value="tokens" linkForItem={pipelineNamedCountHref} />
+        <Panel title="Spend By Pipeline" icon={<Workflow className="h-4 w-4" />}>
+          <NamedCountList items={efficiency?.spend_by_pipeline || []} loading={loading} value="cost" linkForItem={pipelineNamedCountHref} />
         </Panel>
-        <Panel title="Tokens By Team" icon={<Layers className="h-4 w-4" />}>
-          <NamedCountList items={efficiency?.token_by_team || []} loading={loading} value="tokens" />
+        <Panel title="Spend By Team" icon={<Layers className="h-4 w-4" />}>
+          <NamedCountList items={efficiency?.spend_by_team || []} loading={loading} value="cost" />
         </Panel>
-        <Panel title="Tokens By Step" icon={<Bot className="h-4 w-4" />}>
-          <NamedCountList items={efficiency?.token_by_step || []} loading={loading} value="tokens" />
+        <Panel title="Spend By Step" icon={<Bot className="h-4 w-4" />}>
+          <NamedCountList items={efficiency?.spend_by_step || []} loading={loading} value="cost" />
         </Panel>
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
         <Panel title="Queue Pressure" icon={<Gauge className="h-4 w-4" />}>
           <NamedCountList items={efficiency?.high_queue_teams || []} loading={loading} value="seconds" />
         </Panel>
-        <Panel title="Token Heavy Low Success" icon={<AlertTriangle className="h-4 w-4" />}>
-          <PerformanceTable rows={efficiency?.token_heavy_low_success_pipelines || []} loading={loading} compact />
+        <Panel title="Costly Low Success" icon={<AlertTriangle className="h-4 w-4" />}>
+          <PerformanceTable rows={efficiency?.costly_low_success_pipelines || []} loading={loading} compact />
         </Panel>
         <Panel title="Recommendations" icon={<CheckCircle2 className="h-4 w-4" />}>
           <RecommendationList items={efficiency?.recommendations || []} loading={loading} />
@@ -564,6 +574,33 @@ function MetricCard({
         <p className="min-w-0 flex-1 truncate text-sm text-[var(--text-secondary)]">{loading ? 'Loading' : detail}</p>
         {deltaLabel ? <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${deltaClass}`}>{deltaLabel}</span> : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Warns that the spend figure above it is incomplete.
+ *
+ * An unpriced call adds nothing to the total, so without this the number reads
+ * as the full cost when it is not. The usual cause is a model whose definition
+ * carries no `pricing` block, or one removed from the configuration repository
+ * after the call was recorded.
+ */
+function UnpricedSpendNotice({ unpricedCalls }: { unpricedCalls?: number | null }) {
+  const unpriced = safeNumber(unpricedCalls);
+  if (unpriced <= 0) return null;
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-[var(--text-primary)]"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden />
+      <p>
+        <span className="font-semibold">This total is incomplete.</span>{' '}
+        {formatNumber(unpriced)} LLM call{unpriced === 1 ? '' : 's'} could not be priced and{' '}
+        {unpriced === 1 ? 'is' : 'are'} missing from the figure above. Add a <code>pricing</code>{' '}
+        block to the model definition in your configuration repository.
+      </p>
     </div>
   );
 }
@@ -705,7 +742,7 @@ function StatusSplit({ counts, total, loading }: { counts: Record<string, number
   );
 }
 
-type NamedCountValue = 'count' | 'rate' | 'seconds' | 'tokens';
+type NamedCountValue = 'count' | 'rate' | 'seconds' | 'cost';
 
 function NamedCountList({ items, loading, value, linkForItem }: { items: MonitoringNamedCount[]; loading: boolean; value: NamedCountValue; linkForItem?: (item: MonitoringNamedCount) => string }) {
   if (loading) return <EmptyBlock label="Loading data" />;
@@ -1141,14 +1178,14 @@ function encodeRouteIdentifier(identifier: string) {
 function namedCountValue(item: MonitoringNamedCount, value: NamedCountValue) {
   if (value === 'rate') return safeNumber(item.rate);
   if (value === 'seconds') return safeNumber(item.seconds);
-  if (value === 'tokens') return safeNumber(item.tokens);
+  if (value === 'cost') return safeNumber(item.cost_usd);
   return safeNumber(item.count);
 }
 
 function formatNamedCount(item: MonitoringNamedCount, value: NamedCountValue) {
   if (value === 'rate') return formatPercent(item.rate);
   if (value === 'seconds') return formatDurationSeconds(item.seconds);
-  if (value === 'tokens') return formatNumber(item.tokens);
+  if (value === 'cost') return formatUSD(item.cost_usd);
   return formatNumber(item.count);
 }
 
@@ -1271,6 +1308,35 @@ function formatNumber(value?: number | null): string {
 
 function formatPercent(value?: number | null): string {
   return `${Math.round(safeNumber(value) * 100)}%`;
+}
+
+/**
+ * Formats AI spend. Sub-cent amounts keep four decimals because a busy window of
+ * cheap calls would otherwise round to $0.00 and read as free.
+ */
+function formatUSD(value?: number | null): string {
+  const amount = safeNumber(value);
+  const fractionDigits = amount > 0 && amount < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(amount);
+}
+
+/**
+ * Describes how complete a spend figure is. An unpriced call contributes nothing
+ * to the total, so the reader has to be told it exists; otherwise a partial
+ * number reads as a final one.
+ */
+function spendDetail(pricedCalls?: number | null, unpricedCalls?: number | null): string {
+  const priced = safeNumber(pricedCalls);
+  const unpriced = safeNumber(unpricedCalls);
+  if (unpriced > 0) {
+    return `${formatNumber(unpriced)} call${unpriced === 1 ? '' : 's'} not priced`;
+  }
+  return `${formatNumber(priced)} LLM call${priced === 1 ? '' : 's'}`;
 }
 
 function formatDurationSeconds(seconds?: number | null): string {

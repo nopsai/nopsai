@@ -59,7 +59,66 @@ type LLMProfile struct {
 	Temperature        *float64          `yaml:"temperature,omitempty" json:"temperature,omitempty"`
 	PromptCache        LLMFeatureConfig  `yaml:"prompt_cache,omitempty" json:"prompt_cache,omitempty"`
 	ProviderState      LLMFeatureConfig  `yaml:"provider_state,omitempty" json:"provider_state,omitempty"`
+	Pricing            *LLMPricing       `yaml:"pricing,omitempty" json:"pricing,omitempty"`
 	Extra              map[string]string `yaml:"extra,omitempty" json:"extra,omitempty"`
+}
+
+// LLMPricing is the rate card for a model, expressed in USD per million tokens
+// because that is how every provider publishes its prices. It is required on
+// every model so that spend is never silently understated: a model that costs
+// nothing to run states that with explicit zeroes, which is a claim the operator
+// makes, rather than by omission, which is an absence of information.
+type LLMPricing struct {
+	InputPerMillionUSD  float64 `yaml:"input_per_million_usd" json:"input_per_million_usd"`
+	OutputPerMillionUSD float64 `yaml:"output_per_million_usd" json:"output_per_million_usd"`
+	// CachedInputPerMillionUSD prices prompt tokens the provider served from its
+	// cache. Nil means the provider does not discount them, so they bill at the
+	// standard input rate.
+	CachedInputPerMillionUSD *float64 `yaml:"cached_input_per_million_usd,omitempty" json:"cached_input_per_million_usd,omitempty"`
+	// CacheWritePerMillionUSD prices prompt tokens written into the cache, which
+	// several providers charge at a premium over the standard input rate.
+	CacheWritePerMillionUSD *float64 `yaml:"cache_write_per_million_usd,omitempty" json:"cache_write_per_million_usd,omitempty"`
+}
+
+// CachedInputRate resolves the effective per-million rate for cache reads.
+func (p LLMPricing) CachedInputRate() float64 {
+	if p.CachedInputPerMillionUSD == nil {
+		return p.InputPerMillionUSD
+	}
+	return *p.CachedInputPerMillionUSD
+}
+
+// CacheWriteRate resolves the effective per-million rate for cache writes.
+func (p LLMPricing) CacheWriteRate() float64 {
+	if p.CacheWritePerMillionUSD == nil {
+		return p.InputPerMillionUSD
+	}
+	return *p.CacheWritePerMillionUSD
+}
+
+// CostUSD converts a token breakdown into money.
+//
+// cachedInput and cacheWrite are subsets of promptTokens, so they are billed at
+// their own rates and the remainder is billed at the standard input rate. A
+// provider that reports more cached tokens than prompt tokens would otherwise
+// drive the uncached remainder negative, so the remainder is floored at zero.
+func (p LLMPricing) CostUSD(promptTokens, completionTokens, cachedInput, cacheWrite int64) (input float64, output float64) {
+	uncached := promptTokens - cachedInput - cacheWrite
+	if uncached < 0 {
+		uncached = 0
+	}
+	input = perMillion(uncached, p.InputPerMillionUSD) +
+		perMillion(cachedInput, p.CachedInputRate()) +
+		perMillion(cacheWrite, p.CacheWriteRate())
+	output = perMillion(completionTokens, p.OutputPerMillionUSD)
+	return input, output
+}
+
+func perMillion(tokens int64, ratePerMillion float64) float64 {
+	if tokens <= 0 || ratePerMillion == 0 {
+		return 0
+	}
+	return (float64(tokens) / 1_000_000) * ratePerMillion
 }
 
 type LLMFeatureConfig struct {
@@ -1576,4 +1635,27 @@ func (c Config) EffectiveDispatcherTLSServerName() string {
 		return name
 	}
 	return "dispatcher"
+}
+
+// LLMProviderIsSelfHosted reports whether a provider runs on infrastructure the
+// operator already pays for, so that per-token pricing of zero is a statement of
+// fact rather than a missing rate card.
+func LLMProviderIsSelfHosted(provider string) bool {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderLMStudio, LLMProviderOllama:
+		return true
+	default:
+		return false
+	}
+}
+
+// DefaultLLMPricingForProvider supplies the rate card for a provider whose
+// tokens are free at the point of use. A hosted provider has no default: its
+// rates are a commercial fact that only the operator knows, and guessing at them
+// would produce a spend figure that looks authoritative and is wrong.
+func DefaultLLMPricingForProvider(provider string) *LLMPricing {
+	if !LLMProviderIsSelfHosted(provider) {
+		return nil
+	}
+	return &LLMPricing{InputPerMillionUSD: 0, OutputPerMillionUSD: 0}
 }

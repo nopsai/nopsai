@@ -218,13 +218,13 @@ export const monitoringRoutes: WikiApiRoute[] = [
       { name: 'feature', in: 'query', type: 'string', required: false, description: 'Restrict to one consuming surface, such as pipeline runs or the assistant.', example: 'feature=assistant' },
     ],
     requestSample: {
-      title: 'See where tokens are going',
+      title: 'See where the money is going',
       language: 'bash',
       code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" "$NOPSAI_URL/v1/monitoring/ai-usage?from=2026-08-01" | jq \'{window, by_pipeline}\'',
-      expectedOutput: 'Totals plus breakdowns by pipeline, task, and the runs that consumed most.',
+      expectedOutput: 'Total spend plus breakdowns by pipeline, task, and the most expensive runs.',
     },
     responses: [
-      { status: 200, description: 'AI usage totals and breakdowns.', contentType: 'application/json', sample: '{\n  "window": { "from": "2026-08-01T00:00:00Z", "to": "2026-08-19T00:00:00Z" },\n  "by_pipeline": [{ "name": "release-service", "input_tokens": 481233, "output_tokens": 61204 }]\n}' },
+      { status: 200, description: 'AI spend totals and breakdowns. unpriced_calls counts calls that could not be priced and are therefore missing from spend_usd.', contentType: 'application/json', sample: '{\n  "window": { "from": "2026-08-01T00:00:00Z", "to": "2026-08-19T00:00:00Z" },\n  "spend_usd": 128.44,\n  "priced_calls": 3120,\n  "unpriced_calls": 0,\n  "by_pipeline": [{ "key": "release-service", "label": "release-service", "count": 412, "cost_usd": 61.20 }]\n}' },
     ],
     errors: [
       { status: 400, cause: 'An invalid window or filter.', action: 'The message names the parameter.' },

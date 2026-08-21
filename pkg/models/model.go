@@ -1033,9 +1033,32 @@ type GeminiResponse struct {
 			Parts []Part `json:"parts"`
 		} `json:"content"`
 	} `json:"candidates"`
-	UsageMetadata struct {
-		PromptTokenCount     int64 `json:"promptTokenCount"`
-		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
-		TotalTokenCount      int64 `json:"totalTokenCount"`
-	} `json:"usageMetadata"`
+	UsageMetadata GeminiUsageMetadata `json:"usageMetadata"`
+}
+
+// GeminiUsageMetadata mirrors the billable token breakdown Gemini reports.
+//
+// CandidatesTokenCount excludes ThoughtsTokenCount even though both are billed
+// at the output rate, so a thinking model reports far fewer "candidates" tokens
+// than it charges for. TotalTokenCount does include the thoughts, which is why
+// promptTokenCount + candidatesTokenCount does not reconcile against it.
+type GeminiUsageMetadata struct {
+	PromptTokenCount        int64 `json:"promptTokenCount"`
+	CandidatesTokenCount    int64 `json:"candidatesTokenCount"`
+	ThoughtsTokenCount      int64 `json:"thoughtsTokenCount"`
+	CachedContentTokenCount int64 `json:"cachedContentTokenCount"`
+	ToolUsePromptTokenCount int64 `json:"toolUsePromptTokenCount"`
+	TotalTokenCount         int64 `json:"totalTokenCount"`
+}
+
+// OutputTokens is every token Gemini bills at the output rate.
+func (u GeminiUsageMetadata) OutputTokens() int64 {
+	return u.CandidatesTokenCount + u.ThoughtsTokenCount
+}
+
+// InputTokens is every token Gemini bills at an input rate, including the
+// tool-use prompt. Cached content is already counted inside PromptTokenCount and
+// is priced separately rather than added here.
+func (u GeminiUsageMetadata) InputTokens() int64 {
+	return u.PromptTokenCount + u.ToolUsePromptTokenCount
 }

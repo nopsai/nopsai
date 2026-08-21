@@ -49,17 +49,28 @@ type assistantMessageUsage struct {
 	Estimated        bool  `json:"estimated"`
 	DurationMS       int64 `json:"duration_ms"`
 	LLMCalls         int   `json:"llm_calls"`
+	// CostUSD is nil when the turn could not be priced, which is not the same
+	// as having cost nothing.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
+// assistantConversationUsage reports what a conversation spent.
+//
+// Token counts are kept for internal use but not serialised; spend is the one
+// figure the panel shows.
 type assistantConversationUsage struct {
-	MessageCount           int   `json:"message_count"`
-	ContentTokens          int64 `json:"content_tokens"`
-	PromptTokens           int64 `json:"prompt_tokens"`
-	CompletionTokens       int64 `json:"completion_tokens"`
-	TotalTokens            int64 `json:"total_tokens"`
-	EstimatedTokenMessages int   `json:"estimated_token_messages"`
-	DurationMS             int64 `json:"duration_ms"`
-	LLMCalls               int   `json:"llm_calls"`
+	MessageCount           int     `json:"message_count"`
+	ContentTokens          int64   `json:"-"`
+	PromptTokens           int64   `json:"-"`
+	CompletionTokens       int64   `json:"-"`
+	TotalTokens            int64   `json:"-"`
+	EstimatedTokenMessages int     `json:"-"`
+	SpendUSD               float64 `json:"spend_usd"`
+	// UnpricedTurns counts turns whose cost could not be determined, so a
+	// conversation is never shown a total that quietly omits part of itself.
+	UnpricedTurns int   `json:"unpriced_turns,omitempty"`
+	DurationMS    int64 `json:"duration_ms"`
+	LLMCalls      int   `json:"llm_calls"`
 }
 
 type assistantToolActivity struct {

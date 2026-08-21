@@ -384,10 +384,7 @@ test('renders assistant markdown and toggles usage details in the full page', as
     {
       ...assistantMessage('m2', 'assistant', '## Summary\n- Pipeline `deploy-api` is healthy.\n\n```yaml\nname: deploy-api\n```'),
       usage: {
-        content_tokens: 12,
-        prompt_tokens: 30,
-        completion_tokens: 10,
-        total_tokens: 40,
+        cost_usd: 0.04,
         estimated: false,
         duration_ms: 1250,
         llm_calls: 2,
@@ -407,11 +404,8 @@ test('renders assistant markdown and toggles usage details in the full page', as
     ...assistantConversation(messages),
     usage: {
       message_count: 2,
-      content_tokens: 20,
-      prompt_tokens: 30,
-      completion_tokens: 10,
-      total_tokens: 40,
-      estimated_token_messages: 1,
+      spend_usd: 0.04,
+      unpriced_turns: 1,
       duration_ms: 1250,
       llm_calls: 2,
     },
@@ -460,10 +454,14 @@ test('renders assistant markdown and toggles usage details in the full page', as
   expect(screen.getByRole('heading', { name: 'Summary' })).toBeVisible();
   expect(screen.getAllByText(/Pipeline/).length).toBeGreaterThan(0);
   expect(screen.getAllByText('deploy-api').length).toBeGreaterThan(0);
-  expect(screen.getByText(/40 LLM tokens · 1.3s · 2 LLM calls/)).toBeVisible();
-  expect(screen.getAllByText(/40 LLM tokens · 2 messages · 1.3s · 1 estimated/).length).toBeGreaterThan(0);
-  expect(screen.getByText('Provider input')).toBeVisible();
-  expect(screen.getByText('Provider output')).toBeVisible();
+  expect(screen.getByText(/\$0\.04 · 1\.3s · 2 LLM calls/)).toBeVisible();
+  expect(screen.getAllByText(/\$0\.04 · 2 messages · 1\.3s · 1 turn not priced/).length).toBeGreaterThan(0);
+  // The usage panel reports money and the count of turns it could not price,
+  // not a prompt/completion token split.
+  expect(screen.getByText('Spend')).toBeVisible();
+  expect(screen.getByText('Not priced')).toBeVisible();
+  expect(screen.queryByText('Provider input')).toBeNull();
+  expect(screen.queryByText('Provider output')).toBeNull();
   expect(screen.getByText('nopsai.get_pipeline')).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: 'Hide details' }));

@@ -1436,13 +1436,13 @@ func (a *App) appendExternalTriggerInvocationFailureTotals(ctx context.Context, 
 
 func (a *App) appendAIUsageTokenTotals(ctx context.Context, out *strings.Builder) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT feature, provider, model, model,
+		SELECT feature, provider, model, llm_profile,
 		       COALESCE(SUM(prompt_tokens), 0)::float8,
 		       COALESCE(SUM(completion_tokens), 0)::float8,
 		       COALESCE(SUM(total_tokens), 0)::float8
 		FROM ai_usage_events
-		GROUP BY feature, provider, model, model
-		ORDER BY feature, provider, model, model
+		GROUP BY feature, provider, model, llm_profile
+		ORDER BY feature, provider, model, llm_profile
 	`)
 	if err != nil {
 		return err

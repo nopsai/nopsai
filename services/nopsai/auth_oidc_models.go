@@ -146,16 +146,16 @@ type oidcStateRecord struct {
 }
 
 type oidcVerifiedIdentity struct {
-	ProviderID              string
-	Issuer                  string
-	Subject                 string
-	Email                   string
-	EmailVerified           bool
-	EmailVerificationStatus string
+	ProviderID                      string
+	Issuer                          string
+	Subject                         string
+	Email                           string
+	EmailVerified                   bool
+	EmailVerificationStatus         string
 	EmailVerificationClaimMalformed bool
-	Teams                   []string
-	AccessRoles             []string
-	BasicRoles              []oidcDesiredBasicRoleGrant
+	Teams                           []string
+	AccessRoles                     []string
+	BasicRoles                      []oidcDesiredBasicRoleGrant
 }
 
 type oidcBasicRoleGrantMapping struct {

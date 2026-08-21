@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"nopsai/config"
@@ -239,5 +240,38 @@ func TestContainerReachableLMStudioBaseURL(t *testing.T) {
 				t.Fatalf("containerReachableLMStudioBaseURL(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+// Pricing is optional. Local models have no per-token price and many providers
+// publish none that nopsai can know, so requiring a rate card would reject
+// configuration that is otherwise correct. An unpriced model runs; its usage
+// records with no cost and is reported as unpriced rather than as free.
+func TestValidateLLMProfileDefinitionAcceptsAModelWithoutPricing(t *testing.T) {
+	profile := config.LLMProfile{
+		Provider: config.LLMProviderLMStudio,
+		Model:    "local-model",
+		BaseURL:  "http://127.0.0.1:1234",
+	}
+	if status, message := validateLLMProfileDefinition("local", profile); status != "valid" {
+		t.Fatalf("validateLLMProfileDefinition() = %q (%s), want valid without pricing", status, message)
+	}
+}
+
+// A rate card that is present but negative can only produce a wrong number, and
+// would subtract from a spend total, so it is still rejected.
+func TestValidateLLMProfileDefinitionRejectsNegativePricing(t *testing.T) {
+	profile := config.LLMProfile{
+		Provider: config.LLMProviderLMStudio,
+		Model:    "local-model",
+		BaseURL:  "http://127.0.0.1:1234",
+		Pricing:  &config.LLMPricing{InputPerMillionUSD: -1},
+	}
+	status, message := validateLLMProfileDefinition("local", profile)
+	if status == "valid" {
+		t.Fatal("validateLLMProfileDefinition() = valid, want a negative-rate rejection")
+	}
+	if !strings.Contains(message, "input_per_million_usd") {
+		t.Fatalf("message = %q, want it to name the offending field", message)
 	}
 }

@@ -5,3 +5,8 @@ provider: gemini
 model: gemini-2.5-pro
 credential_ref: credential://system/llm/gemini
 allowed_scopes: ["dev"]
+# Rates are USD per million tokens. Omitting cached_input_per_million_usd bills
+# cache reads at the standard input rate.
+pricing:
+  input_per_million_usd: 1.25
+  output_per_million_usd: 10.00

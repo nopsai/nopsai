@@ -19,7 +19,7 @@ test('renders run summary and delegates open and selection actions', async () =>
         git_repo_name: 'api',
         git_ref: 'refs/heads/main',
         failure_reason: 'Deployment failed\nWhy: rollout timed out',
-        ai_usage: { total_tokens: 4200, prompt_tokens: 3000, completion_tokens: 1200 },
+        ai_usage: { spend_usd: 4.2 },
         final_output_status: {
           status: 'generating',
           configured: 2,
@@ -38,7 +38,7 @@ test('renders run summary and delegates open and selection actions', async () =>
   );
 
   expect(screen.getByText('release')).toBeInTheDocument();
-  expect(screen.getByText('4.2k tokens')).toBeInTheDocument();
+  expect(screen.getByText('$4.20')).toBeInTheDocument();
   expect(screen.getByText('Output generating: 1 generated, 1 generating')).toBeInTheDocument();
   expect(screen.getByText('Deployment failed')).toBeInTheDocument();
   const card = screen.getByText('release').closest('[role="button"]');
@@ -68,7 +68,7 @@ test('renders all-runs list entries as compact one-line summaries', () => {
           git_ref: 'refs/heads/main',
           git_commit_sha: 'abcdef123456',
           failure_reason: 'Deployment failed\nWhy: rollout timed out',
-          ai_usage: { total_tokens: 4200, prompt_tokens: 3000, completion_tokens: 1200 },
+          ai_usage: { spend_usd: 4.2 },
           final_output_status: {
             status: 'success',
             configured: 1,

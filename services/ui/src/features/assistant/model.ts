@@ -42,22 +42,19 @@ export type AssistantMessage = {
 };
 
 export type AssistantMessageUsage = {
-  content_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
   estimated: boolean;
   duration_ms: number;
   llm_calls: number;
+  /** Absent when the turn could not be priced, which is not the same as free. */
+  cost_usd?: number;
 };
 
 export type AssistantConversationUsage = {
   message_count: number;
-  content_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  estimated_token_messages: number;
+  /** The single figure the assistant panel reports. */
+  spend_usd: number;
+  /** Turns whose cost could not be determined; above zero means spend_usd is partial. */
+  unpriced_turns?: number;
   duration_ms: number;
   llm_calls: number;
 };
@@ -157,10 +154,6 @@ export const emptyAssistantMemory: AssistantMemory = {
 };
 
 export const emptyAssistantMessageUsage: AssistantMessageUsage = {
-  content_tokens: 0,
-  prompt_tokens: 0,
-  completion_tokens: 0,
-  total_tokens: 0,
   estimated: false,
   duration_ms: 0,
   llm_calls: 0,
@@ -168,11 +161,8 @@ export const emptyAssistantMessageUsage: AssistantMessageUsage = {
 
 export const emptyAssistantConversationUsage: AssistantConversationUsage = {
   message_count: 0,
-  content_tokens: 0,
-  prompt_tokens: 0,
-  completion_tokens: 0,
-  total_tokens: 0,
-  estimated_token_messages: 0,
+  spend_usd: 0,
+  unpriced_turns: 0,
   duration_ms: 0,
   llm_calls: 0,
 };
@@ -354,11 +344,9 @@ export function assistantMessageAuthorLabel(message: AssistantMessage): string {
 export function assistantMessageUsageLabel(message: AssistantMessage): string {
   const usage = message.usage || emptyAssistantMessageUsage;
   const parts: string[] = [];
-  if (usage.total_tokens > 0) {
-    const source = usage.llm_calls > 0 ? 'LLM token' : 'visible token';
-    parts.push(`${formatAssistantNumber(usage.total_tokens)} ${source}${usage.total_tokens === 1 ? '' : 's'}${usage.estimated ? ' est.' : ''}`);
-  } else if (usage.content_tokens > 0) {
-    parts.push(`${formatAssistantNumber(usage.content_tokens)} visible token${usage.content_tokens === 1 ? '' : 's'} est.`);
+  if (usage.llm_calls > 0) {
+    // An unpriced turn shows as unpriced rather than as costing nothing.
+    parts.push(usage.cost_usd === undefined ? 'not priced' : formatAssistantSpend(usage.cost_usd));
   }
   if (usage.duration_ms > 0) parts.push(formatAssistantDuration(usage.duration_ms));
   if (usage.llm_calls > 1) parts.push(`${usage.llm_calls} LLM calls`);
@@ -369,12 +357,26 @@ export function assistantConversationUsageLabel(conversation: AssistantConversat
   const usage = conversation?.usage || emptyAssistantConversationUsage;
   if (!conversation || usage.message_count === 0) return 'No usage recorded yet';
   const parts = [
-    `${formatAssistantNumber(usage.total_tokens)} LLM token${usage.total_tokens === 1 ? '' : 's'}`,
+    formatAssistantSpend(usage.spend_usd),
     `${usage.message_count} message${usage.message_count === 1 ? '' : 's'}`,
   ];
   if (usage.duration_ms > 0) parts.push(formatAssistantDuration(usage.duration_ms));
-  if (usage.estimated_token_messages > 0) parts.push(`${usage.estimated_token_messages} estimated`);
+  const unpriced = usage.unpriced_turns || 0;
+  if (unpriced > 0) parts.push(`${unpriced} turn${unpriced === 1 ? '' : 's'} not priced`);
   return parts.join(' · ');
+}
+
+/** Sub-cent amounts keep four decimals so a long conversation is not shown as free. */
+export function formatAssistantSpend(value: number): string {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return '$0.00';
+  const fractionDigits = amount < 0.01 ? 4 : 2;
+  return amount.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
 }
 
 export type ProposedChange = {
@@ -426,14 +428,14 @@ function readNonNegativeNumber(value: unknown): number {
 
 function normalizeAssistantMessageUsage(value: unknown): AssistantMessageUsage {
   const record = asRecord(value) || {};
+  // cost_usd stays undefined when the server could not price the turn; that is
+  // deliberately distinct from a cost of zero.
+  const cost = typeof record.cost_usd === 'number' && Number.isFinite(record.cost_usd) ? record.cost_usd : undefined;
   return {
-    content_tokens: readNonNegativeNumber(record.content_tokens),
-    prompt_tokens: readNonNegativeNumber(record.prompt_tokens),
-    completion_tokens: readNonNegativeNumber(record.completion_tokens),
-    total_tokens: readNonNegativeNumber(record.total_tokens),
     estimated: readBoolean(record.estimated, false),
     duration_ms: readNonNegativeNumber(record.duration_ms),
     llm_calls: readNonNegativeNumber(record.llm_calls),
+    cost_usd: cost,
   };
 }
 
@@ -441,11 +443,8 @@ function normalizeAssistantConversationUsage(value: unknown): AssistantConversat
   const record = asRecord(value) || {};
   return {
     message_count: readNonNegativeNumber(record.message_count),
-    content_tokens: readNonNegativeNumber(record.content_tokens),
-    prompt_tokens: readNonNegativeNumber(record.prompt_tokens),
-    completion_tokens: readNonNegativeNumber(record.completion_tokens),
-    total_tokens: readNonNegativeNumber(record.total_tokens),
-    estimated_token_messages: readNonNegativeNumber(record.estimated_token_messages),
+    spend_usd: readNonNegativeNumber(record.spend_usd),
+    unpriced_turns: readNonNegativeNumber(record.unpriced_turns),
     duration_ms: readNonNegativeNumber(record.duration_ms),
     llm_calls: readNonNegativeNumber(record.llm_calls),
   };
@@ -454,13 +453,15 @@ function normalizeAssistantConversationUsage(value: unknown): AssistantConversat
 function assistantConversationUsageFromMessages(messages: AssistantMessage[]): AssistantConversationUsage {
   return messages.reduce<AssistantConversationUsage>((usage, message) => {
     usage.message_count += 1;
-    usage.content_tokens += message.usage.content_tokens;
-    usage.prompt_tokens += message.usage.prompt_tokens;
-    usage.completion_tokens += message.usage.completion_tokens;
-    usage.total_tokens += message.usage.total_tokens;
     usage.duration_ms += message.usage.duration_ms;
     usage.llm_calls += message.usage.llm_calls;
-    if (message.usage.estimated) usage.estimated_token_messages += 1;
+    if (message.usage.llm_calls > 0) {
+      if (message.usage.cost_usd === undefined) {
+        usage.unpriced_turns = (usage.unpriced_turns || 0) + 1;
+      } else {
+        usage.spend_usd += message.usage.cost_usd;
+      }
+    }
     return usage;
   }, { ...emptyAssistantConversationUsage });
 }
@@ -509,10 +510,6 @@ function normalizeAssistantExecutionPlanStep(value: unknown): AssistantExecution
     reason: readString(record.reason).trim(),
     status: readString(record.status).trim(),
   };
-}
-
-function formatAssistantNumber(value: number): string {
-  return new Intl.NumberFormat('en-US').format(value);
 }
 
 function formatAssistantDuration(durationMs: number): string {

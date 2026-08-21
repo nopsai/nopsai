@@ -631,6 +631,7 @@ func setupModelYAML(input setupLLMProfileInput) string {
 			TimeoutSeconds: input.TimeoutSeconds,
 			MaxTokens:      input.MaxTokens,
 			Temperature:    input.Temperature,
+			Pricing:        setupLLMPricing(input),
 			Extra:          input.Extra,
 		}),
 	}
