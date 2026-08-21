@@ -75,8 +75,8 @@ operations as the current authenticated user.
   runs from the live `/v1/monitoring/ai-usage` payload instead of treating the
   wrapper metadata as an empty result.
 - AI usage analytics expose provider, model, profile, feature, step, task,
-  pipeline, schedule, subject, and run breakdowns. Assistant chat token usage is
-  merged into the same global AI usage view and is attributed back to provider
+  pipeline, schedule, subject, and run breakdowns, all valued in USD. Assistant
+  chat spend is merged into the same global AI usage view and is attributed back to provider
   and model through the selected model when that profile is stored in
   NopsAI.
 - Successful AI usage evidence is terminal for the assistant planner loop. The
@@ -193,13 +193,14 @@ metadata available on demand.
   synthesis is instructed to prefer Summary, Evidence, and Recommended next
   step sections when supported by the current turn's tool evidence.
 - Each message records visible content-token estimates separately from model
-  usage. Assistant replies record provider-reported or estimated
-  planner/synthesis prompt, completion, and total token counts, LLM call count,
-  and response duration; user messages do not add visible text estimates to
-  model `total_tokens`, and deterministic replies without an LLM call stay
-  visible-text-only as well. Conversation detail panels show both views for
-  monitoring and troubleshooting. Prometheus exports assistant token, duration,
-  and LLM-call counters from the same stored message usage fields.
+  usage. Assistant replies price each planner and synthesis call separately,
+  because a turn can mix models and summing their tokens before pricing would
+  charge both at one rate. A turn whose tokens were estimated rather than
+  provider-reported records no cost at all, since multiplying a guess by a rate
+  produces a figure that reads as authoritative and is not; such turns surface
+  as unpriced. Deterministic replies without an LLM call cost nothing and are
+  not counted as unpriced. Prometheus exports assistant token, duration, and
+  LLM-call counters from the same stored message usage fields.
 - Planner and final synthesis prompts include a compact recent same-chat
   transcript plus conversation memory, so follow-up requests such as "generic
   pipeline", "the dashboard definition", or "give me both" can resolve against
@@ -565,11 +566,11 @@ Ask:
 - "Estimate the AI usage cost from the token data you just found."
 - "Give me LLM usage."
 - "Give me LLM usage for qwen model."
-- "Show tokens for the openai profile last week."
-- "How many tokens were used by pipeline run `e3850cec-550f-456a-bec8-e67777d71d24`?"
-- "Which step used the most tokens?"
-- "Which pipeline uses the highest LLM tokens?"
-- "Which schedule runs a pipeline with the lowest LLM token usage?"
+- "Show AI spend for the openai profile last week."
+- "How much did pipeline run `e3850cec-550f-456a-bec8-e67777d71d24` cost?"
+- "Which step cost the most?"
+- "Which pipeline has the highest AI spend?"
+- "Which schedule runs a pipeline with the lowest AI spend?"
 - "Compare schedule AI usage for this month."
 - "Explain pipeline health for `platform/deploy-api`."
 - "Find optimization opportunities across production pipelines."

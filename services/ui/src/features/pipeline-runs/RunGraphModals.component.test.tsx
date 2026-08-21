@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { StepDetailModal } from './RunGraphModals';
 
-test('renders step and task LLM usage in the step detail modal', () => {
+test('renders step and task AI spend in the step detail modal', () => {
   render(
     <StepDetailModal
       step={{
@@ -10,7 +10,7 @@ test('renders step and task LLM usage in the step detail modal', () => {
         status: 'success',
         depends_on: [],
         duration: '12s',
-        ai_usage: { total_tokens: 75, prompt_tokens: 50, completion_tokens: 25 },
+        ai_usage: { spend_usd: 0.75 },
         configuration: {
           tasks: [{ name: 'summarize' }],
         },
@@ -21,7 +21,7 @@ test('renders step and task LLM usage in the step detail modal', () => {
             task_name: 'summarize',
             status: 'success',
             task_index: 0,
-            ai_usage: { total_tokens: 60, prompt_tokens: 42, completion_tokens: 18 },
+            ai_usage: { spend_usd: 0.6, unpriced_calls: 2 },
           },
         ],
       }}
@@ -31,12 +31,12 @@ test('renders step and task LLM usage in the step detail modal', () => {
     />
   );
 
-  expect(screen.getByText('LLM: 75 tokens')).toBeVisible();
+  expect(screen.getByText('AI: $0.75')).toBeVisible();
   expect(screen.getByText('Step: plan').closest('.fixed')).toHaveClass('z-[110]');
   expect(screen.getByText('Step: plan').closest('.fixed')).toHaveAttribute('data-run-graph-floating-layer');
-  expect(screen.getAllByText('LLM tokens').length).toBeGreaterThan(0);
-  expect(screen.getByText('60 tokens')).toBeVisible();
-  expect(screen.getByText('42 tokens prompt / 18 tokens completion')).toBeVisible();
+  expect(screen.getAllByText('AI spend').length).toBeGreaterThan(0);
+  expect(screen.getByText('$0.60')).toBeVisible();
+  expect(screen.getByText('2 calls not priced')).toBeVisible();
 });
 
 test('opens the step detail modal with an initial task selection', () => {
@@ -67,7 +67,7 @@ test('opens the step detail modal with an initial task selection', () => {
             status: 'failure',
             exit_code: 1,
             task_index: 1,
-            ai_usage: { total_tokens: 42 },
+            ai_usage: { spend_usd: 0.42 },
           },
         ],
       }}
@@ -79,7 +79,7 @@ test('opens the step detail modal with an initial task selection', () => {
   );
 
   expect(screen.getAllByText('package').length).toBeGreaterThan(0);
-  expect(screen.getByText('42 tokens')).toBeVisible();
+  expect(screen.getByText('$0.42')).toBeVisible();
   expect(screen.getByText('Exit code')).toBeVisible();
   expect(screen.getAllByText('1').length).toBeGreaterThan(0);
 });

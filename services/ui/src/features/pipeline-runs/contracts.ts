@@ -1,8 +1,11 @@
 export type AIUsageSummary = {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  total_cost_usd?: number;
+  /** The single figure shown for AI usage. */
+  spend_usd?: number;
+  /**
+   * LLM calls whose cost could not be determined. Above zero means the spend
+   * figure is missing part of what was actually spent.
+   */
+  unpriced_calls?: number;
 };
 
 export type RunListItem = {

@@ -94,28 +94,40 @@ func TestBuildMonitoringCandidateRunIDsQueryAppliesAIUsageFilters(t *testing.T) 
 	}
 }
 
-func TestMonitoringAIUsageQueriesCastTokenSumsForIntegerScans(t *testing.T) {
+func TestMonitoringAIUsageQueriesSelectMoneyAndCastTokenSums(t *testing.T) {
 	queries := map[string]string{
 		"totals":             monitoringAIUsageTotalsQuery(),
 		"by pipeline":        monitoringAIUsageByPipelineQuery(),
 		"by schedule":        monitoringAIUsageByScheduleQuery(false),
 		"lowest by schedule": monitoringAIUsageByScheduleQuery(true),
 		"by task":            monitoringAIUsageByTaskQuery(),
-		"top token runs":     monitoringAITopTokenRunsQuery(),
+		"top spend runs":     monitoringAISpendRunsQuery(),
 		"by feature":         monitoringAIUsageTeamQuery("feature"),
 		"by provider":        monitoringAIUsageTeamQuery("provider"),
 		"by profile":         monitoringAIUsageTeamQuery("model"),
 		"trend":              monitoringAIUsageTrendQuery(),
 	}
 	for name, query := range queries {
+		if name == "totals" {
+			// The totals query reports money and how many calls could not be
+			// priced; it has no token sum to cast.
+			if !strings.Contains(query, "COALESCE(SUM(total_cost_usd), 0)::float8") ||
+				!strings.Contains(query, "total_cost_usd IS NULL") {
+				t.Fatalf("totals query must report spend and unpriced calls:\n%s", query)
+			}
+			continue
+		}
 		if !strings.Contains(query, "COALESCE(SUM(total_tokens), 0)::bigint") &&
 			!strings.Contains(query, "COALESCE(SUM(au.total_tokens), 0)::bigint") {
 			t.Fatalf("%s query does not cast total token sums to bigint:\n%s", name, query)
 		}
+		// Every breakdown must carry real money rather than the placeholder
+		// zero that made the cost column look populated while nothing priced.
+		if !strings.Contains(query, "total_cost_usd") {
+			t.Fatalf("%s query does not report spend:\n%s", name, query)
+		}
 	}
 	for _, fragment := range []string{
-		"COALESCE(SUM(prompt_tokens), 0)::bigint",
-		"COALESCE(SUM(completion_tokens), 0)::bigint",
 		"LOWER(COALESCE(model, '')) = LOWER($5)",
 		"LOWER(COALESCE(model, '')) = LOWER($6)",
 		"LOWER(COALESCE(step_name, '')) = LOWER($8)",
@@ -147,14 +159,15 @@ func TestMonitoringAIUsageByScheduleQueryRanksSchedules(t *testing.T) {
 	}
 }
 
-func TestMonitoringAIUsageTotalsQuerySplitsExactAndEstimatedTokens(t *testing.T) {
+// The totals query reports money and separates the calls it could not price.
+// Without that split, SUM silently skipping NULL costs would make a partly
+// unpriced window look like a fully accounted one.
+func TestMonitoringAIUsageTotalsQuerySeparatesUnpricedCalls(t *testing.T) {
 	query := monitoringAIUsageTotalsQuery()
 	for _, fragment := range []string{
-		"metadata->>'estimated_tokens'",
-		"SUM(total_tokens) FILTER (WHERE NOT",
-		"SUM(total_tokens) FILTER (WHERE",
-		"COUNT(*) FILTER (WHERE NOT",
-		"COUNT(*) FILTER (WHERE",
+		"COALESCE(SUM(total_cost_usd), 0)::float8",
+		"COUNT(*) FILTER (WHERE total_cost_usd IS NOT NULL)",
+		"COUNT(*) FILTER (WHERE total_cost_usd IS NULL)",
 	} {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("totals query missing %q:\n%s", fragment, query)
@@ -190,9 +203,9 @@ func TestMonitoringAssistantChatUsageQueriesUseStoredMessages(t *testing.T) {
 		"FROM assistant_messages am",
 		"JOIN assistant_conversations ac ON ac.id = am.conversation_id",
 		"LEFT JOIN llm_profiles lp ON LOWER(lp.name) = LOWER(ac.selected_llm_profile)",
-		"COALESCE(SUM(am.total_tokens), 0)::bigint",
-		"COUNT(*) FILTER (WHERE am.total_tokens > 0",
 		"COUNT(*)::bigint",
+		"COALESCE(SUM(am.cost_usd), 0)::float8",
+		"am.cost_usd IS NULL",
 		"LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3)",
 		"LOWER(COALESCE(lp.provider, '')) = LOWER($8)",
 		"LOWER(COALESCE(lp.model, '')) = LOWER($9)",
@@ -213,33 +226,36 @@ func TestMonitoringAssistantChatUsageQueriesUseStoredMessages(t *testing.T) {
 
 func TestMonitoringAIUsageResponseAddsAssistantChatUsage(t *testing.T) {
 	resp := monitoringAIUsageResponse{
-		TotalPromptTokens: 100,
-		TotalTokens:       150,
-		ByFeature:         []monitoringNamedCount{{Key: "log_analysis", Label: "log_analysis", Count: 1, Tokens: 150}},
-		ByProvider:        []monitoringNamedCount{{Key: "lmstudio", Label: "lmstudio", Count: 1, Tokens: 150}},
-		ByProfile:         []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 1, Tokens: 150}},
-		ByModel:           []monitoringNamedCount{{Key: "lmstudio/qwen", Label: "lmstudio/qwen", Count: 1, Tokens: 150}},
-		Trend:             []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 150}},
+		SpendUSD:    1.50,
+		PricedCalls: 1,
+		ByFeature:   []monitoringNamedCount{{Key: "log_analysis", Label: "log_analysis", Count: 1, CostUSD: 1.50}},
+		ByProvider:  []monitoringNamedCount{{Key: "lmstudio", Label: "lmstudio", Count: 1, CostUSD: 1.50}},
+		ByProfile:   []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 1, CostUSD: 1.50}},
+		ByModel:     []monitoringNamedCount{{Key: "lmstudio/qwen", Label: "lmstudio/qwen", Count: 1, CostUSD: 1.50}},
+		Trend:       []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 150}},
 	}
 
 	resp.addAssistantChatUsage(monitoringAssistantChatUsage{
-		PromptTokens:     25,
-		CompletionTokens: 10,
-		TotalTokens:      35,
-		EstimatedTokens:  35,
-		EstimatedEvents:  2,
-		MessageCount:     2,
-		ByProvider:       []monitoringNamedCount{{Key: "gemini", Label: "gemini", Count: 2, Tokens: 35}},
-		ByProfile:        []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 2, Tokens: 35}},
-		ByModel:          []monitoringNamedCount{{Key: "gemini/gemini-2.5-flash", Label: "gemini/gemini-2.5-flash", Count: 2, Tokens: 35}},
-		BySubject:        []monitoringNamedCount{{Key: "user:viewer", Label: "user:viewer", Count: 2, Tokens: 35}},
-		Trend:            []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 35}},
+		SpendUSD:      0.35,
+		PricedTurns:   1,
+		UnpricedTurns: 2,
+		MessageCount:  2,
+		ByProvider:    []monitoringNamedCount{{Key: "gemini", Label: "gemini", Count: 2, CostUSD: 0.35}},
+		ByProfile:     []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 2, CostUSD: 0.35}},
+		ByModel:       []monitoringNamedCount{{Key: "gemini/gemini-2.5-flash", Label: "gemini/gemini-2.5-flash", Count: 2, CostUSD: 0.35}},
+		BySubject:     []monitoringNamedCount{{Key: "user:viewer", Label: "user:viewer", Count: 2, CostUSD: 0.35}},
+		Trend:         []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 35}},
 	})
 
-	if resp.TotalPromptTokens != 125 || resp.TotalCompletionTokens != 10 || resp.TotalTokens != 185 {
-		t.Fatalf("totals = %#v, want pipeline and assistant chat sums", resp)
+	if resp.SpendUSD != 1.85 {
+		t.Fatalf("spend = %v, want pipeline and assistant chat spend summed", resp.SpendUSD)
 	}
-	if resp.AssistantChatTokens != 35 || resp.AssistantChatMessages != 2 || resp.EstimatedTokenEvents != 2 {
+	// An unpriced assistant turn must survive the merge, or the spend figure
+	// reads as complete when part of it is missing.
+	if resp.PricedCalls != 2 || resp.UnpricedCalls != 2 {
+		t.Fatalf("call counts = (%d priced, %d unpriced), want (2, 2)", resp.PricedCalls, resp.UnpricedCalls)
+	}
+	if resp.AssistantSpendUSD != 0.35 || resp.AssistantChatMessages != 2 {
 		t.Fatalf("assistant chat metadata = %#v", resp)
 	}
 	if len(resp.ByFeature) != 2 || resp.ByFeature[1].Key != "assistant_chat" {
@@ -251,13 +267,13 @@ func TestMonitoringAIUsageResponseAddsAssistantChatUsage(t *testing.T) {
 	if len(resp.ByModel) != 2 || resp.ByModel[0].Key != "lmstudio/qwen" || resp.ByModel[1].Key != "gemini/gemini-2.5-flash" {
 		t.Fatalf("by_model = %#v, want pipeline and assistant chat models", resp.ByModel)
 	}
-	if resp.ByProfile[0].Tokens != 185 || resp.Trend[0].Runs != 185 {
+	if resp.ByProfile[0].CostUSD != 1.85 || resp.Trend[0].Runs != 185 {
 		t.Fatalf("profile/trend merge failed: profiles=%#v trend=%#v", resp.ByProfile, resp.Trend)
 	}
 }
 
 func TestMonitoringAITopTokenRunsQueryOrdersBySelectedColumns(t *testing.T) {
-	query := monitoringAITopTokenRunsQuery()
+	query := monitoringAISpendRunsQuery()
 	if strings.Contains(query, "ORDER BY 6") {
 		t.Fatalf("query orders by an unselected column:\n%s", query)
 	}
@@ -281,14 +297,14 @@ func TestMonitoringAIUsageByTaskQueryFiltersTasklessEvents(t *testing.T) {
 
 func TestMonitoringEfficiencyRecommendations(t *testing.T) {
 	recommendations := monitoringEfficiencyRecommendations(monitoringEfficiencyResponse{
-		TotalAITokens: 4200,
-		TokenHeavyLowSuccessPipelines: []monitoringPerformanceRow{{
+		TotalAISpendUSD: 42.00,
+		CostlyLowSuccessPipelines: []monitoringPerformanceRow{{
 			Key:         "platform/release",
 			SuccessRate: 0.38,
 			TotalRuns:   8,
 		}},
 		HighQueueTeams:  []monitoringNamedCount{{Label: "Platform", Seconds: 420}},
-		TokenByPipeline: []monitoringNamedCount{{Label: "platform/release", Tokens: 4200}},
+		SpendByPipeline: []monitoringNamedCount{{Label: "platform/release", CostUSD: 42.00}},
 	})
 	if len(recommendations) != 3 {
 		t.Fatalf("recommendations = %#v, want three", recommendations)

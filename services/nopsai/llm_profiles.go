@@ -76,6 +76,7 @@ type llmProfileForm struct {
 	Temperature    *float64                `json:"temperature,omitempty" yaml:"temperature,omitempty"`
 	PromptCache    config.LLMFeatureConfig `json:"prompt_cache,omitempty" yaml:"prompt_cache,omitempty"`
 	ProviderState  config.LLMFeatureConfig `json:"provider_state,omitempty" yaml:"provider_state,omitempty"`
+	Pricing        *config.LLMPricing      `json:"pricing,omitempty" yaml:"pricing,omitempty"`
 	Extra          map[string]string       `json:"extra,omitempty" yaml:"extra,omitempty"`
 }
 
@@ -137,8 +138,25 @@ func profileFormFromConfig(name string, profile config.LLMProfile) llmProfileFor
 		Temperature:    profile.Temperature,
 		PromptCache:    profile.PromptCache,
 		ProviderState:  profile.ProviderState,
+		Pricing:        clonePricing(profile.Pricing),
 		Extra:          cloneStringMap(profile.Extra),
 	}
+}
+
+func clonePricing(pricing *config.LLMPricing) *config.LLMPricing {
+	if pricing == nil {
+		return nil
+	}
+	cloned := *pricing
+	if pricing.CachedInputPerMillionUSD != nil {
+		rate := *pricing.CachedInputPerMillionUSD
+		cloned.CachedInputPerMillionUSD = &rate
+	}
+	if pricing.CacheWritePerMillionUSD != nil {
+		rate := *pricing.CacheWritePerMillionUSD
+		cloned.CacheWritePerMillionUSD = &rate
+	}
+	return &cloned
 }
 
 func profileConfigFromForm(form llmProfileForm) config.LLMProfile {
@@ -155,6 +173,7 @@ func profileConfigFromForm(form llmProfileForm) config.LLMProfile {
 		Temperature:    form.Temperature,
 		PromptCache:    form.PromptCache,
 		ProviderState:  form.ProviderState,
+		Pricing:        clonePricing(form.Pricing),
 		Extra:          form.Extra,
 	})
 }
@@ -835,6 +854,9 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 	if profile.MaxTokens > 0 && !config.LLMProviderSupportsMaxTokens(profile.Provider) {
 		return "invalid", fmt.Sprintf("LLM profile %q provider %q does not support max_tokens", name, profile.Provider)
 	}
+	if status, message := validateLLMProfilePricing(name, profile.Pricing); status != "valid" {
+		return status, message
+	}
 	if !config.SupportedLLMFeatureMode(profile.PromptCache.Mode) {
 		return "invalid", fmt.Sprintf("LLM profile %q has invalid prompt_cache.mode %q", name, profile.PromptCache.Mode)
 	}
@@ -1500,4 +1522,32 @@ func writeLLMProfileStoreError(w http.ResponseWriter, err error) {
 	default:
 		http.Error(w, "LLM profile request failed", http.StatusInternalServerError)
 	}
+}
+
+// validateLLMProfilePricing checks a rate card if one is present.
+//
+// Pricing is optional. Local models have no per-token price, and many providers
+// publish none that nopsai can know, so requiring a rate card would block
+// configuration that is otherwise correct. A model without one still runs; its
+// usage records with no cost and is reported as unpriced rather than as free.
+//
+// Only nonsensical values are rejected, since a negative rate cannot describe
+// any real price and would quietly subtract from a spend total.
+func validateLLMProfilePricing(name string, pricing *config.LLMPricing) (string, string) {
+	if pricing == nil {
+		return "valid", ""
+	}
+	if pricing.InputPerMillionUSD < 0 {
+		return "invalid", fmt.Sprintf("LLM profile %q has negative pricing.input_per_million_usd %g", name, pricing.InputPerMillionUSD)
+	}
+	if pricing.OutputPerMillionUSD < 0 {
+		return "invalid", fmt.Sprintf("LLM profile %q has negative pricing.output_per_million_usd %g", name, pricing.OutputPerMillionUSD)
+	}
+	if pricing.CachedInputPerMillionUSD != nil && *pricing.CachedInputPerMillionUSD < 0 {
+		return "invalid", fmt.Sprintf("LLM profile %q has negative pricing.cached_input_per_million_usd %g", name, *pricing.CachedInputPerMillionUSD)
+	}
+	if pricing.CacheWritePerMillionUSD != nil && *pricing.CacheWritePerMillionUSD < 0 {
+		return "invalid", fmt.Sprintf("LLM profile %q has negative pricing.cache_write_per_million_usd %g", name, *pricing.CacheWritePerMillionUSD)
+	}
+	return "valid", ""
 }

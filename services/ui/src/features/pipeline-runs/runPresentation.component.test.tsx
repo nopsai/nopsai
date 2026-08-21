@@ -7,13 +7,13 @@ import {
   buildRunSourceTeams,
   buildStatusTimeline,
   extractLatestRunSummary,
-  formatAIUsageBreakdown,
+  formatAIUsageCompleteness,
   formatBranch,
   formatBranchDisplay,
   formatConfigRepoTimestamp,
   formatRepoLabel,
   formatRunTimestamp,
-  formatTokenCount,
+  formatSpendUSD,
   formatTriggerId,
   getBranchStatusTone,
   getPipelineIdentifier,
@@ -124,11 +124,12 @@ describe('Pipeline Runs presentation', () => {
     expect(formatTriggerId()).toEqual({ display: 'N/A', full: 'N/A' });
   });
 
-  it('formats LLM token usage for run summaries', () => {
-    expect(formatTokenCount(1)).toBe('1 token');
-    expect(formatTokenCount(4200)).toBe('4.2k tokens');
-    expect(formatAIUsageBreakdown({ prompt_tokens: 300, completion_tokens: 120 })).toBe('300 tokens prompt / 120 tokens completion');
-    expect(formatAIUsageBreakdown()).toBe('No prompt/completion split recorded');
+  it('formats AI spend for run summaries', () => {
+    expect(formatSpendUSD(1)).toBe('$1.00');
+    expect(formatSpendUSD(4.2)).toBe('$4.20');
+    expect(formatAIUsageCompleteness({ spend_usd: 4.2, unpriced_calls: 2 })).toBe('2 calls not priced');
+    // Nothing to caveat when every call was priced.
+    expect(formatAIUsageCompleteness()).toBe('');
   });
 
   it('summarizes status and latest activity deterministically', () => {

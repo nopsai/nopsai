@@ -874,15 +874,15 @@ function isMonitoringGitOpsManaged(item: { source?: string; managed_by_config_re
 function csvForMonitoringTab(activeTab: MonitoringTab, data: MonitoringData): string {
   if (activeTab === 'pipelines') return rowsToCSV(['name', 'runs', 'success_rate', 'p95_seconds'], (data.pipelinePerformance?.items || []).map(item => [item.key, item.total_runs, item.success_rate, item.p95_duration_seconds]));
   if (activeTab === 'steps-tasks') return rowsToCSV(['name', 'runs', 'success_rate', 'p95_seconds'], [...(data.stepPerformance?.items || []), ...(data.taskPerformance?.items || [])].map(item => [item.key, item.total_runs, item.success_rate, item.p95_duration_seconds]));
-  if (activeTab === 'ai-usage') return rowsToCSV(['label', 'events', 'tokens'], (data.aiUsage?.by_pipeline || []).map(item => [item.label, item.count, item.tokens]));
+  if (activeTab === 'ai-usage') return rowsToCSV(['label', 'events', 'spend_usd'], (data.aiUsage?.by_pipeline || []).map(item => [item.label, item.count, item.cost_usd]));
   if (activeTab === 'reliability') return rowsToCSV(['run_id', 'pipeline', 'status', 'reason'], (data.reliability?.recent_failures || []).map(run => [run.run_id, run.pipeline_name, run.status, run.failure_reason]));
   if (activeTab === 'efficiency') {
-    const tokenRows = [
-      ...(data.efficiency?.token_by_pipeline || []).map(item => ['pipeline', item.label, item.count, item.tokens]),
-      ...(data.efficiency?.token_by_team || []).map(item => ['team', item.label, item.count, item.tokens]),
-      ...(data.efficiency?.token_by_step || []).map(item => ['step', item.label, item.count, item.tokens]),
+    const spendRows = [
+      ...(data.efficiency?.spend_by_pipeline || []).map(item => ['pipeline', item.label, item.count, item.cost_usd]),
+      ...(data.efficiency?.spend_by_team || []).map(item => ['team', item.label, item.count, item.cost_usd]),
+      ...(data.efficiency?.spend_by_step || []).map(item => ['step', item.label, item.count, item.cost_usd]),
     ];
-    return rowsToCSV(['dimension', 'label', 'count', 'tokens'], tokenRows);
+    return rowsToCSV(['dimension', 'label', 'count', 'spend_usd'], spendRows);
   }
   if (activeTab === 'security') return rowsToCSV(['label', 'count'], (data.security?.runs_by_effective_subject || []).map(item => [item.label, item.count]));
   if (activeTab === 'external-triggers') return rowsToCSV(['label', 'count', 'failed'], (data.externalTriggerAnalytics?.most_fired_triggers || []).map(item => [item.label, item.count, item.failed]));

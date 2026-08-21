@@ -32,13 +32,10 @@ describe('assistant model', () => {
           role: 'assistant',
           content: 'ready',
           usage: {
-            content_tokens: 2,
-            prompt_tokens: 10,
-            completion_tokens: 4,
-            total_tokens: 14,
             estimated: false,
             duration_ms: 1200,
             llm_calls: 1,
+            cost_usd: 0.0125,
           },
           tool_calls: [{
             name: 'nopsai.get_pipeline_run',
@@ -57,8 +54,8 @@ describe('assistant model', () => {
     assert.equal(conversation.messages[0].tool_calls[0].name, 'nopsai.get_pipeline_run');
     assert.equal(conversation.messages[0].tool_calls[0].input.run_id, 'run-1');
     assert.equal(conversation.messages[0].tool_calls[0].output.status, 'failure');
-    assert.equal(assistantMessageUsageLabel(conversation.messages[0]), '14 LLM tokens · 1.2s');
-    assert.equal(assistantConversationUsageLabel(conversation), '14 LLM tokens · 1 message · 1.2s');
+    assert.equal(assistantMessageUsageLabel(conversation.messages[0]), '$0.01 · 1.2s');
+    assert.equal(assistantConversationUsageLabel(conversation), '$0.01 · 1 message · 1.2s');
   });
 
   it('normalizes list and message response payloads', () => {

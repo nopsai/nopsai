@@ -76,11 +76,20 @@ type RunListItem struct {
 	FinalOutputStatus          *FinalOutputStatusSummary `json:"final_output_status,omitempty"`
 }
 
+// AIUsageSummary reports what a run, step or task spent on AI.
+//
+// Tokens are kept for internal use and deliberately not serialised: spend is the
+// figure the product reports, and offering both invites a reader to reconcile
+// two numbers that answer different questions.
 type AIUsageSummary struct {
-	PromptTokens     int64   `json:"prompt_tokens"`
-	CompletionTokens int64   `json:"completion_tokens"`
-	TotalTokens      int64   `json:"total_tokens"`
-	TotalCostUSD     float64 `json:"total_cost_usd"`
+	PromptTokens     int64   `json:"-"`
+	CompletionTokens int64   `json:"-"`
+	TotalTokens      int64   `json:"-"`
+	SpendUSD         float64 `json:"spend_usd"`
+	// UnpricedCalls counts LLM calls whose cost could not be determined. When it
+	// is non-zero the spend figure is incomplete, and the UI must say so rather
+	// than presenting a partial total as a final one.
+	UnpricedCalls int64 `json:"unpriced_calls,omitempty"`
 }
 
 type FinalOutputStatusSummary struct {
@@ -188,19 +197,26 @@ type StepStatusUpdate struct {
 }
 
 type AIUsageReport struct {
-	StepName         string         `json:"step_name,omitempty"`
-	TaskName         string         `json:"task_name,omitempty"`
-	Feature          string         `json:"feature,omitempty"`
-	Provider         string         `json:"provider,omitempty"`
-	ProviderModel    string         `json:"provider_model,omitempty"`
-	LLMProfile       string         `json:"model,omitempty"`
-	PromptTokens     int64          `json:"prompt_tokens,omitempty"`
-	CompletionTokens int64          `json:"completion_tokens,omitempty"`
-	TotalTokens      int64          `json:"total_tokens,omitempty"`
-	InputCostUSD     float64        `json:"input_cost_usd,omitempty"`
-	OutputCostUSD    float64        `json:"output_cost_usd,omitempty"`
-	TotalCostUSD     float64        `json:"total_cost_usd,omitempty"`
-	Metadata         map[string]any `json:"metadata,omitempty"`
+	StepName         string `json:"step_name,omitempty"`
+	TaskName         string `json:"task_name,omitempty"`
+	Feature          string `json:"feature,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	ProviderModel    string `json:"provider_model,omitempty"`
+	LLMProfile       string `json:"model,omitempty"`
+	PromptTokens     int64  `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64  `json:"completion_tokens,omitempty"`
+	TotalTokens      int64  `json:"total_tokens,omitempty"`
+	// CachedInputTokens and CacheWriteTokens are subsets of PromptTokens that
+	// bill at their own rates. They are reported so that the server can price a
+	// cached call correctly rather than charging the full input rate for a
+	// prefix the provider discounted.
+	CachedInputTokens int64          `json:"cached_input_tokens,omitempty"`
+	CacheWriteTokens  int64          `json:"cache_write_tokens,omitempty"`
+	Estimated         bool           `json:"estimated,omitempty"`
+	InputCostUSD      float64        `json:"input_cost_usd,omitempty"`
+	OutputCostUSD     float64        `json:"output_cost_usd,omitempty"`
+	TotalCostUSD      float64        `json:"total_cost_usd,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
 }
 
 type PolicyRevisionResponse struct {

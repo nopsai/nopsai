@@ -262,8 +262,8 @@ export type RunAnalysisRunInfo = {
   runtime_variable_overrides?: Record<string, unknown>;
   failure_reason?: string;
   ai_usage?: {
-    total_tokens?: number;
-    total_cost_usd?: number;
+    spend_usd?: number;
+    unpriced_calls?: number;
   };
 };
 
@@ -292,13 +292,13 @@ export type RunAnalysisStep = {
     finished_at?: string;
     task_index: number;
     ai_usage?: {
-      total_tokens?: number;
-      total_cost_usd?: number;
+      spend_usd?: number;
+      unpriced_calls?: number;
     };
   }>;
   ai_usage?: {
-    total_tokens?: number;
-    total_cost_usd?: number;
+    spend_usd?: number;
+    unpriced_calls?: number;
   };
 };
 
@@ -1561,18 +1561,18 @@ function buildSuccessfulRunFindings(input: RunAnalysisInput, lastSuccess: RunAna
     });
   }
 
-  const tokens = run.ai_usage?.total_tokens || 0;
-  const peerTokens = peers.map(peer => peer.ai_usage?.total_tokens || 0).filter(value => value > 0);
-  const medianTokens = medianNumber(peerTokens);
-  if (tokens > 0 && medianTokens > 0 && tokens > medianTokens * 2) {
+  const spend = run.ai_usage?.spend_usd || 0;
+  const peerSpend = peers.map(peer => peer.ai_usage?.spend_usd || 0).filter(value => value > 0);
+  const medianSpend = medianNumber(peerSpend);
+  if (spend > 0 && medianSpend > 0 && spend > medianSpend * 2) {
     findings.push({
       category: 'cost',
       severity: 'opportunity',
-      title: 'AI token usage is elevated',
-      summary: `This run used ${tokens.toLocaleString()} tokens, more than 2x the peer median.`,
+      title: 'AI spend is elevated',
+      summary: `This run cost ${formatAnalysisSpend(spend)}, more than 2x the peer median.`,
       evidence: [
-        { label: 'Current tokens', value: tokens.toLocaleString(), kind: 'metric' },
-        { label: 'Peer median tokens', value: Math.round(medianTokens).toLocaleString(), kind: 'metric' },
+        { label: 'Current spend', value: formatAnalysisSpend(spend), kind: 'metric' },
+        { label: 'Peer median spend', value: formatAnalysisSpend(medianSpend), kind: 'metric' },
       ],
       affectedResources: [runReference(run)],
       recommendations: [{
@@ -2368,6 +2368,17 @@ function parseDurationSeconds(value?: string) {
     else total += amount;
   }
   return total > 0 ? total : Number.NaN;
+}
+
+/** Sub-cent amounts keep four decimals so cheap-but-frequent work is visible. */
+function formatAnalysisSpend(value: number) {
+  const fractionDigits = value > 0 && value < 0.01 ? 4 : 2;
+  return value.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
 }
 
 function medianNumber(values: number[]) {

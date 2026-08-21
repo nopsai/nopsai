@@ -24,7 +24,7 @@ test('renders backend monitoring metrics and switches tabs', async () => {
           failure_rate: 0.1,
           average_duration_seconds: 12,
           p95_duration_seconds: 20,
-          estimated_ai_tokens: 4200,
+          ai_spend_usd: 4.2,
           total_steps_executed: 30,
           total_tasks_executed: 45,
           queued_jobs: 2,
@@ -77,7 +77,7 @@ test('renders backend monitoring metrics and switches tabs', async () => {
   expect(onTabChange).toHaveBeenCalledWith('runners');
 });
 
-test('renders exact, estimated, and profile LLM token usage separately', () => {
+test('reports AI usage as one spend figure and warns when it is incomplete', () => {
   render(
     <MemoryRouter>
       <MonitoringDashboard
@@ -93,27 +93,23 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
         externalTriggerAnalytics={null}
         runnerHistory={null}
         aiUsage={{
-          total_prompt_tokens: 800,
-          total_completion_tokens: 400,
-          total_tokens: 1200,
-          exact_tokens: 900,
-          estimated_tokens: 300,
-          exact_token_events: 3,
-          estimated_token_events: 1,
-          assistant_chat_tokens: 200,
+          spend_usd: 12.34,
+          priced_calls: 3,
+          unpriced_calls: 1,
+          assistant_spend_usd: 2,
           assistant_chat_messages: 4,
-          by_pipeline: [{ key: 'platform/release', label: 'release', count: 4, tokens: 1200 }],
-          by_step: [{ key: 'plan', label: 'plan', count: 2, tokens: 900 }],
-          by_task: [{ key: 'plan/summarize', label: 'plan/summarize', count: 1, tokens: 600 }],
+          by_pipeline: [{ key: 'platform/release', label: 'release', count: 4, cost_usd: 12.34 }],
+          by_step: [{ key: 'plan', label: 'plan', count: 2, cost_usd: 9 }],
+          by_task: [{ key: 'plan/summarize', label: 'plan/summarize', count: 1, cost_usd: 6 }],
           by_feature: [
-            { key: 'log_analysis', label: 'log_analysis', count: 2, tokens: 700 },
-            { key: 'assistant_chat', label: 'Assistant chat', count: 4, tokens: 200 },
+            { key: 'log_analysis', label: 'log_analysis', count: 2, cost_usd: 7 },
+            { key: 'assistant_chat', label: 'Assistant chat', count: 4, cost_usd: 2 },
           ],
-          by_provider: [{ key: 'gemini', label: 'gemini', count: 2, tokens: 700 }],
-          by_profile: [{ key: 'default', label: 'default', count: 2, tokens: 800 }],
-          by_model: [{ key: 'gemini/gemini-2.5-pro', label: 'gemini/gemini-2.5-pro', count: 2, tokens: 700 }],
+          by_provider: [{ key: 'gemini', label: 'gemini', count: 2, cost_usd: 7 }],
+          by_profile: [{ key: 'default', label: 'default', count: 2, cost_usd: 8 }],
+          by_model: [{ key: 'gemini/gemini-2.5-pro', label: 'gemini/gemini-2.5-pro', count: 2, cost_usd: 7 }],
           trend: [{ key: '2026-06-12', label: '2026-06-12', runs: 1200 }],
-          top_token_runs: [{ key: 'run-1', label: 'run-1', count: 2, tokens: 1200 }],
+          top_spend_runs: [{ key: 'run-1', label: 'run-1', count: 2, cost_usd: 12.34 }],
         }}
         reliability={null}
         efficiency={null}
@@ -126,12 +122,18 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
     </MemoryRouter>
   );
 
-  expect(screen.getByText('Exact tokens')).toBeVisible();
-  expect(screen.getByText('Estimated tokens')).toBeVisible();
-  expect(screen.getByText('3 provider events')).toBeVisible();
-  expect(screen.getByText(/200 assistant chat/)).toBeVisible();
+  // One number, in money.
+  expect(screen.getByText('AI spend')).toBeVisible();
+  // The hero figure, plus the breakdown rows that add up to it.
+  expect(screen.getAllByText('$12.34').length).toBeGreaterThan(0);
+  expect(screen.queryByText('Exact tokens')).toBeNull();
+  expect(screen.queryByText('Estimated tokens')).toBeNull();
+  // ...and an explicit warning that the number is missing an unpriced call,
+  // rather than presenting a partial total as a final one.
+  expect(screen.getByText(/This total is incomplete/)).toBeVisible();
+  expect(screen.getByText(/1 call not priced/)).toBeVisible();
+  expect(screen.getByText(/\$2\.00 assistant chat/)).toBeVisible();
   expect(screen.getByText('Assistant chat')).toBeVisible();
-  expect(screen.getByText('1 estimated events')).toBeVisible();
   expect(screen.getByText('By Step')).toBeVisible();
   expect(screen.getByText('By Task')).toBeVisible();
   expect(screen.getByText('By Provider')).toBeVisible();
@@ -139,7 +141,7 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
   expect(screen.getByText('By LLM Profile')).toBeVisible();
   expect(screen.getByText('default')).toBeVisible();
   expect(screen.getByText('plan/summarize')).toBeVisible();
-  expect(screen.getByText('Top Token Runs')).toBeVisible();
+  expect(screen.getByText('Most Expensive Runs')).toBeVisible();
 });
 
 test('renders external trigger last-fired and rate-limit analytics', () => {

@@ -156,6 +156,7 @@ func (a *App) seedSetupLLMProfile(ctx context.Context, input setupLLMProfileInpu
 		TimeoutSeconds: input.TimeoutSeconds,
 		MaxTokens:      input.MaxTokens,
 		Temperature:    input.Temperature,
+		Pricing:        setupLLMPricing(input),
 		Extra:          input.Extra,
 	})
 	cfg.LLMDefaultProfile = name
@@ -335,4 +336,16 @@ func (a *App) ensureSetupRootTeams(ctx context.Context, names []string) error {
 		}
 	}
 	return nil
+}
+
+// setupLLMPricing resolves the rate card the wizard writes for a seeded model.
+// A self-hosted provider costs nothing per token and says so explicitly. A
+// hosted provider is left unpriced unless the operator supplies rates, because
+// a guessed price produces a spend figure that reads as authoritative and is
+// wrong.
+func setupLLMPricing(input setupLLMProfileInput) *config.LLMPricing {
+	if input.Pricing != nil {
+		return input.Pricing
+	}
+	return config.DefaultLLMPricingForProvider(input.Provider)
 }

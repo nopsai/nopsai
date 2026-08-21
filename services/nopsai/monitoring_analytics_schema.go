@@ -19,13 +19,15 @@ var monitoringAnalyticsSchemaStatements = []string{
 		feature TEXT NOT NULL DEFAULT '',
 		provider TEXT NOT NULL DEFAULT '',
 		model TEXT NOT NULL DEFAULT '',
-		model TEXT NOT NULL DEFAULT '',
+		llm_profile TEXT NOT NULL DEFAULT '',
 		prompt_tokens BIGINT NOT NULL DEFAULT 0,
 		completion_tokens BIGINT NOT NULL DEFAULT 0,
 		total_tokens BIGINT NOT NULL DEFAULT 0,
-		input_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
-		output_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
-		total_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
+		cached_input_tokens BIGINT NOT NULL DEFAULT 0,
+		cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+		input_cost_usd NUMERIC(18, 8),
+		output_cost_usd NUMERIC(18, 8),
+		total_cost_usd NUMERIC(18, 8),
 		requested_by_type TEXT NOT NULL DEFAULT '',
 		requested_by_id TEXT NOT NULL DEFAULT '',
 		effective_subject_type TEXT NOT NULL DEFAULT '',
@@ -34,6 +36,18 @@ var monitoringAnalyticsSchemaStatements = []string{
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 	`ALTER TABLE ai_usage_events ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL`,
+	`ALTER TABLE ai_usage_events ADD COLUMN IF NOT EXISTS llm_profile TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE ai_usage_events ADD COLUMN IF NOT EXISTS cached_input_tokens BIGINT NOT NULL DEFAULT 0`,
+	`ALTER TABLE ai_usage_events ADD COLUMN IF NOT EXISTS cache_write_tokens BIGINT NOT NULL DEFAULT 0`,
+	// A cost of NULL means the call could not be priced. Zero means it was
+	// priced and cost nothing. Collapsing the two is what let dashboards report
+	// $0.00 with confidence while nothing was being priced at all.
+	`ALTER TABLE ai_usage_events ALTER COLUMN input_cost_usd DROP NOT NULL`,
+	`ALTER TABLE ai_usage_events ALTER COLUMN output_cost_usd DROP NOT NULL`,
+	`ALTER TABLE ai_usage_events ALTER COLUMN total_cost_usd DROP NOT NULL`,
+	`ALTER TABLE ai_usage_events ALTER COLUMN input_cost_usd DROP DEFAULT`,
+	`ALTER TABLE ai_usage_events ALTER COLUMN output_cost_usd DROP DEFAULT`,
+	`ALTER TABLE ai_usage_events ALTER COLUMN total_cost_usd DROP DEFAULT`,
 	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_run ON ai_usage_events(run_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_pipeline_created ON ai_usage_events(pipeline_path, pipeline_name, created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_team_created ON ai_usage_events(team_id, created_at DESC)`,
@@ -65,9 +79,11 @@ var monitoringAnalyticsSchemaStatements = []string{
 		ai_completion_tokens BIGINT NOT NULL DEFAULT 0,
 		ai_total_tokens BIGINT NOT NULL DEFAULT 0,
 		ai_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
+		ai_unpriced_calls BIGINT NOT NULL DEFAULT 0,
 		total_cost_usd NUMERIC(18, 8) NOT NULL DEFAULT 0,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE pipeline_run_usage_summary ADD COLUMN IF NOT EXISTS ai_unpriced_calls BIGINT NOT NULL DEFAULT 0`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_usage_summary_total_cost ON pipeline_run_usage_summary(total_cost_usd DESC)`,
 
 	`CREATE TABLE IF NOT EXISTS monitoring_saved_views (

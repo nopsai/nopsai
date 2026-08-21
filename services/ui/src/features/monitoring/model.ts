@@ -184,7 +184,7 @@ export type MonitoringNamedCount = {
   label: string;
   count: number;
   failed?: number;
-  tokens?: number;
+  cost_usd?: number;
   rate?: number;
   seconds?: number;
 };
@@ -245,7 +245,7 @@ export type MonitoringSummary = {
   runner_utilization?: number;
   external_trigger_invocations?: number;
   notification_failures?: number;
-  estimated_ai_tokens?: number;
+  ai_spend_usd?: number;
   runner_summary?: RunnerSummary;
   dispatcher_error?: string;
   compare_previous_period_enabled?: boolean;
@@ -300,7 +300,7 @@ export type MonitoringTriggerAnalytics = {
   trigger_source_trend?: MonitoringTimeBucket[];
   failures_by_trigger_source?: MonitoringNamedCount[];
   duration_by_trigger_source?: MonitoringNamedCount[];
-  token_by_trigger_source?: MonitoringNamedCount[];
+  spend_by_trigger_source?: MonitoringNamedCount[];
   trigger_source_reliability?: MonitoringNamedCount[];
 };
 
@@ -333,14 +333,16 @@ export type MonitoringExternalTriggerAnalytics = {
 
 export type MonitoringAIUsage = {
   window?: MonitoringWindow;
-  total_prompt_tokens?: number;
-  total_completion_tokens?: number;
-  total_tokens?: number;
-  exact_tokens?: number;
-  estimated_tokens?: number;
-  exact_token_events?: number;
-  estimated_token_events?: number;
-  assistant_chat_tokens?: number;
+  /** The single figure the product reports for AI usage. */
+  spend_usd?: number;
+  priced_calls?: number;
+  /**
+   * Calls whose cost could not be determined. When this is above zero the spend
+   * figure is incomplete and the UI must say so, because a partial total
+   * presented as a final one is worse than no total at all.
+   */
+  unpriced_calls?: number;
+  assistant_spend_usd?: number;
   assistant_chat_messages?: number;
   by_pipeline?: MonitoringNamedCount[];
   by_step?: MonitoringNamedCount[];
@@ -351,7 +353,9 @@ export type MonitoringAIUsage = {
   by_model?: MonitoringNamedCount[];
   by_subject?: MonitoringNamedCount[];
   trend?: MonitoringTimeBucket[];
-  top_token_runs?: MonitoringNamedCount[];
+  lowest_spend_schedules?: MonitoringNamedCount[];
+  by_schedule?: MonitoringNamedCount[];
+  top_spend_runs?: MonitoringNamedCount[];
 };
 
 export type MonitoringReliability = {
@@ -370,11 +374,11 @@ export type MonitoringEfficiency = {
   window?: MonitoringWindow;
   total_runtime_seconds?: number;
   total_runner_minutes?: number;
-  total_ai_tokens?: number;
-  token_by_pipeline?: MonitoringNamedCount[];
-  token_by_team?: MonitoringNamedCount[];
-  token_by_step?: MonitoringNamedCount[];
-  token_heavy_low_success_pipelines?: MonitoringPerformanceRow[];
+  total_ai_spend_usd?: number;
+  spend_by_pipeline?: MonitoringNamedCount[];
+  spend_by_team?: MonitoringNamedCount[];
+  spend_by_step?: MonitoringNamedCount[];
+  costly_low_success_pipelines?: MonitoringPerformanceRow[];
   frequent_reruns?: MonitoringPerformanceRow[];
   high_queue_teams?: MonitoringNamedCount[];
   recommendations?: string[];

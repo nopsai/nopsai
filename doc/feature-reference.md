@@ -645,17 +645,19 @@ Pipeline notifications include:
   regression deltas
 - AI usage filters for provider, model, model, feature, step name, and
   task name across REST analytics and hosted MCP monitoring tools, plus
-  schedule-level highest/lowest token rankings for scheduled pipeline runs
+  schedule-level highest/lowest spend rankings for scheduled pipeline runs
 - access-filtered aggregate endpoints that reuse `pipeline_run.list` so normal
   users see only permitted run analytics while admins can see global metrics
-- LLM usage accounting through agent-recorded `ai_usage_events` and
-  `pipeline_run_usage_summary`; provider token metadata is stored when
-  available, with estimated token counts marked in metadata and reported
-  separately when providers omit exact usage
-- Pipeline Runs shows compact per-run LLM token totals on cards and run detail,
-  step/task token totals in the step detail modal, and a run-scoped LLM Usage
-  Monitoring link for deeper filtering by pipeline, step, task, model, profile,
-  feature, subject, and exact/estimated token source
+- AI spend accounting through agent-recorded `ai_usage_events` and
+  `pipeline_run_usage_summary`. Provider-reported token counts are priced at
+  record time against the rate card on the model that produced them, so a later
+  price change never rewrites past spend. A call that cannot be priced records a
+  NULL cost rather than zero and is counted separately as unpriced, because
+  being unable to price a call is not the same as it having been free
+- Pipeline Runs shows per-run AI spend on cards and run detail, step and task
+  spend in the step detail modal, and a run-scoped AI Usage Monitoring link for
+  deeper filtering by pipeline, step, task, model, profile, feature, and
+  subject
 - Pipeline Runs list, overview table, and related recent-run panels show
   lightweight final-output status summaries for runs with configured or stored
   final outputs. These summaries expose aggregate state and counts only; they

@@ -3,6 +3,7 @@ import { Check, Copy, Loader2, Maximize2, Plus, RotateCcw, Send, Trash2, X } fro
 import { ObjectIcon } from '../../components/ObjectIcon.js';
 import {
   assistantConversationUsageLabel,
+  formatAssistantSpend,
   assistantExecutionPlanFromMessage,
   assistantMessageAuthorLabel,
   assistantMessageUsageLabel,
@@ -615,10 +616,14 @@ function AssistantContextPanel({
         <p className="mt-3 text-sm text-[var(--text-primary)]">{assistantConversationUsageLabel(conversation)}</p>
         {conversation?.usage && (
           <dl className="mt-3 space-y-2 text-sm">
-            <ContextRow label="Visible text" value={`${conversation.usage.content_tokens} tokens est.`} />
-            <ContextRow label="Provider input" value={`${conversation.usage.prompt_tokens} tokens`} />
-            <ContextRow label="Provider output" value={`${conversation.usage.completion_tokens} tokens`} />
+            <ContextRow label="Spend" value={formatAssistantSpend(conversation.usage.spend_usd)} />
             <ContextRow label="LLM calls" value={`${conversation.usage.llm_calls}`} />
+            {(conversation.usage.unpriced_turns || 0) > 0 && (
+              <ContextRow
+                label="Not priced"
+                value={`${conversation.usage.unpriced_turns} turn${conversation.usage.unpriced_turns === 1 ? '' : 's'}`}
+              />
+            )}
           </dl>
         )}
       </details>

@@ -20,6 +20,9 @@ provider: gemini
 model: gemini-2.5-flash
 credential_ref: credential://system/llm/gemini
 allowed_scopes: ["dev", "prod"]
+pricing:
+  input_per_million_usd: 0.3
+  output_per_million_usd: 2.5
 `,
 
 			"models/notes.md": "ignored",
@@ -60,8 +63,8 @@ func TestParseGitOpsModelsKeepsTeamQualifiedWorkspaceNames(t *testing.T) {
 func TestParseGitOpsModelsRejectsTwoDefaultsInOneScope(t *testing.T) {
 	_, err := parseGitOpsModels(
 		map[string]string{
-			"models/one.yaml": "default: true\nprovider: gemini\nmodel: a\ncredential_ref: credential://system/llm/gemini\n",
-			"models/two.yaml": "default: true\nprovider: gemini\nmodel: b\ncredential_ref: credential://system/llm/gemini\n",
+			"models/one.yaml": "default: true\nprovider: gemini\nmodel: a\ncredential_ref: credential://system/llm/gemini\npricing:\n  input_per_million_usd: 0.3\n  output_per_million_usd: 2.5\n",
+			"models/two.yaml": "default: true\nprovider: gemini\nmodel: b\ncredential_ref: credential://system/llm/gemini\npricing:\n  input_per_million_usd: 0.3\n  output_per_million_usd: 2.5\n",
 		},
 		"models",
 		systemRegistryRepo(),
@@ -73,7 +76,7 @@ func TestParseGitOpsModelsRejectsTwoDefaultsInOneScope(t *testing.T) {
 
 func TestParseGitOpsModelsRejectsTeamRepositoryRegistryFiles(t *testing.T) {
 	_, err := parseGitOpsModels(
-		map[string]string{"models/team-tuned.yaml": "provider: gemini\nmodel: a\ncredential_ref: credential://system/llm/gemini\n"},
+		map[string]string{"models/team-tuned.yaml": "provider: gemini\nmodel: a\ncredential_ref: credential://system/llm/gemini\npricing:\n  input_per_million_usd: 0.3\n  output_per_million_usd: 2.5\n"},
 		"models",
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "platform"},
 	)
@@ -173,7 +176,7 @@ func TestRegistryGitOpsExportPathsMatchTheParsedLayout(t *testing.T) {
 
 func TestBuildModelGitOpsFileRoundTripsThroughTheParser(t *testing.T) {
 	plan, err := parseGitOpsModels(
-		map[string]string{"models/gemini-fast.yaml": "default: true\nprovider: gemini\nmodel: gemini-2.5-flash\ncredential_ref: credential://system/llm/gemini\n"},
+		map[string]string{"models/gemini-fast.yaml": "default: true\nprovider: gemini\nmodel: gemini-2.5-flash\ncredential_ref: credential://system/llm/gemini\npricing:\n  input_per_million_usd: 0.3\n  output_per_million_usd: 2.5\n"},
 		"models",
 		systemRegistryRepo(),
 	)

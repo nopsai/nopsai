@@ -5,10 +5,10 @@ import type { RunListItem } from './contracts';
 import { runFinalOutputStatusPresentation } from './finalOutputs';
 import {
   buildStatusTimeline,
-  aiUsageTotalTokens,
+  aiUsageSpendUSD,
   formatBranch,
   formatBranchDisplay,
-  formatTokenCount,
+  formatSpendUSD,
   formatRepoLabel,
   formatTriggerId,
   getBranchStatusTone,
@@ -360,7 +360,7 @@ export function RunCard({
   const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const failurePreview = getFailurePreview(run.failure_reason);
-  const aiTokens = aiUsageTotalTokens(run.ai_usage);
+  const aiSpend = aiUsageSpendUSD(run.ai_usage);
   const outputStatus = runFinalOutputStatusPresentation(run.final_output_status);
   const cardTone =
     variant === 'event'
@@ -421,10 +421,10 @@ export function RunCard({
             <CommitIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
             <span className="truncate" title="Commit Hash">{(run.git_commit_sha || 'N/A').slice(0, 8)}</span>
           </div>
-          {aiTokens > 0 && (
+          {aiSpend > 0 && (
             <div className="flex items-center">
               <ZapIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
-              <span className="truncate" title="LLM tokens">{formatTokenCount(aiTokens)}</span>
+              <span className="truncate" title="AI spend">{formatSpendUSD(aiSpend)}</span>
             </div>
           )}
           {outputStatus && (
@@ -470,7 +470,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
   const commitLabel = (run.git_commit_sha || 'N/A').slice(0, 8);
   const runIdLabel = (run.run_id || 'N/A').slice(0, 8);
   const failurePreview = getFailurePreview(run.failure_reason);
-  const aiTokens = aiUsageTotalTokens(run.ai_usage);
+  const aiSpend = aiUsageSpendUSD(run.ai_usage);
   const outputStatus = runFinalOutputStatusPresentation(run.final_output_status);
   const failureSummary = failurePreview
     ? [failurePreview.title, failurePreview.detail].filter(Boolean).join(' - ')
@@ -483,7 +483,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
     `Commit ${commitLabel}`,
     `Trigger ${triggerLabel.full || triggerLabel.display}`,
     outputStatus?.title || '',
-    aiTokens > 0 ? formatTokenCount(aiTokens) : '',
+    aiSpend > 0 ? formatSpendUSD(aiSpend) : '',
     failureSummary,
   ].filter(Boolean).join(' | ');
   return (
@@ -553,9 +553,9 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
         </span>
       </div>
       <div className="run-list-cell">
-        {aiTokens > 0 && <ZapIcon className="run-list-cell-icon h-3.5 w-3.5" />}
-        <span className="run-list-meta-value truncate" title={aiTokens > 0 ? `LLM usage: ${formatTokenCount(aiTokens)}` : 'No LLM token usage'}>
-          {aiTokens > 0 ? formatTokenCount(aiTokens) : '—'}
+        {aiSpend > 0 && <ZapIcon className="run-list-cell-icon h-3.5 w-3.5" />}
+        <span className="run-list-meta-value truncate" title={aiSpend > 0 ? `LLM usage: ${formatSpendUSD(aiSpend)}` : 'No LLM token usage'}>
+          {aiSpend > 0 ? formatSpendUSD(aiSpend) : '—'}
         </span>
       </div>
       <div className="run-list-cell">

@@ -240,24 +240,35 @@ export function formatRepoLabel(run: RunListItem) {
   return 'Manual';
 }
 
-export function aiUsageTotalTokens(usage?: AIUsageSummary | null) {
-  const total = Number(usage?.total_tokens || 0);
-  return Number.isFinite(total) && total > 0 ? total : 0;
+export function aiUsageSpendUSD(usage?: AIUsageSummary | null) {
+  const spend = Number(usage?.spend_usd || 0);
+  return Number.isFinite(spend) && spend > 0 ? spend : 0;
 }
 
-export function formatTokenCount(value?: number | null) {
-  const count = Number(value || 0);
-  if (!Number.isFinite(count) || count <= 0) return '0 tokens';
-  if (count < 1000) return `${count.toLocaleString()} ${count === 1 ? 'token' : 'tokens'}`;
-  if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k tokens`;
-  return `${(count / 1_000_000).toFixed(count < 10_000_000 ? 1 : 0)}M tokens`;
+/**
+ * Formats AI spend. Sub-cent amounts keep four decimals so that a run made of
+ * many cheap calls does not round to $0.00 and read as free.
+ */
+export function formatSpendUSD(value?: number | null) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return '$0.00';
+  const fractionDigits = amount < 0.01 ? 4 : 2;
+  return amount.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
 }
 
-export function formatAIUsageBreakdown(usage?: AIUsageSummary | null) {
-  const prompt = Number(usage?.prompt_tokens || 0);
-  const completion = Number(usage?.completion_tokens || 0);
-  if (prompt <= 0 && completion <= 0) return 'No prompt/completion split recorded';
-  return `${formatTokenCount(prompt)} prompt / ${formatTokenCount(completion)} completion`;
+/**
+ * Describes how complete a spend figure is. An unpriced call contributes nothing
+ * to the total, so its existence has to be stated rather than left to inference.
+ */
+export function formatAIUsageCompleteness(usage?: AIUsageSummary | null) {
+  const unpriced = Number(usage?.unpriced_calls || 0);
+  if (!Number.isFinite(unpriced) || unpriced <= 0) return '';
+  return `${unpriced.toLocaleString()} call${unpriced === 1 ? '' : 's'} not priced`;
 }
 
 export function buildRunMonitoringLink(run: Pick<RunListItem, 'run_id'> | null | undefined) {

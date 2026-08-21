@@ -32,6 +32,7 @@ var assistantSchemaStatements = []string{
 		usage_estimated BOOLEAN NOT NULL DEFAULT FALSE,
 		duration_ms BIGINT NOT NULL DEFAULT 0,
 		llm_calls INTEGER NOT NULL DEFAULT 0,
+		cost_usd NUMERIC(18, 8),
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS content_tokens BIGINT NOT NULL DEFAULT 0`,
@@ -41,6 +42,9 @@ var assistantSchemaStatements = []string{
 	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS usage_estimated BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS duration_ms BIGINT NOT NULL DEFAULT 0`,
 	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS llm_calls INTEGER NOT NULL DEFAULT 0`,
+	// Nullable on purpose: NULL is "we could not price this turn", which must
+	// stay distinguishable from a turn that genuinely cost nothing.
+	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(18, 8)`,
 	`UPDATE assistant_messages
 	 SET total_tokens = 0
 	 WHERE role = 'user'

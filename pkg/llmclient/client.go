@@ -51,7 +51,11 @@ type Usage struct {
 	PromptTokens     int64  `json:"prompt_tokens,omitempty"`
 	CompletionTokens int64  `json:"completion_tokens,omitempty"`
 	TotalTokens      int64  `json:"total_tokens,omitempty"`
-	Estimated        bool   `json:"estimated,omitempty"`
+	// CachedInputTokens and CacheWriteTokens are subsets of PromptTokens that
+	// bill at their own rates rather than the standard input rate.
+	CachedInputTokens int64 `json:"cached_input_tokens,omitempty"`
+	CacheWriteTokens  int64 `json:"cache_write_tokens,omitempty"`
+	Estimated         bool  `json:"estimated,omitempty"`
 }
 
 type Completion struct {
@@ -191,7 +195,7 @@ func (c *Client) completeOpenAIChat(ctx context.Context, endpoint string, header
 	}
 	return Completion{
 		Text: strings.TrimSpace(text),
-		Usage: usageFromTokens(
+		Usage: usageFromTokenDetails(
 			c.options.Provider,
 			model,
 			c.options.Profile,
@@ -200,6 +204,7 @@ func (c *Client) completeOpenAIChat(ctx context.Context, endpoint string, header
 			response.Usage.PromptTokens,
 			response.Usage.CompletionTokens,
 			response.Usage.TotalTokens,
+			response.Usage.PromptTokensDetails.CachedTokens,
 		),
 	}, nil
 }
@@ -238,10 +243,7 @@ func (c *Client) completeAnthropic(ctx context.Context, systemInstruction, promp
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage struct {
-			InputTokens  int64 `json:"input_tokens"`
-			OutputTokens int64 `json:"output_tokens"`
-		} `json:"usage"`
+		Usage anthropicUsage `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
 		return Completion{}, fmt.Errorf("failed to unmarshal anthropic response: %w", err)
@@ -256,19 +258,19 @@ func (c *Client) completeAnthropic(ctx context.Context, systemInstruction, promp
 		return Completion{}, fmt.Errorf("empty response from anthropic")
 	}
 	text := strings.Join(messages, "\n")
-	return Completion{
-		Text: strings.TrimSpace(text),
-		Usage: usageFromTokens(
-			c.options.Provider,
-			c.options.Model,
-			c.options.Profile,
-			completionPrompt(systemInstruction, prompt),
-			text,
-			response.Usage.InputTokens,
-			response.Usage.OutputTokens,
-			response.Usage.InputTokens+response.Usage.OutputTokens,
-		),
-	}, nil
+	usage := usageFromTokenDetails(
+		c.options.Provider,
+		c.options.Model,
+		c.options.Profile,
+		completionPrompt(systemInstruction, prompt),
+		text,
+		response.Usage.PromptTokens(),
+		response.Usage.OutputTokens,
+		response.Usage.TotalTokens(),
+		response.Usage.CacheReadInputTokens,
+	)
+	usage.CacheWriteTokens = response.Usage.CacheCreationInputTokens
+	return Completion{Text: strings.TrimSpace(text), Usage: usage}, nil
 }
 
 func (c *Client) completeGemini(ctx context.Context, systemInstruction, prompt string) (Completion, error) {
@@ -302,17 +304,19 @@ func (c *Client) completeGemini(ctx context.Context, systemInstruction, prompt s
 	if text == "" {
 		return Completion{}, fmt.Errorf("empty response from gemini")
 	}
+	usage := response.UsageMetadata
 	return Completion{
 		Text: text,
-		Usage: usageFromTokens(
+		Usage: usageFromTokenDetails(
 			c.options.Provider,
 			c.options.Model,
 			c.options.Profile,
 			completionPrompt(systemInstruction, prompt),
 			text,
-			response.UsageMetadata.PromptTokenCount,
-			response.UsageMetadata.CandidatesTokenCount,
-			response.UsageMetadata.TotalTokenCount,
+			usage.InputTokens(),
+			usage.OutputTokens(),
+			usage.TotalTokenCount,
+			usage.CachedContentTokenCount,
 		),
 	}, nil
 }
@@ -663,6 +667,11 @@ type openAIChatResponse struct {
 		PromptTokens     int64 `json:"prompt_tokens"`
 		CompletionTokens int64 `json:"completion_tokens"`
 		TotalTokens      int64 `json:"total_tokens"`
+		// CachedTokens is the portion of PromptTokens the provider served from
+		// its cache, not an addition to it.
+		PromptTokensDetails struct {
+			CachedTokens int64 `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -779,13 +788,22 @@ func readResponseBody(body io.Reader) ([]byte, error) {
 }
 
 func usageFromTokens(provider, model, profile, prompt, completion string, promptTokens, completionTokens, totalTokens int64) Usage {
+	return usageFromTokenDetails(provider, model, profile, prompt, completion, promptTokens, completionTokens, totalTokens, 0)
+}
+
+// usageFromTokenDetails additionally carries the portion of the prompt that the
+// provider served from its cache. Cached tokens are a subset of promptTokens,
+// not an addition to them; they are tracked separately only because they bill at
+// a different rate.
+func usageFromTokenDetails(provider, model, profile, prompt, completion string, promptTokens, completionTokens, totalTokens, cachedInputTokens int64) Usage {
 	usage := Usage{
-		Provider:         strings.TrimSpace(provider),
-		Model:            strings.TrimSpace(model),
-		Profile:          strings.TrimSpace(profile),
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      totalTokens,
+		Provider:          strings.TrimSpace(provider),
+		Model:             strings.TrimSpace(model),
+		Profile:           strings.TrimSpace(profile),
+		PromptTokens:      promptTokens,
+		CompletionTokens:  completionTokens,
+		TotalTokens:       totalTokens,
+		CachedInputTokens: cachedInputTokens,
 	}
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
@@ -798,6 +816,28 @@ func usageFromTokens(provider, model, profile, prompt, completion string, prompt
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	usage.Estimated = usage.TotalTokens > 0
 	return usage
+}
+
+// anthropicUsage mirrors the billable token breakdown Anthropic reports.
+//
+// input_tokens counts only the tokens that were neither read from nor written to
+// the prompt cache. The two cache figures are reported alongside it rather than
+// inside it, so reading input_tokens alone understates the prompt by the entire
+// cached prefix whenever caching is in play.
+type anthropicUsage struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+}
+
+// PromptTokens is every token billed at an input rate, cached or not.
+func (u anthropicUsage) PromptTokens() int64 {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+func (u anthropicUsage) TotalTokens() int64 {
+	return u.PromptTokens() + u.OutputTokens
 }
 
 func estimateTokenCount(text string) int64 {

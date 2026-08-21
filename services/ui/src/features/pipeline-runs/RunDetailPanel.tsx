@@ -10,11 +10,11 @@ import { buildRunAnalysisPromptContext } from './runAnalysisEvidence';
 import {
   buildPipelineLink,
   buildRunMonitoringLink,
-  formatAIUsageBreakdown,
+  formatAIUsageCompleteness,
   formatBranchDisplay,
   formatRepoLabel,
   formatRunTimestamp,
-  formatTokenCount,
+  formatSpendUSD,
   formatTriggerId,
   runActivityTimestamp,
   runStartedTimestamp,
@@ -165,9 +165,9 @@ export function RunDetailView({
       icon: <ZapIcon className="h-4 w-4 text-slate-500" />,
     },
     {
-      label: 'LLM tokens',
-      value: formatTokenCount(run.ai_usage?.total_tokens),
-      subtext: formatAIUsageBreakdown(run.ai_usage),
+      label: 'AI spend',
+      value: formatSpendUSD(run.ai_usage?.spend_usd),
+      subtext: formatAIUsageCompleteness(run.ai_usage) || 'All calls priced',
       icon: <BarChart3 className="h-4 w-4 text-slate-500" />,
     },
   ];

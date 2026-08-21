@@ -105,10 +105,7 @@ func (c *anthropicClient) Complete(ctx context.Context, prompt string) (string, 
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
-		Usage struct {
-			InputTokens  int64 `json:"input_tokens"`
-			OutputTokens int64 `json:"output_tokens"`
-		} `json:"usage"`
+		Usage anthropicUsage `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
 		return "", fmt.Errorf("failed to unmarshal anthropic response: %w", err)
@@ -123,17 +120,42 @@ func (c *anthropicClient) Complete(ctx context.Context, prompt string) (string, 
 		return "", fmt.Errorf("invalid or empty response from anthropic: %s", string(body))
 	}
 	responseText := strings.Join(messages, "\n")
-	recordUsage(ctx, usageFromTokenDetailsForClient(
+	usage := response.Usage
+	recorded := usageFromTokenDetailsForClient(
 		c.owner,
 		c.model,
 		prompt,
 		responseText,
-		response.Usage.InputTokens,
-		response.Usage.OutputTokens,
-		response.Usage.InputTokens+response.Usage.OutputTokens,
-		0,
-	))
+		usage.PromptTokens(),
+		usage.OutputTokens,
+		usage.TotalTokens(),
+		usage.CacheReadInputTokens,
+	)
+	recorded.CacheWriteTokens = usage.CacheCreationInputTokens
+	recordUsage(ctx, recorded)
 	return responseText, nil
+}
+
+// anthropicUsage mirrors the billable token breakdown Anthropic reports.
+//
+// input_tokens counts only the tokens that were neither read from nor written to
+// the prompt cache. The two cache figures are reported alongside it rather than
+// inside it, so reading input_tokens alone understates the prompt by the entire
+// cached prefix whenever caching is in play.
+type anthropicUsage struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+}
+
+// PromptTokens is every token billed at an input rate, cached or not.
+func (u anthropicUsage) PromptTokens() int64 {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+func (u anthropicUsage) TotalTokens() int64 {
+	return u.PromptTokens() + u.OutputTokens
 }
 
 func buildAnthropicMessagesURL(baseURL string) string {

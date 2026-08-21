@@ -143,7 +143,7 @@ func BuildListRunsQuery(teamID *int, rootTeam bool, branchName string, limit, of
 			COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, ''),
 			COALESCE(pr.pipeline_definition, ''),
 			COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
-			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8,
+			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8, COALESCE(prus.ai_unpriced_calls, 0)::bigint,
 			COALESCE(outputs.total, 0)::int,
 			COALESCE(outputs.pending, 0)::int,
 			COALESCE(outputs.generating, 0)::int,
@@ -229,7 +229,7 @@ func scanRunListItem(scanner interface {
 		&triggerSource, &scheduleID, &scheduleName, &schedulePath, &externalTriggerID, &externalTriggerName, &externalTriggerEventType,
 		&externalTriggerCallerType, &externalTriggerCallerID, &externalTriggerIdempotency,
 		&pipelineDefinition,
-		&run.AIUsage.PromptTokens, &run.AIUsage.CompletionTokens, &run.AIUsage.TotalTokens, &run.AIUsage.TotalCostUSD,
+		&run.AIUsage.PromptTokens, &run.AIUsage.CompletionTokens, &run.AIUsage.TotalTokens, &run.AIUsage.SpendUSD, &run.AIUsage.UnpricedCalls,
 		&outputTotal, &outputPending, &outputGenerating, &outputGenerated, &outputFailed, &outputCancelled, &outputsUpdatedAt,
 	)
 	if err != nil {

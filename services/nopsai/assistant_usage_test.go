@@ -30,7 +30,7 @@ func TestAssistantUsageForAssistantReplySumsLLMCallsAndDuration(t *testing.T) {
 			Name:   "nopsai.get_pipeline",
 			Output: map[string]any{"usage": map[string]any{"total_tokens": float64(999)}},
 		},
-	}, 1500*time.Millisecond)
+	}, 1500*time.Millisecond, nil)
 
 	if usage.PromptTokens != 18 || usage.CompletionTokens != 9 || usage.TotalTokens != 27 {
 		t.Fatalf("usage tokens = %#v, want summed planner and synthesis tokens", usage)
@@ -50,7 +50,7 @@ func TestAssistantUsageForAssistantReplySumsLLMCallsAndDuration(t *testing.T) {
 }
 
 func TestAssistantUsageForAssistantReplyTracksDeterministicVisibleContentOnly(t *testing.T) {
-	usage := assistantUsageForAssistantReply("Deterministic answer.", nil, time.Nanosecond)
+	usage := assistantUsageForAssistantReply("Deterministic answer.", nil, time.Nanosecond, nil)
 
 	if usage.ContentTokens == 0 {
 		t.Fatalf("content token estimate missing: %#v", usage)
@@ -68,7 +68,7 @@ func TestAssistantUsageForAssistantReplyEstimatesSuccessfulLLMCallWithMissingUsa
 		Name:   assistantLLMToolName,
 		Status: assistantToolStatusSuccess,
 		Output: map[string]any{},
-	}}, time.Second)
+	}}, time.Second, nil)
 
 	if usage.TotalTokens == 0 || usage.CompletionTokens == 0 || !usage.Estimated {
 		t.Fatalf("usage = %#v, want estimated provider tokens for successful LLM call without usage", usage)

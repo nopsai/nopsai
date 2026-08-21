@@ -55,7 +55,7 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 			COALESCE(pr.effective_subject_type, ''), COALESCE(pr.effective_subject_id, ''),
 			COALESCE(pr.runtime_variable_overrides::text, '{}'),
 			COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
-			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8
+			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8, COALESCE(prus.ai_unpriced_calls, 0)::bigint
 		FROM pipeline_runs pr
 		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
 		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
@@ -81,7 +81,7 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 		&gitCloneURL, &gitSSHURL, &gitCommitURL, &gitCommitMessage, &gitCommitAuthorName,
 		&gitCommitAuthorEmail, &gitCommitAuthorUsername, &gitPusherEmail, &record.Run.GitCheckRunID,
 		&requestedByType, &requestedByID, &effectiveSubjectType, &effectiveSubjectID, &runtimeVariableOverridesRaw,
-		&record.Run.AIUsage.PromptTokens, &record.Run.AIUsage.CompletionTokens, &record.Run.AIUsage.TotalTokens, &record.Run.AIUsage.TotalCostUSD,
+		&record.Run.AIUsage.PromptTokens, &record.Run.AIUsage.CompletionTokens, &record.Run.AIUsage.TotalTokens, &record.Run.AIUsage.SpendUSD, &record.Run.AIUsage.UnpricedCalls,
 	)
 	if err != nil {
 		return RunRecord{}, err
@@ -169,7 +169,7 @@ func LoadChildRuns(ctx context.Context, db Queryer, runID string) ([]models.RunL
 		SELECT pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, pr.started_at, pr.finished_at,
 		       pr.parent_step_name, COALESCE(pr.trigger_event_id, ''),
 		       COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
-		       COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8
+		       COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8, COALESCE(prus.ai_unpriced_calls, 0)::bigint
 		FROM pipeline_runs pr
 		LEFT JOIN pipeline_run_usage_summary prus ON prus.run_id = pr.run_id
 		WHERE pr.parent_run_id = $1
@@ -188,7 +188,7 @@ func LoadChildRuns(ctx context.Context, db Queryer, runID string) ([]models.RunL
 		if err := rows.Scan(
 			&childRun.RunID, &childRun.PipelineName, &childPipelinePath, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt,
 			&parentStepName, &childTriggerEventID,
-			&childRun.AIUsage.PromptTokens, &childRun.AIUsage.CompletionTokens, &childRun.AIUsage.TotalTokens, &childRun.AIUsage.TotalCostUSD,
+			&childRun.AIUsage.PromptTokens, &childRun.AIUsage.CompletionTokens, &childRun.AIUsage.TotalTokens, &childRun.AIUsage.SpendUSD, &childRun.AIUsage.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -253,7 +253,8 @@ func LoadAIUsageByStep(ctx context.Context, db Queryer, runID string) (map[strin
 		       COALESCE(SUM(prompt_tokens), 0)::bigint,
 		       COALESCE(SUM(completion_tokens), 0)::bigint,
 		       COALESCE(SUM(total_tokens), 0)::bigint,
-		       COALESCE(SUM(total_cost_usd), 0)::float8
+		       COALESCE(SUM(total_cost_usd), 0)::float8,
+		       (COUNT(*) FILTER (WHERE total_cost_usd IS NULL))::bigint
 		FROM ai_usage_events
 		WHERE run_id = $1
 		GROUP BY COALESCE(step_name, '')
@@ -267,7 +268,7 @@ func LoadAIUsageByStep(ctx context.Context, db Queryer, runID string) (map[strin
 	for rows.Next() {
 		var stepName string
 		var usage models.AIUsageSummary
-		if err := rows.Scan(&stepName, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.TotalCostUSD); err != nil {
+		if err := rows.Scan(&stepName, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.SpendUSD, &usage.UnpricedCalls); err != nil {
 			return nil, err
 		}
 		usageByStep[stepName] = usage
@@ -284,7 +285,8 @@ func LoadAIUsageByTask(ctx context.Context, db Queryer, runID string) (map[strin
 		       COALESCE(SUM(prompt_tokens), 0)::bigint,
 		       COALESCE(SUM(completion_tokens), 0)::bigint,
 		       COALESCE(SUM(total_tokens), 0)::bigint,
-		       COALESCE(SUM(total_cost_usd), 0)::float8
+		       COALESCE(SUM(total_cost_usd), 0)::float8,
+		       (COUNT(*) FILTER (WHERE total_cost_usd IS NULL))::bigint
 		FROM ai_usage_events
 		WHERE run_id = $1
 		  AND COALESCE(task_name, '') <> ''
@@ -299,7 +301,7 @@ func LoadAIUsageByTask(ctx context.Context, db Queryer, runID string) (map[strin
 	for rows.Next() {
 		var stepName, taskName string
 		var usage models.AIUsageSummary
-		if err := rows.Scan(&stepName, &taskName, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.TotalCostUSD); err != nil {
+		if err := rows.Scan(&stepName, &taskName, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.SpendUSD, &usage.UnpricedCalls); err != nil {
 			return nil, err
 		}
 		usageByTask[taskUsageKey(stepName, taskName)] = usage
@@ -602,7 +604,7 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 		run.AIUsage.PromptTokens,
 		run.AIUsage.CompletionTokens,
 		run.AIUsage.TotalTokens,
-		run.AIUsage.TotalCostUSD,
+		run.AIUsage.SpendUSD,
 	)
 
 	for _, childRun := range childRuns {
@@ -725,7 +727,7 @@ func writeAIUsageMapToHash(hasher interface {
 			usage.PromptTokens,
 			usage.CompletionTokens,
 			usage.TotalTokens,
-			usage.TotalCostUSD,
+			usage.SpendUSD,
 		)
 	}
 }

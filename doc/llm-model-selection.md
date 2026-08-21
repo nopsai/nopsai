@@ -53,6 +53,31 @@ Profile fields:
 - `thinking`: optional LM Studio shortcut. When `reasoning` is omitted,
   `thinking: true` maps to reasoning `on` and `thinking: false` maps to
   reasoning `off`; `off` is omitted from LM Studio requests.
+- `pricing`: optional rate card, in USD per million tokens, used to report AI
+  usage as money. It takes `input_per_million_usd` and `output_per_million_usd`,
+  plus optional `cached_input_per_million_usd` and `cache_write_per_million_usd`
+  that default to the input rate when the provider does not price cached tokens
+  separately.
+
+  Leaving it out is fine and is the right thing to do when the rate is unknown.
+  The model still runs, its usage still records tokens, and its cost records as
+  unknown rather than as zero, so the dashboards report it as unpriced instead of
+  quietly understating spend.
+
+  A locally served model is a different case: LM Studio and Ollama have no
+  per-token charge, so the setup wizard writes explicit zeroes for them. That is
+  a statement of fact — "this costs nothing per token" — rather than an absence
+  of information, and it keeps a local-only deployment from showing a permanent
+  unpriced warning. Override it if you want to attribute hardware cost per
+  token.
+
+  ```yaml
+  pricing:
+    input_per_million_usd: 0.30
+    output_per_million_usd: 2.50
+    cached_input_per_million_usd: 0.075
+  ```
+
 - `timeout_seconds`: optional HTTP timeout for provider requests.
 - `max_tokens`: optional completion token limit supported by every built-in
   provider. OpenAI-compatible, Azure OpenAI, and Anthropic adapters default to

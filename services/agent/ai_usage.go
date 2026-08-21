@@ -45,7 +45,9 @@ func reportCollectedAIUsage(ctx context.Context, reporter aiUsageReporter, featu
 			continue
 		}
 		if err := reporter.ReportAIUsage(ctx, report); err != nil {
-			stepLog("", "", stepName, taskName).Warn().Err(err).Msg("Failed to report AI usage")
+			stepLog("", "", stepName, taskName).Error().Err(err).
+				Str("feature", feature).
+				Msg("Failed to report AI usage; this run's spend will be understated")
 		}
 	}
 }
@@ -155,23 +157,25 @@ func aiUsageReportFromLLMUsage(feature, stepName, taskName, agentProfile string,
 		metadata["workspace_tool_result_bytes"] = usage.WorkspaceToolResultBytes
 	}
 	return models.AIUsageReport{
-		StepName:         strings.TrimSpace(stepName),
-		TaskName:         strings.TrimSpace(taskName),
-		Feature:          strings.TrimSpace(feature),
-		Provider:         strings.TrimSpace(usage.Provider),
-		ProviderModel:    strings.TrimSpace(usage.Model),
-		LLMProfile:       strings.TrimSpace(usage.Profile),
-		PromptTokens:     usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens,
-		TotalTokens:      usage.TotalTokens,
-		InputCostUSD:     usage.InputCostUSD,
-		OutputCostUSD:    usage.OutputCostUSD,
-		TotalCostUSD:     usage.TotalCostUSD,
-		Metadata:         metadata,
+		StepName:          strings.TrimSpace(stepName),
+		TaskName:          strings.TrimSpace(taskName),
+		Feature:           strings.TrimSpace(feature),
+		Provider:          strings.TrimSpace(usage.Provider),
+		ProviderModel:     strings.TrimSpace(usage.Model),
+		LLMProfile:        strings.TrimSpace(usage.Profile),
+		PromptTokens:      usage.PromptTokens,
+		CompletionTokens:  usage.CompletionTokens,
+		TotalTokens:       usage.TotalTokens,
+		CachedInputTokens: usage.CachedInputTokens,
+		CacheWriteTokens:  usage.CacheWriteTokens,
+		Estimated:         usage.Estimated,
+		Metadata:          metadata,
 	}
 }
 
+// aiUsageReportHasValue reports whether there is anything worth sending. The
+// agent reports tokens only; pricing them is the server's job, because the rate
+// card lives with the model definition rather than with the runner.
 func aiUsageReportHasValue(report models.AIUsageReport) bool {
-	return report.PromptTokens > 0 || report.CompletionTokens > 0 || report.TotalTokens > 0 ||
-		report.InputCostUSD > 0 || report.OutputCostUSD > 0 || report.TotalCostUSD > 0
+	return report.PromptTokens > 0 || report.CompletionTokens > 0 || report.TotalTokens > 0
 }
