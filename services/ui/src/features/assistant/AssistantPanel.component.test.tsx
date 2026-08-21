@@ -1,8 +1,16 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { AssistantPanel } from './AssistantPanel';
-import { emptyAssistantConversationUsage, emptyAssistantMemory, emptyAssistantMessageUsage, type AssistantConfig, type AssistantConversation, type AssistantMessage } from './model';
+import {
+  emptyAssistantConversationUsage,
+  emptyAssistantMemory,
+  emptyAssistantMessageUsage,
+  type AssistantConfig,
+  type AssistantConversation,
+  type AssistantMessage,
+  type AssistantToolActivity,
+} from './model';
 import { useAssistantController } from './useAssistantController';
 
 vi.mock('./useAssistantController', () => ({
@@ -10,6 +18,7 @@ vi.mock('./useAssistantController', () => ({
 }));
 
 const useAssistantControllerMock = vi.mocked(useAssistantController);
+type AssistantControllerState = ReturnType<typeof useAssistantController>;
 
 const enabledConfig: AssistantConfig = {
   enabled: true,
@@ -41,20 +50,18 @@ beforeEach(() => {
   useAssistantControllerMock.mockReset();
 });
 
-test('renders clean chat messages without inline tool-call details', async () => {
+test('renders a clean transcript with per-message actions and no evidence or memory panels', async () => {
   const user = userEvent.setup();
   const copyMessage = vi.fn();
-  const deleteConversation = vi.fn();
   const retryMessage = vi.fn();
   const messages = [
     assistantMessage('m1', 'user', 'show pipeline'),
     {
       ...assistantMessage('m2', 'assistant', 'Pipeline loaded.'),
       tool_calls: [
-        { name: 'nopsai.llm.plan', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://features'] },
+        toolActivity('nopsai.llm.plan', 'success'),
         {
-          name: 'nopsai.assistant.execution_plan',
-          input: {},
+          ...toolActivity('nopsai.assistant.execution_plan', 'success'),
           output: {
             execution_plan: {
               goal: 'Show pipeline',
@@ -62,131 +69,55 @@ test('renders clean chat messages without inline tool-call details', async () =>
               summary: 'Use MCP first, then synthesize a concise answer.',
               requires_confirmation: false,
               steps: [
-                {
-                  index: 1,
-                  title: 'Read pipeline metadata',
-                  source: 'mcp',
-                  phase: 'evidence',
-                  confidence: 'high',
-                  status: 'planned',
-                },
-                {
-                  index: 2,
-                  title: 'Synthesize the answer',
-                  source: 'llm',
-                  phase: 'synthesis',
-                  confidence: 'medium',
-                  status: 'planned',
-                },
+                { index: 1, title: 'Read pipeline metadata', source: 'mcp', phase: 'evidence', confidence: 'high', status: 'planned' },
+                { index: 2, title: 'Synthesize the answer', source: 'llm', phase: 'synthesis', confidence: 'medium', status: 'planned' },
               ],
             },
           },
-          status: 'success',
-          resource_uris: ['nopsai://assistant/execution-plan'],
         },
-        { name: 'nopsai.get_pipeline', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://pipelines'] },
-        { name: 'nopsai.llm.complete', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://system/models'] },
+        { ...toolActivity('nopsai.get_pipeline', 'success'), resource_uris: ['nopsai://pipelines'] },
+        toolActivity('nopsai.llm.complete', 'success'),
       ],
     },
   ];
+  const conversation = assistantConversation(messages);
 
-  useAssistantControllerMock.mockReturnValue({
-    conversations: [assistantConversation(messages)],
-    activeConversation: assistantConversation(messages),
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
     activeMessages: messages,
-    profiles: [],
-    profileOptions: ['assistant'],
-    selectedProfile: 'assistant',
-    setSelectedProfile: vi.fn(),
-    draft: '',
-    setDraft: vi.fn(),
-    loading: false,
-    sending: false,
-    sendingConversationID: '',
-    activeConversationSending: false,
-    activeConversationSendingStartedAt: 0,
-    retrying: false,
-    deletingConversationID: '',
-    copiedMessageID: '',
-    conversationCopied: false,
-    error: null,
-    config: enabledConfig,
-    enabled: true,
-    canRetry: true,
-    load: vi.fn(),
-    selectConversation: vi.fn(),
-    startConversation: vi.fn(),
-    deleteConversation,
-    retryMessage,
-    retryLastUserMessage: vi.fn(),
     copyMessage,
-    copyConversation: vi.fn(),
-    submitMessage: vi.fn(),
+    retryMessage,
   });
 
   render(<AssistantPanel variant="dock" />);
 
   expect(screen.getByText('Pipeline loaded.')).toBeVisible();
   expect(screen.getByText('Execution plan')).toBeVisible();
-  expect(screen.getByText('Read pipeline metadata')).toBeVisible();
   const mcpPlanStep = screen.getByText('Read pipeline metadata').closest('li');
-  expect(mcpPlanStep).not.toBeNull();
   expect(within(mcpPlanStep as HTMLElement).getByText('MCP')).toBeVisible();
   expect(screen.getByText('Synthesize the answer')).toBeVisible();
-  expect(screen.queryByText(/nopsai\.llm\.plan/)).toBeNull();
+
+  // The removed side panel took memory, evidence and proposed changes with it.
+  expect(screen.queryByText('Memory')).toBeNull();
+  expect(screen.queryByText(/NopsAI evidence/)).toBeNull();
+  expect(screen.queryByText(/Proposed changes/)).toBeNull();
+  expect(screen.queryByText('Session details')).toBeNull();
   expect(screen.queryByText(/nopsai\.get_pipeline/)).toBeNull();
-  expect(screen.queryByText(/nopsai:\/\/features/)).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Refresh assistant' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Retry last prompt' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Delete conversation' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'New' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Copy conversation' })).toBeNull();
+  expect(screen.queryByText(/nopsai:\/\/pipelines/)).toBeNull();
 
   await user.click(screen.getAllByRole('button', { name: 'Copy message' })[1]);
   expect(copyMessage).toHaveBeenCalledWith(messages[1]);
 
   await user.click(screen.getByRole('button', { name: 'Retry this prompt' }));
   expect(retryMessage).toHaveBeenCalledWith(messages[0]);
-  expect(deleteConversation).not.toHaveBeenCalled();
 });
 
-test('renders welcome starters that prefill the composer', async () => {
+test('renders welcome starters, the page context chip and the review footnote', async () => {
   const user = userEvent.setup();
   const setDraft = vi.fn();
 
-  useAssistantControllerMock.mockReturnValue({
-    conversations: [],
-    activeConversation: null,
-    activeMessages: [],
-    profiles: [],
-    profileOptions: ['assistant'],
-    selectedProfile: 'assistant',
-    setSelectedProfile: vi.fn(),
-    draft: '',
-    setDraft,
-    loading: false,
-    sending: false,
-    sendingConversationID: '',
-    activeConversationSending: false,
-    activeConversationSendingStartedAt: 0,
-    retrying: false,
-    deletingConversationID: '',
-    copiedMessageID: '',
-    conversationCopied: false,
-    error: null,
-    config: enabledConfig,
-    enabled: true,
-    canRetry: false,
-    load: vi.fn(),
-    selectConversation: vi.fn(),
-    startConversation: vi.fn(),
-    deleteConversation: vi.fn(),
-    retryMessage: vi.fn(),
-    retryLastUserMessage: vi.fn(),
-    copyMessage: vi.fn(),
-    copyConversation: vi.fn(),
-    submitMessage: vi.fn(),
-  });
+  mockController({ setDraft });
 
   render(
     <AssistantPanel
@@ -206,12 +137,11 @@ test('renders welcome starters that prefill the composer', async () => {
 
   expect(screen.getByText("Hi, I'm NopsAI. What are we solving today?")).toBeVisible();
   expect(screen.getByText('Context')).toBeVisible();
-  expect(screen.getAllByText('Pipelines · deploy · /platform').length).toBeGreaterThan(0);
-  expect(screen.getByRole('separator', { name: 'Resize message composer' })).toBeVisible();
-  expect(screen.getByPlaceholderText('Describe what you are trying to achieve...')).toHaveClass('resize-none');
+  expect(screen.getByText('Pipelines · deploy · /platform')).toBeVisible();
+  expect(screen.getByPlaceholderText('Message NopsAI...')).toHaveClass('resize-none');
   await user.click(screen.getByRole('button', { name: 'Explain a failed run' }));
   expect(setDraft).toHaveBeenCalledWith('Explain a failed run');
-  expect(screen.getAllByText(/changes always need your review/i).length).toBeGreaterThan(0);
+  expect(screen.getByText(/changes always need your review/i)).toBeVisible();
 });
 
 test('lets users remove page context from the composer', async () => {
@@ -227,6 +157,200 @@ test('lets users remove page context from the composer', async () => {
     scope: 'platform',
   };
 
+  mockController({});
+
+  render(<AssistantPanel variant="dock" pageContext={pageContext} />);
+
+  expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext });
+  expect(screen.getByText('Context')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Remove page context' }));
+
+  expect(screen.queryByText('Context')).toBeNull();
+  expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext: null });
+});
+
+test('sends the draft and attaches a text file into it', async () => {
+  const user = userEvent.setup();
+  const setDraft = vi.fn();
+  const submitMessage = vi.fn();
+
+  mockController({ draft: 'why is this failing?', setDraft, submitMessage });
+
+  render(<AssistantPanel variant="dock" />);
+
+  await user.upload(
+    screen.getByLabelText('Attach a text file'),
+    new File(['boom: exit code 1'], 'run.log', { type: 'text/plain' })
+  );
+  await waitFor(() => expect(setDraft).toHaveBeenCalledWith(
+    'why is this failing?\n\nAttached file run.log:\n```\nboom: exit code 1\n```'
+  ));
+
+  await user.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(submitMessage).toHaveBeenCalled();
+});
+
+test('groups conversations by recency and keeps idle conversations deletable during a send', async () => {
+  const user = userEvent.setup();
+  const deleteConversation = vi.fn();
+  const selectConversation = vi.fn();
+  const running = assistantConversation([assistantMessage('m1', 'user', 'Analyze AI usage cost by provider')]);
+  const lastWeek = {
+    ...assistantConversation([]),
+    id: 'c2',
+    title: 'Previous chat',
+    created_at: daysAgoISO(4),
+    updated_at: daysAgoISO(4),
+  };
+
+  mockController({
+    conversations: [running, lastWeek],
+    activeConversation: running,
+    activeMessages: running.messages,
+    sending: true,
+    sendingConversationID: 'c1',
+    activeConversationSending: true,
+    activeConversationSendingStartedAt: Date.now(),
+    deleteConversation,
+    selectConversation,
+  });
+
+  render(<AssistantPanel />);
+
+  const rail = within(screen.getByLabelText('Assistant conversations'));
+  expect(rail.getByText('Today')).toBeVisible();
+  expect(rail.getByText('Previous 7 days')).toBeVisible();
+  expect(rail.queryByLabelText('LLM profile', { selector: 'select' })).toBeNull();
+
+  expect(screen.getByRole('button', { name: 'Delete conversation Pipeline' })).toBeDisabled();
+  const idleDelete = screen.getByRole('button', { name: 'Delete conversation Previous chat' });
+  expect(idleDelete).toBeEnabled();
+  await user.click(idleDelete);
+  expect(deleteConversation).toHaveBeenCalledWith('c2');
+
+  await user.click(rail.getByRole('button', { name: 'Previous chat' }));
+  expect(selectConversation).toHaveBeenCalledWith('c2');
+});
+
+test('renders staged progress while the active conversation is sending', () => {
+  const messages = [assistantMessage('m1', 'user', 'Analyze AI usage cost by provider')];
+  const conversation = assistantConversation(messages);
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    sending: true,
+    sendingConversationID: 'c1',
+    activeConversationSending: true,
+    activeConversationSendingStartedAt: Date.now(),
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  expect(screen.getByText('Working through the request')).toBeVisible();
+  expect(screen.getByText('Plan the request with current permissions')).toBeVisible();
+  expect(screen.getByText('Read AI usage, profile, and cost evidence')).toBeVisible();
+  expect(screen.getByText('Synthesize an evidence-backed answer')).toBeVisible();
+});
+
+test('surfaces a provider failure as a card with the raw reason and a retry', async () => {
+  const user = userEvent.setup();
+  const retryMessage = vi.fn();
+  const detail = 'failed to discover lm studio models: Get "http://172.16.205.64:1234/api/v1/models": dial tcp 172.16.205.64:1234: i/o timeout';
+  const messages = [
+    assistantMessage('m1', 'user', 'make this pipeline faster'),
+    {
+      ...assistantMessage(
+        'm2',
+        'assistant',
+        `I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan: ${detail}. No changes were applied.`
+      ),
+      tool_calls: [{ ...toolActivity('nopsai.llm.plan', 'error'), output: { fallback_reason: detail } }],
+    },
+  ];
+  const conversation = assistantConversation(messages);
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    retryMessage,
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  expect(screen.getByText('Connection timeout')).toBeVisible();
+  expect(screen.getByText(new RegExp('dial tcp 172.16.205.64:1234'))).toBeVisible();
+  // The reason lives in the card, so the prose above it stays readable.
+  expect(screen.getByText(/returned an invalid plan\. No changes were applied\./)).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Retry request' }));
+  expect(retryMessage).toHaveBeenCalledWith(messages[0]);
+});
+
+test('shows a send failure card that retries the last prompt', async () => {
+  const user = userEvent.setup();
+  const retryLastUserMessage = vi.fn();
+  const messages = [assistantMessage('m1', 'user', 'make this pipeline faster')];
+  const conversation = assistantConversation(messages);
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    error: 'Failed to send message (429): {"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}',
+    canRetry: true,
+    retryLastUserMessage,
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  expect(screen.getByText('Rate limit or quota exceeded')).toBeVisible();
+  expect(screen.getByText(/"status": "RESOURCE_EXHAUSTED"/)).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Retry request' }));
+  expect(retryLastUserMessage).toHaveBeenCalled();
+});
+
+test('reports conversation spend and switches the model profile', async () => {
+  const user = userEvent.setup();
+  const setSelectedProfile = vi.fn();
+  const messages = [
+    assistantMessage('m1', 'user', 'show summary'),
+    {
+      ...assistantMessage('m2', 'assistant', '## Summary\n- Pipeline `deploy-api` is healthy.\n\n```yaml\nname: deploy-api\n```'),
+      usage: { cost_usd: 0.04, estimated: false, duration_ms: 1250, llm_calls: 2 },
+    },
+  ];
+  const conversation = {
+    ...assistantConversation(messages),
+    usage: { message_count: 2, spend_usd: 0.04, unpriced_turns: 1, duration_ms: 1250, llm_calls: 2 },
+  };
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    profileOptions: ['assistant', 'local-lab'],
+    setSelectedProfile,
+  });
+
+  render(<AssistantPanel />);
+
+  expect(screen.getByRole('heading', { name: 'Summary' })).toBeVisible();
+  expect(screen.getAllByText('deploy-api').length).toBeGreaterThan(0);
+  // Usage is reported as the one number tied to money, not as a token split.
+  expect(screen.getByText('$0.04')).toBeVisible();
+  expect(screen.getByTitle(/\$0\.04 · 2 messages · 1\.3s · 1 turn not priced/)).toBeVisible();
+  expect(screen.queryByText(/tokens/i)).toBeNull();
+
+  await user.selectOptions(screen.getByLabelText('Model'), 'local-lab');
+  expect(setSelectedProfile).toHaveBeenCalledWith('local-lab');
+});
+
+function mockController(overrides: Partial<AssistantControllerState>) {
   useAssistantControllerMock.mockReturnValue({
     conversations: [],
     activeConversation: null,
@@ -259,217 +383,15 @@ test('lets users remove page context from the composer', async () => {
     copyMessage: vi.fn(),
     copyConversation: vi.fn(),
     submitMessage: vi.fn(),
+    ...overrides,
   });
+}
 
-  render(<AssistantPanel variant="dock" pageContext={pageContext} />);
-
-  expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext });
-  expect(screen.getByText('Context')).toBeVisible();
-  expect(screen.getAllByText('Pipelines · deploy · /platform').length).toBeGreaterThan(0);
-
-  await user.click(screen.getByRole('button', { name: 'Remove page context' }));
-
-  expect(screen.queryByText('Context')).toBeNull();
-  expect(screen.queryByText('Pipelines · deploy · /platform')).toBeNull();
-  expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext: null });
-});
-
-test('renders staged progress while the active conversation is sending', () => {
-  const messages = [
-    assistantMessage('m1', 'user', 'Analyze AI usage cost by provider'),
-  ];
-  const conversation = assistantConversation(messages);
-
-  useAssistantControllerMock.mockReturnValue({
-    conversations: [conversation],
-    activeConversation: conversation,
-    activeMessages: messages,
-    profiles: [],
-    profileOptions: ['assistant'],
-    selectedProfile: 'assistant',
-    setSelectedProfile: vi.fn(),
-    draft: '',
-    setDraft: vi.fn(),
-    loading: false,
-    sending: true,
-    sendingConversationID: 'c1',
-    activeConversationSending: true,
-    activeConversationSendingStartedAt: Date.now(),
-    retrying: false,
-    deletingConversationID: '',
-    copiedMessageID: '',
-    conversationCopied: false,
-    error: null,
-    config: enabledConfig,
-    enabled: true,
-    canRetry: true,
-    load: vi.fn(),
-    selectConversation: vi.fn(),
-    startConversation: vi.fn(),
-    deleteConversation: vi.fn(),
-    retryMessage: vi.fn(),
-    retryLastUserMessage: vi.fn(),
-    copyMessage: vi.fn(),
-    copyConversation: vi.fn(),
-    submitMessage: vi.fn(),
-  });
-
-  render(<AssistantPanel variant="dock" />);
-
-  expect(screen.getByText('Working through the request')).toBeVisible();
-  expect(screen.getByText('Plan the request with current permissions')).toBeVisible();
-  expect(screen.getByText('Read AI usage, profile, and cost evidence')).toBeVisible();
-  expect(screen.getByText('Compare recorded usage with configured profiles')).toBeVisible();
-  expect(screen.getByText('Synthesize an evidence-backed answer')).toBeVisible();
-  expect(screen.getByText('Save and reconcile the chat result')).toBeVisible();
-});
-
-test('keeps non-running conversation delete actions available during a send', async () => {
-  const user = userEvent.setup();
-  const deleteConversation = vi.fn();
-  const runningConversation = assistantConversation([assistantMessage('m1', 'user', 'Analyze AI usage cost by provider')]);
-  const otherConversation = {
-    ...assistantConversation([assistantMessage('m2', 'user', 'previous chat')]),
-    id: 'c2',
-    title: 'Previous chat',
-  };
-
-  useAssistantControllerMock.mockReturnValue({
-    conversations: [runningConversation, otherConversation],
-    activeConversation: runningConversation,
-    activeMessages: runningConversation.messages,
-    profiles: [],
-    profileOptions: ['assistant'],
-    selectedProfile: 'assistant',
-    setSelectedProfile: vi.fn(),
-    draft: '',
-    setDraft: vi.fn(),
-    loading: false,
-    sending: true,
-    sendingConversationID: 'c1',
-    activeConversationSending: true,
-    activeConversationSendingStartedAt: Date.now(),
-    retrying: false,
-    deletingConversationID: '',
-    copiedMessageID: '',
-    conversationCopied: false,
-    error: null,
-    config: enabledConfig,
-    enabled: true,
-    canRetry: true,
-    load: vi.fn(),
-    selectConversation: vi.fn(),
-    startConversation: vi.fn(),
-    deleteConversation,
-    retryMessage: vi.fn(),
-    retryLastUserMessage: vi.fn(),
-    copyMessage: vi.fn(),
-    copyConversation: vi.fn(),
-    submitMessage: vi.fn(),
-  });
-
-  render(<AssistantPanel />);
-
-  expect(screen.getByRole('button', { name: 'Delete conversation Pipeline' })).toBeDisabled();
-  const otherDelete = screen.getByRole('button', { name: 'Delete conversation Previous chat' });
-  expect(otherDelete).toBeEnabled();
-  await user.click(otherDelete);
-  expect(deleteConversation).toHaveBeenCalledWith('c2');
-});
-
-test('renders assistant markdown and toggles usage details in the full page', async () => {
-  const user = userEvent.setup();
-  const messages = [
-    assistantMessage('m1', 'user', 'show summary'),
-    {
-      ...assistantMessage('m2', 'assistant', '## Summary\n- Pipeline `deploy-api` is healthy.\n\n```yaml\nname: deploy-api\n```'),
-      usage: {
-        cost_usd: 0.04,
-        estimated: false,
-        duration_ms: 1250,
-        llm_calls: 2,
-      },
-      tool_calls: [
-        {
-          name: 'nopsai.get_pipeline',
-          input: { pipeline_id: 'deploy-api' },
-          output: { status: 'ready' },
-          status: 'success',
-          resource_uris: ['nopsai://pipelines/deploy-api'],
-        },
-      ],
-    },
-  ];
-  const conversation = {
-    ...assistantConversation(messages),
-    usage: {
-      message_count: 2,
-      spend_usd: 0.04,
-      unpriced_turns: 1,
-      duration_ms: 1250,
-      llm_calls: 2,
-    },
-  };
-
-  useAssistantControllerMock.mockReturnValue({
-    conversations: [conversation],
-    activeConversation: conversation,
-    activeMessages: messages,
-    profiles: [],
-    profileOptions: ['assistant'],
-    selectedProfile: 'assistant',
-    setSelectedProfile: vi.fn(),
-    draft: '',
-    setDraft: vi.fn(),
-    loading: false,
-    sending: false,
-    sendingConversationID: '',
-    activeConversationSending: false,
-    activeConversationSendingStartedAt: 0,
-    retrying: false,
-    deletingConversationID: '',
-    copiedMessageID: '',
-    conversationCopied: false,
-    error: null,
-    config: enabledConfig,
-    enabled: true,
-    canRetry: true,
-    load: vi.fn(),
-    selectConversation: vi.fn(),
-    startConversation: vi.fn(),
-    deleteConversation: vi.fn(),
-    retryMessage: vi.fn(),
-    retryLastUserMessage: vi.fn(),
-    copyMessage: vi.fn(),
-    copyConversation: vi.fn(),
-    submitMessage: vi.fn(),
-  });
-
-  render(<AssistantPanel />);
-
-  const conversationsRail = within(screen.getByLabelText('Assistant conversations'));
-  expect(conversationsRail.queryByLabelText('LLM profile', { selector: 'select' })).toBeNull();
-  expect(conversationsRail.queryByText('assistant')).toBeNull();
-  expect(screen.getByText('Session details')).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Summary' })).toBeVisible();
-  expect(screen.getAllByText(/Pipeline/).length).toBeGreaterThan(0);
-  expect(screen.getAllByText('deploy-api').length).toBeGreaterThan(0);
-  expect(screen.getByText(/\$0\.04 · 1\.3s · 2 LLM calls/)).toBeVisible();
-  expect(screen.getAllByText(/\$0\.04 · 2 messages · 1\.3s · 1 turn not priced/).length).toBeGreaterThan(0);
-  // The usage panel reports money and the count of turns it could not price,
-  // not a prompt/completion token split.
-  expect(screen.getByText('Spend')).toBeVisible();
-  expect(screen.getByText('Not priced')).toBeVisible();
-  expect(screen.queryByText('Provider input')).toBeNull();
-  expect(screen.queryByText('Provider output')).toBeNull();
-  expect(screen.getByText('nopsai.get_pipeline')).toBeVisible();
-
-  await user.click(screen.getByRole('button', { name: 'Hide details' }));
-  expect(screen.queryByText('nopsai.get_pipeline')).toBeNull();
-
-  await user.click(screen.getByRole('button', { name: 'Show details' }));
-  expect(screen.getByText('nopsai.get_pipeline')).toBeVisible();
-});
+function daysAgoISO(days: number): string {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return new Date(startOfToday.getTime() - days * 24 * 60 * 60 * 1000 + 6 * 60 * 60 * 1000).toISOString();
+}
 
 function assistantConversation(messages: AssistantMessage[]): AssistantConversation {
   return {
@@ -482,8 +404,8 @@ function assistantConversation(messages: AssistantMessage[]): AssistantConversat
     memory: emptyAssistantMemory,
     messages,
     usage: emptyAssistantConversationUsage,
-    created_at: '2026-06-20T00:00:00Z',
-    updated_at: '2026-06-20T00:00:00Z',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
 }
 
@@ -497,4 +419,8 @@ function assistantMessage(id: string, role: 'user' | 'assistant', content: strin
     usage: emptyAssistantMessageUsage,
     created_at: '2026-06-20T00:00:00Z',
   };
+}
+
+function toolActivity(name: string, status: string): AssistantToolActivity {
+  return { name, input: {}, output: {}, status, resource_uris: [] };
 }

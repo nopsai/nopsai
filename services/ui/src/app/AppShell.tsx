@@ -304,7 +304,7 @@ function AppShell() {
             </main>
           </div>
           <div id="toast-container" className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3"></div>
-          <AssistantDock />
+          <AssistantDock currentUser={currentUser} />
         </>
       )}
     </div>

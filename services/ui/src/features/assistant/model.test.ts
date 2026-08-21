@@ -6,13 +6,11 @@ import {
   assistantExecutionPlanFromMessage,
   assistantLastUserMessage,
   assistantMessageUsageLabel,
-  assistantVisibleToolActivity,
   normalizeAssistantConfig,
   normalizeAssistantConversation,
   normalizeAssistantConversationsPayload,
   normalizeAssistantLLMProfilesPayload,
   normalizeAssistantMessagePayload,
-  proposedChangesFromMessages,
 } from './model.js';
 
 describe('assistant model', () => {
@@ -137,7 +135,18 @@ describe('assistant model', () => {
     assert.equal('api_key_secret' in config, false);
   });
 
-  it('keeps retry/export helpers focused on user-visible chat content and evidence tools', () => {
+  it('keeps a sub-dollar conversation spend instead of reporting it as free', () => {
+    const conversation = normalizeAssistantConversation({
+      id: 'c1',
+      usage: { message_count: 4, spend_usd: 0.0412, unpriced_turns: 1, duration_ms: 5400, llm_calls: 3 },
+      messages: [{ id: 'm1', role: 'user', content: 'hi' }],
+    });
+
+    assert.equal(conversation.usage.spend_usd, 0.0412);
+    assert.match(assistantConversationUsageLabel(conversation), /^\$0\.04 · 4 messages/);
+  });
+
+  it('keeps retry/export helpers focused on user-visible chat content', () => {
     const conversation = normalizeAssistantConversation({
       id: 'c1',
       messages: [
@@ -159,16 +168,15 @@ describe('assistant model', () => {
 
     assert.equal(assistantLastUserMessage(conversation.messages)?.content, 'validate it');
     assert.match(assistantConversationClipboardText(conversation), /Assistant:\nPipeline loaded/);
-    assert.deepEqual(assistantVisibleToolActivity(conversation.messages).map(tool => tool.name), ['nopsai.get_pipeline', 'nopsai.propose_pipeline_update']);
-    assert.deepEqual(proposedChangesFromMessages(conversation.messages), [{
-      key: 'm2-nopsai.propose_pipeline_update-3',
-      title: 'Pipeline Update',
-      body: 'name: deploy',
-      note: 'Proposal only. No changes were applied.',
-    }]);
+    assert.deepEqual(conversation.messages[1].tool_calls.map(tool => tool.name), [
+      'nopsai.llm.plan',
+      'nopsai.get_pipeline',
+      'nopsai.llm.complete',
+      'nopsai.propose_pipeline_update',
+    ]);
   });
 
-  it('extracts execution plans while keeping them out of evidence lists', () => {
+  it('extracts execution plans from an assistant reply', () => {
     const conversation = normalizeAssistantConversation({
       id: 'c1',
       messages: [{
@@ -225,6 +233,5 @@ describe('assistant model', () => {
     assert.equal(plan?.goal, 'Check feature coverage');
     assert.equal(plan?.steps[0].source, 'mcp');
     assert.equal(plan?.steps[1].phase, 'synthesis');
-    assert.deepEqual(assistantVisibleToolActivity(conversation.messages).map(tool => tool.name), ['nopsai.get_feature_capabilities']);
   });
 });

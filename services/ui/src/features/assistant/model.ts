@@ -316,19 +316,6 @@ export function assistantConversationClipboardText(conversation: AssistantConver
     .join('\n\n');
 }
 
-export function assistantVisibleToolActivity(messages: AssistantMessage[]): AssistantToolActivity[] {
-  return messages
-    .flatMap(message => message.tool_calls)
-    .filter(tool => !assistantToolActivityIsInternal(tool));
-}
-
-export function assistantToolActivityIsInternal(tool: AssistantToolActivity): boolean {
-  return tool.name === 'nopsai.llm.plan' ||
-    tool.name === 'nopsai.llm.complete' ||
-    tool.name === 'nopsai.assistant.execution_plan' ||
-    tool.name === 'nopsai.assistant_plan';
-}
-
 export function assistantExecutionPlanFromMessage(message: AssistantMessage): AssistantExecutionPlan | null {
   const tool = message.tool_calls.find(activity => activity.name === 'nopsai.assistant.execution_plan');
   if (!tool) return null;
@@ -379,29 +366,6 @@ export function formatAssistantSpend(value: number): string {
   });
 }
 
-export type ProposedChange = {
-  key: string;
-  title: string;
-  body: string;
-  note: string;
-};
-
-export function proposedChangesFromMessages(messages: AssistantMessage[]): ProposedChange[] {
-  return messages.flatMap(message => message.tool_calls.flatMap((tool, index) => {
-    const proposalType = readRecordString(tool.output, 'proposal_type');
-    const yaml = readRecordString(tool.output, 'yaml');
-    if (!proposalType && !yaml) return [];
-
-    const body = yaml || prettyPrintRecord(tool.output['target']) || prettyPrintRecord(tool.output);
-    return [{
-      key: `${message.id}-${tool.name}-${index}`,
-      title: proposalTitle(proposalType || tool.name),
-      body,
-      note: tool.output['applies'] === false ? 'Proposal only. No changes were applied.' : '',
-    }];
-  }));
-}
-
 function normalizeAssistantStringArray(value: unknown): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];
@@ -426,6 +390,12 @@ function readNonNegativeNumber(value: unknown): number {
   return number > 0 ? Math.floor(number) : 0;
 }
 
+/** Money keeps its fraction: flooring would report every sub-dollar conversation as free. */
+function readNonNegativeAmount(value: unknown): number {
+  const number = readNumber(value, 0);
+  return number > 0 ? number : 0;
+}
+
 function normalizeAssistantMessageUsage(value: unknown): AssistantMessageUsage {
   const record = asRecord(value) || {};
   // cost_usd stays undefined when the server could not price the turn; that is
@@ -443,7 +413,7 @@ function normalizeAssistantConversationUsage(value: unknown): AssistantConversat
   const record = asRecord(value) || {};
   return {
     message_count: readNonNegativeNumber(record.message_count),
-    spend_usd: readNonNegativeNumber(record.spend_usd),
+    spend_usd: readNonNegativeAmount(record.spend_usd),
     unpriced_turns: readNonNegativeNumber(record.unpriced_turns),
     duration_ms: readNonNegativeNumber(record.duration_ms),
     llm_calls: readNonNegativeNumber(record.llm_calls),
@@ -517,25 +487,4 @@ function formatAssistantDuration(durationMs: number): string {
   const seconds = durationMs / 1000;
   if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, '')}s`;
   return `${Math.round(seconds)}s`;
-}
-
-function proposalTitle(value: string): string {
-  return value
-    .replace(/^nopsai\./, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, char => char.toUpperCase());
-}
-
-function readRecordString(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function prettyPrintRecord(value: unknown): string {
-  if (!value) return '';
-  try {
-    return JSON.stringify(value, null, 2) || '';
-  } catch {
-    return String(value);
-  }
 }
