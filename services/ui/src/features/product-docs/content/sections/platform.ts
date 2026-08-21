@@ -148,6 +148,7 @@ export const platformSection: WikiSection = {
         'The wizard can generate secrets, seed starter profiles, create the GitOps layout, and create repository teams.',
         'Setup apply errors include the actionable write or configuration reason.',
         'Setup does not force an env-file write for dispatcher TLS when a valid effective service JWT fallback is already configured.',
+        'Once the one-time wizard has run, **System > Setup** is a status page: health checks and resource counts. The setup steps are not shown again.',
       ],
       details: [
         'Bootstrap-created local admin credentials rotate on first login by default, and generated Docker Compose installs reject the built-in development `admin` password.',
@@ -484,7 +485,7 @@ export const platformSection: WikiSection = {
           placeholders: ['`$HOST` is the address another machine would use to reach the install.'],
         },
       ],
-      related: ['docker-compose', 'helm-kubernetes', 'production-hardening', 'system-logs'],
+      related: ['docker-compose', 'helm-kubernetes', 'production-hardening', 'system-logs', 'github-app'],
       sources: [
         { repositoryPath: 'docker-compose.yaml', purpose: 'Published ports and bind address defaults.' },
         { repositoryPath: 'services/docker-socket-proxy', purpose: 'The allow-listed Docker API surface.' },

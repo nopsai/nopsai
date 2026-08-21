@@ -1,17 +1,15 @@
 import { useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import {
   BadgeCheck,
-  CheckCircle2,
   ExternalLink,
   FolderSync,
-  GitBranch,
-  Github,
+  Loader2,
+  ShieldCheck,
   PencilLine,
   Plus,
   RefreshCw,
   Save,
   Search,
-  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import { ObjectIcon } from '../../../components/ObjectIcon';
@@ -46,6 +44,16 @@ export default function GitHubAppPanel({
   );
   const selected = controller.selectedInstallation;
   const readonly = !canManage;
+  // The five metric tiles this replaces repeated numbers the table already
+  // carries as columns, which read as noise at the one-or-two accounts most
+  // installations have.
+  const summary = [
+    `${metrics.installations} ${metrics.installations === 1 ? 'account' : 'accounts'}`,
+    `${metrics.repositories} ${metrics.repositories === 1 ? 'repository' : 'repositories'}`,
+    `${metrics.connectedTriggers} ${metrics.connectedTriggers === 1 ? 'trigger' : 'triggers'}`,
+    ...(metrics.disabled > 0 ? [`${metrics.disabled} disabled`] : []),
+    ...(metrics.pending > 0 ? [`${metrics.pending} pending approval`] : []),
+  ].join(' · ');
 
   return (
     <div data-panel="git-apps" className="space-y-5 pb-24">
@@ -66,22 +74,25 @@ export default function GitHubAppPanel({
         onSubmit={controller.submitApp}
         onRefresh={() => void controller.loadApp()}
         onConnect={controller.openConnectDialog}
-        onInstall={() => void controller.installGitHubApp()}
       />
 
-      <section className="grid gap-3 md:grid-cols-5" aria-label="GitHub App summary">
-        <Metric icon={<Github className="h-4 w-4" aria-hidden="true" />} label="Installations" value={metrics.installations} />
-        <Metric icon={<CheckCircle2 className="h-4 w-4" aria-hidden="true" />} label="Enabled" value={metrics.enabled} tone="ok" />
-        <Metric icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Disabled" value={metrics.disabled} tone="muted" />
-        <Metric icon={<GitBranch className="h-4 w-4" aria-hidden="true" />} label="Repositories" value={metrics.repositories} tone="blue" />
-        <Metric icon={<ObjectIcon type="trigger" />} label="Triggers" value={metrics.connectedTriggers} tone="blue" />
-      </section>
+      {metrics.pending > 0 ? (
+        <div className="git-app-notice" role="status">
+          <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>
+            {metrics.pending === 1 ? 'One account has' : `${metrics.pending} accounts have`} installed this
+            App without being approved here. {metrics.pending === 1 ? 'It stays' : 'They stay'} inert until
+            approved: NopsAI reads no repositories and runs no triggers for {metrics.pending === 1 ? 'it' : 'them'}.
+          </span>
+        </div>
+      ) : null}
 
-      <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-5">
+      <section className="git-app-card">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs text-[var(--text-secondary)]">Installations</p>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">GitHub accounts</h3>
+            <p className="git-app-card__kicker">Installations</p>
+            <h3 className="git-app-card__title">GitHub accounts</h3>
+            <p className="git-app-card__lede">{summary}</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <label className="relative block min-w-[240px] text-sm">
@@ -101,7 +112,11 @@ export default function GitHubAppPanel({
               disabled={readonly || controller.connecting || !controller.app.app_slug}
               title={controller.app.app_slug ? undefined : 'Connect a GitHub App first, or add the installation manually'}
             >
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              {controller.connecting ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              )}
               Install on GitHub
             </button>
             <button
@@ -117,9 +132,7 @@ export default function GitHubAppPanel({
         </div>
 
         {controller.loading ? (
-          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-6 text-sm text-[var(--text-secondary)]">
-            Loading GitHub App...
-          </div>
+          <div className="git-app-empty">Loading GitHub App...</div>
         ) : installations.length ? (
           <div className="overflow-x-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)]">
             <table className="w-full min-w-[920px] text-left text-sm">
@@ -144,6 +157,7 @@ export default function GitHubAppPanel({
                     canManage={canManage}
                     onSelect={() => controller.setSelectedInstallationID(installation.installation_id)}
                     onEdit={() => controller.startEditInstallation(installation)}
+                    onApprove={() => void controller.approveInstallation(installation)}
                     onVerify={() => void controller.verifyInstallation(installation)}
                     onRefresh={() => void controller.refreshInstallation(installation)}
                     onDelete={() => void controller.removeInstallation(installation)}
@@ -153,8 +167,10 @@ export default function GitHubAppPanel({
             </table>
           </div>
         ) : (
-          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-6 text-sm text-[var(--text-secondary)]">
-            No GitHub App installations found.
+          <div className="git-app-empty">
+            {controller.app.app_slug
+              ? 'No installations yet. Use Install on GitHub and pick the repositories there.'
+              : 'Connect a GitHub App first, then install it on an account.'}
           </div>
         )}
       </section>
@@ -196,33 +212,6 @@ export default function GitHubAppPanel({
   );
 }
 
-function Metric({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: number;
-  tone?: 'ok' | 'muted' | 'blue';
-}) {
-  const toneClass = tone === 'ok'
-    ? 'text-emerald-600 dark:text-emerald-300'
-    : tone === 'muted'
-      ? 'text-[var(--text-secondary)]'
-      : 'text-blue-600 dark:text-blue-300';
-  return (
-    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3">
-      <div className={`flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] ${toneClass}`}>
-        {icon}
-      </div>
-      <div className="min-w-0 truncate text-xs text-[var(--text-secondary)]">{label}</div>
-      <div className="justify-self-end text-xl font-semibold leading-none text-[var(--text-primary)]">{value}</div>
-    </div>
-  );
-}
-
 function InstallationRow({
   installation,
   selected,
@@ -230,6 +219,7 @@ function InstallationRow({
   canManage,
   onSelect,
   onEdit,
+  onApprove,
   onVerify,
   onRefresh,
   onDelete,
@@ -240,6 +230,7 @@ function InstallationRow({
   canManage: boolean;
   onSelect: () => void;
   onEdit: () => void;
+  onApprove: () => void;
   onVerify: () => void;
   onRefresh: () => void;
   onDelete: () => void;
@@ -271,6 +262,11 @@ function InstallationRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex justify-end gap-1">
+          {installation.pending_approval ? (
+            <IconAction label={`Approve ${installationDisplayName(installation)}`} tone="verify" disabled={!canManage || saving} onClick={onApprove}>
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+            </IconAction>
+          ) : null}
           <IconAction label={`Verify ${installationDisplayName(installation)}`} tone="verify" disabled={!canManage || saving} onClick={onVerify}>
             <BadgeCheck className="h-4 w-4" aria-hidden="true" />
           </IconAction>
@@ -334,18 +330,22 @@ function RepositoryPanel({
 }) {
   const repositories = installation?.repositories || [];
   return (
-    <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-5">
+    <section className="git-app-card">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs text-[var(--text-secondary)]">Repositories</p>
-          <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+          <p className="git-app-card__kicker">Repositories</p>
+          <h3 className="git-app-card__title">
             {installation ? installationDisplayName(installation) : 'GitHub repositories'}
           </h3>
-          {installation?.last_repository_refresh_at ? (
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              Refreshed {formatGitHubAppDate(installation.last_repository_refresh_at)}
-            </p>
-          ) : null}
+          <p className="git-app-card__lede">
+            {installation
+              ? `What the installation can reach${
+                installation.last_repository_refresh_at
+                  ? `. Synced ${formatGitHubAppDate(installation.last_repository_refresh_at)}`
+                  : ''
+              }`
+              : 'Pick an account above to see the repositories it grants.'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -355,7 +355,7 @@ function RepositoryPanel({
             onClick={() => installation && onLoad(installation)}
           >
             <Search className="h-4 w-4" aria-hidden="true" />
-            Load
+            Load repositories
           </button>
           <button
             type="button"
@@ -364,7 +364,7 @@ function RepositoryPanel({
             onClick={() => installation && onRefresh(installation)}
           >
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            Refresh
+            Sync from GitHub
           </button>
         </div>
       </div>
@@ -376,9 +376,7 @@ function RepositoryPanel({
       ) : null}
 
       {!installation ? (
-        <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-6 text-sm text-[var(--text-secondary)]">
-          Select an installation.
-        </div>
+        <div className="git-app-empty">Select an installation.</div>
       ) : repositories.length ? (
         <div className="overflow-x-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)]">
           <table className="w-full min-w-[720px] text-left text-sm">
@@ -399,8 +397,23 @@ function RepositoryPanel({
           </table>
         </div>
       ) : (
-        <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-6 text-sm text-[var(--text-secondary)]">
-          No repositories loaded.
+        <div className="git-app-empty git-app-empty--action">
+          <span>
+            {installation.accessible_repositories > 0
+              ? `GitHub grants this installation ${installation.accessible_repositories} ${
+                installation.accessible_repositories === 1 ? 'repository' : 'repositories'
+              }. They are fetched on demand rather than on every page load.`
+              : 'This installation grants no repositories yet. Add some in the App installation settings on GitHub.'}
+          </span>
+          <button
+            type="button"
+            className="glass-button inline-flex items-center gap-2"
+            disabled={saving}
+            onClick={() => onLoad(installation)}
+          >
+            <Search className="h-4 w-4" aria-hidden="true" />
+            Load repositories
+          </button>
         </div>
       )}
     </section>

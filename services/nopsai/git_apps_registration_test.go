@@ -32,16 +32,40 @@ func TestBuildGitHubAppManifestSeparatesWebhookFromBrowserCallbacks(t *testing.T
 	if manifest.SetupURL != "http://localhost:8080"+gitHubAppInstallCallbackPath {
 		t.Fatalf("setup url = %q", manifest.SetupURL)
 	}
-	if manifest.Public || manifest.RequestOAuthOnInstall {
-		t.Fatalf("generated App must stay private and App-authenticated: %#v", manifest)
+	// One App serves many accounts, which GitHub only allows for a public App.
+	// It stays App-authenticated: no OAuth is requested on install.
+	if !manifest.Public || manifest.RequestOAuthOnInstall {
+		t.Fatalf("generated App must be installable on any account and App-authenticated: %#v", manifest)
 	}
-	for _, event := range []string{"push", "pull_request", "check_run", "check_suite", "installation"} {
+	for _, event := range []string{"push", "pull_request", "check_run", "check_suite"} {
 		if !containsFold(manifest.DefaultEvents, event) {
 			t.Fatalf("manifest is missing the %q event: %v", event, manifest.DefaultEvents)
 		}
 	}
 	if manifest.DefaultPermissions["contents"] != "write" || manifest.DefaultPermissions["checks"] != "write" {
 		t.Fatalf("permissions = %#v", manifest.DefaultPermissions)
+	}
+}
+
+// GitHub delivers App lifecycle events to every App unconditionally and refuses
+// a manifest that also asks for them: "Default events unsupported". Listing one
+// makes the whole registration unusable, so the App can never be created.
+func TestBuildGitHubAppManifestOmitsUnsubscribableLifecycleEvents(t *testing.T) {
+	manifest := buildGitHubAppManifest(
+		"NopsAI localhost",
+		"http://localhost:8080",
+		"https://live-gecko-national.ngrok-free.app/webhook",
+	)
+
+	for _, event := range []string{
+		"installation",
+		"installation_repositories",
+		"github_app_authorization",
+		"meta",
+	} {
+		if containsFold(manifest.DefaultEvents, event) {
+			t.Fatalf("manifest asks for the unsubscribable %q event: %v", event, manifest.DefaultEvents)
+		}
 	}
 }
 
@@ -258,7 +282,7 @@ func TestHandleGitHubAppInstallCallbackRedirectsRelativeWhenTheFlowOriginIsUnkno
 }
 
 func TestGitHubInstallationLifecycleRegistersAndRemovesInstallations(t *testing.T) {
-	app := App{cfg: &config.Config{}}
+	app := App{cfg: &config.Config{GitHubAppOwner: "Acme"}}
 	ctx := context.Background()
 
 	created := &github.InstallationEvent{
@@ -301,6 +325,77 @@ func TestGitHubInstallationLifecycleRegistersAndRemovesInstallations(t *testing.
 	}
 	if len(app.getConfigSnapshot().GitHubInstallations) != 0 {
 		t.Fatalf("installations after delete = %#v", app.getConfigSnapshot().GitHubInstallations)
+	}
+}
+
+// The App is public so one registration can serve many accounts, which also
+// means anyone who reaches its install URL can attach their own. Only the
+// account that owns the App starts working on sight; everyone else waits for the
+// operator, and stays inert in the meantime because git-bot skips disabled
+// installations.
+func TestGitHubInstallationLifecycleHoldsUnknownAccountsForApproval(t *testing.T) {
+	app := App{cfg: &config.Config{GitHubAppOwner: "acme"}}
+	ctx := context.Background()
+
+	created := &github.InstallationEvent{
+		Action: github.String("created"),
+		Installation: &github.Installation{
+			ID:      github.Int64(9911),
+			Account: &github.User{Login: github.String("stranger"), Type: github.String("Organization")},
+		},
+	}
+	if _, err := app.handleGitHubInstallationLifecycleEvent(ctx, created); err != nil {
+		t.Fatalf("created error = %v", err)
+	}
+	installations := app.getConfigSnapshot().GitHubInstallations
+	if len(installations) != 1 ||
+		config.GitHubInstallationEnabled(installations[0]) ||
+		!installations[0].PendingApproval {
+		t.Fatalf("an unknown account must be held for approval: %#v", installations)
+	}
+
+	// GitHub lifting a suspension is GitHub's decision, not the operator's, so
+	// it must not be a way around the approval.
+	unsuspended := &github.InstallationEvent{Action: github.String("unsuspend"), Installation: created.Installation}
+	if _, err := app.handleGitHubInstallationLifecycleEvent(ctx, unsuspended); err != nil {
+		t.Fatalf("unsuspend error = %v", err)
+	}
+	installations = app.getConfigSnapshot().GitHubInstallations
+	if config.GitHubInstallationEnabled(installations[0]) || !installations[0].PendingApproval {
+		t.Fatalf("unsuspend must not approve an installation: %#v", installations)
+	}
+}
+
+// An App registered before NopsAI recorded an owner has no trusted account, and
+// guessing one would let any installation through. Holding everything is the
+// safe direction; the owner is backfilled from GitHub on the next install.
+func TestGitHubInstallationApprovalHoldsEverythingWithoutAKnownOwner(t *testing.T) {
+	record := applyGitHubInstallationApproval(
+		config.GitHubInstallationConfig{InstallationID: "5", AccountLogin: "acme"},
+		config.Config{},
+		nil,
+	)
+	if config.GitHubInstallationEnabled(record) || !record.PendingApproval {
+		t.Fatalf("record = %#v", record)
+	}
+}
+
+// An operator who already ruled on an installation keeps that ruling; a later
+// event must not reset it to pending.
+func TestGitHubInstallationApprovalKeepsAnExistingDecision(t *testing.T) {
+	enabled := true
+	existing := []config.GitHubInstallationConfig{{
+		InstallationID: "5",
+		AccountLogin:   "stranger",
+		Enabled:        &enabled,
+	}}
+	record := applyGitHubInstallationApproval(
+		config.GitHubInstallationConfig{InstallationID: "5", AccountLogin: "stranger"},
+		config.Config{GitHubAppOwner: "acme"},
+		existing,
+	)
+	if !config.GitHubInstallationEnabled(record) || record.PendingApproval {
+		t.Fatalf("record = %#v", record)
 	}
 }
 

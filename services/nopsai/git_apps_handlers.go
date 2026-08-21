@@ -36,6 +36,7 @@ type githubAppInstallation struct {
 	AccountLogin            string                      `json:"account_login,omitempty" yaml:"account_login,omitempty"`
 	AccountType             string                      `json:"account_type,omitempty" yaml:"account_type,omitempty"`
 	Enabled                 bool                        `json:"enabled" yaml:"enabled"`
+	PendingApproval         bool                        `json:"pending_approval,omitempty" yaml:"pending_approval,omitempty"`
 	RepositorySelection     string                      `json:"repository_selection,omitempty" yaml:"-"`
 	AccessibleRepositories  int                         `json:"accessible_repositories" yaml:"-"`
 	ConnectedTriggers       int                         `json:"connected_triggers" yaml:"-"`
@@ -341,9 +342,12 @@ func githubAppInstallationFromConfig(installation config.GitHubInstallationConfi
 	enabled := config.GitHubInstallationEnabled(installation)
 	lastError := strings.TrimSpace(installation.LastError)
 	status := "connected"
-	if !enabled {
+	switch {
+	case !enabled && installation.PendingApproval:
+		status = "pending"
+	case !enabled:
 		status = "disabled"
-	} else if lastError != "" {
+	case lastError != "":
 		status = "error"
 	}
 	return githubAppInstallation{
@@ -351,6 +355,7 @@ func githubAppInstallationFromConfig(installation config.GitHubInstallationConfi
 		AccountLogin:            strings.TrimSpace(installation.AccountLogin),
 		AccountType:             config.NormalizeGitHubAccountType(installation.AccountType),
 		Enabled:                 enabled,
+		PendingApproval:         installation.PendingApproval,
 		RepositorySelection:     repositorySelectionLabel(installation.AccessibleRepositories, installation.LastRepositoryRefreshAt),
 		AccessibleRepositories:  max(0, installation.AccessibleRepositories),
 		LastVerifiedAt:          strings.TrimSpace(installation.LastVerifiedAt),

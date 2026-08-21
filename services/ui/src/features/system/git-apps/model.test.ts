@@ -9,6 +9,7 @@ import {
   gitHubAppInstallationPayloadFromForm,
   gitHubAppPayloadFromForm,
   gitHubInstallationStatusLabel,
+  gitHubInstallationApprovalForm,
   gitHubInstallationStatusTone,
   installationDisplayName,
   normalizeGitHubAccountType,
@@ -45,6 +46,7 @@ test('normalizes GitHub App payloads and metrics', () => {
     installations: 1,
     enabled: 1,
     disabled: 0,
+    pending: 0,
     repositories: 3,
     connectedTriggers: 2,
   });
@@ -96,6 +98,7 @@ test('builds GitHub App and installation requests without legacy scalar fields',
     account_login: 'nopsai',
     account_type: 'organization',
     enabled: false,
+    pending_approval: false,
     accessible_repositories: 0,
     connected_triggers: 0,
     status: 'disabled',
@@ -158,6 +161,16 @@ test('filters, formats, and labels GitHub App installations', () => {
   assert.equal(gitHubInstallationStatusTone(installations[1]!), 'muted');
   assert.equal(gitHubInstallationStatusLabel(installations[2]!), 'Error');
   assert.equal(gitHubInstallationStatusTone(installations[2]!), 'error');
+
+  // A held installation reads differently from one the operator switched off:
+  // it is waiting on a decision, not the result of one.
+  const held = normalizeGitHubAppPayload({
+    installations: [{ installation_id: '4', account_login: 'stranger', enabled: false, pending_approval: true }],
+  }).installations[0]!;
+  assert.equal(gitHubInstallationStatusLabel(held), 'Pending approval');
+  assert.equal(gitHubInstallationStatusTone(held), 'warning');
+  assert.equal(gitHubInstallationApprovalForm(held).enabled, true);
+  assert.equal(gitHubInstallationApprovalForm(held).installationID, '4');
   assert.equal(normalizeGitHubAccountType('ORG'), 'organization');
   assert.equal(formatGitHubAppDate(), 'Never');
   assert.equal(formatGitHubAppDate('not-a-date'), 'not-a-date');

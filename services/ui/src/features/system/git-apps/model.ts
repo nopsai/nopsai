@@ -16,6 +16,8 @@ export type GitHubAppInstallation = {
   account_login: string;
   account_type: GitHubAccountType;
   enabled: boolean;
+  /** Held because it arrived from an account the operator has not accepted. */
+  pending_approval: boolean;
   repository_selection?: string;
   accessible_repositories: number;
   connected_triggers: number;
@@ -89,6 +91,7 @@ export type GitHubAppMetrics = {
   installations: number;
   enabled: number;
   disabled: number;
+  pending: number;
   repositories: number;
   connectedTriggers: number;
 };
@@ -149,6 +152,7 @@ export function normalizeGitHubAppInstallation(value: unknown): GitHubAppInstall
     account_login: readString(record.account_login),
     account_type: normalizeGitHubAccountType(readString(record.account_type)),
     enabled,
+    pending_approval: readBool(record.pending_approval, false),
     repository_selection: readString(record.repository_selection) || undefined,
     accessible_repositories: readInt(record.accessible_repositories),
     connected_triggers: readInt(record.connected_triggers),
@@ -229,6 +233,7 @@ export function gitHubAppInstallationPayloadFromForm(
     account_login: accountLogin,
     account_type: normalizeGitHubAccountType(form.accountType) || 'organization',
     enabled: form.enabled,
+    pending_approval: false,
     accessible_repositories: 0,
     connected_triggers: 0,
     status: form.enabled ? 'connected' : 'disabled',
@@ -261,6 +266,22 @@ export function gitHubAppConnectPayload(
     app_name: form.appName.trim(),
     webhook_url: webhookURL,
   };
+}
+
+/**
+ * The address GitHub is actually registered with, mirroring what the API does to
+ * the submitted value: a bare host gets git-bot's `/webhook` path appended, and
+ * anything that already carries a path is left alone. Display only — the API
+ * normalizes the value it stores, so this never has to be sent back.
+ */
+export function gitHubWebhookEndpoint(rawURL: string): string {
+  const value = rawURL.trim().replace(/\/+$/, '');
+  if (!value || !isAbsoluteHTTPURL(value)) return '';
+  try {
+    return new URL(value).pathname.replace(/\//g, '') === '' ? `${value}/webhook` : value;
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -333,11 +354,12 @@ export function buildGitHubAppMetrics(app: GitHubAppResource): GitHubAppMetrics 
     (metrics, installation) => ({
       installations: metrics.installations + 1,
       enabled: metrics.enabled + (installation.enabled ? 1 : 0),
-      disabled: metrics.disabled + (installation.enabled ? 0 : 1),
+      disabled: metrics.disabled + (installation.enabled || installation.pending_approval ? 0 : 1),
+      pending: metrics.pending + (installation.pending_approval ? 1 : 0),
       repositories: metrics.repositories + Math.max(0, installation.accessible_repositories),
       connectedTriggers: metrics.connectedTriggers + Math.max(0, installation.connected_triggers),
     }),
-    { installations: 0, enabled: 0, disabled: 0, repositories: 0, connectedTriggers: 0 }
+    { installations: 0, enabled: 0, disabled: 0, pending: 0, repositories: 0, connectedTriggers: 0 }
   );
 }
 
@@ -362,6 +384,7 @@ export function installationDisplayName(installation: GitHubAppInstallation): st
 }
 
 export function gitHubInstallationStatusLabel(installation: GitHubAppInstallation): string {
+  if (installation.pending_approval) return 'Pending approval';
   if (!installation.enabled) return 'Disabled';
   if (installation.last_error) return 'Error';
   if (!installation.account_login) return 'Account needed';
@@ -369,10 +392,22 @@ export function gitHubInstallationStatusLabel(installation: GitHubAppInstallatio
 }
 
 export function gitHubInstallationStatusTone(installation: GitHubAppInstallation): 'ok' | 'warning' | 'error' | 'muted' {
+  if (installation.pending_approval) return 'warning';
   if (!installation.enabled) return 'muted';
   if (installation.last_error) return 'error';
   if (!installation.account_login) return 'warning';
   return 'ok';
+}
+
+/**
+ * A pending installation is inert - git-bot skips disabled installations - so
+ * approving it is just enabling it. It is a single decision, which makes it a
+ * one-click action rather than a trip through the edit dialog.
+ */
+export function gitHubInstallationApprovalForm(
+  installation: GitHubAppInstallation
+): GitHubAppInstallationFormState {
+  return { ...gitHubAppInstallationForm(installation), enabled: true };
 }
 
 export function formatGitHubAppDate(value?: string): string {

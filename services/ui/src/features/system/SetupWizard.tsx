@@ -10,18 +10,15 @@ import {
   Trash2,
   Users,
 } from 'lucide-react';
-import { bootstrapSetup, downloadSetupTemplatesZip, fetchSetupStatus, fetchSetupTemplates } from './setup/api';
+import { bootstrapSetup, fetchSetupStatus } from './setup/api';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { SetupReviewOutput } from './setup/SetupReviewOutput';
-import { SetupBootstrapResult, SetupStarterFilesPreview, SetupStatusOverview } from './setup/SetupStatusPanels';
+import { SetupBootstrapResult, SetupStatusOverview } from './setup/SetupStatusPanels';
 import SetupGitHubStep from './setup/SetupGitHubStep';
 import { SetupStatusIcon, SetupStepNavigation, StepIntro, WarningCallout } from './setup/SetupWizardPrimitives';
 import {
   LLM_SKIP_WARNING,
-  REVIEW_STEP_INDEX,
   WIZARD_STEPS,
-  buildSetupGitOpsFileList,
-  buildSetupGitOpsStructurePreview,
   defaultCredentialRef,
   deriveGitBotBaseURL,
   initialRepositoryTeams,
@@ -36,7 +33,6 @@ import {
   type RuntimeEnvSection,
   type RuntimeImplementation,
   type SetupStatus,
-  type SetupTemplates,
   type UserDraft,
 } from './setup/model';
 
@@ -70,11 +66,7 @@ function SetupWizard({
   const [mcpExamples, setMCPExamples] = useState(false);
   const [usersEnabled, setUsersEnabled] = useState(true);
   const [users, setUsers] = useState<UserDraft[]>([]);
-  const [templates, setTemplates] = useState<SetupTemplates | null>(null);
-  const [templateLoading, setTemplateLoading] = useState(false);
-  const [selectedTemplatePath, setSelectedTemplatePath] = useState('');
   const [bootstrapResult, setBootstrapResult] = useState<BootstrapResponse | null>(null);
-  const [downloadingGitOpsZip, setDownloadingGitOpsZip] = useState(false);
   const [wizardStepIndex, setWizardStepIndex] = useState(0);
 
   const currentWizardStep = WIZARD_STEPS[Math.min(wizardStepIndex, WIZARD_STEPS.length - 1)];
@@ -96,17 +88,10 @@ function SetupWizard({
   );
   const teamOptions = useMemo(() => normalizedRepositoryTeams.map(team => team.name), [normalizedRepositoryTeams]);
   const userTeamOptions = useMemo(() => (teamOptions.length > 0 ? teamOptions : ['']), [teamOptions]);
-  const templatePaths = useMemo(() => (templates ? Object.keys(templates.files).sort() : []), [templates]);
-  const selectedTemplate = selectedTemplatePath && templates ? templates.files[selectedTemplatePath] : '';
   const requiredHealthErrors = (status?.checks || []).filter(check => check.blocking && check.status === 'error');
   const llmReference = llmCredentialRef.trim() || defaultCredentialRef(llmProvider);
   const llmProviderDefinition = getLLMProvider(llmProvider);
   const currentRuntimeDefaults = runtimeDefaults(runtimeImplementation);
-
-  useEffect(() => {
-    if (!templates || selectedTemplatePath) return;
-    setSelectedTemplatePath(templatePaths[0] || '');
-  }, [selectedTemplatePath, templatePaths, templates]);
 
   const updateRuntimeImplementation = (nextRuntime: RuntimeImplementation) => {
     const previousDefaults = runtimeDefaults(runtimeImplementation);
@@ -148,12 +133,6 @@ function SetupWizard({
     void loadStatus();
   }, [loadStatus]);
 
-  useEffect(() => {
-    if (status?.completed) {
-      setWizardStepIndex(REVIEW_STEP_INDEX >= 0 ? REVIEW_STEP_INDEX : WIZARD_STEPS.length - 1);
-    }
-  }, [status?.completed]);
-
   const addRepositoryTeam = () => {
     if (repositoryTeams.length >= 2) return;
     const next = { id: makeID('team'), name: 'services', repositoriesText: '' };
@@ -163,7 +142,6 @@ function SetupWizard({
   const updateRepositoryTeam = (id: string, updates: Partial<RepositoryTeamDraft>) => {
     setRepositoryEnabled(true);
     setRepositoryTeams(current => current.map(team => (team.id === id ? { ...team, ...updates } : team)));
-    setTemplates(null);
   };
 
   const removeRepositoryTeam = (id: string) => {
@@ -171,7 +149,6 @@ function SetupWizard({
       const next = current.filter(team => team.id !== id);
       return next.length > 0 ? next : initialRepositoryTeams().slice(0, 1);
     });
-    setTemplates(null);
   };
 
   const addUser = () => {
@@ -196,71 +173,6 @@ function SetupWizard({
   const removeUser = (id: string) => {
     setUsers(current => current.filter(user => user.id !== id));
   };
-
-  const buildTemplateParams = useCallback(() => {
-    const params = new URLSearchParams({ profile: 'team' });
-    if (repositories.length > 0) params.set('repositories', repositories.join(','));
-    normalizedRepositoryTeams.forEach(team => {
-      params.append('repository_team', `${team.name}:${team.repositories.join(',')}`);
-    });
-    if (usersEnabled) {
-      users
-        .map(user => ({
-          sub: user.email.trim(),
-          email: user.email.trim(),
-          role: user.role,
-          team: user.team,
-        }))
-        .filter(user => user.sub)
-        .forEach(user => params.append('setup_user', JSON.stringify(user)));
-    }
-    params.set('include_llm', aiEnabled ? 'true' : 'false');
-    params.set('mcp_examples', aiEnabled && mcpExamples ? 'true' : 'false');
-    if (aiEnabled) {
-      params.set('llm_provider', llmProvider.trim());
-      params.set('llm_model', llmModel.trim());
-      if (llmProviderDefinition.apiKeyMode !== 'none') params.set('llm_credential_ref', llmReference);
-      if (llmProviderDefinition.baseURLMode !== 'hidden' && llmBaseURL.trim()) params.set('llm_base_url', llmBaseURL.trim());
-    }
-    return params;
-  }, [aiEnabled, llmBaseURL, llmModel, llmProvider, llmProviderDefinition.apiKeyMode, llmProviderDefinition.baseURLMode, llmReference, mcpExamples, normalizedRepositoryTeams, repositories, users, usersEnabled]);
-
-  const loadTemplates = useCallback(async () => {
-    setTemplateLoading(true);
-    setError(null);
-    try {
-      const params = buildTemplateParams();
-      const payload = await fetchSetupTemplates(params);
-      setTemplates(payload);
-      const paths = Object.keys(payload.files).sort();
-      setSelectedTemplatePath(paths[0] || '');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load templates');
-    } finally {
-      setTemplateLoading(false);
-    }
-  }, [buildTemplateParams]);
-
-  const downloadGitOpsZip = useCallback(async () => {
-    setDownloadingGitOpsZip(true);
-    setError(null);
-    try {
-      const params = buildTemplateParams();
-      const blob = await downloadSetupTemplatesZip(params);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'nopsai-gitops-starter.zip';
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to download GitOps starter files');
-    } finally {
-      setDownloadingGitOpsZip(false);
-    }
-  }, [buildTemplateParams]);
 
   const userPayload = useMemo(
     () =>
@@ -312,20 +224,6 @@ function SetupWizard({
     [runtimeEnvSections]
   );
 
-  const gitOpsStructureSnippet = useMemo(
-    () => buildSetupGitOpsStructurePreview(normalizedRepositoryTeams),
-    [normalizedRepositoryTeams]
-  );
-
-  const gitOpsFiles = useMemo(
-    () =>
-      buildSetupGitOpsFileList(normalizedRepositoryTeams, repositories, {
-        includeLLM: aiEnabled,
-        includeMCP: aiEnabled && mcpExamples,
-      }),
-    [aiEnabled, mcpExamples, normalizedRepositoryTeams, repositories]
-  );
-
   const canContinueWizard = (() => {
     switch (currentWizardStep.id) {
       case 'readiness':
@@ -343,7 +241,6 @@ function SetupWizard({
         break;
       case 'repositories':
         setRepositoryEnabled(false);
-        setTemplates(null);
         break;
       case 'ai':
         setAIEnabled(false);
@@ -655,13 +552,6 @@ function SetupWizard({
             userCount={userPayload.length}
             runtimeEnvSections={runtimeEnvSections}
             environmentSnippet={environmentSnippet}
-            gitOpsStructureSnippet={gitOpsStructureSnippet}
-            gitOpsFiles={gitOpsFiles}
-            templateLoading={templateLoading}
-            templatesLoaded={Boolean(templates)}
-            downloadingGitOpsZip={downloadingGitOpsZip}
-            onLoadTemplates={() => void loadTemplates()}
-            onDownloadGitOpsZip={() => void downloadGitOpsZip()}
           />
         );
     }
@@ -720,30 +610,6 @@ function SetupWizard({
 
       <SetupStatusOverview status={status} />
       <SetupBootstrapResult bootstrapResult={bootstrapResult} />
-
-      <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="text-sm font-semibold">Setup details</div>
-            <div className="mt-1 text-xs text-[var(--text-secondary)]">Review every setup step, generated env block, and GitOps file preview anytime.</div>
-          </div>
-          <div className="text-sm text-[var(--text-secondary)]">Step {wizardStepIndex + 1} of {WIZARD_STEPS.length}</div>
-        </div>
-        <SetupStepNavigation wizardStepIndex={wizardStepIndex} onSelectStep={setWizardStepIndex} />
-        <div className="mt-5">{renderWizardStep()}</div>
-        <div className="mt-4 flex flex-wrap justify-end gap-2">
-          <button className="rounded-md border border-[var(--border-primary)] px-4 py-2 text-sm" onClick={() => setWizardStepIndex(index => Math.max(0, index - 1))} disabled={wizardStepIndex === 0}>Back</button>
-          <button className="glass-button-primary" onClick={() => setWizardStepIndex(index => Math.min(WIZARD_STEPS.length - 1, index + 1))} disabled={wizardStepIndex >= WIZARD_STEPS.length - 1}>Continue</button>
-        </div>
-      </section>
-
-      <SetupStarterFilesPreview
-        templates={templates}
-        templatePaths={templatePaths}
-        selectedTemplatePath={selectedTemplatePath}
-        selectedTemplate={selectedTemplate}
-        onSelectedTemplatePathChange={setSelectedTemplatePath}
-      />
     </div>
   );
 }

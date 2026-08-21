@@ -17,6 +17,7 @@ const installation: GitHubAppInstallation = {
   account_login: 'nopsai',
   account_type: 'organization',
   enabled: true,
+  pending_approval: false,
   accessible_repositories: 0,
   connected_triggers: 0,
   status: 'connected',

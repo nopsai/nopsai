@@ -313,6 +313,14 @@ func TestFirstInstallSetupGateAllowedPaths(t *testing.T) {
 		"/v1/setup/templates",
 		"/v1/setup/templates.zip",
 		"/v1/setup/bootstrap",
+		// The wizard connects GitHub before setup completes, so git-bot has to
+		// be able to pick the resulting credentials up rather than retry in
+		// degraded mode until the whole wizard is applied.
+		"/v1/git-apps/github",
+		"/v1/git-apps/github/register/start",
+		"/v1/git-apps/github/install/start",
+		"/v1/internal/git-bot/bootstrap",
+		"/v1/internal/git-bot/installations",
 	}
 	for _, path := range allowedPaths {
 		if !isFirstInstallSetupAllowedPath(path) {
@@ -326,6 +334,8 @@ func TestFirstInstallSetupGateAllowedPaths(t *testing.T) {
 		"/v1/pipelines",
 		"/v1/system/config",
 		"/v1/teams",
+		"/v1/internal/git-bot",
+		"/v1/internal/dispatcher/runners",
 	}
 	for _, path := range blockedPaths {
 		if isFirstInstallSetupAllowedPath(path) {

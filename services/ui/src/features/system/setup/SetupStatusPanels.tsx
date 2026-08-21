@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Info } from 'lucide-react';
-import { statusClasses, type BootstrapResponse, type SetupStatus, type SetupTemplates } from './model';
+import { statusClasses, type BootstrapResponse, type SetupStatus } from './model';
 import { SetupStatusIcon } from './SetupWizardPrimitives';
 
 type SetupStatusOverviewProps = {
@@ -8,14 +8,6 @@ type SetupStatusOverviewProps = {
 
 type SetupBootstrapResultProps = {
   bootstrapResult: BootstrapResponse | null;
-};
-
-type SetupStarterFilesPreviewProps = {
-  templates: SetupTemplates | null;
-  templatePaths: string[];
-  selectedTemplatePath: string;
-  selectedTemplate: string;
-  onSelectedTemplatePathChange: (path: string) => void;
 };
 
 export function SetupStatusOverview({ status }: SetupStatusOverviewProps) {
@@ -86,26 +78,3 @@ export function SetupBootstrapResult({ bootstrapResult }: SetupBootstrapResultPr
   );
 }
 
-export function SetupStarterFilesPreview({
-  templates,
-  templatePaths,
-  selectedTemplatePath,
-  selectedTemplate,
-  onSelectedTemplatePathChange,
-}: SetupStarterFilesPreviewProps) {
-  if (!templates) return null;
-
-  return (
-    <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold">Starter files</div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <select className="max-w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm" value={selectedTemplatePath} onChange={event => onSelectedTemplatePathChange(event.target.value)}>
-            {templatePaths.map(path => <option key={path} value={path}>{path}</option>)}
-          </select>
-        </div>
-      </div>
-      <pre className="max-h-[520px] overflow-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4 text-xs leading-5">{selectedTemplate}</pre>
-    </section>
-  );
-}

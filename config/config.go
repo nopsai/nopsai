@@ -372,6 +372,10 @@ type Config struct {
 	GitHubPrivateKeyCredentialRef string                     `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
 	GitHubAppID                   string                     `yaml:"github_app_id" env:"GITHUB_APP_ID"`
 	GitHubAppSlug                 string                     `yaml:"github_app_slug" env:"GITHUB_APP_SLUG"`
+	// GitHubAppOwner is the account the App was registered on. The App is
+	// public so it can serve many accounts, so this is what separates the
+	// operator's own installation from one a stranger started.
+	GitHubAppOwner                string                     `yaml:"github_app_owner,omitempty" env:"GITHUB_APP_OWNER"`
 	GitHubWebhookURL              string                     `yaml:"github_webhook_url" env:"GITHUB_WEBHOOK_URL"`
 	GitHubInstallID               string                     `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
 	GitHubInstallations           []GitHubInstallationConfig `yaml:"github_installations" env:"-"`
@@ -404,6 +408,10 @@ type GitHubInstallationConfig struct {
 	AccountLogin            string `yaml:"account_login,omitempty" json:"account_login,omitempty"`
 	AccountType             string `yaml:"account_type,omitempty" json:"account_type,omitempty"`
 	Enabled                 *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// PendingApproval marks an installation that arrived from an account the
+	// operator has not accepted yet. It stays disabled, and therefore inert,
+	// until someone enables it from Git Apps.
+	PendingApproval         bool   `yaml:"pending_approval,omitempty" json:"pending_approval,omitempty"`
 	AccessibleRepositories  int    `yaml:"accessible_repositories,omitempty" json:"accessible_repositories,omitempty"`
 	LastVerifiedAt          string `yaml:"last_verified_at,omitempty" json:"last_verified_at,omitempty"`
 	LastRepositoryRefreshAt string `yaml:"last_repository_refresh_at,omitempty" json:"last_repository_refresh_at,omitempty"`
@@ -442,6 +450,7 @@ func NormalizeGitHubInstallations(installations []GitHubInstallationConfig, lega
 			AccountLogin:            strings.TrimSpace(installation.AccountLogin),
 			AccountType:             NormalizeGitHubAccountType(installation.AccountType),
 			Enabled:                 installation.Enabled,
+			PendingApproval:         installation.PendingApproval,
 			AccessibleRepositories:  max(0, installation.AccessibleRepositories),
 			LastVerifiedAt:          strings.TrimSpace(installation.LastVerifiedAt),
 			LastRepositoryRefreshAt: strings.TrimSpace(installation.LastRepositoryRefreshAt),
