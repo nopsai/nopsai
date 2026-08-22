@@ -314,6 +314,11 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 	if assistantAllToolsDenied(evidenceCalls) {
 		return "I could not use the required Nopsai tools with your current permissions. No changes were applied."
 	}
+	// An analysis result already carries ranked findings and a next step, so it
+	// answers the question whatever intent label the planner attached.
+	if reply := composeAnalysisReply(evidenceCalls); reply != "" {
+		return reply
+	}
 	switch plan.Intent {
 	case "propose_pipeline_create", "propose_pipeline_update":
 		return composePipelineWritePlanReply(toolCalls)

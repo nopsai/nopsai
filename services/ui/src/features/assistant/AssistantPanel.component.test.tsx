@@ -191,6 +191,54 @@ test('sends the draft and attaches a text file into it', async () => {
   expect(submitMessage).toHaveBeenCalled();
 });
 
+test('prefills the composer once when handed a draft from another surface', () => {
+  const setDraft = vi.fn();
+  mockController({ setDraft });
+
+  const { rerender } = render(<AssistantPanel variant="dock" initialDraft="Walk me through the analysis of team Platform." />);
+
+  expect(setDraft).toHaveBeenCalledWith('Walk me through the analysis of team Platform.');
+  setDraft.mockClear();
+  rerender(<AssistantPanel variant="dock" initialDraft="Walk me through the analysis of team Platform." />);
+  expect(setDraft).not.toHaveBeenCalled();
+});
+
+test('offers the analysis next step as a one-click follow-up', async () => {
+  const user = userEvent.setup();
+  const setDraft = vi.fn();
+  const messages = [
+    assistantMessage('m1', 'user', 'how is the platform team doing?'),
+    {
+      ...assistantMessage('m2', 'assistant', 'Platform scores 60/100 over the last 30 days.'),
+      tool_calls: [
+        {
+          ...toolActivity('nopsai.analyze_team', 'success'),
+          output: {
+            health_score: 60,
+            next_actions: [
+              { label: 'Analyse platform/deploy-api, the least reliable pipeline in this window', tool: 'nopsai.analyze_pipeline' },
+            ],
+          },
+        },
+      ],
+    },
+  ];
+  const conversation = assistantConversation(messages);
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    setDraft,
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  expect(screen.getByText('Suggested next step')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: /least reliable pipeline/ }));
+  expect(setDraft).toHaveBeenCalledWith('Analyse platform/deploy-api, the least reliable pipeline in this window');
+});
+
 test('groups conversations by recency and keeps idle conversations deletable during a send', async () => {
   const user = userEvent.setup();
   const deleteConversation = vi.fn();

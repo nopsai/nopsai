@@ -20,6 +20,9 @@ export type AnalysisAiEvaluation = {
   generatedAt: string;
   modelLabel: string;
   profileName: string;
+  /** True when the server grounded the evaluation in its own permission-filtered analysis. */
+  serverGrounded: boolean;
+  dataSources: string[];
   usage: {
     totalTokens: number;
     durationMs: number;
@@ -50,6 +53,8 @@ export async function requestAnalysisAiEvaluation(
     generatedAt: payload.generatedAt,
     modelLabel: payload.model || selectedProfile.model || payload.provider || selectedProfile.provider || 'AI Evaluation',
     profileName: payload.profileName || selectedProfile.name,
+    serverGrounded: payload.serverGrounded,
+    dataSources: payload.dataSources,
     usage: {
       totalTokens: payload.usage.totalTokens,
       durationMs: payload.usage.durationMs,
@@ -72,6 +77,8 @@ type AnalysisEvaluationPayload = {
   provider: string;
   model: string;
   generatedAt: string;
+  serverGrounded: boolean;
+  dataSources: string[];
   usage: {
     totalTokens: number;
     durationMs: number;
@@ -102,6 +109,10 @@ function normalizeAnalysisEvaluationPayload(value: unknown): AnalysisEvaluationP
     provider: readString(record.provider),
     model: readString(record.model),
     generatedAt,
+    serverGrounded: record.server_grounded === true,
+    dataSources: Array.isArray(record.data_sources)
+      ? record.data_sources.map(readString).filter(Boolean)
+      : [],
     usage: {
       totalTokens: normalizeNumber(usage.total_tokens),
       durationMs: normalizeNumber(usage.duration_ms),

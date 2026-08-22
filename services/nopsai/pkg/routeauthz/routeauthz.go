@@ -487,6 +487,10 @@ func handlerAuthorizedMutatingRoute(method, path string) bool {
 	switch {
 	case path == "/v1/analysis/evaluate":
 		return true
+	// Subject analysis reads every piece of evidence through the permission-checked
+	// API bridge as the caller, so the route grants nothing the caller lacks.
+	case path == "/v1/analysis/team", path == "/v1/analysis/pipeline", path == "/v1/analysis/run":
+		return true
 	case path == "/v1/assistant/conversations" || strings.HasPrefix(path, "/v1/assistant/conversations/"):
 		return true
 	case path == "/v1/auth/discover", path == "/v1/auth/login", path == "/v1/auth/logout",

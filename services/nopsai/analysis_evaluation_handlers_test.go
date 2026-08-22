@@ -102,3 +102,69 @@ func TestAnalysisEvaluationRouteIsAuthenticatedOnly(t *testing.T) {
 		t.Fatal("analysis evaluation route must be authenticated-only")
 	}
 }
+
+func TestAnalysisEvaluationPromptCarriesServerEvidence(t *testing.T) {
+	analysis := map[string]any{
+		"health_score": 60,
+		"data_sources": []string{"/v1/monitoring/summary?teamId=7"},
+		"limitations":  []string{"Only evidence the current user is allowed to read contributes."},
+		"scores":       []map[string]any{{"category": "reliability", "score": 55}},
+		"findings": []map[string]any{{
+			"severity":   "critical",
+			"category":   "reliability",
+			"title":      "45% of runs failed in the last 30 days",
+			"summary":    "prose the model should not echo",
+			"evidence":   []map[string]any{{"label": "Failure rate", "value": "45%"}},
+			"confidence": 0.9,
+		}},
+	}
+
+	prompt, sources := analysisEvaluationPromptWithEvidence("Client snapshot only.", analysis)
+
+	if !strings.Contains(prompt, "NOPSAI_SERVER_EVIDENCE") {
+		t.Fatalf("prompt is not grounded:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "45% of runs failed in the last 30 days") {
+		t.Fatalf("prompt is missing the finding:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "prose the model should not echo") {
+		t.Fatalf("prompt carries finding prose it does not need:\n%s", prompt)
+	}
+	if len(sources) != 1 || sources[0] != "/v1/monitoring/summary?teamId=7" {
+		t.Fatalf("sources = %v, want the evidence paths", sources)
+	}
+	if !strings.HasPrefix(prompt, "Client snapshot only.") {
+		t.Fatal("the client prompt must stay intact ahead of the evidence")
+	}
+}
+
+// An analysis that could not read anything scores nothing, and appending it would
+// add tokens without adding facts.
+func TestAnalysisEvaluationPromptSkipsUnscoredAnalysis(t *testing.T) {
+	prompt, sources := analysisEvaluationPromptWithEvidence("Client snapshot only.", map[string]any{
+		"health_score": nil,
+		"limitations":  []string{"summary could not be read: status 403"},
+	})
+
+	if prompt != "Client snapshot only." || len(sources) != 0 {
+		t.Fatalf("prompt = %q, sources = %v; want the ungrounded prompt", prompt, sources)
+	}
+}
+
+func TestAnalysisEvaluationPromptDropsEvidenceThatWouldExceedTheInputLimit(t *testing.T) {
+	huge := make([]map[string]any, 0, analysisEvaluationMaxFindings)
+	for index := 0; index < analysisEvaluationMaxFindings; index++ {
+		huge = append(huge, map[string]any{
+			"severity": "high",
+			"title":    strings.Repeat("x", 20000),
+		})
+	}
+	prompt, sources := analysisEvaluationPromptWithEvidence("Client snapshot only.", map[string]any{
+		"health_score": 40,
+		"findings":     huge,
+	})
+
+	if prompt != "Client snapshot only." || len(sources) != 0 {
+		t.Fatalf("oversized evidence must be dropped whole, got %d bytes", len(prompt))
+	}
+}

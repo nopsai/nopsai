@@ -322,6 +322,34 @@ export function assistantExecutionPlanFromMessage(message: AssistantMessage): As
   return normalizeAssistantExecutionPlan(tool.output.execution_plan || tool.output);
 }
 
+/** A server-side analysis ends by naming what to look at next; the chat offers it. */
+export type AssistantSuggestedAction = {
+  label: string;
+  tool: string;
+};
+
+const assistantAnalysisToolNames = ['nopsai.analyze_team', 'nopsai.analyze_pipeline', 'nopsai.analyze_run'];
+
+export function assistantSuggestedActions(message: AssistantMessage): AssistantSuggestedAction[] {
+  if (message.role === 'user') return [];
+  const suggestions: AssistantSuggestedAction[] = [];
+  const seen = new Set<string>();
+  message.tool_calls
+    .filter(tool => assistantAnalysisToolNames.includes(tool.name) && tool.status !== 'error')
+    .forEach(tool => {
+      const actions = Array.isArray(tool.output['next_actions']) ? tool.output['next_actions'] : [];
+      actions.forEach(entry => {
+        const record = asRecord(entry);
+        if (!record) return;
+        const label = readString(record.label);
+        if (!label || seen.has(label)) return;
+        seen.add(label);
+        suggestions.push({ label, tool: readString(record.tool) });
+      });
+    });
+  return suggestions.slice(0, 3);
+}
+
 export function assistantMessageAuthorLabel(message: AssistantMessage): string {
   if (message.role === 'user') return 'You';
   if (message.role === 'assistant') return 'Assistant';

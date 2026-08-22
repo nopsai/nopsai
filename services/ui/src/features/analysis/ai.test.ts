@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  analysisAssistantChatPrompt,
   analysisAssistantPageContext,
   buildAnalysisAiPrompt,
   buildAnalysisAiPromptSnapshot,
@@ -253,4 +254,26 @@ test('normalizes unstructured AI evaluation without showing raw assistant text',
   assert.equal(evaluation.summary, 'AI evaluation returned an unstructured response.');
   assert.doesNotMatch(evaluation.problem.detail, /hosted MCP evidence/);
   assert.deepEqual(evaluation.evidenceNeeded, ['Regenerate AI Evaluation after confirming the selected LLM profile is reachable.']);
+});
+
+test('builds a chat opener that names the score and the blocking findings', () => {
+  const result = buildRunAnalysis({
+    now,
+    detail: {
+      run_info: { run_id: 'run-9', pipeline_name: 'deploy', status: 'failure', is_complete: true },
+      steps: [],
+      child_runs: [],
+      approvals: [],
+      final_outputs: [],
+    },
+    comparisonRuns: [],
+  });
+
+  const prompt = analysisAssistantChatPrompt(result);
+  const blocking = result.counts.critical + result.counts.high;
+  const expected = blocking > 0
+    ? `Walk me through the analysis of run ${result.subjectLabel} (score ${result.healthScore}/100, ${blocking} critical or high findings) and tell me what to fix first.`
+    : `Walk me through the analysis of run ${result.subjectLabel} (score ${result.healthScore}/100) and tell me which finding is worth acting on.`;
+  assert.equal(prompt, expected);
+  assert.match(prompt, /Walk me through the analysis of run /);
 });
