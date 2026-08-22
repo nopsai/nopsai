@@ -30,39 +30,41 @@
   color: var(--teams-text);
 }
 
+/*
+ * Dark mode is the app's palette, not a second one. Every surface, border, and
+ * text colour below is an alias for a token from styles.css, so the Teams page
+ * sits on the same greys as the sidebar and the rest of the product. Only the
+ * category hues stay literal, because a team's colour is what identifies it,
+ * and they are already the lighter step needed on a dark surface. The page is
+ * flat here: dark pages in this product carry no radial glow.
+ */
 html.dark .teams-page-shell {
-  --teams-bg: #070b14;
-  --teams-card: #0f1728;
-  --teams-elevated: #121c31;
-  --teams-hover: #16223a;
-  --teams-input: #0e1627;
-  --teams-tree-bg: #0e1627;
-  --teams-text: #C5CFDC;
-  --teams-muted: #93A0B2;
-  --teams-soft-muted: #758196;
-  --teams-line: rgba(38, 51, 77, 0.72);
-  --teams-line-strong: #26334d;
-  --teams-table-line: rgba(38, 51, 77, 0.72);
+  --teams-bg: var(--bg-app);
+  --teams-card: var(--bg-panel);
+  --teams-elevated: var(--bg-elevated);
+  --teams-hover: var(--bg-hover);
+  --teams-input: var(--bg-input);
+  --teams-tree-bg: var(--bg-panel);
+  --teams-text: var(--text-primary);
+  --teams-muted: var(--text-secondary);
+  --teams-soft-muted: var(--text-tertiary);
+  --teams-line: var(--border-primary);
+  --teams-line-strong: var(--border-strong);
+  --teams-table-line: var(--border-primary);
   --teams-blue: #7FB4FF;
   --teams-green: #42C474;
   --teams-purple: #8B7CFF;
   --teams-cyan: #69D2FF;
   --teams-red: #FF7A80;
-  --teams-accent: #918cff;
-  --teams-accent-strong: #5147e8;
-  --teams-accent-soft: rgba(82, 74, 232, 0.2);
-  --teams-primary: #5147e8;
-  --teams-primary-hover: #6f6bf6;
-  --teams-primary-text: #C5CFDC;
-  --teams-icon-default: #8f9ab0;
-  --teams-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
-}
-
-html.dark .teams-page-shell {
-  background:
-    radial-gradient(1000px 600px at 62% -10%, rgba(91, 83, 255, 0.16), transparent 55%),
-    radial-gradient(700px 480px at 100% 100%, rgba(34, 211, 238, 0.08), transparent 55%),
-    var(--teams-bg);
+  --teams-accent: var(--text-accent);
+  --teams-accent-strong: var(--accent);
+  --teams-accent-soft: var(--accent-soft);
+  --teams-primary: var(--accent);
+  --teams-primary-hover: color-mix(in srgb, var(--accent) 85%, #ffffff);
+  --teams-primary-text: var(--text-button);
+  --teams-icon-default: var(--icon-default);
+  --teams-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+  background: var(--teams-bg);
 }
 
 .teams-page-toolbar {
@@ -287,7 +289,7 @@ html.dark .teams-icon-btn {
 }
 
 html.dark .teams-breadcrumb__item.current {
-  border-color: rgba(111, 107, 246, 0.38);
+  border-color: color-mix(in srgb, var(--teams-accent-strong) 45%, transparent);
   background: var(--teams-accent-soft);
   color: var(--teams-text);
 }
@@ -577,7 +579,7 @@ html.dark .teams-tree-row:hover {
 
 html.dark .teams-tree-row.active {
   background: var(--teams-accent-soft);
-  box-shadow: inset 3px 0 0 0 #6f6bf6;
+  box-shadow: inset 3px 0 0 0 var(--teams-accent-strong);
   color: var(--teams-text);
 }
 
@@ -839,7 +841,7 @@ html.dark .teams-defaults-list {
 }
 
 html.dark .teams-defaults-row {
-  border-color: rgba(148, 163, 184, 0.14);
+  border-color: var(--teams-line);
 }
 
 .teams-defaults-row > label,
@@ -874,7 +876,7 @@ html.dark .teams-defaults-row {
 
 html.dark .teams-defaults-select:hover:not(:disabled),
 html.dark .teams-defaults-select:focus-visible {
-  background: rgba(145, 140, 255, 0.12);
+  background: var(--teams-accent-soft);
 }
 
 .teams-defaults-select:disabled {
@@ -1152,9 +1154,9 @@ html.dark .teams-resource-mini:hover {
 }
 
 html.dark .teams-resource-mini.active {
-  border-color: rgba(111, 107, 246, 0.38);
+  border-color: color-mix(in srgb, var(--teams-accent-strong) 45%, transparent);
   background: var(--teams-accent-soft);
-  box-shadow: inset 3px 0 0 0 #6f6bf6;
+  box-shadow: inset 3px 0 0 0 var(--teams-accent-strong);
 }
 
 .teams-resource-mini__icon {
@@ -1307,7 +1309,7 @@ html.dark .teams-table-heading--subtle {
 }
 
 html.dark .teams-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.028);
+  background: var(--teams-hover);
 }
 
 .teams-table th,

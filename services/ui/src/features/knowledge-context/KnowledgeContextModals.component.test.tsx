@@ -164,8 +164,8 @@ describe('KnowledgeContextModals', () => {
   it('sizes the document dialog without repainting the shared modal shell', () => {
     const styles = readFileSync('src/styles.css', 'utf8');
     const documentModalRule = styles.slice(
-      styles.indexOf('.kc-document-modal {'),
-      styles.indexOf('}', styles.indexOf('.kc-document-modal {'))
+      styles.indexOf('.kc-document-modal--external {'),
+      styles.indexOf('}', styles.indexOf('.kc-document-modal--external {'))
     );
 
     expect(documentModalRule).toContain('--modal-max-width');

@@ -56,10 +56,10 @@ test('the shell reads its colours from theme tokens so both themes hold up', () 
 
 test('dialog width comes from the shell size classes, not a feature repaint', () => {
   const card = cssBlock(shell, '.workflow-dialog-shell .pipelines-modal-card');
-  assert.match(card, /max-width:\s*var\(--modal-max-width, 640px\);/);
+  assert.match(card, /max-width:\s*var\(--modal-max-width, 800px\);/);
 
-  for (const size of ['.workflow-dialog--compact', '.kc-document-modal']) {
-    const source = size === '.kc-document-modal' ? styles : shell;
+  for (const size of ['.workflow-dialog--compact', '.kc-document-modal--external']) {
+    const source = size.startsWith('.kc-') ? styles : shell;
     assert.match(cssBlock(source, size), /--modal-max-width:/);
   }
 });

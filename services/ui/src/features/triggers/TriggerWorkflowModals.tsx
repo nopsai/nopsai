@@ -125,7 +125,7 @@ function TriggerRepositoryDialog({
       )}
     >
       <div className="trigger-modal-field-repository">
-        <label htmlFor={inputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+        <label htmlFor={inputId} className="modal-property-label">
           {isCreate ? 'Repository' : 'Target repository'}
         </label>
         <input
@@ -155,7 +155,7 @@ function TriggerRepositoryDialog({
       ) : null}
       {'yamlPreview' in modal ? (
         <div className="trigger-modal-field-repository">
-          <label className="block text-sm font-medium text-[var(--text-secondary)]">
+          <label className="modal-property-label">
             {isCreate ? 'Template' : 'Definition'}
             <textarea
               className="pipelines-input min-h-52 w-full font-mono text-xs"

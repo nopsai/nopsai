@@ -36,15 +36,25 @@ the only lit surface in the dialog.
 
 A dialog picks a width with a shell size class:
 
-- (no class) — 640px, the default for a form
+- (no class) — 800px, the canvas width the design is drawn at
 - `workflow-dialog--compact` — 30rem, for confirmations and single-field dialogs
 - `workflow-form-dialog--wide` / `workflow-dialog--wide` — 52rem
 - `workflow-form-dialog--xwide` / `workflow-dialog--xwide` — 68rem
 
 A dialog that genuinely needs its own footprint sets `--modal-max-width` on its
-own card class, the way `.kc-document-modal` does for the Knowledge Context
-document editor. Sizing with a Tailwind `max-w-*` utility no longer works: the
-shell's rule is more specific, and the utility is silently ignored.
+own card class, the way `.kc-document-modal--external` does for the two-panel
+external-page layout in Knowledge Context. Sizing with a Tailwind `max-w-*`
+utility no longer works: the shell's rule is more specific, and the utility is
+silently ignored.
+
+## Scale
+
+The shell holds the proportions in tokens, so a dialog is spaced the same
+wherever it opens: `--modal-radius` (24–40px, growing with the viewport),
+`--modal-canvas-padding` (24–56px), and `--modal-block-gap` (18–32px between the
+pill, the canvas, and the action bar). Type follows the same ladder — a display
+name at 36–56px, a 17–20px summary, 14px field labels, 12px hints and property
+controls — and the actions are 14px pills with 24–32px of horizontal padding.
 
 ## Controls
 
@@ -55,13 +65,18 @@ wherever they appear:
   name and summary, typed straight onto the canvas instead of into boxed fields,
   so a dialog opens on the decision that matters.
 - `modal-divider` — the fading hairline under the hero.
+- `modal-canvas-field` with `modal-canvas-input` — long-form writing typed onto
+  the canvas rather than into a boxed field, with hover and focus tints as its
+  only affordance.
 - `modal-property-grid` with `WorkflowPropertyRow` — two aligned columns of
   label/hint on the left and control on the right, separated by row hairlines
   rather than nested boxes.
 - `modal-section-heading` — the small uppercase section title with its icon and
   count badge.
 - `WorkflowSegmentedControl` (`modal-segmented`) — a short closed set of
-  choices. Real radios stay in the markup, so the group keeps arrow-key
+  choices, in two sizes: `compact` belongs in a property row next to its label,
+  and `pill` (`size="pill"`) is a control in its own right, switching what the
+  canvas shows. Real radios stay in the markup, so the group keeps arrow-key
   navigation and accessible names. A button-driven variant, keyed off
   `aria-pressed`, is available for groups that toggle a mode.
 - `modal-toggle` — an on/off setting.

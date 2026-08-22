@@ -18857,9 +18857,10 @@ html.dark .kc-empty-state {
     padding-top: 1.5rem;
 }
 
-/* The document dialog is the widest form in the product; the modal shell in
-   components/modalShell.css owns everything else about how it looks. */
-.kc-document-modal {
+/* The document dialog keeps the shared canvas width while it is a single column
+   of writing, and only widens for the two-panel external-page layout. The modal
+   shell in components/modalShell.css owns everything else about how it looks. */
+.kc-document-modal--external {
     --modal-max-width: min(1120px, calc(100vw - 48px));
 }
 
@@ -18868,7 +18869,7 @@ html.dark .kc-empty-state {
 .kc-document-body {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: clamp(20px, 2.4vw, 36px);
 }
 
 .kc-source-switch {
@@ -18882,8 +18883,8 @@ html.dark .kc-empty-state {
 .kc-document-properties {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    padding-top: 0.35rem;
+    gap: 1.5rem;
+    padding-top: 1.5rem;
     border-top: 1px solid var(--border-primary);
 }
 
@@ -18896,11 +18897,6 @@ html.dark .kc-empty-state {
 
 [data-page="knowledge-context"] .kc-external-fields textarea {
     min-height: 8rem;
-    resize: vertical;
-}
-
-[data-page="knowledge-context"] .kc-inline-content-field textarea {
-    min-height: 15rem;
     resize: vertical;
 }
 
@@ -19023,7 +19019,7 @@ html.dark [data-page="knowledge-context"] .kc-provider-preview {
 }
 
 @media (max-width: 1020px) {
-    .kc-document-modal {
+    .kc-document-modal--external {
         --modal-max-width: min(760px, calc(100vw - 32px));
     }
 

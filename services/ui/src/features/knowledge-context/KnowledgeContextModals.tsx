@@ -134,7 +134,9 @@ export function KnowledgeContextModals({
           titleId={formTitleId}
           descriptionId={formModal.error ? formErrorId : undefined}
           onClose={onCloseForm}
-          className="pipelines-modal-card kc-document-modal w-full"
+          className={`pipelines-modal-card kc-document-modal w-full ${
+            formModal.contentSource === 'external' ? 'kc-document-modal--external' : ''
+          }`}
         >
           <header className="pipelines-modal-header">
             <div>
@@ -177,6 +179,7 @@ export function KnowledgeContextModals({
                 <WorkflowSegmentedControl
                   name="knowledge-content-source"
                   legend="Content source"
+                  size="pill"
                   value={formModal.contentSource}
                   options={[
                     { value: 'inline', label: 'Inline content' },
@@ -194,7 +197,7 @@ export function KnowledgeContextModals({
                     <span>Search, paste a URL, and preview before saving.</span>
                   </div>
                   {teamConnections.length ? (
-                    <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                    <label className="modal-property-label">
                       Connection
                       <select
                         className="pipelines-input w-full mt-1"
@@ -220,7 +223,7 @@ export function KnowledgeContextModals({
                     </div>
                   )}
                   <div className="kc-page-id-grid">
-                    <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                    <label className="modal-property-label">
                       Page URL
                       <input
                         className="pipelines-input w-full mt-1"
@@ -229,7 +232,7 @@ export function KnowledgeContextModals({
                         onChange={event => onUpdateForm({ external_page_url: event.target.value })}
                       />
                     </label>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                    <label className="modal-property-label">
                       Page ID
                       <input
                         className="pipelines-input w-full mt-1"
@@ -241,7 +244,7 @@ export function KnowledgeContextModals({
                   </div>
                   <div className="kc-provider-picker">
                     <div className="kc-provider-picker-row">
-                      <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                      <label className="modal-property-label">
                         Search provider pages
                         <input
                           className="pipelines-input w-full mt-1"
@@ -306,7 +309,7 @@ export function KnowledgeContextModals({
                       <pre><code>{formModal.page_preview.text || 'No preview text available.'}</code></pre>
                     </div>
                   ) : null}
-                  <label className="block text-sm font-medium text-[var(--text-secondary)]">
+                  <label className="modal-property-label">
                     Cached content preview
                     <textarea
                       className="pipelines-input w-full mt-1"
@@ -319,10 +322,10 @@ export function KnowledgeContextModals({
                 </section>
               </div>
             ) : (
-              <label className="kc-inline-content-field block text-sm font-medium text-[var(--text-secondary)]">
-                Content
+              <label className="modal-canvas-field">
+                <span className="modal-property-label">Content</span>
                 <textarea
-                  className="pipelines-input w-full mt-1"
+                  className="modal-canvas-input"
                   placeholder="Write the inline Knowledge Context content."
                   value={formModal.content}
                   onChange={event => onUpdateForm({ content: event.target.value })}
@@ -478,7 +481,7 @@ export function KnowledgeContextModals({
           </header>
           <div className="pipelines-modal-body space-y-4">
             <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
+              <label className="modal-property-label">
                 Provider
                 <select
                   className="pipelines-input w-full mt-1"
@@ -490,7 +493,7 @@ export function KnowledgeContextModals({
                   ))}
                 </select>
               </label>
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
+              <label className="modal-property-label">
                 Team
                 <select
                   className="pipelines-input w-full mt-1"
@@ -505,7 +508,7 @@ export function KnowledgeContextModals({
               </label>
             </div>
             <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
+              <label className="modal-property-label">
                 Display name
                 <input
                   className="pipelines-input w-full mt-1"
@@ -515,7 +518,7 @@ export function KnowledgeContextModals({
                   data-dialog-initial-focus
                 />
               </label>
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
+              <label className="modal-property-label">
                 ID
                 <input
                   className="pipelines-input w-full mt-1"
@@ -526,7 +529,7 @@ export function KnowledgeContextModals({
                 />
               </label>
             </div>
-            <label className="block text-sm font-medium text-[var(--text-secondary)]">
+            <label className="modal-property-label">
               Base URL
               <input
                 className="pipelines-input w-full mt-1"
@@ -535,7 +538,7 @@ export function KnowledgeContextModals({
                 onChange={event => onUpdateConnection({ base_url: event.target.value })}
               />
             </label>
-            <div className="block text-sm font-medium text-[var(--text-secondary)]">
+            <div className="modal-property-label">
               <label htmlFor="knowledge-connection-credential-ref">Credential reference</label>
               <input
                 id="knowledge-connection-credential-ref"

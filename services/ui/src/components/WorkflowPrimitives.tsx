@@ -223,6 +223,7 @@ export function WorkflowSegmentedControl<Value extends string>({
   options,
   onChange,
   legend,
+  size = 'compact',
   stretch = false,
   disabled = false,
 }: {
@@ -231,11 +232,21 @@ export function WorkflowSegmentedControl<Value extends string>({
   options: Array<{ value: Value; label: string }>;
   onChange: (value: Value) => void;
   legend?: string;
+  /** 'compact' sits in a property row; 'pill' is a control in its own right. */
+  size?: 'compact' | 'pill';
   stretch?: boolean;
   disabled?: boolean;
 }) {
+  const classes = [
+    'modal-segmented',
+    size === 'pill' ? 'modal-segmented--pill' : '',
+    stretch ? 'modal-segmented--stretch' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className={stretch ? 'modal-segmented modal-segmented--stretch' : 'modal-segmented'} role="group" aria-label={legend}>
+    <div className={classes} role="group" aria-label={legend}>
       {options.map(option => (
         <label key={option.value}>
           <input

@@ -91,7 +91,7 @@ function ScopeCreateDialog({
           }}
         >
           <div>
-            <label htmlFor="scope-new-name" className="block text-sm font-medium text-[var(--text-secondary)]">
+            <label htmlFor="scope-new-name" className="modal-property-label">
               Scope Name
             </label>
             <input
@@ -287,7 +287,7 @@ function ScopedValueDialog({
           <div className="grid gap-4 md:grid-cols-[1.6fr_1fr]">
             <div className="space-y-4">
               <div className="space-y-1">
-                <label htmlFor={nameId} className="block text-sm font-medium text-[var(--text-secondary)]">
+                <label htmlFor={nameId} className="modal-property-label">
                   {isVariable ? 'Variable' : 'Secret'} Name
                 </label>
                 <input
@@ -307,7 +307,7 @@ function ScopedValueDialog({
                 ) : null}
               </div>
               <div className="space-y-1">
-                <label htmlFor={repositoryId} className="block text-sm font-medium text-[var(--text-secondary)]">
+                <label htmlFor={repositoryId} className="modal-property-label">
                   Repository (optional)
                 </label>
                 <input
@@ -331,7 +331,7 @@ function ScopedValueDialog({
                 </p>
               </div>
               <div className="space-y-1">
-                <label htmlFor={valueId} className="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
+                <label htmlFor={valueId} className="modal-property-label">Value</label>
                 <textarea
                   id={valueId}
                   rows={4}
@@ -415,7 +415,7 @@ function GitOpsEncryptDialog({
             Encrypt a secret value for a Git-managed scope file.
           </p>
           <div className="space-y-1">
-            <label htmlFor="gitops-secret-value" className="block text-sm font-medium text-[var(--text-secondary)]">
+            <label htmlFor="gitops-secret-value" className="modal-property-label">
               Value
             </label>
             <textarea
@@ -430,7 +430,7 @@ function GitOpsEncryptDialog({
           </div>
           {modal.encryptedValue ? (
             <div className="space-y-1">
-              <label htmlFor="gitops-secret-encrypted-value" className="block text-sm font-medium text-[var(--text-secondary)]">
+              <label htmlFor="gitops-secret-encrypted-value" className="modal-property-label">
                 Encrypted Value
               </label>
               <textarea

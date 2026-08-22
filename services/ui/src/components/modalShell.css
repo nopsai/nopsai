@@ -23,8 +23,10 @@
 .workflow-dialog-shell {
     --modal-surface: color-mix(in srgb, var(--bg-panel) 94%, transparent);
     --modal-border: var(--border-primary);
-    --modal-radius: 22px;
+    --modal-radius: clamp(24px, 2.6vw, 40px);
     --modal-pill-radius: 999px;
+    --modal-block-gap: clamp(18px, 2.4vh, 32px);
+    --modal-canvas-padding: clamp(24px, 4vw, 56px);
     --modal-shadow: 0 24px 60px -22px rgba(15, 23, 42, 0.45), 0 8px 24px -18px rgba(15, 23, 42, 0.35);
     --modal-pill-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.5);
     --modal-blob-opacity: 0.28;
@@ -96,9 +98,9 @@ html.dark .workflow-dialog-shell::after {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--modal-block-gap);
     width: 100%;
-    max-width: var(--modal-max-width, 640px);
+    max-width: var(--modal-max-width, 800px);
     max-height: calc(100vh - 4rem);
     padding: 0;
     border: 0;
@@ -141,7 +143,7 @@ html.dark .workflow-dialog-shell::after {
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--modal-block-gap);
     min-height: 0;
 }
 
@@ -153,7 +155,7 @@ html.dark .workflow-dialog-shell::after {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 10px 12px 10px 22px;
+    padding: 12px 14px 12px 26px;
     border: 1px solid var(--modal-border);
     border-radius: var(--modal-pill-radius);
     background: var(--modal-surface);
@@ -162,7 +164,7 @@ html.dark .workflow-dialog-shell::after {
 }
 
 .workflow-dialog-shell .pipelines-modal-header h3 {
-    font-size: 0.98rem;
+    font-size: 1.05rem;
     font-weight: 600;
     line-height: 1.3;
     color: var(--text-primary);
@@ -174,8 +176,8 @@ html.dark .workflow-dialog-shell::after {
 }
 
 .workflow-dialog-shell .pipelines-modal-kicker {
-    margin-bottom: 0.05rem;
-    font-size: 0.63rem;
+    margin-bottom: 0.1rem;
+    font-size: 0.66rem;
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -187,7 +189,7 @@ html.dark .workflow-dialog-shell::after {
     flex: 1 1 auto;
     min-height: 0;
     max-height: none;
-    padding: clamp(20px, 3vw, 34px);
+    padding: var(--modal-canvas-padding);
     border: 1px solid var(--modal-border);
     border-radius: var(--modal-radius);
     background: var(--modal-surface);
@@ -202,7 +204,7 @@ html.dark .workflow-dialog-shell::after {
     display: flex;
     flex: 0 0 auto;
     justify-content: flex-end;
-    padding: 0 8px;
+    padding: 0 10px;
     border: 0;
     background: none;
     box-shadow: none;
@@ -212,9 +214,15 @@ html.dark .workflow-dialog-shell::after {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
+    gap: 16px;
     width: 100%;
     flex-wrap: wrap;
+}
+
+/* The primary action carries more horizontal weight than the ghost beside it. */
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-primary,
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-danger {
+    padding-inline: 2rem;
 }
 
 /* Actions are pills. The primary one is the only lit surface in the dialog. */
@@ -222,11 +230,11 @@ html.dark .workflow-dialog-shell::after {
 .workflow-dialog-shell .pipelines-modal-actions .glass-button-ghost,
 .workflow-dialog-shell .pipelines-modal-actions .glass-button-subtle,
 .workflow-dialog-shell .pipelines-modal-actions .glass-button-danger {
-    padding: 0.6rem 1.6rem;
+    padding: 0.75rem 1.5rem;
     border: 1px solid transparent;
     border-radius: var(--modal-pill-radius);
-    font-size: 0.8rem;
-    font-weight: 600;
+    font-size: 0.875rem;
+    font-weight: 500;
     backdrop-filter: none;
 }
 
@@ -325,13 +333,13 @@ html.dark .workflow-dialog-shell::after {
  */
 .workflow-dialog-shell .pipelines-input,
 .workflow-dialog-shell .system-input {
-    padding: 0.5rem 0.75rem;
+    padding: 0.65rem 0.9rem;
     border: 1px solid var(--border-input);
-    border-radius: 10px;
+    border-radius: 12px;
     background: var(--bg-input);
     box-shadow: none;
     backdrop-filter: none;
-    font-size: 0.83rem;
+    font-size: 0.875rem;
 }
 
 .workflow-dialog-shell .pipelines-input:hover:not(:focus),
@@ -360,7 +368,7 @@ html.dark .workflow-dialog-shell::after {
 .modal-hero {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 16px;
 }
 
 .modal-hero-input,
@@ -376,14 +384,14 @@ html.dark .workflow-dialog-shell::after {
 }
 
 .modal-hero-input {
-    font-size: clamp(1.65rem, 3.4vw, 2.3rem);
+    font-size: clamp(2.25rem, 4.6vw, 3.5rem);
     font-weight: 700;
-    letter-spacing: -0.02em;
-    line-height: 1.15;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
 }
 
 .modal-hero-summary {
-    font-size: 0.98rem;
+    font-size: clamp(1.05rem, 1.5vw, 1.25rem);
     font-weight: 300;
     line-height: 1.5;
 }
@@ -398,12 +406,51 @@ html.dark .workflow-dialog-shell::after {
     color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
 }
 
+/*
+ * The writing area. Long-form content is typed onto the canvas rather than into
+ * a boxed field, the same way the name and summary are; the hover and focus
+ * tints are the only affordance, so the page stays quiet until it is used.
+ */
+.modal-canvas-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.modal-canvas-input {
+    width: 100%;
+    min-height: 160px;
+    padding: 4px 0;
+    border: 0;
+    border-radius: 12px;
+    background: none;
+    box-shadow: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: clamp(0.95rem, 1.1vw, 1.05rem);
+    line-height: 1.7;
+    resize: vertical;
+    transition: background 0.16s ease;
+}
+
+.modal-canvas-input:hover,
+.modal-canvas-input:focus {
+    background: color-mix(in srgb, var(--text-secondary) 7%, transparent);
+    box-shadow: 0 0 0 12px color-mix(in srgb, var(--text-secondary) 7%, transparent);
+}
+
+.modal-canvas-input::placeholder {
+    color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
+}
+
 /* A hairline that fades out, used to separate the hero from the content. */
 .modal-divider {
     height: 1px;
     width: 100%;
     border: 0;
     margin: 0;
+    flex: 0 0 auto;
     background: linear-gradient(90deg, var(--border-primary), var(--modal-hairline), transparent);
 }
 
@@ -425,9 +472,9 @@ html.dark .workflow-dialog-shell::after {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.68rem;
+    font-size: 0.72rem;
     font-weight: 700;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--text-secondary);
 }
@@ -439,11 +486,12 @@ html.dark .workflow-dialog-shell::after {
 }
 
 .modal-section-heading__badge {
-    padding: 3px 10px;
+    padding: 4px 10px;
     border: 1px solid var(--modal-hairline);
     border-radius: var(--modal-pill-radius);
     background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
-    font-size: 0.68rem;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+    font-size: 0.69rem;
     color: var(--text-secondary);
 }
 
@@ -451,7 +499,7 @@ html.dark .workflow-dialog-shell::after {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 32px;
-    row-gap: 4px;
+    row-gap: 16px;
     margin: 0;
     padding: 0;
     border: 0;
@@ -483,7 +531,7 @@ html.dark .workflow-dialog-shell::after {
 
 .modal-property-label {
     display: block;
-    font-size: 0.83rem;
+    font-size: 0.875rem;
     font-weight: 500;
     color: var(--text-primary);
 }
@@ -502,6 +550,14 @@ html.dark .workflow-dialog-shell::after {
     max-width: 100%;
 }
 
+/* Controls in a property row are the compact size: the row's label is what the
+   reader scans, and the control only has to be legible next to it. */
+.modal-property-control .pipelines-input {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
 .modal-property-row--stacked .modal-property-control {
     width: 100%;
 }
@@ -515,13 +571,18 @@ html.dark .workflow-dialog-shell::after {
  * be a radio list or a select. Radios stay in the markup so the control keeps
  * its keyboard behaviour and accessible names.
  */
+/*
+ * Two sizes, as the demo has them: the compact one belongs in a property row,
+ * next to a label the reader is already scanning; the pill one is a control in
+ * its own right, switching what the canvas shows.
+ */
 .modal-segmented {
     display: inline-flex;
     flex: 0 0 auto;
     gap: 2px;
-    padding: 3px;
+    padding: 2px;
     border: 1px solid var(--border-input);
-    border-radius: 12px;
+    border-radius: 10px;
     background: var(--bg-input);
 }
 
@@ -543,9 +604,9 @@ html.dark .workflow-dialog-shell::after {
 
 .modal-segmented input + span {
     display: block;
-    padding: 6px 14px;
-    border-radius: 9px;
-    font-size: 0.78rem;
+    padding: 4px 10px;
+    border-radius: 7px;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--text-secondary);
     text-align: center;
@@ -569,11 +630,11 @@ html.dark .workflow-dialog-shell::after {
 /* Button-driven variant, for a group that toggles a mode rather than picking a
    value; aria-pressed carries the state a radio's :checked would. */
 .modal-segmented button {
-    padding: 6px 14px;
+    padding: 4px 10px;
     border: 0;
-    border-radius: 9px;
+    border-radius: 7px;
     background: none;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     font-weight: 500;
     color: var(--text-secondary);
     cursor: pointer;
@@ -587,6 +648,19 @@ html.dark .workflow-dialog-shell::after {
 .modal-segmented button[aria-pressed='true'] {
     background: var(--accent);
     color: #ffffff;
+}
+
+.modal-segmented--pill {
+    gap: 4px;
+    padding: 4px;
+    border-radius: var(--modal-pill-radius);
+}
+
+.modal-segmented--pill input + span,
+.modal-segmented--pill button {
+    padding: 8px 20px;
+    border-radius: var(--modal-pill-radius);
+    font-size: 0.875rem;
 }
 
 .modal-segmented--stretch {
