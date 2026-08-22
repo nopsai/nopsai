@@ -1015,7 +1015,7 @@ export function RefreshScheduleModal({
           ) : null}
           {form.cronMode === 'weekly' ? (
             <fieldset className="space-y-2 md:col-span-2">
-              <legend className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Days</legend>
+              <legend className="modal-property-label">Days</legend>
               <div className="modal-chip-list">
                 {WEEKDAY_OPTIONS.map(option => (
                   <label key={option.value} className="modal-chip">
@@ -1033,7 +1033,7 @@ export function RefreshScheduleModal({
           ) : null}
           {form.cronMode === 'monthly' ? (
             <fieldset className="space-y-2 md:col-span-2">
-              <legend className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Days of month</legend>
+              <legend className="modal-property-label">Days of month</legend>
               <div className="modal-chip-list">
                 {MONTHDAY_VALUES.map(day => (
                   <label key={day} className="modal-chip">
@@ -1380,7 +1380,7 @@ function Field({ label, description, children, wide }: { label: string; descript
   return (
     <div className={`space-y-1 ${wide ? 'md:col-span-full' : ''}`}>
       <label className="space-y-1">
-        <span className="block text-xs font-semibold uppercase text-[var(--text-secondary)]">{label}</span>
+        <span className="modal-property-label">{label}</span>
         {children}
       </label>
       {description ? <p className="text-xs leading-5 text-[var(--text-muted)]">{description}</p> : null}

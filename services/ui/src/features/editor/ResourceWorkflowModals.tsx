@@ -77,7 +77,7 @@ function ResourceFormDialog({
       )}
     >
       <div>
-        <label htmlFor={pathInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+        <label htmlFor={pathInputId} className="modal-property-label">
           {resourceTitle} Path
         </label>
         <input
@@ -92,7 +92,7 @@ function ResourceFormDialog({
         <p className="text-xs text-[var(--text-secondary)] mt-1">Optional team path. Leave blank for root.</p>
       </div>
       <div>
-        <label htmlFor={nameInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+        <label htmlFor={nameInputId} className="modal-property-label">
           {resourceTitle} Name
         </label>
         <input

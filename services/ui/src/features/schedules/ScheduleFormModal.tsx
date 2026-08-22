@@ -108,7 +108,7 @@ export function ScheduleFormModal({
     >
       <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Name</span>
+              <span className="modal-property-label">Name</span>
               <input
                 className="pipelines-input w-full"
                 value={form.name}
@@ -118,7 +118,7 @@ export function ScheduleFormModal({
               />
             </label>
             <label className="space-y-1 md:col-span-2">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Pipeline</span>
+              <span className="modal-property-label">Pipeline</span>
               <select
                 className="pipelines-input w-full"
                 value={form.pipeline}
@@ -145,7 +145,7 @@ export function ScheduleFormModal({
               </select>
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Run team</span>
+              <span className="modal-property-label">Run team</span>
               <select
                 className="pipelines-input w-full"
                 value={selectedRunTeamPath}
@@ -160,7 +160,7 @@ export function ScheduleFormModal({
               </select>
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Frequency</span>
+              <span className="modal-property-label">Frequency</span>
               <select
                 className="pipelines-input w-full"
                 value={form.cronMode}
@@ -181,7 +181,7 @@ export function ScheduleFormModal({
             {form.cronMode === 'once' ? (
               <>
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Date</span>
+                  <span className="modal-property-label">Date</span>
                   <input
                     className="pipelines-input w-full"
                     type="date"
@@ -191,7 +191,7 @@ export function ScheduleFormModal({
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Time</span>
+                  <span className="modal-property-label">Time</span>
                   <input
                     className="pipelines-input w-full"
                     type="time"
@@ -204,7 +204,7 @@ export function ScheduleFormModal({
             ) : null}
             {form.cronMode === 'minutes' ? (
               <label className="space-y-1">
-                <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Every</span>
+                <span className="modal-property-label">Every</span>
                 <div className="flex items-center gap-2">
                   <input
                     className="pipelines-input w-full"
@@ -221,13 +221,10 @@ export function ScheduleFormModal({
             ) : null}
             {form.cronMode === 'weekly' ? (
               <fieldset className="space-y-2 md:col-span-2">
-                <legend className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Days</legend>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <legend className="modal-property-label">Days</legend>
+                <div className="modal-chip-list">
                   {WEEKDAY_OPTIONS.map(option => (
-                    <label
-                      key={option.value}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
-                    >
+                    <label key={option.value} className="modal-chip">
                       <input
                         type="checkbox"
                         checked={selectedWeekdays.has(option.value)}
@@ -237,7 +234,6 @@ export function ScheduleFormModal({
                           })
                         }
                         disabled={disabled}
-                        className="h-4 w-4 rounded border-[var(--border-primary)]"
                       />
                       <span>{option.short}</span>
                     </label>
@@ -247,13 +243,10 @@ export function ScheduleFormModal({
             ) : null}
             {form.cronMode === 'monthly' ? (
               <fieldset className="space-y-2 md:col-span-2">
-                <legend className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Days of month</legend>
-                <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+                <legend className="modal-property-label">Days of month</legend>
+                <div className="modal-chip-list">
                   {MONTHDAY_VALUES.map(day => (
-                    <label
-                      key={day}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-2 py-2 text-sm text-[var(--text-primary)]"
-                    >
+                    <label key={day} className="modal-chip">
                       <input
                         type="checkbox"
                         checked={selectedMonthdays.has(day)}
@@ -263,7 +256,6 @@ export function ScheduleFormModal({
                           })
                         }
                         disabled={disabled}
-                        className="h-4 w-4 rounded border-[var(--border-primary)]"
                       />
                       <span>{day}</span>
                     </label>
@@ -274,7 +266,7 @@ export function ScheduleFormModal({
             {form.cronMode === 'yearly' ? (
               <>
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Month</span>
+                  <span className="modal-property-label">Month</span>
                   <select
                     className="pipelines-input w-full"
                     value={form.cronMonth}
@@ -289,7 +281,7 @@ export function ScheduleFormModal({
                   </select>
                 </label>
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Day</span>
+                  <span className="modal-property-label">Day</span>
                   <select
                     className="pipelines-input w-full"
                     value={form.cronMonthday}
@@ -308,7 +300,7 @@ export function ScheduleFormModal({
             {form.cronMode === 'hourly' ? (
               <>
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Every</span>
+                  <span className="modal-property-label">Every</span>
                   <div className="flex items-center gap-2">
                     <input
                       className="pipelines-input w-full"
@@ -323,7 +315,7 @@ export function ScheduleFormModal({
                   </div>
                 </label>
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Minute</span>
+                  <span className="modal-property-label">Minute</span>
                   <input
                     className="pipelines-input w-full"
                     type="number"
@@ -338,7 +330,7 @@ export function ScheduleFormModal({
             ) : null}
             {form.cronMode !== 'once' && form.cronMode !== 'minutes' && form.cronMode !== 'hourly' && form.cronMode !== 'custom' ? (
               <label className="space-y-1">
-                <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Time</span>
+                <span className="modal-property-label">Time</span>
                 <input
                   className="pipelines-input w-full"
                   type="time"
@@ -350,7 +342,7 @@ export function ScheduleFormModal({
             ) : null}
             {form.cronMode === 'custom' ? (
               <label className="space-y-1">
-                <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Expression</span>
+                <span className="modal-property-label">Expression</span>
                 <input
                   className="pipelines-input w-full font-mono"
                   value={form.cron_expression}
@@ -360,7 +352,7 @@ export function ScheduleFormModal({
               </label>
             ) : null}
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Timezone</span>
+              <span className="modal-property-label">Timezone</span>
               <input
                 list="schedule-timezone-options"
                 className="pipelines-input w-full"
@@ -375,7 +367,7 @@ export function ScheduleFormModal({
               </datalist>
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Scope</span>
+              <span className="modal-property-label">Scope</span>
               <select
                 className="pipelines-input w-full"
                 value={form.scope}
@@ -389,18 +381,26 @@ export function ScheduleFormModal({
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-3 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2">
-              <input
-                type="checkbox"
-                checked={form.enabled}
-                onChange={event => update({ enabled: event.target.checked })}
-                disabled={disabled}
-                className="h-4 w-4 rounded border-[var(--border-primary)]"
-              />
-              <span className="text-sm font-semibold text-[var(--text-primary)]">Enabled</span>
-            </label>
+            <div className="modal-property-row self-end">
+              <div className="min-w-0">
+                <label className="modal-property-label" htmlFor="schedule-enabled">
+                  Enabled
+                </label>
+                <span className="modal-property-hint">Pause the schedule without deleting it.</span>
+              </div>
+              <label className="modal-toggle">
+                <input
+                  id="schedule-enabled"
+                  type="checkbox"
+                  checked={form.enabled}
+                  onChange={event => update({ enabled: event.target.checked })}
+                  disabled={disabled}
+                />
+                <span />
+              </label>
+            </div>
             <label className="space-y-1 md:col-span-2">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Description</span>
+              <span className="modal-property-label">Description</span>
               <input
                 className="pipelines-input w-full"
                 value={form.description}
@@ -409,7 +409,7 @@ export function ScheduleFormModal({
               />
             </label>
             <label className="space-y-1 md:col-span-2">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Variables</span>
+              <span className="modal-property-label">Variables</span>
               <textarea
                 className="pipelines-input w-full min-h-32 font-mono"
                 value={form.variablesText}

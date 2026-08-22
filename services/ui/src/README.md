@@ -50,6 +50,12 @@ truth; this file is the source-adjacent placement guide.
   rails, headers, and resizers; use spacing, surface contrast, elevation, or
   hover/focus-only resize handles while keeping functional form, table, card,
   alert, and status borders intact.
+  A feature stylesheet may keep its own vocabulary of variables, but its dark
+  block must alias the app tokens rather than pick its own surfaces: Credentials
+  and Teams each shipped a hand-picked navy palette with page glows, which read
+  as a page that had not followed dark mode at all. Only hues that carry meaning
+  (status and category colours) stay literal.
+  `features/featureDarkPalette.test.ts` enforces this.
   The global `[data-page]` active/hidden contract must preserve route-root
   display classes such as `flex` and `grid`; feature pages should not add local
   workarounds for active page display.
