@@ -6,7 +6,8 @@ import {
 import type { AssistantConfig, AssistantLLMProfile } from '../assistant/model.js';
 import { asRecord, normalizeNumber, readString } from '../system/data.js';
 import { apiClient } from '../../lib/api.js';
-import type { AnalysisResult } from './model.js';
+import type { AnalysisResult, AnalysisSubjectType } from './model.js';
+import { analysisResultFromServer } from './serverResult.js';
 import {
   analysisAssistantPageContext,
   buildAnalysisAiPrompt,
@@ -29,9 +30,44 @@ export type AnalysisAiEvaluation = {
   };
 };
 
+/**
+ * Runs the deterministic analysis on the server. It makes no model call, so it
+ * costs nothing but time — and on a large team that time is real, which is why
+ * the caller is expected to show progress and allow cancelling.
+ */
+export async function fetchSubjectAnalysis(input: {
+  subjectType: AnalysisSubjectType;
+  subjectId: string;
+  subjectLabel: string;
+  scopePath?: string;
+  title: string;
+  days?: number;
+  signal?: AbortSignal;
+}): Promise<AnalysisResult> {
+  const response = await apiClient.fetch(`/v1/analysis/${encodeURIComponent(input.subjectType)}`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject_id: input.subjectId, ...(input.days ? { days: input.days } : {}) }),
+    signal: input.signal,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(assistantReadableErrorText(text, `Failed to run analysis (${response.status})`));
+  }
+  return analysisResultFromServer(await response.json(), {
+    subjectType: input.subjectType,
+    subjectId: input.subjectId,
+    subjectLabel: input.subjectLabel,
+    scopePath: input.scopePath,
+    title: input.title,
+  });
+}
+
 export async function requestAnalysisAiEvaluation(
   result: AnalysisResult,
-  context?: AnalysisAiPromptContext | null
+  context?: AnalysisAiPromptContext | null,
+  signal?: AbortSignal
 ): Promise<AnalysisAiEvaluation> {
   const config = await fetchAssistantConfig();
   assertAnalysisAiAvailable(config, result);
@@ -46,7 +82,7 @@ export async function requestAnalysisAiEvaluation(
     scope: pageContext.scope || '',
     selected_llm_profile: selectedProfile.name,
     prompt: buildAnalysisAiPrompt(result, context),
-  });
+  }, signal);
 
   return {
     evaluation: parseAnalysisAiEvaluation(payload.content),
@@ -85,12 +121,13 @@ type AnalysisEvaluationPayload = {
   };
 };
 
-async function postAnalysisEvaluation(input: AnalysisEvaluationRequest): Promise<AnalysisEvaluationPayload> {
+async function postAnalysisEvaluation(input: AnalysisEvaluationRequest, signal?: AbortSignal): Promise<AnalysisEvaluationPayload> {
   const response = await apiClient.fetch('/v1/analysis/evaluate', {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    signal,
   });
   if (!response.ok) {
     const text = await response.text();

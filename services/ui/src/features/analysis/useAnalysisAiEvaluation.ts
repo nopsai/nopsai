@@ -35,6 +35,7 @@ export function useAnalysisAiEvaluation(result: AnalysisResult, options: Analysi
   const cachedState = initialStoredState(result, subjectKey);
   const history = listCachedAnalysisEvaluations(result);
   const requestIDRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
   const autoRequestedRevisionRef = useRef('');
   const state: AnalysisAiEvaluationState = storedState.subjectKey === subjectKey &&
     storedState.snapshotRevision === result.snapshotRevision
@@ -46,11 +47,14 @@ export function useAnalysisAiEvaluation(result: AnalysisResult, options: Analysi
     const requestID = requestIDRef.current + 1;
     const snapshotRevision = result.snapshotRevision;
     requestIDRef.current = requestID;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setStoredState({ subjectKey, snapshotRevision, status: 'loading', evaluation: null, error: '' });
     try {
       const context = loadPromptContext ? await loadPromptContext() : null;
-      if (requestIDRef.current !== requestID) return;
-      const evaluation = await requestAnalysisAiEvaluation(result, context || null);
+      if (requestIDRef.current !== requestID || controller.signal.aborted) return;
+      const evaluation = await requestAnalysisAiEvaluation(result, context || null, controller.signal);
       if (requestIDRef.current !== requestID) return;
       const cached = saveCachedAnalysisEvaluation(result, evaluation);
       setStoredState({
@@ -64,6 +68,11 @@ export function useAnalysisAiEvaluation(result: AnalysisResult, options: Analysi
       });
     } catch (error) {
       if (requestIDRef.current !== requestID) return;
+      // A run the user cancelled is not a failure to report back to them.
+      if (controller.signal.aborted || analysisEvaluationWasAborted(error)) {
+        setStoredState({ subjectKey, snapshotRevision, ...idleState });
+        return;
+      }
       setStoredState({
         subjectKey,
         snapshotRevision,
@@ -73,6 +82,18 @@ export function useAnalysisAiEvaluation(result: AnalysisResult, options: Analysi
       });
     }
   }, [loadPromptContext, result, subjectKey]);
+
+  // Cancelling stops the request in flight. The model call already started is
+  // billed either way, which is why the notice appears before it runs.
+  const cancelEvaluation = useCallback(() => {
+    if (!abortRef.current) return;
+    abortRef.current.abort();
+    abortRef.current = null;
+    requestIDRef.current += 1;
+    setStoredState({ subjectKey, snapshotRevision: result.snapshotRevision, ...idleState });
+  }, [result.snapshotRevision, subjectKey]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
     if (result.subjectType !== 'run') return;
@@ -86,9 +107,15 @@ export function useAnalysisAiEvaluation(result: AnalysisResult, options: Analysi
   return {
     state,
     requestEvaluation,
+    cancelEvaluation,
     autoEvaluates: result.subjectType === 'run',
     history,
   };
+}
+
+function analysisEvaluationWasAborted(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  return error instanceof Error && /abort/i.test(error.message);
 }
 
 function initialStoredState(result: AnalysisResult, subjectKey: string): StoredAnalysisAiEvaluationState {

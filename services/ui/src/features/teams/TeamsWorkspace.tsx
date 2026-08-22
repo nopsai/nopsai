@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
   Boxes,
+  Loader2,
   BrainCircuit,
   ChevronRight,
   FolderTree,
@@ -45,7 +46,8 @@ import {
   TeamTabPanel,
 } from './TeamsWorkspacePanels';
 import { AnalysisModal } from '../analysis/AnalysisModal';
-import { buildTeamResourceAnalysis } from '../analysis/model';
+import { fetchSubjectAnalysis } from '../analysis/api';
+import type { AnalysisResult } from '../analysis/model';
 import { RunnerAssignmentsPanel } from '../system/dispatcher/RunnerAssignmentsPanel';
 import type { DispatcherStatusState } from '../system/dispatcher/model';
 import { buildTeamAnalysisPromptContext } from './teamAnalysisEvidence';
@@ -561,7 +563,6 @@ function TeamResourcesPanel({
 }) {
   const notificationCount = operationsSummary.notificationRoute?.definition?.routes?.length;
   const [selectedResourceKind, setSelectedResourceKind] = useState<TeamLinkedResourceKind | null>(null);
-  const [analysisRequest, setAnalysisRequest] = useState<{ resource: TeamLinkedResource | null } | null>(null);
   const teamPath = team ? teamPathForURL(team, teams) : '';
   const app = team ? isAppTeam(team) : false;
   const subjectLabel = team ? teamDisplayName(team) : 'Global';
@@ -598,18 +599,7 @@ function TeamResourcesPanel({
     () => [...localResources, ...catalogResources],
     [catalogResources, localResources]
   );
-  const analysisResult = useMemo(
-    () => analysisRequest
-      ? buildTeamResourceAnalysis({
-          subjectId: team ? String(team.id) : 'global',
-          subjectLabel,
-          scopePath: teamPath,
-          resources: allResources,
-          activeResource: analysisRequest.resource,
-        })
-      : null,
-    [allResources, analysisRequest, subjectLabel, team, teamPath]
-  );
+  const analysis = useTeamAnalysis({ team, subjectLabel, teamPath, resourceCount: allResources.length });
   const loadAnalysisPromptContext = useCallback(
     async () => buildTeamAnalysisPromptContext({
       team,
@@ -618,11 +608,11 @@ function TeamResourcesPanel({
       subjectLabel,
       scopePath: teamPath,
       resources: allResources,
-      activeResource: analysisRequest?.resource || null,
+      activeResource: null,
       operationsSummary,
       resourceCatalog,
     }),
-    [allResources, analysisRequest?.resource, operationsSummary, resourceCatalog, stats, subjectLabel, team, teamPath, teams]
+    [allResources, operationsSummary, resourceCatalog, stats, subjectLabel, team, teamPath, teams]
   );
   const resourceCounts = useMemo(() => countLinkedResourcesByKind(allResources), [allResources]);
   const firstResourceKind = firstLinkedResourceKind(resourceCounts);
@@ -665,33 +655,114 @@ function TeamResourcesPanel({
           <h3>Resources</h3>
           <p>{description}</p>
         </div>
-        <button type="button" className="teams-secondary-btn" onClick={() => setAnalysisRequest({ resource: null })}>
-          <BrainCircuit className="h-4 w-4" aria-hidden="true" />
-          Analyse Resources
-        </button>
+        {analysis.status === 'running' ? (
+          <button type="button" className="teams-secondary-btn" onClick={analysis.cancel}>
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Cancel analysis
+          </button>
+        ) : (
+          <button type="button" className="teams-secondary-btn" onClick={() => void analysis.start()}>
+            <BrainCircuit className="h-4 w-4" aria-hidden="true" />
+            Analyse resources
+          </button>
+        )}
       </div>
       <div className="teams-resource-grid">
         {resources.map(resource => (
           <TeamResourceTile key={resource.label} resource={resource} />
         ))}
       </div>
+      {analysis.status === 'running' ? (
+        <p className="teams-card-note" role="status">
+          Analysing every resource in this scope{analysis.resourceCount > 0 ? ` (${analysis.resourceCount} visible)` : ''}. This reads
+          each one, so it can take a while on a large team. Cancelling stops it.
+        </p>
+      ) : null}
+      {analysis.error ? <p className="teams-card-note teams-card-note--error" role="alert">{analysis.error}</p> : null}
       <TeamLinkedResourcesBrowser
         resources={allResources}
         activeKind={activeResourceKind}
         loading={selectedResourceKindLoading(activeResourceKind, operationsSummary.loading, resourceCatalog.loading)}
         error={selectedResourceKindError(activeResourceKind, operationsSummary.aiProfilesError, resourceCatalog.error)}
         scopeLabel={app ? 'application' : teamPath ? 'team' : 'global'}
-        onAnalyseResource={resource => setAnalysisRequest({ resource })}
       />
-      {analysisRequest && analysisResult ? (
+      {analysis.result ? (
         <AnalysisModal
-          result={analysisResult}
+          result={analysis.result}
           loadAiPromptContext={loadAnalysisPromptContext}
-          onClose={() => setAnalysisRequest(null)}
+          onClose={analysis.close}
         />
       ) : null}
     </article>
   );
+}
+
+/**
+ * One analysis per scope, run on the server, cancellable while it runs.
+ *
+ * It replaces the per-resource analyse action: a review of a team is a review of
+ * everything it owns, and the server already reads each resource to produce it.
+ */
+function useTeamAnalysis({
+  team,
+  subjectLabel,
+  teamPath,
+  resourceCount,
+}: {
+  team: Team | null;
+  subjectLabel: string;
+  teamPath: string;
+  resourceCount: number;
+}) {
+  const [status, setStatus] = useState<'idle' | 'running'>('idle');
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [error, setError] = useState('');
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStatus('idle');
+  }, []);
+
+  const start = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setStatus('running');
+    setError('');
+    try {
+      const analysis = await fetchSubjectAnalysis({
+        subjectType: 'team',
+        // "*" reviews everything the user can see, which is what the global
+        // scope of this page means.
+        subjectId: team ? String(team.id) : '*',
+        subjectLabel,
+        scopePath: teamPath,
+        title: `${subjectLabel} resource analysis`,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setResult(analysis);
+      setStatus('idle');
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      setStatus('idle');
+      setError(caught instanceof Error ? caught.message : 'Unable to analyse this scope.');
+    }
+  }, [subjectLabel, team, teamPath]);
+
+  return {
+    status,
+    result,
+    error,
+    resourceCount,
+    start,
+    cancel,
+    close: useCallback(() => setResult(null), []),
+  };
 }
 
 function TeamLinkedResourcesBrowser({
@@ -700,14 +771,12 @@ function TeamLinkedResourcesBrowser({
   loading,
   error,
   scopeLabel,
-  onAnalyseResource,
 }: {
   resources: TeamLinkedResource[];
   activeKind: TeamLinkedResourceKind;
   loading: boolean;
   error: string | null;
   scopeLabel: 'application' | 'team' | 'global';
-  onAnalyseResource: (resource: TeamLinkedResource) => void;
 }) {
   const activeResources = useMemo(
     () => resources.filter(resource => resource.kind === activeKind),
@@ -737,7 +806,7 @@ function TeamLinkedResourcesBrowser({
         ) : (
           <div className="teams-profile-summary__list">
             {activeResources.map(resource => (
-              <TeamLinkedResourceRow key={resource.id} resource={resource} onAnalyseResource={onAnalyseResource} />
+              <TeamLinkedResourceRow key={resource.id} resource={resource} />
             ))}
           </div>
         )}
@@ -748,10 +817,8 @@ function TeamLinkedResourcesBrowser({
 
 function TeamLinkedResourceRow({
   resource,
-  onAnalyseResource,
 }: {
   resource: TeamLinkedResource;
-  onAnalyseResource: (resource: TeamLinkedResource) => void;
 }) {
   return (
     <div className="teams-profile-summary__row teams-linked-resource-row">
@@ -766,14 +833,6 @@ function TeamLinkedResourceRow({
         {resource.teamPath ? <span className="runner-pill runner-pill--muted">{resource.teamPath}</span> : null}
         {resource.source ? <span className="runner-pill runner-pill--muted">{resource.source}</span> : null}
         <Link className="runner-pill runner-pill--muted" to={resource.href} aria-label={`Open ${resource.label}`}>Open</Link>
-        <button
-          type="button"
-          className="runner-pill runner-pill--muted"
-          onClick={() => onAnalyseResource(resource)}
-          aria-label={`Analyse ${resource.label}`}
-        >
-          Analyse
-        </button>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { apiClient } from '../../lib/api.js';
 import { requestAnalysisAiEvaluation } from './api.js';
-import { buildTeamResourceAnalysis } from './model.js';
+import { analysisResultFromServer } from './serverResult.js';
 
 const now = new Date('2026-07-24T10:00:00Z');
 
@@ -67,13 +67,7 @@ test('selects the unscoped default LLM profile for scoped team analysis', async 
   };
 
   try {
-    const result = buildTeamResourceAnalysis({
-      now,
-      subjectId: '42',
-      subjectLabel: 'Payments',
-      scopePath: 'platform/payments',
-      resources: [],
-    });
+    const result = teamAnalysisFixture();
     const evaluation = await requestAnalysisAiEvaluation(result);
     const profileLookup = calls.find(call => call.input.startsWith('/v1/assistant/models'));
     const evaluationCall = calls.find(call => call.input === '/v1/analysis/evaluate');
@@ -92,5 +86,27 @@ function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function teamAnalysisFixture(overrides: Record<string, unknown> = {}) {
+  return analysisResultFromServer({
+    analysis: 'team',
+    subject: { type: 'team', id: '42', label: 'Payments', path: 'platform/payments' },
+    window: { from: '2026-06-24T10:00:00Z', to: '2026-07-24T10:00:00Z', days: 30 },
+    health_score: 82,
+    score_basis: { baseline: 100, formula: 'test formula', severity_weights: { critical: 25 }, total_deduction: 18 },
+    scores: [{ category: 'security', score: 85, finding_count: 1, deduction: 15, basis: 'Security starts at 100.' }],
+    findings: [],
+    limitations: [],
+    data_sources: ['/v1/monitoring/summary'],
+    summary: 'Payments scores 82/100.',
+    ...overrides,
+  }, {
+    subjectType: 'team',
+    subjectId: '42',
+    subjectLabel: 'Payments',
+    scopePath: 'platform/payments',
+    title: 'Payments resource analysis',
   });
 }

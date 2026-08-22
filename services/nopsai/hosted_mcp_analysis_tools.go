@@ -113,7 +113,9 @@ func (a *App) hostedMCPAnalyzeTeam(ctx context.Context, subject aaamodel.Subject
 	query := url.Values{}
 	query.Set("from", window.From.UTC().Format(time.RFC3339))
 	query.Set("to", window.To.UTC().Format(time.RFC3339))
-	query.Set("teamId", team.ID)
+	if team.ID != "" {
+		query.Set("teamId", team.ID)
+	}
 
 	set := a.analysisEvidence(ctx, subject, query, []hostedMCPMonitoringInsightPath{
 		{Key: "summary", Path: "/v1/monitoring/summary"},
@@ -440,6 +442,11 @@ func (a *App) analysisResolveTeam(ctx context.Context, subject aaamodel.Subject,
 		strings.TrimSpace(stringArg(args, "team")),
 		strings.TrimSpace(stringArg(args, "scope")),
 	)
+	// "*" analyses everything the caller can see, which is what a workspace-level
+	// review asks for; it is not the same as failing to name a team.
+	if wanted == "*" || strings.EqualFold(wanted, "all") {
+		return analysisSubject{Type: "team", ID: "", Label: "All teams", Path: ""}, nil
+	}
 	teams, err := a.analysisTeamDirectory(ctx, subject)
 	if err != nil {
 		return analysisSubject{}, &analysisResolveError{result: map[string]any{

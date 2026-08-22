@@ -3,100 +3,10 @@ import test from 'node:test';
 import {
   buildPipelineAnalysis,
   buildRunAnalysis,
-  buildTeamResourceAnalysis,
   formatAnalysisReport,
 } from './model.js';
 
 const now = new Date('2026-07-23T10:00:00Z');
-
-test('analyses team resources for duplicates, GitOps drift, and credential overexposure', () => {
-  const result = buildTeamResourceAnalysis({
-    subjectId: 'team-payments',
-    subjectLabel: 'Payments',
-    scopePath: 'platform/payments',
-    now,
-    resources: [
-      {
-        id: 'pipeline:platform/payments/deploy-api',
-        kind: 'pipeline',
-        label: 'deploy-api',
-        description: 'Pipeline in platform/payments',
-        href: '/pipelines/platform/payments/deploy-api',
-        teamPath: 'platform/payments',
-        source: 'git',
-      },
-      {
-        id: 'pipeline:platform/payments/deploy_api',
-        kind: 'pipeline',
-        label: 'deploy api',
-        description: 'Pipeline in platform/payments',
-        href: '/pipelines/platform/payments/deploy_api',
-        teamPath: 'platform/payments',
-        source: 'database',
-      },
-      {
-        id: 'credential:credential://team/platform/payments/github-admin',
-        kind: 'credential',
-        label: 'github-admin',
-        description: 'github credential in platform/payments',
-        href: '/credentials/team/platform/payments/github-admin',
-        teamPath: 'platform/payments',
-        source: 'database',
-      },
-      {
-        id: 'trigger:platform/payments/release',
-        kind: 'trigger',
-        label: 'release',
-        description: 'Trigger for acme/payments in platform/payments',
-        href: '/triggers/platform/payments/release',
-        teamPath: 'platform/payments',
-        source: 'git',
-      },
-      {
-        id: 'schedule:nightly',
-        kind: 'schedule',
-        label: 'nightly',
-        description: 'Enabled schedule / cron / pipeline platform/payments/deploy-api',
-        href: '/schedules?pipeline=platform%2Fpayments%2Fdeploy-api',
-        teamPath: 'platform/payments',
-        source: 'git',
-      },
-    ],
-  });
-
-  assert.equal(result.title, 'Team Resource Analysis');
-  assert.ok(result.findings.some(finding => finding.title === 'Duplicate pipeline resources'));
-  assert.ok(result.findings.some(finding => finding.title === 'Mixed GitOps and database-managed resources'));
-  assert.ok(result.findings.some(finding => finding.title === 'Privileged credential metadata needs consumer review'));
-  assert.match(formatAnalysisReport(result), /Credential values: Redacted; metadata only/);
-  assert.match(result.scoreBasis.formula, /Starts at 100/);
-  assert.ok(result.scoreBasis.inputs.some(input => input.includes('resource catalog')));
-  assert.ok(result.scoreBasis.totalDeduction > 0);
-});
-
-test('analyses an individual credential without exposing sensitive values', () => {
-  const credential = {
-    id: 'credential:credential://team/platform/payments/aws-prod',
-    kind: 'credential',
-    label: 'aws-prod-admin',
-    description: 'password: never-show-this',
-    href: '/credentials/team/platform/payments/aws-prod',
-    teamPath: 'platform/payments',
-    source: 'database',
-  };
-  const result = buildTeamResourceAnalysis({
-    subjectId: 'team-payments',
-    subjectLabel: 'Payments',
-    scopePath: 'platform/payments',
-    activeResource: credential,
-    resources: [credential],
-    now,
-  });
-
-  assert.equal(result.title, 'Resource Analysis');
-  assert.ok(result.findings.some(finding => finding.title === 'Credential appears privileged'));
-  assert.doesNotMatch(formatAnalysisReport(result), /never-show-this/);
-});
 
 test('analyses pipeline YAML for security, reliability, and observability risks', () => {
   const result = buildPipelineAnalysis({

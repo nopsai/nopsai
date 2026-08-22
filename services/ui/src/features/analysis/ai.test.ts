@@ -7,7 +7,8 @@ import {
   buildAnalysisAiPromptSnapshot,
   parseAnalysisAiEvaluation,
 } from './ai.js';
-import { buildPipelineAnalysis, buildRunAnalysis, buildTeamResourceAnalysis } from './model.js';
+import { buildPipelineAnalysis, buildRunAnalysis } from './model.js';
+import { analysisResultFromServer } from './serverResult.js';
 
 const now = new Date('2026-07-24T10:00:00Z');
 
@@ -152,13 +153,7 @@ test('uses subject-specific prompt instructions for pipeline and team reviewers'
     triggers: [],
     recentRuns: [],
   });
-  const team = buildTeamResourceAnalysis({
-    now,
-    subjectId: 'team-42',
-    subjectLabel: 'Payments',
-    scopePath: 'platform/payments',
-    resources: [],
-  });
+  const team = teamAnalysisFixture();
 
   assert.match(buildAnalysisAiPrompt(pipeline), /Subject instructions for Analyse Pipeline/);
   assert.match(buildAnalysisAiPrompt(pipeline), /YAML correctness/);
@@ -167,13 +162,7 @@ test('uses subject-specific prompt instructions for pipeline and team reviewers'
 });
 
 test('preserves team scope path rather than subject id for AI evaluation context', () => {
-  const result = buildTeamResourceAnalysis({
-    now,
-    subjectId: '42',
-    subjectLabel: 'Payments',
-    scopePath: 'platform/payments',
-    resources: [],
-  });
+  const result = teamAnalysisFixture();
 
   const context = analysisAssistantPageContext(result);
   const snapshot = buildAnalysisAiPromptSnapshot(result);
@@ -182,33 +171,6 @@ test('preserves team scope path rather than subject id for AI evaluation context
   assert.equal(context.scope, 'platform/payments');
   assert.notEqual(context.scope, result.subjectId);
   assert.equal(snapshot.subject.scopePath, 'platform/payments');
-});
-
-test('preserves selected resource team path rather than resource id for AI evaluation context', () => {
-  const credential = {
-    id: 'credential:credential://team/platform/payments/aws-prod',
-    kind: 'credential',
-    label: 'aws-prod-admin',
-    description: 'credential metadata only',
-    href: '/credentials/team/platform/payments/aws-prod',
-    teamPath: 'platform/payments',
-    source: 'database',
-  };
-  const result = buildTeamResourceAnalysis({
-    now,
-    subjectId: '42',
-    subjectLabel: 'Payments',
-    scopePath: 'platform/payments',
-    activeResource: credential,
-    resources: [credential],
-  });
-
-  const context = analysisAssistantPageContext(result);
-  assert.equal(result.subjectType, 'resource');
-  assert.equal(result.subjectId, credential.id);
-  assert.equal(context.resource_id, credential.id);
-  assert.equal(context.scope, 'platform/payments');
-  assert.notEqual(context.scope, credential.id);
 });
 
 test('parses structured AI evaluation without exposing raw long output', () => {
@@ -277,3 +239,25 @@ test('builds a chat opener that names the score and the blocking findings', () =
   assert.equal(prompt, expected);
   assert.match(prompt, /Walk me through the analysis of run /);
 });
+
+function teamAnalysisFixture(overrides: Record<string, unknown> = {}) {
+  return analysisResultFromServer({
+    analysis: 'team',
+    subject: { type: 'team', id: '42', label: 'Payments', path: 'platform/payments' },
+    window: { from: '2026-06-24T10:00:00Z', to: '2026-07-24T10:00:00Z', days: 30 },
+    health_score: 82,
+    score_basis: { baseline: 100, formula: 'test formula', severity_weights: { critical: 25 }, total_deduction: 18 },
+    scores: [{ category: 'security', score: 85, finding_count: 1, deduction: 15, basis: 'Security starts at 100.' }],
+    findings: [],
+    limitations: [],
+    data_sources: ['/v1/monitoring/summary'],
+    summary: 'Payments scores 82/100.',
+    ...overrides,
+  }, {
+    subjectType: 'team',
+    subjectId: '42',
+    subjectLabel: 'Payments',
+    scopePath: 'platform/payments',
+    title: 'Payments resource analysis',
+  });
+}
