@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, GitBranch, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
+import { AlertTriangle, GitBranch, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
 
 import { apiClient } from '../lib/api';
 import { GLOBAL_RESOURCE_TEAM_LABEL, fetchResourceTeamPaths, isGlobalResourceTeamPath } from '../lib/resourceTeams';
 import { useDialogFocus } from './useDialogFocus';
+import { WorkflowDialogCloseButton, workflowDialogOverlayClass } from './WorkflowPrimitives';
 
 type AccessGrant = {
   id: string;
@@ -347,14 +348,14 @@ export default function ResourceAccessCard({
       {open && portalHost ? createPortal(
         <div
           id="resource-access-modal"
-          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show px-4 py-6"
+          className={workflowDialogOverlayClass}
           onPointerDown={event => {
             if (!saving && event.target === event.currentTarget) closeDialog();
           }}
         >
           <div
             ref={dialogRef}
-            className="pipelines-modal-card max-w-2xl w-full overflow-hidden"
+            className="pipelines-modal-card workflow-dialog--wide w-full"
             role="dialog"
             aria-modal="true"
             aria-labelledby="resource-access-title"
@@ -365,18 +366,22 @@ export default function ResourceAccessCard({
                 <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Access</p>
                 <h3 id="resource-access-title" className="text-lg font-semibold text-[var(--text-primary)]">Who can {accessVerb} this {label}?</h3>
               </div>
-              <div className="flex items-center gap-2">
-                <button className="glass-button-ghost" type="button" onClick={() => void loadAccess()} disabled={loading || saving} aria-label="Refresh access">
-                  <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <div className="flex items-center gap-1">
+                <button
+                  className="workflow-dialog-close"
+                  type="button"
+                  onClick={() => void loadAccess()}
+                  disabled={loading || saving}
+                  aria-label="Refresh access"
+                  title="Refresh access"
+                >
+                  <RefreshCw className={loading ? 'animate-spin' : ''} />
                 </button>
-                <button className="glass-button-ghost" type="button" onClick={closeDialog} disabled={saving} data-dialog-initial-focus>
-                  <X className="h-4 w-4" />
-                  <span>Close</span>
-                </button>
+                <WorkflowDialogCloseButton onClose={closeDialog} disabled={saving} initialFocus />
               </div>
             </header>
 
-            <div className="pipelines-modal-body space-y-5 max-h-[calc(100vh-180px)] overflow-auto">
+            <div className="pipelines-modal-body space-y-5">
               {error ? <p className="text-sm text-red-500 whitespace-pre-wrap" role="alert">{error}</p> : null}
               {!access && !error ? <p className="text-sm text-[var(--text-secondary)]" role="status">Loading access…</p> : null}
 

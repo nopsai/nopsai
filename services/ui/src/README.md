@@ -53,6 +53,17 @@ truth; this file is the source-adjacent placement guide.
   The global `[data-page]` active/hidden contract must preserve route-root
   display classes such as `flex` and `grid`; feature pages should not add local
   workarounds for active page display.
+- `components/modalShell.css` owns the skin every create/edit dialog wears: the
+  floating title pill, the rounded canvas that holds the form, the bare action
+  bar under it, and the ambient overlay behind all three. It also owns the
+  in-dialog control set — property rows, segmented controls, toggles, chips, and
+  the hero name/summary fields. A dialog picks a width with a shell size class
+  (`workflow-dialog--compact`, `--wide`, `--xwide`) or, when it genuinely needs
+  its own footprint, sets `--modal-max-width` on its own card class; it must not
+  size itself with a `max-w-*` utility and must not repaint
+  `.pipelines-modal-card`, `.pipelines-modal-header`, `.pipelines-modal-body`,
+  or `.pipelines-modal-footer` in a feature stylesheet. `doc/ui-modal-shell.md`
+  describes the contract; `components/modalShell.styles.test.ts` enforces it.
 - `tools/` owns local and CI guardrails such as boundary checks. Runtime code
   should not depend on tool-only modules.
 

@@ -1,0 +1,787 @@
+/*
+ * Modal shell — the single skin every create/edit dialog in NopsAI wears.
+ *
+ * Every dialog is built from the same three detached blocks stacked on a
+ * blurred, ambient overlay:
+ *
+ *   .pipelines-modal-header  a floating pill that names the dialog and closes it
+ *   .pipelines-modal-body    the rounded canvas that owns the whole form
+ *   .pipelines-modal-footer  a bare action bar under the canvas, no chrome
+ *
+ * The card element itself (.pipelines-modal-card) is only the stack: it carries
+ * the width and the entrance animation and paints nothing, so the three blocks
+ * read as separate floating surfaces rather than one boxed panel.
+ *
+ * Feature stylesheets must not repaint these blocks. Sizing (max-width) and the
+ * body layout are the only things a feature is expected to set, so that a
+ * dialog opened from Pipelines looks identical to one opened from Knowledge
+ * Context. Colours come from the theme tokens in styles.css, so the shell holds
+ * up in light and dark alike; every value below is reviewed against the dark
+ * palette first, because that is where the product is used.
+ */
+
+.workflow-dialog-shell {
+    --modal-surface: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+    --modal-border: var(--border-primary);
+    --modal-radius: 22px;
+    --modal-pill-radius: 999px;
+    --modal-shadow: 0 24px 60px -22px rgba(15, 23, 42, 0.45), 0 8px 24px -18px rgba(15, 23, 42, 0.35);
+    --modal-pill-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.5);
+    --modal-blob-opacity: 0.28;
+    --modal-hairline: color-mix(in srgb, var(--border-primary) 70%, transparent);
+
+    padding: clamp(14px, 3.5vh, 34px) clamp(12px, 3vw, 28px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    backdrop-filter: blur(6px);
+}
+
+html.dark .workflow-dialog-shell {
+    --modal-surface: color-mix(in srgb, var(--bg-panel) 86%, transparent);
+    --modal-shadow: 0 26px 70px -24px rgba(0, 0, 0, 0.85), 0 10px 30px -20px rgba(0, 0, 0, 0.7);
+    --modal-pill-shadow: 0 12px 34px -20px rgba(0, 0, 0, 0.8);
+    --modal-blob-opacity: 0.45;
+}
+
+/* Ambient mesh behind the dialog. Absolute children stay out of the overlay's
+   flex flow, so they never push the card off centre. */
+.workflow-dialog-shell::before,
+.workflow-dialog-shell::after {
+    content: '';
+    position: absolute;
+    width: min(52vw, 620px);
+    height: min(52vw, 620px);
+    border-radius: 50%;
+    filter: blur(110px);
+    opacity: var(--modal-blob-opacity);
+    pointer-events: none;
+}
+
+.workflow-dialog-shell::before {
+    top: -12%;
+    left: -12%;
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+    animation: workflow-dialog-float 12s ease-in-out infinite;
+}
+
+.workflow-dialog-shell::after {
+    right: -12%;
+    bottom: -12%;
+    background: color-mix(in srgb, #9333ea 45%, transparent);
+    animation: workflow-dialog-float 12s ease-in-out 2s infinite;
+}
+
+html.dark .workflow-dialog-shell::before,
+html.dark .workflow-dialog-shell::after {
+    mix-blend-mode: screen;
+}
+
+.workflow-dialog-shell > * {
+    position: relative;
+    z-index: 1;
+}
+
+@keyframes workflow-dialog-float {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-18px) scale(1.05); }
+}
+
+@keyframes workflow-dialog-rise {
+    from { transform: translateY(12px) scale(0.985); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* The card is the stack, not a surface. */
+.workflow-dialog-shell .pipelines-modal-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    max-width: var(--modal-max-width, 640px);
+    max-height: calc(100vh - 4rem);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    overflow: visible;
+    opacity: 1;
+    transform: none;
+    animation: workflow-dialog-rise 0.26s ease-out;
+}
+
+.workflow-dialog-shell .pipelines-modal-card::before,
+.workflow-dialog-shell .pipelines-modal-card::after {
+    content: none;
+}
+
+/*
+ * Dialog widths. A dialog picks a size class instead of a max-width utility, so
+ * the shell stays the only place a dialog's footprint is decided; a feature that
+ * genuinely needs its own width sets --modal-max-width on its own card class.
+ */
+.workflow-dialog--compact {
+    --modal-max-width: 30rem;
+}
+
+.workflow-form-dialog--wide,
+.workflow-dialog--wide {
+    --modal-max-width: 52rem;
+}
+
+.workflow-form-dialog--xwide,
+.workflow-dialog--xwide {
+    --modal-max-width: 68rem;
+}
+
+/* A dialog whose form owns the whole card (no shared body wrapper) still needs
+   the stack to fill the height it was given. */
+.workflow-dialog-shell .pipelines-modal-card > form {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+}
+
+/* Header — the floating pill. */
+.workflow-dialog-shell .pipelines-modal-header {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 12px 10px 22px;
+    border: 1px solid var(--modal-border);
+    border-radius: var(--modal-pill-radius);
+    background: var(--modal-surface);
+    box-shadow: var(--modal-pill-shadow);
+    backdrop-filter: blur(24px);
+}
+
+.workflow-dialog-shell .pipelines-modal-header h3 {
+    font-size: 0.98rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-primary);
+}
+
+.workflow-dialog-shell .pipelines-modal-header p {
+    font-size: 0.76rem;
+    line-height: 1.35;
+}
+
+.workflow-dialog-shell .pipelines-modal-kicker {
+    margin-bottom: 0.05rem;
+    font-size: 0.63rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+/* Body — the canvas that owns the form. */
+.workflow-dialog-shell .pipelines-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    padding: clamp(20px, 3vw, 34px);
+    border: 1px solid var(--modal-border);
+    border-radius: var(--modal-radius);
+    background: var(--modal-surface);
+    box-shadow: var(--modal-shadow);
+    backdrop-filter: blur(28px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+/* Footer — a bare action bar, no chrome of its own. */
+.workflow-dialog-shell .pipelines-modal-footer {
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    padding: 0 8px;
+    border: 0;
+    background: none;
+    box-shadow: none;
+}
+
+.workflow-dialog-shell .pipelines-modal-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    width: 100%;
+    flex-wrap: wrap;
+}
+
+/* Actions are pills. The primary one is the only lit surface in the dialog. */
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-primary,
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-ghost,
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-subtle,
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-danger {
+    padding: 0.6rem 1.6rem;
+    border: 1px solid transparent;
+    border-radius: var(--modal-pill-radius);
+    font-size: 0.8rem;
+    font-weight: 600;
+    backdrop-filter: none;
+}
+
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-primary {
+    background: var(--accent);
+    color: #ffffff;
+    box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-primary:hover:not(:disabled),
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-primary:focus-visible {
+    background: color-mix(in srgb, var(--accent) 85%, #ffffff);
+    box-shadow: 0 0 30px color-mix(in srgb, var(--accent) 48%, transparent);
+    transform: scale(1.02);
+}
+
+/* The footer sits on the overlay rather than on a surface, and the overlay is
+   dark in both themes, so its bare actions are painted for a dark backdrop. */
+.workflow-dialog-shell .pipelines-modal-footer .glass-button-ghost,
+.workflow-dialog-shell .pipelines-modal-footer .glass-button-subtle {
+    background: none;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.workflow-dialog-shell .pipelines-modal-footer .glass-button-ghost:hover:not(:disabled),
+.workflow-dialog-shell .pipelines-modal-footer .glass-button-subtle:hover:not(:disabled),
+.workflow-dialog-shell .pipelines-modal-footer .glass-button-ghost:focus-visible,
+.workflow-dialog-shell .pipelines-modal-footer .glass-button-subtle:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    transform: none;
+}
+
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-danger {
+    background: #dc2626;
+    color: #ffffff;
+    box-shadow: 0 0 22px rgba(220, 38, 38, 0.3);
+}
+
+.workflow-dialog-shell .pipelines-modal-actions .glass-button-danger:hover:not(:disabled) {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.42);
+    transform: scale(1.02);
+}
+
+.workflow-dialog-shell .pipelines-modal-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    transform: none;
+    box-shadow: none;
+}
+
+.workflow-dialog-shell .pipelines-modal-actions button:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+/* Close control — an icon button, so the pill stays a title bar. */
+.workflow-dialog-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: var(--modal-pill-radius);
+    background: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease;
+}
+
+.workflow-dialog-close:hover:not(:disabled),
+.workflow-dialog-close:focus-visible {
+    background: color-mix(in srgb, var(--text-secondary) 16%, transparent);
+    color: var(--text-primary);
+    outline: none;
+}
+
+.workflow-dialog-close:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.workflow-dialog-close svg {
+    width: 16px;
+    height: 16px;
+}
+
+/*
+ * Form controls inside the shell.
+ *
+ * The canvas is a flat surface, so inputs drop the app-wide glass treatment and
+ * read as recessed fields instead — one border, one radius, no blur stack.
+ */
+.workflow-dialog-shell .pipelines-input,
+.workflow-dialog-shell .system-input {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-input);
+    border-radius: 10px;
+    background: var(--bg-input);
+    box-shadow: none;
+    backdrop-filter: none;
+    font-size: 0.83rem;
+}
+
+.workflow-dialog-shell .pipelines-input:hover:not(:focus),
+.workflow-dialog-shell .system-input:hover:not(:focus) {
+    border-color: color-mix(in srgb, var(--text-secondary) 55%, var(--border-input));
+}
+
+.workflow-dialog-shell .pipelines-input:focus,
+.workflow-dialog-shell .system-input:focus {
+    border-color: var(--border-input-focus);
+    box-shadow: 0 0 0 3px var(--border-accent-focus-ring);
+}
+
+.workflow-dialog-shell textarea.pipelines-input {
+    line-height: 1.6;
+    resize: vertical;
+}
+
+/*
+ * Hero fields.
+ *
+ * The identity of the object being created — its name and summary — is typed
+ * straight onto the canvas rather than into a boxed field, so the dialog opens
+ * on the one decision that matters instead of on a form.
+ */
+.modal-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modal-hero-input,
+.modal-hero-summary {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    outline: none;
+    color: var(--text-primary);
+}
+
+.modal-hero-input {
+    font-size: clamp(1.65rem, 3.4vw, 2.3rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+}
+
+.modal-hero-summary {
+    font-size: 0.98rem;
+    font-weight: 300;
+    line-height: 1.5;
+}
+
+/* The name field takes the dialog's opening focus, so its placeholder has to
+   survive being focused: it is the only thing telling the user what to type. */
+.modal-hero-input::placeholder {
+    color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
+}
+
+.modal-hero-summary::placeholder {
+    color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
+}
+
+/* A hairline that fades out, used to separate the hero from the content. */
+.modal-divider {
+    height: 1px;
+    width: 100%;
+    border: 0;
+    margin: 0;
+    background: linear-gradient(90deg, var(--border-primary), var(--modal-hairline), transparent);
+}
+
+/*
+ * Property inspector.
+ *
+ * Settings sit in two aligned columns of label/control rows rather than in
+ * nested boxes: the labels line up, the controls line up, and the row hairline
+ * is the only chrome.
+ */
+.modal-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.modal-section-heading__title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.modal-section-heading__title svg {
+    width: 14px;
+    height: 14px;
+    color: var(--accent);
+}
+
+.modal-section-heading__badge {
+    padding: 3px 10px;
+    border: 1px solid var(--modal-hairline);
+    border-radius: var(--modal-pill-radius);
+    background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+}
+
+.modal-property-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 32px;
+    row-gap: 4px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.modal-property-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--modal-hairline);
+}
+
+.modal-property-row--full {
+    grid-column: 1 / -1;
+}
+
+.modal-property-row--stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.modal-property-row > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.modal-property-label {
+    display: block;
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.modal-property-hint {
+    display: block;
+    margin-top: 1px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+}
+
+.modal-property-control {
+    flex: 0 0 auto;
+    width: 10rem;
+    max-width: 100%;
+}
+
+.modal-property-row--stacked .modal-property-control {
+    width: 100%;
+}
+
+.modal-property-control .pipelines-input {
+    width: 100%;
+}
+
+/*
+ * Segmented control — for a short, closed set of choices that would otherwise
+ * be a radio list or a select. Radios stay in the markup so the control keeps
+ * its keyboard behaviour and accessible names.
+ */
+.modal-segmented {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--border-input);
+    border-radius: 12px;
+    background: var(--bg-input);
+}
+
+.modal-segmented label {
+    cursor: pointer;
+}
+
+.modal-segmented input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.modal-segmented input + span {
+    display: block;
+    padding: 6px 14px;
+    border-radius: 9px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: center;
+    transition: background 0.16s ease, color 0.16s ease;
+}
+
+.modal-segmented input:hover + span {
+    color: var(--text-primary);
+}
+
+.modal-segmented input:checked + span {
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.modal-segmented input:focus-visible + span {
+    outline: 2px solid var(--border-accent);
+    outline-offset: 2px;
+}
+
+/* Button-driven variant, for a group that toggles a mode rather than picking a
+   value; aria-pressed carries the state a radio's :checked would. */
+.modal-segmented button {
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 9px;
+    background: none;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease;
+}
+
+.modal-segmented button:hover:not(:disabled) {
+    color: var(--text-primary);
+}
+
+.modal-segmented button[aria-pressed='true'] {
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.modal-segmented--stretch {
+    display: flex;
+    width: 100%;
+}
+
+.modal-segmented--stretch label {
+    flex: 1 1 0;
+}
+
+/* Toggle — for a setting that is simply on or off. */
+.modal-toggle {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    cursor: pointer;
+}
+
+.modal-toggle input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.modal-toggle input + span {
+    position: relative;
+    display: block;
+    width: 38px;
+    height: 21px;
+    border: 1px solid var(--border-input);
+    border-radius: var(--modal-pill-radius);
+    background: var(--bg-input);
+    transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.modal-toggle input + span::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.modal-toggle input:checked + span {
+    border-color: var(--accent);
+    background: var(--accent);
+}
+
+.modal-toggle input:checked + span::after {
+    background: #ffffff;
+    transform: translateX(17px);
+}
+
+.modal-toggle input:focus-visible + span {
+    outline: 2px solid var(--border-accent);
+    outline-offset: 2px;
+}
+
+.modal-toggle input:disabled + span {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Chips — a multi-select that stays readable when the list is short. */
+.modal-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.modal-chip {
+    cursor: pointer;
+}
+
+.modal-chip input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.modal-chip input + span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-input);
+    border-radius: 10px;
+    background: var(--bg-input);
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.modal-chip input:checked + span {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--text-accent);
+}
+
+.modal-chip input:focus-visible + span {
+    outline: 2px solid var(--border-accent);
+    outline-offset: 2px;
+}
+
+/*
+ * Legacy visibility hooks.
+ *
+ * Dialogs mount already open, so the .show class no longer drives an entrance;
+ * these selectors stay because feature stylesheets and tests still name them,
+ * and they keep an overlay opaque if a page renders one before the shell class
+ * is applied.
+ */
+#pipelines-new-modal.show,
+#pipelines-delete-modal.show,
+#pipelines-clone-modal.show,
+#steps-new-modal.show,
+#steps-delete-modal.show,
+#steps-clone-modal.show,
+#knowledge-context-new-modal.show,
+#knowledge-context-delete-modal.show,
+#knowledge-context-clone-modal.show,
+#knowledge-connection-modal.show,
+#resource-access-modal.show,
+#gitops-secret-encrypt-modal.show,
+#secret-edit-modal.show,
+#secret-delete-modal.show,
+#triggers-new-modal.show,
+#triggers-delete-modal.show,
+#triggers-clone-modal.show,
+#external-triggers-edit-modal.show,
+#variable-edit-modal.show,
+#variable-delete-modal.show,
+#scope-new-modal.show {
+    opacity: 1;
+}
+
+#pipelines-new-modal.show .pipelines-modal-card,
+#pipelines-delete-modal.show .pipelines-modal-card,
+#pipelines-clone-modal.show .pipelines-modal-card,
+#steps-new-modal.show .pipelines-modal-card,
+#steps-delete-modal.show .pipelines-modal-card,
+#steps-clone-modal.show .pipelines-modal-card,
+#knowledge-context-new-modal.show .pipelines-modal-card,
+#knowledge-context-delete-modal.show .pipelines-modal-card,
+#knowledge-context-clone-modal.show .pipelines-modal-card,
+#knowledge-connection-modal.show .pipelines-modal-card,
+#resource-access-modal.show .pipelines-modal-card,
+#gitops-secret-encrypt-modal.show .pipelines-modal-card,
+#secret-edit-modal.show .pipelines-modal-card,
+#secret-delete-modal.show .pipelines-modal-card,
+#triggers-new-modal.show .pipelines-modal-card,
+#triggers-delete-modal.show .pipelines-modal-card,
+#triggers-clone-modal.show .pipelines-modal-card,
+#external-triggers-edit-modal.show .pipelines-modal-card,
+#variable-edit-modal.show .pipelines-modal-card,
+#variable-delete-modal.show .pipelines-modal-card,
+#scope-new-modal.show .pipelines-modal-card {
+    opacity: 1;
+}
+
+@media (max-width: 720px) {
+    .workflow-dialog-shell .pipelines-modal-header {
+        border-radius: 18px;
+    }
+
+    .modal-property-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .modal-property-row {
+        flex-wrap: wrap;
+    }
+
+    .modal-property-control {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .workflow-dialog-shell::before,
+    .workflow-dialog-shell::after,
+    .workflow-dialog-shell .pipelines-modal-card {
+        animation: none;
+    }
+
+    .workflow-dialog-shell .pipelines-modal-actions button:hover:not(:disabled) {
+        transform: none;
+    }
+}

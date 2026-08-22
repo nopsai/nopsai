@@ -155,9 +155,22 @@ describe('KnowledgeContextModals', () => {
   });
 
   it('keeps the connection dialog visible in the shared modal stylesheet', () => {
-    const styles = readFileSync('src/styles.css', 'utf8');
+    const shell = readFileSync('src/components/modalShell.css', 'utf8');
 
-    expect(styles).toContain('#knowledge-connection-modal.show');
-    expect(styles).toContain('#knowledge-connection-modal.show .pipelines-modal-card');
+    expect(shell).toContain('#knowledge-connection-modal.show');
+    expect(shell).toContain('#knowledge-connection-modal.show .pipelines-modal-card');
+  });
+
+  it('sizes the document dialog without repainting the shared modal shell', () => {
+    const styles = readFileSync('src/styles.css', 'utf8');
+    const documentModalRule = styles.slice(
+      styles.indexOf('.kc-document-modal {'),
+      styles.indexOf('}', styles.indexOf('.kc-document-modal {'))
+    );
+
+    expect(documentModalRule).toContain('--modal-max-width');
+    expect(documentModalRule).not.toContain('background');
+    expect(documentModalRule).not.toContain('border-radius');
+    expect(styles).not.toContain('.kc-document-modal .pipelines-modal-body');
   });
 });

@@ -6501,11 +6501,6 @@ html.dark .access-chip--success {
     height: 14px;
 }
 
-.access-modal-card {
-    transform: translateY(0);
-    opacity: 1;
-}
-
 .access-modal-header {
     gap: 0.75rem;
 }
@@ -6525,32 +6520,6 @@ html.dark .access-chip--success {
     background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(14, 165, 233, 0.16));
     color: var(--text-primary);
     border: 1px solid rgba(59, 130, 246, 0.22);
-}
-
-.pipelines-modal-card.access-modal-card {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.access-modal-card--minimal {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
-    box-shadow: 0 22px 60px rgba(15, 23, 42, 0.28);
-    border-radius: 8px;
-}
-
-.access-modal-header--minimal {
-    padding: 16px 20px 12px;
-    border-bottom: 1px solid var(--border-primary);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.82));
-}
-
-html.dark .access-modal-header--minimal {
-    background: linear-gradient(180deg, var(--bg-secondary), var(--bg-secondary));
-}
-
-.access-modal-body--minimal {
-    padding: 16px 20px 20px;
 }
 
 .access-minimal-form {
@@ -11515,162 +11484,6 @@ html.dark .pipelines-graph {
     background: var(--bg-input);
 }
 
-.pipelines-modal-card {
-    position: relative;
-    width: 100%;
-    max-width: 560px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.94) 100%);
-    border-radius: 12px;
-    border: 1px solid rgba(148,163,184,0.4);
-    box-shadow: 0 26px 80px -38px rgba(15,23,42,0.6), 0 12px 34px -16px rgba(15,23,42,0.18);
-    overflow: hidden;
-    transform: translateY(10px) scale(0.985);
-    transition: transform 0.28s ease, opacity 0.28s ease, box-shadow 0.28s ease;
-    opacity: 0;
-}
-
-.pipelines-modal-card.workflow-form-dialog--wide {
-    max-width: 48rem;
-}
-
-.pipelines-modal-card.workflow-form-dialog--xwide {
-    max-width: 64rem;
-}
-
-.pipelines-modal-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(120% 80% at 0% 0%, rgba(99,102,241,0.12), transparent 48%),
-                radial-gradient(120% 90% at 100% 10%, rgba(14,165,233,0.12), transparent 52%);
-    pointer-events: none;
-}
-
-.pipelines-modal-card::after {
-    content: '';
-    position: absolute;
-    inset: 0 0 auto 0;
-    height: 4px;
-    background: linear-gradient(90deg, #6366f1, #0ea5e9, #8b5cf6);
-    opacity: 0.85;
-    pointer-events: none;
-}
-
-html.dark .pipelines-modal-card {
-    background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-secondary) 100%);
-    border-color: var(--border-primary);
-    box-shadow: 0 28px 90px -42px rgba(0,0,0,0.72), 0 12px 30px -18px rgba(0,0,0,0.65);
-}
-
-html.dark .pipelines-modal-card::before {
-    background: radial-gradient(120% 80% at 0% 0%, var(--accent-soft), transparent 48%),
-                radial-gradient(120% 90% at 100% 10%, var(--accent-soft), transparent 52%);
-}
-
-html.dark .pipelines-modal-card::after {
-    opacity: 0.6;
-}
-
-.modal-panel {
-    width: 100%;
-    transform: translateY(10px) scale(0.985);
-    opacity: 0;
-    transition: transform 0.28s ease, opacity 0.28s ease;
-}
-
-#pipelines-new-modal.show,
-#pipelines-delete-modal.show,
-#pipelines-clone-modal.show,
-#steps-new-modal.show,
-#steps-delete-modal.show,
-#steps-clone-modal.show,
-#knowledge-context-new-modal.show,
-#knowledge-context-delete-modal.show,
-#knowledge-context-clone-modal.show,
-#knowledge-connection-modal.show,
-#resource-access-modal.show,
-#gitops-secret-encrypt-modal.show,
-#secret-edit-modal.show,
-#secret-delete-modal.show {
-    opacity: 1;
-}
-
-#pipelines-new-modal.show .pipelines-modal-card,
-#pipelines-delete-modal.show .pipelines-modal-card,
-#pipelines-clone-modal.show .pipelines-modal-card,
-#steps-new-modal.show .pipelines-modal-card,
-#steps-delete-modal.show .pipelines-modal-card,
-#steps-clone-modal.show .pipelines-modal-card,
-#knowledge-context-new-modal.show .pipelines-modal-card,
-#knowledge-context-delete-modal.show .pipelines-modal-card,
-#knowledge-context-clone-modal.show .pipelines-modal-card,
-#knowledge-connection-modal.show .pipelines-modal-card,
-#resource-access-modal.show .pipelines-modal-card,
-#gitops-secret-encrypt-modal.show .pipelines-modal-card,
-#secret-edit-modal.show .pipelines-modal-card,
-#secret-delete-modal.show .pipelines-modal-card {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-    box-shadow: 0 32px 90px -40px rgba(15,23,42,0.55), 0 18px 44px -20px rgba(15,23,42,0.25);
-}
-
-.workflow-form-dialog-overlay.show .pipelines-modal-card {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-    box-shadow: 0 32px 90px -40px rgba(15,23,42,0.55), 0 18px 44px -20px rgba(15,23,42,0.25);
-}
-
-#pipelines-new-modal.show .modal-panel,
-#steps-new-modal.show .modal-panel {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-}
-
-/* Wider layout for scope variable/secret modals */
-#variable-edit-modal .pipelines-modal-card,
-#secret-edit-modal .pipelines-modal-card {
-    max-width: min(1100px, 96vw);
-}
-
-#triggers-new-modal.show,
-#triggers-delete-modal.show,
-#triggers-clone-modal.show,
-#external-triggers-edit-modal.show {
-    opacity: 1;
-}
-
-#triggers-new-modal.show .pipelines-modal-card,
-#triggers-delete-modal.show .pipelines-modal-card,
-#triggers-clone-modal.show .pipelines-modal-card,
-#external-triggers-edit-modal.show .pipelines-modal-card {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-    box-shadow: 0 32px 90px -40px rgba(15,23,42,0.55), 0 18px 44px -20px rgba(15,23,42,0.25);
-}
-
-#triggers-new-modal.show .modal-panel {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-}
-
-#variable-edit-modal.show,
-#variable-delete-modal.show,
-#scope-new-modal.show {
-    opacity: 1;
-}
-
-#variable-edit-modal.show .pipelines-modal-card,
-#variable-delete-modal.show .pipelines-modal-card,
-#scope-new-modal.show .pipelines-modal-card {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-    box-shadow: 0 32px 90px -40px rgba(15,23,42,0.55), 0 18px 44px -20px rgba(15,23,42,0.25);
-}
-
-#scope-new-modal.show .modal-panel {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-}
 
 .scope-edit-modal-body {
     display: flex;
@@ -15168,78 +14981,6 @@ html.dark .scope-related-card__meta-value {
     }
 }
 
-.pipelines-modal-header {
-    position: relative;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.8rem 1rem 0.7rem;
-    border-bottom: 1px solid rgba(148,163,184,0.26);
-    background: linear-gradient(180deg, rgba(148,163,184,0.12), rgba(148,163,184,0.04));
-}
-
-html.dark .pipelines-modal-header {
-    border-bottom-color: var(--border-primary);
-    background: linear-gradient(180deg, var(--border-primary), var(--bg-tertiary));
-}
-
-.pipelines-modal-kicker {
-    display: inline-block;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    margin-bottom: 0.2rem;
-}
-
-.pipelines-modal-body {
-    padding: 1rem;
-    background: linear-gradient(180deg, rgba(255,255,255,0.78), rgba(248,250,252,0.92));
-}
-
-html.dark .pipelines-modal-body {
-    background: linear-gradient(180deg, var(--bg-secondary), var(--bg-secondary));
-}
-
-.pipelines-modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    padding: 0.75rem 1rem 0.9rem;
-    border-top: 1px solid rgba(148,163,184,0.26);
-    background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(248,250,252,0.94));
-}
-
-html.dark .pipelines-modal-footer {
-    border-top-color: var(--border-primary);
-    background: linear-gradient(180deg, var(--bg-secondary), var(--bg-secondary));
-}
-
-.pipelines-modal-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.75rem;
-    width: 100%;
-    flex-wrap: wrap;
-}
-
-.pipelines-modal-header .glass-button-ghost {
-    padding: 0.45rem 0.75rem;
-    border-radius: 10px;
-    border-color: transparent;
-    background: rgba(148,163,184,0.14);
-    color: var(--text-secondary);
-    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
-}
-
-.pipelines-modal-header .glass-button-ghost:hover,
-.pipelines-modal-header .glass-button-ghost:focus-visible {
-    background: rgba(99,102,241,0.14);
-    border-color: rgba(99,102,241,0.28);
-    color: var(--text-primary);
-}
 
 .trigger-modal-card {
     overflow: hidden;
@@ -19116,71 +18857,34 @@ html.dark .kc-empty-state {
     padding-top: 1.5rem;
 }
 
-#knowledge-context-new-modal .kc-document-modal,
-#knowledge-context-clone-modal .kc-document-modal {
+/* The document dialog is the widest form in the product; the modal shell in
+   components/modalShell.css owns everything else about how it looks. */
+.kc-document-modal {
+    --modal-max-width: min(1120px, calc(100vw - 48px));
+}
+
+/* Document dialog body. The shell paints the canvas; this only spaces the
+   hero, the content editor and the property inspector inside it. */
+.kc-document-body {
     display: flex;
     flex-direction: column;
-    width: min(1120px, calc(100vw - 48px));
-    max-width: 1120px;
-    max-height: min(860px, calc(100vh - 64px));
-    border-radius: 12px;
+    gap: 1.25rem;
 }
 
-#knowledge-context-new-modal .kc-document-modal .pipelines-modal-header,
-#knowledge-context-clone-modal .kc-document-modal .pipelines-modal-header,
-#knowledge-context-new-modal .kc-document-modal .pipelines-modal-footer,
-#knowledge-context-clone-modal .kc-document-modal .pipelines-modal-footer {
-    flex: 0 0 auto;
-    z-index: 1;
-}
-
-#knowledge-context-new-modal .kc-document-modal .pipelines-modal-body,
-#knowledge-context-clone-modal .kc-document-modal .pipelines-modal-body {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-    padding: 1.1rem 1.4rem;
-}
-
-#knowledge-context-new-modal .kc-document-modal .pipelines-modal-footer,
-#knowledge-context-clone-modal .kc-document-modal .pipelines-modal-footer {
-    box-shadow: 0 -12px 28px rgba(15, 23, 42, 0.08);
-}
-
-[data-page="knowledge-context"] .kc-source-choice {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-    margin: 0;
-    padding: 0;
-    border: 0;
-}
-
-[data-page="knowledge-context"] .kc-source-choice legend {
-    grid-column: 1 / -1;
-    color: var(--text-secondary);
-    font-size: 0.82rem;
-    font-weight: 700;
-}
-
-[data-page="knowledge-context"] .kc-source-choice label {
+.kc-source-switch {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
-    min-height: 2.5rem;
-    padding: 0 0.8rem;
-    border: 1px solid var(--border-primary);
-    border-radius: 8px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    font-weight: 700;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
 }
 
-[data-page="knowledge-context"] .kc-source-choice label:has(input:disabled) {
-    color: var(--text-tertiary);
-    opacity: 0.72;
+.kc-document-properties {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--border-primary);
 }
 
 [data-page="knowledge-context"] .kc-external-fields {
@@ -19319,9 +19023,8 @@ html.dark [data-page="knowledge-context"] .kc-provider-preview {
 }
 
 @media (max-width: 1020px) {
-    #knowledge-context-new-modal .kc-document-modal,
-    #knowledge-context-clone-modal .kc-document-modal {
-        width: min(760px, calc(100vw - 32px));
+    .kc-document-modal {
+        --modal-max-width: min(760px, calc(100vw - 32px));
     }
 
     [data-page="knowledge-context"] .kc-external-fields,
@@ -19331,10 +19034,6 @@ html.dark [data-page="knowledge-context"] .kc-provider-preview {
 }
 
 @media (max-width: 900px) {
-    [data-page="knowledge-context"] .kc-source-choice {
-        grid-template-columns: 1fr;
-    }
-
     [data-page="knowledge-context"] .kc-provider-picker-row {
         grid-template-columns: 1fr;
     }

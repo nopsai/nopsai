@@ -11,6 +11,10 @@ import {
 import { CONFIG_REPOSITORY_PROVIDER_OPTIONS, type ConfigRepositoryProvider } from '../../lib/configRepositoryProviders.js';
 import type { TeamParentOption } from './model';
 import {
+  WorkflowDialogCloseButton,
+  workflowDialogOverlayClass,
+} from '../../components/WorkflowPrimitives';
+import {
   NOTIFICATION_EVENTS,
   teamNotificationGitOpsTarget,
   notificationRouteFormAddRoute,
@@ -135,7 +139,7 @@ export function NewTeamItemModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4"
+      className={workflowDialogOverlayClass}
       onPointerDown={event => {
         if (!pending && event.target === event.currentTarget) onClose();
       }}
@@ -144,110 +148,107 @@ export function NewTeamItemModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="team-item-modal-title"
-        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] overflow-hidden"
+        className="pipelines-modal-card workflow-dialog--compact w-full"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
-          <div>
-            <h3 id="team-item-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
-            <p className="text-xs text-[var(--text-secondary)]">Parent: {selectedParentLabel}</p>
-          </div>
-          <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1" role="group" aria-label="Create item type">
-            {(['team', 'app'] as const).map(option => (
-              <button
-                key={option}
-                type="button"
-                aria-pressed={kind === option}
-                onClick={() => selectKind(option)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  kind === option
-                    ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                {option === 'team' ? 'Team' : 'Application'}
-              </button>
-            ))}
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="new-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
-              Parent team
-            </label>
-            <select
-              id="new-team-parent"
-              name="new-team-parent"
-              value={parentID == null ? 'root' : String(parentID)}
-              onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
-              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-            >
-              {parentOptions.map(option => (
-                <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
-                  {option.label}
-                </option>
+        <form onSubmit={handleSubmit}>
+          <header className="pipelines-modal-header">
+            <div className="min-w-0">
+              <p className="pipelines-modal-kicker">Parent: {selectedParentLabel}</p>
+              <h3 id="team-item-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+            </div>
+            <WorkflowDialogCloseButton onClose={onClose} disabled={pending} />
+          </header>
+          <div className="pipelines-modal-body space-y-4">
+            <div className="modal-segmented" role="group" aria-label="Create item type">
+              {(['team', 'app'] as const).map(option => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={kind === option}
+                  onClick={() => selectKind(option)}
+                >
+                  {option === 'team' ? 'Team' : 'Application'}
+                </button>
               ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="new-team-name" className="text-sm font-medium text-[var(--text-primary)]">
-              {kind === 'app' ? 'Application Name' : 'Team Name'}
-            </label>
-            <input
-              ref={nameInputRef}
-              id="new-team-name"
-              name="new-team-name"
-              type="text"
-              required
-              value={name}
-              onChange={event => setName(event.target.value)}
-              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-              placeholder={kind === 'app' ? 'service-api' : 'platform'}
-            />
-          </div>
-          {kind === 'app' ? (
+            </div>
             <div className="space-y-2">
-              <label htmlFor="new-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
-                Repository URL
+              <label htmlFor="new-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
+                Parent team
+              </label>
+              <select
+                id="new-team-parent"
+                name="new-team-parent"
+                value={parentID == null ? 'root' : String(parentID)}
+                onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
+                className="pipelines-input w-full"
+              >
+                {parentOptions.map(option => (
+                  <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="new-team-name" className="text-sm font-medium text-[var(--text-primary)]">
+                {kind === 'app' ? 'Application Name' : 'Team Name'}
               </label>
               <input
-                id="new-team-repo-url"
-                name="new-team-repo-url"
+                ref={nameInputRef}
+                id="new-team-name"
+                name="new-team-name"
                 type="text"
                 required
-                value={repoURL}
-                onChange={event => setRepoURL(event.target.value)}
-                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-                placeholder="https://github.com/acme/service-api"
+                value={name}
+                onChange={event => setName(event.target.value)}
+                className="pipelines-input w-full"
+                placeholder={kind === 'app' ? 'service-api' : 'platform'}
               />
             </div>
-          ) : (
-            <div className="space-y-2">
-              <label htmlFor="new-team-description" className="text-sm font-medium text-[var(--text-primary)]">
-                Description <span className="text-[var(--text-secondary)]">(optional)</span>
-              </label>
-              <textarea
-                id="new-team-description"
-                name="new-team-description"
-                value={description}
-                onChange={event => setDescription(event.target.value)}
-                rows={3}
-                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-                placeholder="Add a short summary for this team"
-              />
-            </div>
-          )}
-          {error && <div className="text-sm text-red-600">{error}</div>}
-          <div className="flex items-center justify-end gap-3 pt-2">
-            <button type="button" className="glass-button-subtle" onClick={onClose} disabled={pending}>
-              Cancel
-            </button>
-            <button type="submit" className="glass-button-primary" disabled={pending}>
-              {pending ? 'Creating...' : title}
-            </button>
+            {kind === 'app' ? (
+              <div className="space-y-2">
+                <label htmlFor="new-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
+                  Repository URL
+                </label>
+                <input
+                  id="new-team-repo-url"
+                  name="new-team-repo-url"
+                  type="text"
+                  required
+                  value={repoURL}
+                  onChange={event => setRepoURL(event.target.value)}
+                  className="pipelines-input w-full"
+                  placeholder="https://github.com/acme/service-api"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label htmlFor="new-team-description" className="text-sm font-medium text-[var(--text-primary)]">
+                  Description <span className="text-[var(--text-secondary)]">(optional)</span>
+                </label>
+                <textarea
+                  id="new-team-description"
+                  name="new-team-description"
+                  value={description}
+                  onChange={event => setDescription(event.target.value)}
+                  rows={3}
+                  className="pipelines-input w-full"
+                  placeholder="Add a short summary for this team"
+                />
+              </div>
+            )}
+            {error && <div className="text-sm text-red-600">{error}</div>}
           </div>
+          <footer className="pipelines-modal-footer">
+            <div className="pipelines-modal-actions">
+              <button type="button" className="glass-button-subtle" onClick={onClose} disabled={pending}>
+                Cancel
+              </button>
+              <button type="submit" className="glass-button-primary" disabled={pending}>
+                {pending ? 'Creating...' : title}
+              </button>
+            </div>
+          </footer>
         </form>
       </div>
     </div>
@@ -301,7 +302,7 @@ export function EditTeamItemModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4"
+      className={workflowDialogOverlayClass}
       onPointerDown={event => {
         if (!pending && event.target === event.currentTarget) onClose();
       }}
@@ -310,94 +311,96 @@ export function EditTeamItemModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="team-edit-modal-title"
-        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] overflow-hidden"
+        className="pipelines-modal-card w-full"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
-          <div>
-            <h3 id="team-edit-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
-            <p className="text-xs text-[var(--text-secondary)]">{label}</p>
-          </div>
-          <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="edit-team-name" className="text-sm font-medium text-[var(--text-primary)]">
-              {app ? 'Application Name' : 'Team Name'}
-            </label>
-            <input
-              ref={nameInputRef}
-              id="edit-team-name"
-              name="edit-team-name"
-              type="text"
-              required
-              value={name}
-              onChange={event => setName(event.target.value)}
-              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="edit-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
-              Parent team
-            </label>
-            <select
-              id="edit-team-parent"
-              name="edit-team-parent"
-              value={parentID == null ? 'root' : String(parentID)}
-              onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
-              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-            >
-              {parentOptions.map(option => (
-                <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {app ? (
+        <form onSubmit={handleSubmit}>
+          <header className="pipelines-modal-header">
+            <div className="min-w-0">
+              <p className="pipelines-modal-kicker">{label}</p>
+              <h3 id="team-edit-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+            </div>
+            <WorkflowDialogCloseButton onClose={onClose} disabled={pending} />
+          </header>
+          <div className="pipelines-modal-body space-y-4">
             <div className="space-y-2">
-              <label htmlFor="edit-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
-                Repository URL
+              <label htmlFor="edit-team-name" className="text-sm font-medium text-[var(--text-primary)]">
+                {app ? 'Application Name' : 'Team Name'}
               </label>
               <input
-                id="edit-team-repo-url"
-                name="edit-team-repo-url"
+                ref={nameInputRef}
+                id="edit-team-name"
+                name="edit-team-name"
                 type="text"
                 required
-                value={repoURL}
-                onChange={event => setRepoURL(event.target.value)}
-                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-                placeholder="https://github.com/acme/service-api"
+                value={name}
+                onChange={event => setName(event.target.value)}
+                className="pipelines-input w-full"
               />
             </div>
-          ) : (
-            <div className="space-y-2">
-              <label htmlFor="edit-team-description" className="text-sm font-medium text-[var(--text-primary)]">
-                Description <span className="text-[var(--text-secondary)]">(optional)</span>
-              </label>
-              <textarea
-                id="edit-team-description"
-                name="edit-team-description"
-                value={description}
-                onChange={event => setDescription(event.target.value)}
-                rows={3}
-                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-              />
-            </div>
-          )}
 
-          {error && <div className="text-sm text-red-600">{error}</div>}
-          <div className="flex items-center justify-end gap-3 pt-2">
-            <button type="button" className="glass-button-subtle" onClick={onClose} disabled={pending}>
-              Cancel
-            </button>
-            <button type="submit" className="glass-button-primary" disabled={pending}>
-              {pending ? 'Saving...' : 'Save Changes'}
-            </button>
+            <div className="space-y-2">
+              <label htmlFor="edit-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
+                Parent team
+              </label>
+              <select
+                id="edit-team-parent"
+                name="edit-team-parent"
+                value={parentID == null ? 'root' : String(parentID)}
+                onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
+                className="pipelines-input w-full"
+              >
+                {parentOptions.map(option => (
+                  <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {app ? (
+              <div className="space-y-2">
+                <label htmlFor="edit-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
+                  Repository URL
+                </label>
+                <input
+                  id="edit-team-repo-url"
+                  name="edit-team-repo-url"
+                  type="text"
+                  required
+                  value={repoURL}
+                  onChange={event => setRepoURL(event.target.value)}
+                  className="pipelines-input w-full"
+                  placeholder="https://github.com/acme/service-api"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label htmlFor="edit-team-description" className="text-sm font-medium text-[var(--text-primary)]">
+                  Description <span className="text-[var(--text-secondary)]">(optional)</span>
+                </label>
+                <textarea
+                  id="edit-team-description"
+                  name="edit-team-description"
+                  value={description}
+                  onChange={event => setDescription(event.target.value)}
+                  rows={3}
+                  className="pipelines-input w-full"
+                />
+              </div>
+            )}
+
+            {error && <div className="text-sm text-red-600">{error}</div>}
           </div>
+          <footer className="pipelines-modal-footer">
+            <div className="pipelines-modal-actions">
+              <button type="button" className="glass-button-subtle" onClick={onClose} disabled={pending}>
+                Cancel
+              </button>
+              <button type="submit" className="glass-button-primary" disabled={pending}>
+                {pending ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </footer>
         </form>
       </div>
     </div>

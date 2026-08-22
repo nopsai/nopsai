@@ -1,4 +1,12 @@
-import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import { Settings2 } from 'lucide-react';
+
+import {
+  WorkflowDialogCloseButton,
+  WorkflowDialogFrame,
+  WorkflowInlineAlert,
+  WorkflowPropertyRow,
+  WorkflowSegmentedControl,
+} from '../../components/WorkflowPrimitives';
 import {
   kindOrder,
   knowledgeConnectionDisplayName,
@@ -99,6 +107,10 @@ export function KnowledgeContextModals({
   const formModalId = formModal?.mode === 'clone' ? 'knowledge-context-clone-modal' : 'knowledge-context-new-modal';
   const formTitleId = `${formModalId}-title`;
   const formErrorId = `${formModalId}-error`;
+  const formKindId = `${formModalId}-kind`;
+  const formTeamId = `${formModalId}-team`;
+  const formSyncModeId = `${formModalId}-sync-mode`;
+  const formFailureModeId = `${formModalId}-failure-mode`;
   const deleteModalId = 'knowledge-context-delete-modal';
   const deleteTitleId = `${deleteModalId}-title`;
   const deleteDescriptionId = `${deleteModalId}-description`;
@@ -133,81 +145,47 @@ export function KnowledgeContextModals({
                 {formModal.mode === 'create' ? 'Create document' : 'Clone document'}
               </h3>
             </div>
-            <button type="button" className="glass-button-ghost" onClick={onCloseForm} disabled={formModal.pending}>
-              Close
-            </button>
+            <WorkflowDialogCloseButton onClose={onCloseForm} disabled={formModal.pending} />
           </header>
-          <div className="pipelines-modal-body space-y-4">
+          <div className="pipelines-modal-body kc-document-body">
+            <div className="modal-hero">
+              <input
+                className="modal-hero-input"
+                aria-label="Name"
+                placeholder="repo-check"
+                value={formModal.name}
+                onChange={event => onUpdateForm({ name: event.target.value })}
+                data-dialog-initial-focus
+              />
+              <input
+                className="modal-hero-summary"
+                aria-label="Description"
+                placeholder="Add an optional summary for this document."
+                value={formModal.description || ''}
+                onChange={event => onUpdateForm({ description: event.target.value })}
+              />
+            </div>
+            <hr className="modal-divider" />
             {formModal.mode === 'create' ? (
-              <fieldset className="kc-source-choice">
-                <legend>Content source</legend>
-                <label>
-                  <input
-                    type="radio"
-                    name="knowledge-content-source"
-                    value="inline"
-                    checked={formModal.contentSource === 'inline'}
-                    onChange={() => onUpdateForm({ contentSource: 'inline' })}
-                  />
-                  <span>Inline content</span>
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    name="knowledge-content-source"
-                    value="external"
-                    checked={formModal.contentSource === 'external'}
-                    onChange={() => onUpdateForm({ contentSource: 'external' })}
-                  />
-                  <span>External page</span>
-                </label>
-              </fieldset>
+              <div className="kc-source-switch">
+                <div className="min-w-0">
+                  <span className="modal-property-label">Content source</span>
+                  <span className="modal-property-hint">
+                    Write the content here, or mirror a page from a connected provider.
+                  </span>
+                </div>
+                <WorkflowSegmentedControl
+                  name="knowledge-content-source"
+                  legend="Content source"
+                  value={formModal.contentSource}
+                  options={[
+                    { value: 'inline', label: 'Inline content' },
+                    { value: 'external', label: 'External page' },
+                  ]}
+                  onChange={contentSource => onUpdateForm({ contentSource })}
+                />
+              </div>
             ) : null}
-            <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                Kind
-                <select className="pipelines-input w-full mt-1" value={formModal.kind} onChange={event => onUpdateForm({ kind: event.target.value })}>
-                  {kindOrder.map(kind => (
-                    <option key={kind} value={kind}>{kind}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                Team
-                <select
-                  className="pipelines-input w-full mt-1"
-                  value={formModal.team}
-                  onChange={event => onUpdateForm({ team: event.target.value })}
-                >
-                  {normalizedTeamOptions.map(team => (
-                    <option key={team} value={team}>{team}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                Name
-                <input
-                  className="pipelines-input w-full mt-1"
-                  placeholder="repo-check"
-                  value={formModal.name}
-                  onChange={event => onUpdateForm({ name: event.target.value })}
-                  data-dialog-initial-focus
-                />
-              </label>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                Description
-                <input
-                  className="pipelines-input w-full mt-1"
-                  placeholder="Optional summary"
-                  value={formModal.description || ''}
-                  onChange={event => onUpdateForm({ description: event.target.value })}
-                />
-              </label>
-            </div>
             {formModal.contentSource === 'external' ? (
               <div className="kc-external-fields">
                 <section className="kc-external-panel kc-external-panel--source" aria-label="Provider page">
@@ -319,32 +297,6 @@ export function KnowledgeContextModals({
                     <strong>Sync settings</strong>
                     <span>Provider content is stored as the runtime snapshot.</span>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                      Sync mode
-                      <select
-                        className="pipelines-input w-full mt-1"
-                        value={formModal.sync_mode || 'manual'}
-                        onChange={event => onUpdateForm({ sync_mode: event.target.value as KnowledgeSyncMode })}
-                      >
-                        {knowledgeSyncModeOptions.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                      Failure behavior
-                      <select
-                        className="pipelines-input w-full mt-1"
-                        value={formModal.failure_mode || 'fail'}
-                        onChange={event => onUpdateForm({ failure_mode: event.target.value as KnowledgeFailureMode })}
-                      >
-                        {knowledgeFailureModeOptions.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
                   {formModal.page_preview ? (
                     <div className="kc-provider-preview">
                       <div>
@@ -378,6 +330,75 @@ export function KnowledgeContextModals({
                 />
               </label>
             )}
+            <section className="kc-document-properties">
+              <div className="modal-section-heading">
+                <h4 className="modal-section-heading__title">
+                  <Settings2 aria-hidden="true" />
+                  Document properties
+                </h4>
+                <span className="modal-section-heading__badge">
+                  {formModal.contentSource === 'external' ? '4 configured' : '2 configured'}
+                </span>
+              </div>
+              <div className="modal-property-grid">
+                <WorkflowPropertyRow label="Kind" hint="Spec classification" htmlFor={formKindId}>
+                  <select
+                    id={formKindId}
+                    className="pipelines-input"
+                    value={formModal.kind}
+                    onChange={event => onUpdateForm({ kind: event.target.value })}
+                  >
+                    {kindOrder.map(kind => (
+                      <option key={kind} value={kind}>{kind}</option>
+                    ))}
+                  </select>
+                </WorkflowPropertyRow>
+                <WorkflowPropertyRow label="Team" hint="Owning group" htmlFor={formTeamId}>
+                  <select
+                    id={formTeamId}
+                    className="pipelines-input"
+                    value={formModal.team}
+                    onChange={event => onUpdateForm({ team: event.target.value })}
+                  >
+                    {normalizedTeamOptions.map(team => (
+                      <option key={team} value={team}>{team}</option>
+                    ))}
+                  </select>
+                </WorkflowPropertyRow>
+                {formModal.contentSource === 'external' ? (
+                  <>
+                    <WorkflowPropertyRow label="Sync mode" hint="How the snapshot refreshes" htmlFor={formSyncModeId}>
+                      <select
+                        id={formSyncModeId}
+                        className="pipelines-input"
+                        value={formModal.sync_mode || 'manual'}
+                        onChange={event => onUpdateForm({ sync_mode: event.target.value as KnowledgeSyncMode })}
+                      >
+                        {knowledgeSyncModeOptions.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </WorkflowPropertyRow>
+                    <WorkflowPropertyRow
+                      label="Failure behavior"
+                      hint="What a failed sync does to a run"
+                      htmlFor={formFailureModeId}
+                    >
+                      <select
+                        id={formFailureModeId}
+                        className="pipelines-input"
+                        value={formModal.failure_mode || 'fail'}
+                        onChange={event => onUpdateForm({ failure_mode: event.target.value as KnowledgeFailureMode })}
+                      >
+                        {knowledgeFailureModeOptions.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </WorkflowPropertyRow>
+                  </>
+                ) : null}
+              </div>
+            </section>
             {formModal.error ? <WorkflowInlineAlert id={formErrorId}>{formModal.error}</WorkflowInlineAlert> : null}
           </div>
           <div className="pipelines-modal-footer">
@@ -400,16 +421,14 @@ export function KnowledgeContextModals({
           titleId={deleteTitleId}
           descriptionId={`${deleteDescriptionId}${deleteModal.error ? ` ${deleteErrorId}` : ''}`}
           onClose={onCloseDelete}
-          className="pipelines-modal-card max-w-md w-full"
+          className="pipelines-modal-card workflow-dialog--compact w-full"
         >
           <header className="pipelines-modal-header">
             <div>
               <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete knowledge context</p>
               <h3 id={deleteTitleId} className="text-lg font-semibold text-[var(--text-primary)]">Remove {deleteModal.name}?</h3>
             </div>
-            <button type="button" className="glass-button-ghost" onClick={onCloseDelete} disabled={deleteModal.pending}>
-              Close
-            </button>
+            <WorkflowDialogCloseButton onClose={onCloseDelete} disabled={deleteModal.pending} />
           </header>
           <div className="pipelines-modal-body space-y-3">
             <p id={deleteDescriptionId} className="text-sm text-[var(--text-secondary)]">
@@ -444,7 +463,7 @@ export function KnowledgeContextModals({
           titleId={connectionTitleId}
           descriptionId={connectionModal.error ? connectionErrorId : undefined}
           onClose={onCloseConnection}
-          className="pipelines-modal-card max-w-lg w-full"
+          className="pipelines-modal-card w-full"
         >
           <header className="pipelines-modal-header">
             <div>
@@ -455,9 +474,7 @@ export function KnowledgeContextModals({
                 {isEditingConnection ? 'Edit external page connection' : 'Add external page connection'}
               </h3>
             </div>
-            <button type="button" className="glass-button-ghost" onClick={onCloseConnection} disabled={connectionModal.pending}>
-              Close
-            </button>
+            <WorkflowDialogCloseButton onClose={onCloseConnection} disabled={connectionModal.pending} />
           </header>
           <div className="pipelines-modal-body space-y-4">
             <div className="grid gap-3 sm:grid-cols-[180px_1fr]">

@@ -1,5 +1,5 @@
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
-import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 
 export type ResourceFormModal = {
   mode: 'create' | 'clone';
@@ -133,7 +133,7 @@ function ResourceDeleteDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${deleteModal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className="pipelines-modal-card max-w-md w-full"
+      className="pipelines-modal-card workflow-dialog--compact w-full"
     >
         <header className="pipelines-modal-header">
           <div>
@@ -142,9 +142,7 @@ function ResourceDeleteDialog({
               Remove {deleteModal.resourceName}?
             </h3>
           </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={deleteModal.pending}>
-            Close
-          </button>
+          <WorkflowDialogCloseButton onClose={onClose} disabled={deleteModal.pending} />
         </header>
         <div className="pipelines-modal-body space-y-3">
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">

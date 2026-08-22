@@ -1,5 +1,15 @@
 import { type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { X } from 'lucide-react';
 import { useDialogFocus } from './useDialogFocus';
+
+/*
+ * Overlay class for every dialog in the product. `workflow-dialog-shell` is what
+ * components/modalShell.css hangs the shared skin on, so a dialog that opts out
+ * of it silently loses the skin — pass this constant instead of retyping the
+ * class list when a feature needs its own spacing.
+ */
+export const workflowDialogOverlayClass =
+  'workflow-dialog-shell fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] show';
 
 export function WorkflowDialogFrame({
   id,
@@ -8,7 +18,7 @@ export function WorkflowDialogFrame({
   descriptionId,
   onClose,
   className,
-  overlayClassName = 'fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show',
+  overlayClassName = workflowDialogOverlayClass,
   children,
 }: {
   id?: string;
@@ -128,5 +138,117 @@ export function WorkflowIconButton({
       {icon}
       {showLabel ? <span>{label}</span> : null}
     </button>
+  );
+}
+
+/*
+ * Close control for the dialog title pill. It reads as an icon so the pill stays
+ * a title bar, and keeps the accessible name "Close" that every dialog test and
+ * screen reader already expects.
+ */
+export function WorkflowDialogCloseButton({
+  onClose,
+  disabled = false,
+  label = 'Close',
+  initialFocus = false,
+}: {
+  onClose: () => void;
+  disabled?: boolean;
+  label?: string;
+  /** Take the dialog's opening focus, for dialogs with nothing to type into. */
+  initialFocus?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="workflow-dialog-close"
+      onClick={onClose}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      data-dialog-initial-focus={initialFocus || undefined}
+    >
+      <X aria-hidden="true" />
+    </button>
+  );
+}
+
+/*
+ * One row of the property inspector: the label and its hint on the left, the
+ * control on the right, aligned with every other row in the grid.
+ */
+export function WorkflowPropertyRow({
+  label,
+  hint,
+  htmlFor,
+  span = 'half',
+  layout = 'inline',
+  children,
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+  htmlFor?: string;
+  span?: 'half' | 'full';
+  layout?: 'inline' | 'stacked';
+  children: ReactNode;
+}) {
+  const classes = [
+    'modal-property-row',
+    span === 'full' ? 'modal-property-row--full' : '',
+    layout === 'stacked' ? 'modal-property-row--stacked' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <div className={classes}>
+      <div className="min-w-0">
+        <label className="modal-property-label" htmlFor={htmlFor}>
+          {label}
+        </label>
+        {hint ? <span className="modal-property-hint">{hint}</span> : null}
+      </div>
+      <div className="modal-property-control">{children}</div>
+    </div>
+  );
+}
+
+/*
+ * Segmented control for a short closed set of choices. Real radios stay in the
+ * markup, so the group keeps arrow-key navigation and its accessible names.
+ */
+export function WorkflowSegmentedControl<Value extends string>({
+  name,
+  value,
+  options,
+  onChange,
+  legend,
+  stretch = false,
+  disabled = false,
+}: {
+  name: string;
+  value: Value;
+  options: Array<{ value: Value; label: string }>;
+  onChange: (value: Value) => void;
+  legend?: string;
+  stretch?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={stretch ? 'modal-segmented modal-segmented--stretch' : 'modal-segmented'} role="group" aria-label={legend}>
+      {options.map(option => (
+        <label key={option.value}>
+          <input
+            type="radio"
+            name={name}
+            value={option.value}
+            checked={value === option.value}
+            disabled={disabled}
+            onChange={() => onChange(option.value)}
+          />
+          <span>{option.label}</span>
+        </label>
+      ))}
+    </div>
   );
 }
