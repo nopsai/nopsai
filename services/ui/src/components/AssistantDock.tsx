@@ -54,7 +54,7 @@ function AssistantDockContent({
     <>
       <button
         type="button"
-        className="fixed bottom-6 right-6 z-[90] inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] shadow-xl transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)]"
+        className="fixed bottom-6 right-6 z-[90] inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--border-accent)] text-white shadow-xl transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)]"
         onClick={() => setOpen(true)}
         aria-label="Open Nopsai AI Assistant"
         title="Ask NopsAI"
