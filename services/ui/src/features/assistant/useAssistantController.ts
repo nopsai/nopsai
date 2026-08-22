@@ -26,6 +26,14 @@ import {
   type AssistantPageContext,
 } from './pageContext.js';
 
+/** Slow enough not to hammer the API, quick enough that a finished turn appears promptly. */
+const assistantRunningTurnPollMS = 3000;
+
+function assistantTurnStartedAt(conversation: AssistantConversation | null): number {
+  const parsed = Date.parse(conversation?.running_turn_started_at || '');
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
 export function useAssistantController({
   autoload = true,
   startFresh = false,
@@ -65,6 +73,12 @@ export function useAssistantController({
     activeConversationIDRef.current = conversation?.id || '';
     setActiveConversation(conversation);
   }, []);
+
+  // A turn belongs to the conversation, not to the tab that started it. The
+  // server reports one in flight, so a refreshed page, the dock, and a second tab
+  // all show the same thing instead of an idle conversation about to change.
+  const locallySending = Boolean(activeConversation?.id && sendingConversationID === activeConversation.id);
+  const remoteTurnRunning = Boolean(activeConversation?.turn_running);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,6 +129,27 @@ export function useAssistantController({
   useEffect(() => () => {
     if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
   }, []);
+
+  // While a turn this client did not start is running, re-read the conversation
+  // until it finishes. Without this the result only appears on the next manual
+  // refresh, which is the bug that made a running turn look like a lost one.
+  useEffect(() => {
+    if (!remoteTurnRunning || locallySending) return;
+    const conversationID = activeConversation?.id;
+    if (!conversationID) return;
+    const interval = window.setInterval(() => {
+      void fetchAssistantConversation(conversationID)
+        .then(conversation => {
+          if (activeConversationIDRef.current !== conversationID) return;
+          activateConversation(conversation);
+          setConversations(current => current.map(item => (item.id === conversation.id ? conversation : item)));
+        })
+        .catch(() => {
+          // A failed poll is not worth surfacing: the next tick tries again.
+        });
+    }, assistantRunningTurnPollMS);
+    return () => window.clearInterval(interval);
+  }, [activateConversation, activeConversation?.id, locallySending, remoteTurnRunning]);
 
   const selectConversation = useCallback(async (conversationID: string) => {
     setLoading(true);
@@ -351,9 +386,14 @@ export function useAssistantController({
     }
     return [...messages, pendingMessage];
   }, [activeConversation, pendingMessage]);
-  const activeConversationSending = Boolean(activeConversation?.id && sendingConversationID === activeConversation.id);
-  const activeConversationSendingStartedAt = activeConversationSending ? sendingStartedAt : 0;
   const canRetry = Boolean(activeConversation && assistantLastUserMessage(activeConversation.messages));
+  const runningConversationID = conversations.find(conversation => conversation.turn_running)?.id || '';
+  const activeConversationSending = locallySending || remoteTurnRunning;
+  const activeConversationSendingStartedAt = locallySending
+    ? sendingStartedAt
+    : remoteTurnRunning
+      ? assistantTurnStartedAt(activeConversation)
+      : 0;
 
   return {
     conversations,
@@ -367,7 +407,7 @@ export function useAssistantController({
     setDraft,
     loading,
     sending,
-    sendingConversationID,
+    sendingConversationID: sendingConversationID || runningConversationID,
     activeConversationSending,
     activeConversationSendingStartedAt,
     retrying,

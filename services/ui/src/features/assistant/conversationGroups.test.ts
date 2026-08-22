@@ -74,5 +74,7 @@ function conversation(id: string, title: string, updatedAt: string): AssistantCo
     usage: emptyAssistantConversationUsage,
     created_at: updatedAt,
     updated_at: updatedAt,
+    turn_running: false,
+    running_turn_started_at: '',
   };
 }

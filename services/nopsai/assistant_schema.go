@@ -19,6 +19,10 @@ var assistantSchemaStatements = []string{
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_assistant_conversations_user_updated ON assistant_conversations(user_id, updated_at DESC)`,
+	// Set while a turn is being produced, so any client — a refreshed page, the
+	// dock, a second tab — can see that work is in flight rather than showing an
+	// idle conversation that is quietly about to change.
+	`ALTER TABLE assistant_conversations ADD COLUMN IF NOT EXISTS running_turn_started_at TIMESTAMPTZ`,
 	`CREATE TABLE IF NOT EXISTS assistant_messages (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		conversation_id UUID NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE,

@@ -82,6 +82,9 @@ export type AssistantConversation = {
   usage: AssistantConversationUsage;
   created_at: string;
   updated_at: string;
+  /** True while the server is producing a turn, whatever client started it. */
+  turn_running: boolean;
+  running_turn_started_at: string;
 };
 
 export type AssistantConversationsPayload = {
@@ -183,6 +186,8 @@ export function normalizeAssistantConversation(value: unknown): AssistantConvers
     usage: usage.message_count > 0 || messages.length === 0 ? usage : assistantConversationUsageFromMessages(messages),
     created_at: readString(record.created_at),
     updated_at: readString(record.updated_at),
+    turn_running: record.turn_running === true,
+    running_turn_started_at: readString(record.running_turn_started_at),
   };
 }
 

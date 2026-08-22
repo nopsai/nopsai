@@ -533,6 +533,8 @@ function assistantConversation(id: string, messages: ReturnType<typeof assistant
     usage: emptyAssistantConversationUsage,
     created_at: '2026-06-19T00:00:00Z',
     updated_at: '2026-06-19T00:00:00Z',
+    turn_running: false,
+    running_turn_started_at: '',
   };
 }
 
@@ -556,3 +558,42 @@ function assistantMessage(id: string, conversationID: string, role: string, cont
     created_at: '2026-06-19T00:00:00Z',
   };
 }
+
+// The turn belongs to the conversation, not to the tab that started it: a page
+// that loads mid-turn must show it running and pick up the answer by itself.
+test('reports a server-reported turn as running and polls until it finishes', async () => {
+  vi.useFakeTimers();
+  try {
+    const running: AssistantConversation = {
+      ...assistantConversation('c1', [assistantMessage('m1', 'c1', 'user', 'why did it fail?')]),
+      turn_running: true,
+      running_turn_started_at: new Date().toISOString(),
+    };
+    const finished: AssistantConversation = {
+      ...running,
+      turn_running: false,
+      running_turn_started_at: '',
+      messages: [...running.messages, assistantMessage('m2', 'c1', 'assistant', 'It failed in the test step.')],
+    };
+
+    fetchAssistantConfigMock.mockResolvedValue(enabledConfig);
+    fetchAssistantConversationsMock.mockResolvedValue({ conversations: [running] });
+    fetchAssistantLLMProfilesMock.mockResolvedValue({ default_profile: 'assistant', profiles: [] });
+    fetchAssistantConversationMock.mockResolvedValueOnce(running).mockResolvedValue(finished);
+
+    const { result } = renderHook(() => useAssistantController());
+    await vi.waitFor(() => expect(result.current.activeConversation?.id).toBe('c1'));
+
+    expect(result.current.activeConversationSending).toBe(true);
+    expect(result.current.activeConversationSendingStartedAt).toBeGreaterThan(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3500);
+    });
+
+    expect(result.current.activeConversationSending).toBe(false);
+    expect(result.current.activeMessages).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});

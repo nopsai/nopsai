@@ -29,6 +29,22 @@ type assistantConversation struct {
 	Usage              assistantConversationUsage  `json:"usage"`
 	CreatedAt          time.Time                   `json:"created_at"`
 	UpdatedAt          time.Time                   `json:"updated_at"`
+	// TurnRunning is derived rather than stored: a process that died mid-turn
+	// leaves the timestamp behind, and a conversation stuck on "running" forever
+	// is a worse lie than one that says nothing.
+	TurnRunning          bool       `json:"turn_running"`
+	RunningTurnStartedAt *time.Time `json:"running_turn_started_at,omitempty"`
+}
+
+// A turn that has not reported back within this window is treated as finished:
+// long enough for a slow model, short enough that a crash clears by itself.
+const assistantRunningTurnTimeout = 15 * time.Minute
+
+func assistantTurnIsRunning(startedAt *time.Time) bool {
+	if startedAt == nil {
+		return false
+	}
+	return time.Since(*startedAt) < assistantRunningTurnTimeout
 }
 
 type assistantMessage struct {

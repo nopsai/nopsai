@@ -281,6 +281,33 @@ test('groups conversations by recency and keeps idle conversations deletable dur
   expect(selectConversation).toHaveBeenCalledWith('c2');
 });
 
+// A turn started in the dock, or before a refresh, is still the conversation's
+// turn: every surface should show it running rather than an idle transcript.
+test('shows a turn the server reports as running even when this client did not start it', () => {
+  const messages = [assistantMessage('m1', 'user', 'why did the nightly run fail?')];
+  const conversation = {
+    ...assistantConversation(messages),
+    turn_running: true,
+    running_turn_started_at: new Date(Date.now() - 4000).toISOString(),
+  };
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    // Nothing is sending locally: this client just loaded the page.
+    sending: false,
+    sendingConversationID: '',
+    activeConversationSending: true,
+    activeConversationSendingStartedAt: Date.parse(conversation.running_turn_started_at),
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  expect(screen.getByText('Working through the request')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+});
+
 test('renders staged progress while the active conversation is sending', () => {
   const messages = [assistantMessage('m1', 'user', 'Analyze AI usage cost by provider')];
   const conversation = assistantConversation(messages);
@@ -454,6 +481,8 @@ function assistantConversation(messages: AssistantMessage[]): AssistantConversat
     usage: emptyAssistantConversationUsage,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    turn_running: false,
+    running_turn_started_at: '',
   };
 }
 

@@ -104,3 +104,22 @@ func TestAssistantConversationUsageFromMessagesRollsUpMessageMetrics(t *testing.
 		t.Fatalf("usage metadata rollup = %#v", usage)
 	}
 }
+
+// A conversation reports a turn as running only while it plausibly is: a process
+// that died mid-turn leaves the timestamp behind, and a conversation stuck on
+// "running" forever is a worse lie than one that says nothing.
+func TestAssistantTurnIsRunningExpiresAStaleMarker(t *testing.T) {
+	if assistantTurnIsRunning(nil) {
+		t.Fatal("a conversation with no marker is not running")
+	}
+
+	recent := time.Now().Add(-30 * time.Second)
+	if !assistantTurnIsRunning(&recent) {
+		t.Fatal("a turn that started 30 seconds ago is still running")
+	}
+
+	stale := time.Now().Add(-assistantRunningTurnTimeout - time.Minute)
+	if assistantTurnIsRunning(&stale) {
+		t.Fatal("a marker older than the timeout must not report as running")
+	}
+}

@@ -80,7 +80,6 @@ export function AssistantPanel({
         <AssistantConversationRail
           conversations={assistant.conversations}
           activeConversation={assistant.activeConversation}
-          currentUser={currentUser}
           enabled={assistant.enabled}
           loading={assistant.loading}
           sending={assistant.sending}
