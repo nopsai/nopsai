@@ -50,9 +50,19 @@ Every tool publishes `title`, `annotations` (`readOnlyHint`, `destructiveHint`,
 `outputSchema`. The annotations are advisory: the AAA check at call time is what
 enforces, and it does not read them.
 
-The transport is request/response over `POST /v1/mcp`. There is no server-to-client
-stream and no session id, so `listChanged` is deliberately **not** advertised —
-integrators should re-list rather than wait for a notification.
+The transport is request/response over `POST /v1/mcp`, by decision rather than
+omission. There is no server-to-client stream and no session id, so `listChanged`
+is deliberately **not** advertised: integrators re-list rather than wait for a
+notification, and `GET /v1/mcp` answers `405` with `Allow: POST`, which is what
+the spec asks of a server that offers no stream.
+
+A stream would buy two things — `notifications/progress` on slow calls, and a
+truthful `listChanged` when AAA grants or the MCP registry change — at the cost
+of session affinity in a service that scales horizontally without it, SSE
+lifecycle and resumability, and a second code path through the same
+authorization checks. The trade is not worth it until an external client needs
+progress on a long call; the better answer for the slow calls we have is to make
+them narrower (`include_inventory: false`) rather than to stream a spinner.
 
 Prompts cover the flows NopsAI answers well — review a team, explain a run
 failure, review a pipeline, explain platform spend, prepare a GitOps change — and
