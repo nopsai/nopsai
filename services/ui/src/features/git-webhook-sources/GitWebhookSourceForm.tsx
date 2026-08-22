@@ -1,4 +1,5 @@
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
+import { WorkflowPropertyRow } from '../../components/WorkflowPrimitives';
 import {
   GLOBAL_RESOURCE_TEAM_PATH,
   compareResourceTeamPathsWithGlobalFirst,
@@ -49,7 +50,8 @@ export function GitWebhookSourceForm({
       onClose={onClose}
       onSubmit={onSubmit}
       closeDisabled={saving}
-      size="wide"
+      size="xwide"
+      bodyClassName="modal-form-body"
       kicker={source ? 'Edit source' : 'New source'}
       title={source ? 'Edit Git webhook source' : 'New Git webhook source'}
       subtitle="Provider credentials use encrypted NopsAI credential references."
@@ -70,10 +72,11 @@ export function GitWebhookSourceForm({
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Source ID">
+      <div className="modal-property-grid">
+        <Field label="Source ID" hint="Used in the delivery URL" htmlFor="git-webhook-source-id" control="wide">
           <input
             className="pipelines-input w-full font-mono"
+            id="git-webhook-source-id"
             value={form.id}
             onChange={event => update('id', event.target.value)}
             disabled={Boolean(source)}
@@ -82,17 +85,19 @@ export function GitWebhookSourceForm({
             data-dialog-initial-focus
           />
         </Field>
-        <Field label="Display name">
+        <Field label="Display name" hint="Shown in lists and pickers" htmlFor="git-webhook-source-name">
           <input
             className="pipelines-input w-full"
+            id="git-webhook-source-name"
             value={form.name}
             onChange={event => update('name', event.target.value)}
             placeholder="GitLab Platform"
           />
         </Field>
-        <Field label="Provider">
+        <Field label="Provider" hint="Git host" htmlFor="git-webhook-source-provider">
           <select
             className="pipelines-input w-full"
+            id="git-webhook-source-provider"
             value={form.provider}
             onChange={event => update('provider', event.target.value as GitWebhookSourceFormState['provider'])}
           >
@@ -101,9 +106,10 @@ export function GitWebhookSourceForm({
             ))}
           </select>
         </Field>
-        <Field label="Team" hint={teamPathsLoading ? 'Loading teams...' : 'Controls where this source appears and which GitOps repo may own it.'}>
+        <Field label="Team" hint={teamPathsLoading ? 'Loading teams…' : 'Owning team'} htmlFor="git-webhook-source-team">
           <select
             className="pipelines-input w-full"
+            id="git-webhook-source-team"
             value={form.teamPath}
             onChange={event => update('teamPath', event.target.value)}
           >
@@ -112,9 +118,10 @@ export function GitWebhookSourceForm({
             ))}
           </select>
         </Field>
-        <Field label="Visibility" hint="Workspace-shared sources can be assigned across teams.">
+        <Field label="Visibility" hint="Who may assign this source" htmlFor="git-webhook-source-visibility">
           <select
             className="pipelines-input w-full"
+            id="git-webhook-source-visibility"
             value={form.visibility}
             onChange={event => update('visibility', event.target.value as GitWebhookSourceFormState['visibility'])}
           >
@@ -123,9 +130,10 @@ export function GitWebhookSourceForm({
             ))}
           </select>
         </Field>
-        <Field label="Authentication">
+        <Field label="Authentication" hint="How deliveries are verified" htmlFor="git-webhook-source-auth">
           <select
             className="pipelines-input w-full"
+            id="git-webhook-source-auth"
             value={form.authMode}
             onChange={event => update('authMode', event.target.value as GitWebhookSourceFormState['authMode'])}
           >
@@ -134,52 +142,54 @@ export function GitWebhookSourceForm({
             ))}
           </select>
         </Field>
-      </div>
-
-      <Field label="Description">
-        <textarea
-          className="pipelines-input min-h-20 w-full"
-          value={form.description}
-          onChange={event => update('description', event.target.value)}
-          placeholder="Receives repository events from the primary GitLab instance."
-        />
-      </Field>
-
-      {form.authMode !== 'none' ? (
-        <Field label="Credential reference" hint="Expected type: webhook_secret. Leave blank on create to generate a one-time value, or enter an existing reference to reuse it.">
+        <Field label="Description" hint="What this source receives" htmlFor="git-webhook-source-description" span="full" layout="stacked">
+          <textarea
+            className="pipelines-input min-h-20 w-full"
+            id="git-webhook-source-description"
+            value={form.description}
+            onChange={event => update('description', event.target.value)}
+            placeholder="Receives repository events from the primary GitLab instance."
+          />
+        </Field>
+        {form.authMode !== 'none' ? (
+        <Field label="Credential reference" hint="Expected type: webhook_secret. Leave blank on create to generate a one-time value." htmlFor="git-webhook-source-credential" span="full" layout="stacked">
           <input
             className="pipelines-input w-full font-mono"
+            id="git-webhook-source-credential"
             value={form.credentialRef}
             onChange={event => update('credentialRef', event.target.value)}
             placeholder="credential://system/webhooks/gitlab-platform"
           />
         </Field>
-      ) : (
-        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-[var(--text-secondary)]">
-          Unauthenticated sources must only be exposed through a trusted, network-isolated ingress.
-        </div>
-      )}
+        ) : (
+          <p className="modal-property-row--full rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-[var(--text-secondary)]">
+            Unauthenticated sources must only be exposed through a trusted, network-isolated ingress.
+          </p>
+        )}
+        <Field
+          label="Repository allowlist"
+          hint="One owner/repository pattern per line; recursive wildcards are supported"
+          htmlFor="git-webhook-source-allowlist"
+          span="full"
+          layout="stacked"
+        >
+          <textarea
+            className="pipelines-input min-h-28 w-full font-mono"
+            id="git-webhook-source-allowlist"
+            value={form.repositoryAllowlistText}
+            onChange={event => update('repositoryAllowlistText', event.target.value)}
+            placeholder={'platform/api\nplatform/*'}
+            required
+          />
+        </Field>
 
-      <Field
-        label="Repository allowlist"
-        hint="One owner/repository pattern per line. Recursive wildcards are supported."
-      >
-        <textarea
-          className="pipelines-input min-h-28 w-full font-mono"
-          value={form.repositoryAllowlistText}
-          onChange={event => update('repositoryAllowlistText', event.target.value)}
-          placeholder={'platform/api\nplatform/*'}
-          required
-        />
-      </Field>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Field label="Rate limit per minute" hint="Leave empty for no source-level limit.">
+        <Field label="Rate limit per minute" hint="Empty means no source-level limit" htmlFor="git-webhook-source-rate-limit">
           <input
             className="pipelines-input w-full"
             type="number"
             min="1"
             step="1"
+            id="git-webhook-source-rate-limit"
             value={form.rateLimitPerMinute}
             onChange={event => update('rateLimitPerMinute', event.target.value)}
             placeholder="120"
@@ -229,17 +239,23 @@ function uniqueTeamOptions(paths: string[]): string[] {
 function Field({
   label,
   hint,
+  htmlFor,
+  span,
+  layout,
+  control,
   children,
 }: {
   label: string;
   hint?: string;
+  htmlFor: string;
+  span?: 'half' | 'full';
+  layout?: 'inline' | 'stacked';
+  control?: 'default' | 'wide';
   children: React.ReactNode;
 }) {
   return (
-    <label className="mt-4 block text-sm text-[var(--text-primary)]">
-      <span className="font-medium">{label}</span>
-      {hint ? <span className="ml-2 text-xs text-[var(--text-secondary)]">{hint}</span> : null}
-      <span className="mt-1 block">{children}</span>
-    </label>
+    <WorkflowPropertyRow label={label} hint={hint} htmlFor={htmlFor} span={span} layout={layout} control={control}>
+      {children}
+    </WorkflowPropertyRow>
   );
 }

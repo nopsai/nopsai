@@ -3,7 +3,12 @@ import { AlertTriangle, CalendarClock, Pencil, PlugZap, RefreshCw, Save, Trash2,
 
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
-import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import {
+  WorkflowDialogCloseButton,
+  WorkflowDialogFrame,
+  WorkflowInlineAlert,
+  WorkflowPropertyRow,
+} from '../../components/WorkflowPrimitives';
 import {
   MONTHDAY_VALUES,
   MONTH_OPTIONS,
@@ -155,7 +160,7 @@ export function DashboardModal({
         title="Dashboard identity"
         description="Choose where the dashboard lives and how people recognize it in the selector."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Team" description="Existing team that owns the dashboard and its GitOps path.">
             <select
               className="pipelines-input w-full"
@@ -626,7 +631,7 @@ export function SourceModal({
         title="Source mapping"
         description="Pick the dashboard section first, then bind it to a dashboard output declared by a pipeline."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Section" description="Dashboard section that receives this output.">
             <select
               className="pipelines-input w-full"
@@ -690,7 +695,7 @@ export function SourceModal({
         title="Refresh behavior"
         description="Control whether this source participates in manual and scheduled refreshes."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Refresh order" description="Lower numbers run earlier when multiple sources refresh.">
             <input
               className="pipelines-input w-full"
@@ -790,7 +795,7 @@ export function RefreshModal({
         title="Refresh target"
         description="Choose whether to refresh the whole dashboard or one generated section."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Scope" description="Dashboard runs all enabled bindings; section limits the refresh to that section's outputs.">
             <select
               className="pipelines-input w-full"
@@ -833,7 +838,7 @@ export function RefreshModal({
         title="Execution guardrails"
         description="Keep refreshes bounded so dashboard updates stay predictable for operators."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Timeout" description="Maximum wall-clock duration for this refresh request, for example 45m or 1h.">
             <input className="pipelines-input w-full" value={form.timeout} onChange={event => onChange({ ...form, timeout: event.target.value })} disabled={saving} />
           </Field>
@@ -917,7 +922,7 @@ export function RefreshScheduleModal({
         title="Schedule identity"
         description="Give this recurring refresh a stable name and short operator-facing purpose."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Name" description="Stable unique key for this dashboard schedule. Use letters, numbers, dots, underscores, or hyphens.">
             <input
               className="pipelines-input w-full"
@@ -957,7 +962,7 @@ export function RefreshScheduleModal({
         title="Cadence"
         description="Use the same frequency builder as pipeline schedules, then review the generated cron expression if you need a custom cadence."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Frequency" description="Choose a guided cadence or switch to custom cron.">
             <select
               className="pipelines-input w-full"
@@ -1119,7 +1124,7 @@ export function RefreshScheduleModal({
         title="Refresh target"
         description="Schedule the whole dashboard or narrow the recurring refresh to one section. Individual output cards are published by their pipeline run and are not scheduled independently."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Scope" description="Dashboard runs all enabled bindings; section limits the scheduled work without pretending one output card can run independently.">
             <select
               className="pipelines-input w-full"
@@ -1162,7 +1167,7 @@ export function RefreshScheduleModal({
         title="Execution guardrails"
         description="Bound the scheduled refresh so recurring dashboard updates remain predictable."
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="modal-property-grid">
           <Field label="Timeout" description="Maximum wall-clock duration for each scheduled refresh, for example 45m or 1h.">
             <input className="pipelines-input w-full" value={form.timeout} onChange={event => onChange({ ...form, timeout: event.target.value })} disabled={saving} />
           </Field>
@@ -1376,15 +1381,28 @@ function FormSection({ title, description, children }: { title: string; descript
   );
 }
 
-function Field({ label, description, children, wide }: { label: string; description?: string; children: ReactNode; wide?: boolean }) {
+function Field({
+  label,
+  description,
+  children,
+  wide,
+  stacked,
+}: {
+  label: string;
+  description?: string;
+  children: ReactNode;
+  wide?: boolean;
+  stacked?: boolean;
+}) {
   return (
-    <div className={`space-y-1 ${wide ? 'md:col-span-full' : ''}`}>
-      <label className="space-y-1">
-        <span className="modal-property-label">{label}</span>
-        {children}
-      </label>
-      {description ? <p className="text-xs leading-5 text-[var(--text-muted)]">{description}</p> : null}
-    </div>
+    <WorkflowPropertyRow
+      label={label}
+      hint={description}
+      span={wide ? 'full' : 'half'}
+      layout={stacked ? 'stacked' : 'inline'}
+    >
+      {children}
+    </WorkflowPropertyRow>
   );
 }
 
