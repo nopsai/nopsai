@@ -107,72 +107,77 @@ html.dark {
     --nav-topic-workspace: #2dd4bf;
     --nav-topic-administration: #fb7185;
 
-    /* Dark Theme Color Palette */
-    --page-bg: #111827;
-    --sidebar-bg: #131C2E;
-    --card-bg: #172033;
-    --input-bg: #0F172A;
-    --border: #2A354B;
+    /* Dark Theme Color Palette — VS Code "Dark Modern".
+       Values are taken from the theme itself so a NopsAI window sits next to an
+       editor window without either looking wrong: editor #1F1F1F, side bar and
+       panels #181818, inputs #313131, borders #2B2B2B, text #CCCCCC, accent
+       #0078D4. */
+    --page-bg: #1F1F1F;          /* editor.background */
+    --sidebar-bg: #181818;       /* sideBar.background */
+    --card-bg: #202020;          /* editorWidget.background */
+    --input-bg: #313131;         /* input.background */
+    --border: #2B2B2B;           /* panel.border */
 
     --bg-app: var(--page-bg);
     --bg-sidebar: var(--sidebar-bg);
     --bg-panel: var(--card-bg);
-    --bg-elevated: #1d2940;
-    --bg-hover: #22304a;
+    --bg-elevated: #2A2A2A;
+    --bg-hover: #2A2D2E;         /* list.hoverBackground */
     --bg-input: var(--input-bg);
     --bg-app-background: var(--bg-app);
     --bg-primary: var(--bg-app);
     --bg-secondary: var(--bg-panel);
     --bg-tertiary: var(--bg-elevated);
-    --bg-active: rgba(128, 117, 232, 0.18);
-    --bg-overlay: rgba(0, 0, 0, 0.75);
-    --bg-code: var(--bg-input);
-    --bg-code-darker: var(--bg-app);
+    --bg-active: #04395E;        /* list.activeSelectionBackground */
+    --bg-overlay: rgba(0, 0, 0, 0.6);
+    --bg-code: #2B2B2B;          /* textCodeBlock.background */
+    --bg-code-darker: #181818;
 
-    --text-primary: #C5CFDC;
-    --text-secondary: #93A0B2;
-    --text-tertiary: #758196;
-    --text-accent: #8075E8;
+    --text-primary: #CCCCCC;     /* foreground */
+    --text-secondary: #9D9D9D;   /* descriptionForeground */
+    --text-tertiary: #868686;
+    --text-accent: #4DAAFC;      /* textLink.foreground */
     --text-inverted: var(--page-bg);
-    --text-link: #9B92F0;
-    --text-placeholder: #7B879C;
-    --text-button: #E5E7EB;
+    --text-link: #4DAAFC;
+    --text-placeholder: #8B8B8B;
+    --text-button: #FFFFFF;
 
     --border-subtle: var(--border);
-    --border-strong: #34425B;
+    --border-strong: #3C3C3C;    /* dropdown.border */
     --border-primary: var(--border-subtle);
     --border-secondary: var(--border-strong);
-    --border-accent: #8075E8;
-    --border-accent-focus-ring: rgba(128, 117, 232, 0.32);
+    --border-accent: #0078D4;    /* focusBorder / button.background */
+    --border-accent-focus-ring: rgba(0, 120, 212, 0.4);
     --border-input: var(--border-strong);
-    --border-input-focus: #8075E8;
-    --accent: #8075E8;
-    --accent-soft: rgba(128, 117, 232, 0.16);
-    --icon-default: #8794A8;
+    --border-input-focus: #0078D4;
+    --accent: #0078D4;
+    --accent-soft: rgba(0, 120, 212, 0.18);
+    --icon-default: #A0A0A0;     /* icon.foreground, muted for secondary icons */
 
-    --scrollbar-thumb: #34425B;
-    --scrollbar-thumb-hover: #455674;
-    --scrollbar-track: var(--bg-sidebar);
+    --scrollbar-thumb: rgba(121, 121, 121, 0.4);   /* scrollbarSlider.background */
+    --scrollbar-thumb-hover: rgba(159, 159, 159, 0.6);
+    --scrollbar-track: transparent;
 
-    --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
-    --run-highlight-shadow: rgba(250, 204, 21, 0.3);
-    --run-highlight-background: rgba(250, 204, 21, 0.18);
-    /* Icon badge colors (dark mode, deeper for contrast) */
-    --icon-info-bg: #22304a;
-    --icon-collapse-bg: #1d2940;
-    --icon-glyph: #C5CFDC;
+    --run-highlight-outline: rgba(255, 204, 0, 0.7);
+    --run-highlight-shadow: rgba(255, 204, 0, 0.28);
+    --run-highlight-background: rgba(255, 204, 0, 0.14);
+    /* Icon badge colors follow the editor's own surfaces. */
+    --icon-info-bg: #0078D4;
+    --icon-collapse-bg: #3C3C3C;
+    --icon-glyph: #FFFFFF;
 
-    --yaml-base-color: #e0f2fe;
-    --yaml-key-color: #a5b4fc;
-    --yaml-string-color: #6ee7b7;
-    --yaml-number-color: #fde68a;
-    --yaml-boolean-color: #f9a8d4;
-    --yaml-comment-color: #cbd5f5;
-    --yaml-scalar-color: #fef3c7;
-    --yaml-operator-color: #fcd34d;
-    --yaml-type-color: #93c5fd;
-    --yaml-punctuation-color: #fde68a;
-    --yaml-indent-color: rgba(148,163,184,0.5);
+    /* Editor token colours, so YAML in NopsAI reads like YAML in VS Code. */
+    --yaml-base-color: #D4D4D4;
+    --yaml-key-color: #9CDCFE;
+    --yaml-string-color: #CE9178;
+    --yaml-number-color: #B5CEA8;
+    --yaml-boolean-color: #569CD6;
+    --yaml-comment-color: #6A9955;
+    --yaml-scalar-color: #D4D4D4;
+    --yaml-operator-color: #D4D4D4;
+    --yaml-type-color: #4EC9B0;
+    --yaml-punctuation-color: #D4D4D4;
+    --yaml-indent-color: rgba(204, 204, 204, 0.28);
 }
 
 body {  
@@ -220,6 +225,33 @@ html.dark [class*="text-neutral-50"],
 html.dark [class*="text-neutral-100"],
 html.dark [class*="text-neutral-200"] {
     color: var(--text-primary) !important;
+}
+
+html.dark [class*="bg-slate-950"]:not([class*="bg-slate-950/"]),
+html.dark [class*="bg-slate-900"]:not([class*="bg-slate-900/"]),
+html.dark [class*="bg-gray-900"]:not([class*="bg-gray-900/"]),
+html.dark [class*="bg-zinc-900"]:not([class*="bg-zinc-900/"]),
+html.dark [class*="bg-neutral-900"]:not([class*="bg-neutral-900/"]) {
+    background-color: var(--bg-secondary) !important;
+}
+
+html.dark [class*="bg-slate-800"]:not([class*="bg-slate-800/"]),
+html.dark [class*="bg-gray-800"]:not([class*="bg-gray-800/"]),
+html.dark [class*="bg-zinc-800"]:not([class*="bg-zinc-800/"]),
+html.dark [class*="bg-white/5"],
+html.dark [class*="bg-white/10"],
+html.dark [class*="bg-black/20"],
+html.dark [class*="bg-black/30"] {
+    background-color: var(--bg-tertiary) !important;
+}
+
+html.dark [class*="border-white/10"],
+html.dark [class*="border-white/5"],
+html.dark [class*="border-slate-800"],
+html.dark [class*="border-slate-700"],
+html.dark [class*="border-gray-800"],
+html.dark [class*="border-gray-700"] {
+    border-color: var(--border-primary) !important;
 }
 /* Global modern scrollbar styling */
 * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }

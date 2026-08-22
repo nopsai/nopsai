@@ -109,7 +109,7 @@ export function AnalysisModal({
   const workspace = useAnalysisWorkspaceState({ result, loadAiPromptContext });
   const navigate = useNavigate();
   return (
-    <div className="fixed inset-0 z-[90] bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation">
+    <div className="fixed inset-0 z-[90] bg-[var(--bg-overlay)] p-4 backdrop-blur-sm" role="presentation">
       <section
         className="mx-auto flex h-full max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-xl dark:border-white/10 dark:bg-slate-950"
         role="dialog"
