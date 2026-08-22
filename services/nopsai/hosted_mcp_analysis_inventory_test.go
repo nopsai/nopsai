@@ -1,7 +1,10 @@
 package nopsai
 
 import (
+	"context"
 	"testing"
+
+	"nopsai/services/aaa/pkg/model"
 )
 
 func analysisTestInventory() []analysisInventoryItem {
@@ -172,5 +175,23 @@ func TestAnalyzeTeamEvidenceScoresFromInventoryAlone(t *testing.T) {
 	findings, _ := result["findings"].([]map[string]any)
 	if !analysisContains(analysisFindingTitles(findings), "2 credential resources share one name") {
 		t.Fatalf("inventory findings did not reach the result: %v", analysisFindingTitles(findings))
+	}
+}
+
+// A workspace-level review is a real request, not a failure to name a team.
+func TestAnalysisTeamResolutionAcceptsWorkspaceWideRequests(t *testing.T) {
+	app := &App{}
+	for _, wanted := range []string{"*", "all", "ALL"} {
+		subject, resolveErr := app.analysisResolveTeam(
+			context.Background(),
+			model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+			map[string]any{"team": wanted},
+		)
+		if resolveErr != nil {
+			t.Fatalf("team %q should resolve to a workspace-wide analysis: %v", wanted, resolveErr.result)
+		}
+		if subject.ID != "" || subject.Label != "All teams" {
+			t.Fatalf("workspace subject = %+v, want an unscoped subject labelled All teams", subject)
+		}
 	}
 }

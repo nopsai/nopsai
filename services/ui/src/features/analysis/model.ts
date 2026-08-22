@@ -70,7 +70,7 @@ export type AnalysisScoreBasis = {
 };
 
 export type AnalysisTab = {
-  id: 'overview' | AnalysisCategory | 'reuse' | 'unused' | 'performance';
+  id: 'overview' | AnalysisCategory | 'performance';
   label: string;
 };
 
@@ -336,8 +336,6 @@ export const TEAM_RESOURCE_ANALYSIS_TABS: AnalysisTab[] = [
   { id: 'security', label: 'Security' },
   { id: 'organization', label: 'Organization' },
   { id: 'efficiency', label: 'Efficiency' },
-  { id: 'reuse', label: 'Reuse' },
-  { id: 'unused', label: 'Unused' },
 ];
 
 export const PIPELINE_ANALYSIS_TABS: AnalysisTab[] = [
@@ -356,49 +354,6 @@ export const RUN_ANALYSIS_TABS: AnalysisTab[] = [
   { id: 'monitoring', label: 'Monitoring' },
   { id: 'cost', label: 'Cost' },
 ];
-
-export function buildTeamResourceAnalysis(options: TeamResourceAnalysisOptions): AnalysisResult {
-  const generatedAt = (options.now || new Date()).toISOString();
-  const subjectType: AnalysisSubjectType = options.activeResource ? 'resource' : 'team';
-  const subjectId = options.activeResource?.id || options.subjectId;
-  const subjectLabel = options.activeResource?.label || options.subjectLabel;
-  const scopePath = normalizePath(options.activeResource?.teamPath || options.scopePath);
-  const snapshotRevision = stableSnapshotRevision({
-    kind: 'team-resources',
-    subjectId,
-    scopePath,
-    activeResource: options.activeResource?.id,
-    resources: options.resources.map(redactResourceForSnapshot),
-  });
-  const drafts = options.activeResource
-    ? buildIndividualResourceFindings(options.activeResource, options.resources, options.scopePath)
-    : buildTeamResourceFindings(options.resources, options.scopePath, subjectLabel);
-
-  return createAnalysisResult({
-    title: options.activeResource ? 'Resource Analysis' : 'Team Resource Analysis',
-    subjectType,
-    subjectId,
-    subjectLabel,
-    scopePath,
-    generatedAt,
-    snapshotRevision,
-    summary: teamResourceSummary(options.resources, drafts, options.activeResource),
-    tabs: TEAM_RESOURCE_ANALYSIS_TABS,
-    findings: drafts,
-    scoreCategories: ['security', 'organization', 'efficiency', 'maintainability'],
-    scoreInputs: options.activeResource ? [
-      'selected resource metadata',
-      'resource kind, label, team path, source, and link',
-      'nearby visible resources used for duplicate and reuse checks',
-      'redacted credential-like descriptions only',
-    ] : [
-      'visible team/application resource catalog',
-      'resource kind, label, team path, source, and link metadata',
-      'GitOps versus database source markers',
-      'redacted credential-like descriptions only',
-    ],
-  });
-}
 
 export function buildPipelineAnalysis(input: PipelineAnalysisInput): AnalysisResult {
   const generatedAt = (input.now || new Date()).toISOString();
@@ -529,12 +484,6 @@ export function formatAnalysisReport(result: AnalysisResult): string {
 
 export function filterFindingsForTab(findings: AnalysisFinding[], tabId: AnalysisTab['id']): AnalysisFinding[] {
   if (tabId === 'overview') return findings;
-  if (tabId === 'reuse') {
-    return findings.filter(finding => /duplicate|similar|reuse|reusable|general/i.test(`${finding.title} ${finding.summary}`));
-  }
-  if (tabId === 'unused') {
-    return findings.filter(finding => /unused|stale|disabled|archive|inactive/i.test(`${finding.title} ${finding.summary}`));
-  }
   if (tabId === 'performance') {
     return findings.filter(finding => finding.category === 'cost' || finding.category === 'efficiency');
   }
@@ -543,427 +492,6 @@ export function filterFindingsForTab(findings: AnalysisFinding[], tabId: Analysi
 
 export function analysisCategoryLabel(category: AnalysisCategory): string {
   return CATEGORY_LABELS[category];
-}
-
-function buildTeamResourceFindings(
-  resources: AnalyzableResource[],
-  scopePath: string,
-  subjectLabel: string
-): FindingDraft[] {
-  const findings: FindingDraft[] = [];
-  const resourcesByKind = groupBy(resources, resource => resource.kind);
-  const applications = resourcesByKind.get('application') || [];
-  const automations = resources.filter(resource => resource.kind !== 'application');
-  const scopedPath = normalizePath(scopePath);
-
-  if (resources.length === 0) {
-    findings.push({
-      category: 'organization',
-      severity: 'high',
-      title: 'No visible team resources',
-      summary: `${subjectLabel} has no visible applications, automations, scopes, credentials, or knowledge resources in this snapshot.`,
-      evidence: [{ label: 'Visible resources', value: '0', kind: 'metric' }],
-      affectedResources: [],
-      recommendations: [{
-        title: 'Connect ownership explicitly',
-        detail: 'Attach the relevant applications and resource manifests to this team through GitOps or team-scoped records.',
-      }],
-      confidence: 86,
-    });
-    return findings;
-  }
-
-  for (const [kind, kindResources] of resourcesByKind) {
-    duplicateResourceGroups(kindResources).forEach(group => {
-      findings.push({
-        category: kind === 'credential' ? 'security' : 'efficiency',
-        severity: kind === 'credential' ? 'high' : 'medium',
-        title: `Duplicate ${kindLabel(kind)} resources`,
-        summary: `${group.length} ${kindLabel(kind)} resources share the same normalized name or purpose.`,
-        evidence: [
-          { label: 'Duplicate key', value: normalizeResourceName(group[0]?.label || ''), kind: 'fact' },
-          { label: 'Affected count', value: String(group.length), kind: 'metric' },
-        ],
-        affectedResources: group.map(resourceReference),
-        recommendations: [{
-          title: 'Consolidate or parameterize',
-          detail: 'Keep one canonical resource where possible and replace variants with parameters, explicit ownership, or a reusable template.',
-        }],
-        confidence: 82,
-      });
-    });
-  }
-
-  similarResourceGroups(resources.filter(resource => reusableKind(resource.kind))).forEach(group => {
-    findings.push({
-      category: 'efficiency',
-      severity: 'opportunity',
-      title: 'Similar resources can become reusable templates',
-      summary: `${group.length} resources have highly similar names and likely overlapping responsibilities.`,
-      evidence: [
-        { label: 'Similarity threshold', value: '>= 0.80 token overlap', kind: 'metric' },
-        { label: 'Reuse level', value: scopedPath ? 'Team reuse' : 'Organization reuse', kind: 'inference' },
-      ],
-      affectedResources: group.map(resourceReference),
-      recommendations: [{
-        title: 'Generate a reusable design',
-        detail: 'Extract shared behavior into a reusable step, pipeline template, or profile and keep application-specific values as parameters.',
-      }],
-      confidence: 72,
-    });
-  });
-
-  const inherited = resources.filter(resource => scopedPath && !normalizePath(resource.teamPath));
-  if (inherited.length > 0) {
-    findings.push({
-      category: 'security',
-      severity: inherited.some(resource => sensitiveKind(resource.kind)) ? 'high' : 'medium',
-      title: 'Inherited global resources in team scope',
-      summary: `${inherited.length} visible resources are inherited globally instead of owned by ${scopePath}.`,
-      evidence: [
-        { label: 'Team scope', value: scopePath, kind: 'fact' },
-        { label: 'Inherited resources', value: String(inherited.length), kind: 'metric' },
-      ],
-      affectedResources: inherited.slice(0, 8).map(resourceReference),
-      recommendations: [{
-        title: 'Review scope boundaries',
-        detail: 'Promote only mature reusable resources globally; move team-specific credentials, triggers, and profiles into team ownership.',
-      }],
-      confidence: 78,
-    });
-  }
-
-  const sources = new Set(resources.map(resource => normalizeSource(resource.source)).filter(Boolean));
-  if (sources.has('git') && sources.has('database')) {
-    findings.push({
-      category: 'organization',
-      severity: 'medium',
-      title: 'Mixed GitOps and database-managed resources',
-      summary: 'This scope contains both GitOps-managed and database-managed resources, which can create drift and unclear ownership.',
-      evidence: [
-        { label: 'Sources', value: Array.from(sources).join(', '), kind: 'fact' },
-        { label: 'GitOps compatibility', value: 'Policy review required', kind: 'inference' },
-      ],
-      affectedResources: resources.filter(resource => normalizeSource(resource.source) === 'database').slice(0, 8).map(resourceReference),
-      recommendations: [{
-        title: 'Standardize management source',
-        detail: 'Move long-lived resources into GitOps manifests or document which database-managed resources are intentionally runtime-only.',
-      }],
-      confidence: 80,
-    });
-  }
-
-  const inactive = resources.filter(resource => /disabled|deprecated|stale|inactive/i.test(`${resource.source || ''} ${resource.description}`));
-  if (inactive.length > 0) {
-    findings.push({
-      category: 'efficiency',
-      severity: 'opportunity',
-      title: 'Inactive resources still require management',
-      summary: `${inactive.length} resources appear disabled, stale, deprecated, or inactive.`,
-      evidence: [{ label: 'Inactive candidates', value: String(inactive.length), kind: 'metric' }],
-      affectedResources: inactive.slice(0, 8).map(resourceReference),
-      recommendations: [{
-        title: 'Archive unused resources',
-        detail: 'Confirm consumers and archive resources that have no current runs, schedules, triggers, or application links.',
-      }],
-      confidence: 70,
-    });
-  }
-
-  const credentials = resourcesByKind.get('credential') || [];
-  const automationConsumers = resources.filter(resource => ['pipeline', 'step', 'trigger', 'schedule', 'external_trigger'].includes(resource.kind));
-  const privilegedCredentials = credentials.filter(resource => /admin|root|prod|production|write/i.test(`${resource.label} ${resource.description}`));
-  if (privilegedCredentials.length > 0 && automationConsumers.length > 2) {
-    findings.push({
-      category: 'security',
-      severity: 'high',
-      title: 'Privileged credential metadata needs consumer review',
-      summary: `${privilegedCredentials.length} credential references look privileged while ${automationConsumers.length} automation resources are visible in the same scope.`,
-      evidence: [
-        { label: 'Credential values', value: 'Redacted; metadata only', kind: 'redacted' },
-        { label: 'Automation consumers', value: String(automationConsumers.length), kind: 'metric' },
-      ],
-      affectedResources: privilegedCredentials.map(resourceReference),
-      recommendations: [{
-        title: 'Apply least privilege',
-        detail: 'Separate read-only, CI, and deployment credentials, then reserve administrative credentials for production deployment operations.',
-      }],
-      confidence: 74,
-    });
-  }
-
-  applications.forEach(application => {
-    const appToken = lastPathSegment(application.teamPath || application.label);
-    if (!appToken) return;
-    const linked = automations.some(resource => resourceMatchesToken(resource, appToken));
-    if (!linked) {
-      findings.push({
-        category: 'organization',
-        severity: 'medium',
-        title: 'Application has no linked automation resources',
-        summary: `${application.label} is visible but no matching pipeline, schedule, trigger, scope, credential, or knowledge context was found.`,
-        evidence: [
-          { label: 'Application token', value: appToken, kind: 'fact' },
-          { label: 'Association method', value: 'Path/name/repository metadata', kind: 'inference' },
-        ],
-        affectedResources: [resourceReference(application)],
-        recommendations: [{
-          title: 'Add authoritative resource ownership',
-          detail: 'Link application resources through explicit team/app ownership instead of relying only on naming or path conventions.',
-        }],
-        confidence: 68,
-      });
-    }
-  });
-
-  const deepResources = resources.filter(resource => normalizePath(resource.teamPath).split('/').filter(Boolean).length > 3);
-  if (deepResources.length > 0) {
-    findings.push({
-      category: 'organization',
-      severity: 'low',
-      title: 'Deep hierarchy increases ownership cost',
-      summary: `${deepResources.length} resources sit four or more levels deep in the hierarchy.`,
-      evidence: [{ label: 'Hierarchy depth threshold', value: '> 3 path segments', kind: 'metric' }],
-      affectedResources: deepResources.slice(0, 6).map(resourceReference),
-      recommendations: [{
-        title: 'Flatten low-value nesting',
-        detail: 'Keep team and application boundaries shallow unless the extra level maps to a real ownership or security boundary.',
-      }],
-      confidence: 64,
-    });
-  }
-
-  return findings;
-}
-
-function buildIndividualResourceFindings(
-  resource: AnalyzableResource,
-  resources: AnalyzableResource[],
-  scopePath: string
-): FindingDraft[] {
-  const findings: FindingDraft[] = [];
-  const peers = resources.filter(item => item.id !== resource.id && item.kind === resource.kind);
-  const matchingPeers = peers.filter(peer => normalizeResourceName(peer.label) === normalizeResourceName(resource.label));
-  const similarPeers = peers.filter(peer => resourceSimilarity(peer, resource) >= 0.8 && normalizeResourceName(peer.label) !== normalizeResourceName(resource.label));
-
-  if (matchingPeers.length > 0 || similarPeers.length > 0) {
-    const matches = [...matchingPeers, ...similarPeers].slice(0, 6);
-    findings.push({
-      category: 'efficiency',
-      severity: matchingPeers.length > 0 ? 'medium' : 'opportunity',
-      title: 'Comparable resource already exists',
-      summary: `${resource.label} overlaps with ${matches.length} visible ${kindLabel(resource.kind)} resource${matches.length === 1 ? '' : 's'}.`,
-      evidence: [
-        { label: 'Comparison method', value: matchingPeers.length > 0 ? 'Normalized name match' : 'Token similarity', kind: 'inference' },
-      ],
-      affectedResources: [resource, ...matches].map(resourceReference),
-      recommendations: [{
-        title: 'Reuse before adding another resource',
-        detail: 'Check whether the existing resource can be parameterized or promoted to a reusable team template.',
-      }],
-      confidence: matchingPeers.length > 0 ? 82 : 70,
-    });
-  }
-
-  if (scopePath && !normalizePath(resource.teamPath)) {
-    findings.push({
-      category: sensitiveKind(resource.kind) ? 'security' : 'organization',
-      severity: sensitiveKind(resource.kind) ? 'high' : 'medium',
-      title: 'Resource is inherited globally',
-      summary: `${resource.label} is visible in ${scopePath} without a team-local owner.`,
-      evidence: [
-        { label: 'Team scope', value: scopePath, kind: 'fact' },
-        { label: 'Resource scope', value: 'Global', kind: 'fact' },
-      ],
-      affectedResources: [resourceReference(resource)],
-      recommendations: [{
-        title: 'Confirm reuse boundary',
-        detail: 'Keep the resource global only if it is intentionally shared; otherwise create a team-owned resource with least-privilege access.',
-      }],
-      confidence: 78,
-    });
-  }
-
-  if (normalizeSource(resource.source) === 'database') {
-    findings.push({
-      category: 'organization',
-      severity: 'medium',
-      title: 'Database-managed resource needs GitOps review',
-      summary: `${resource.label} is not marked as GitOps-managed in this snapshot.`,
-      evidence: [{ label: 'Source', value: resource.source || 'database', kind: 'fact' }],
-      affectedResources: [resourceReference(resource)],
-      recommendations: [{
-        title: 'Move durable configuration to GitOps',
-        detail: 'Store durable resource definitions in the config repository, or document why this item must remain runtime-managed.',
-      }],
-      confidence: 76,
-    });
-  }
-
-  if (/disabled|deprecated|stale|inactive/i.test(`${resource.source || ''} ${resource.description}`)) {
-    findings.push({
-      category: 'efficiency',
-      severity: 'opportunity',
-      title: 'Resource appears inactive',
-      summary: `${resource.label} has disabled, stale, deprecated, or inactive metadata.`,
-      evidence: [{ label: 'Metadata', value: redactInline(`${resource.source || ''} ${resource.description}`), kind: 'fact' }],
-      affectedResources: [resourceReference(resource)],
-      recommendations: [{
-        title: 'Archive after consumer check',
-        detail: 'Confirm no schedule, trigger, pipeline, or application still depends on this resource, then archive it through GitOps.',
-      }],
-      confidence: 74,
-    });
-  }
-
-  if (resource.kind === 'credential') {
-    findings.push(...buildCredentialResourceFindings(resource));
-  } else if (resource.kind === 'mcp_profile') {
-    findings.push(...buildMCPResourceFindings(resource));
-  } else if (resource.kind === 'knowledge_context') {
-    findings.push(...buildKnowledgeResourceFindings(resource));
-  } else if (resource.kind === 'pipeline') {
-    findings.push(...buildPipelineResourceCatalogFindings(resource));
-  } else if (resource.kind === 'schedule') {
-    findings.push(...buildScheduleResourceFindings(resource, peers));
-  } else if (resource.kind === 'trigger' || resource.kind === 'external_trigger' || resource.kind === 'git_webhook_source') {
-    findings.push(...buildTriggerResourceFindings(resource));
-  }
-
-  if (findings.length === 0) {
-    findings.push({
-      category: 'maintainability',
-      severity: 'low',
-      title: 'No immediate metadata risk detected',
-      summary: `${resource.label} has a clear kind, route, and visible ownership metadata in this snapshot.`,
-      evidence: [
-        { label: 'Resource kind', value: kindLabel(resource.kind), kind: 'fact' },
-        { label: 'Resource scope', value: resource.teamPath || 'Global', kind: 'fact' },
-      ],
-      affectedResources: [resourceReference(resource)],
-      recommendations: [{
-        title: 'Keep ownership metadata explicit',
-        detail: 'Continue managing the resource through the expected ownership and GitOps workflow.',
-      }],
-      confidence: 62,
-    });
-  }
-
-  return findings;
-}
-
-function buildCredentialResourceFindings(resource: AnalyzableResource): FindingDraft[] {
-  const findings: FindingDraft[] = [];
-  const label = `${resource.label} ${resource.description}`;
-  const privileged = /admin|root|owner|prod|production|write/i.test(label);
-
-  if (privileged) {
-    findings.push({
-      category: 'security',
-      severity: 'high',
-      title: 'Credential appears privileged',
-      summary: `${resource.label} metadata suggests administrative, production, owner, or write-level access.`,
-      evidence: [
-        { label: 'Credential value', value: 'Redacted; metadata only', kind: 'redacted' },
-        { label: 'Privilege signal', value: redactInline(label), kind: 'inference' },
-      ],
-      affectedResources: [resourceReference(resource)],
-      recommendations: [{
-        title: 'Split credential scopes',
-        detail: 'Reserve this credential for the narrow deployment path and use read-only credentials for documentation, checks, and release-note jobs.',
-      }],
-      confidence: 76,
-    });
-  }
-
-  return findings;
-}
-
-function buildMCPResourceFindings(resource: AnalyzableResource): FindingDraft[] {
-  const serverCount = resource.description.split(',').map(value => value.trim()).filter(Boolean).length;
-  if (serverCount <= 3) return [];
-  return [{
-    category: 'security',
-    severity: 'medium',
-    title: 'MCP profile exposes many server connections',
-    summary: `${resource.label} references ${serverCount} MCP server entries in metadata.`,
-    evidence: [{ label: 'Server count', value: String(serverCount), kind: 'metric' }],
-    affectedResources: [resourceReference(resource)],
-    recommendations: [{
-      title: 'Reduce tool reach',
-      detail: 'Separate high-risk tools into a narrower profile and grant it only to pipelines that need those tools.',
-    }],
-    confidence: 68,
-  }];
-}
-
-function buildKnowledgeResourceFindings(resource: AnalyzableResource): FindingDraft[] {
-  if (!/public/i.test(resource.description)) return [];
-  return [{
-    category: 'security',
-    severity: 'medium',
-    title: 'Public knowledge context attached to automation scope',
-    summary: `${resource.label} is marked public in metadata and may be reachable by more pipelines than intended.`,
-    evidence: [{ label: 'Visibility signal', value: redactInline(resource.description), kind: 'fact' }],
-    affectedResources: [resourceReference(resource)],
-    recommendations: [{
-      title: 'Review data classification',
-      detail: 'Keep private runbooks, policies, and architecture context team-owned unless they are approved for organization-wide reuse.',
-    }],
-    confidence: 72,
-  }];
-}
-
-function buildPipelineResourceCatalogFindings(resource: AnalyzableResource): FindingDraft[] {
-  if (!/deploy|release|prod|production/i.test(`${resource.label} ${resource.description}`)) return [];
-  return [{
-    category: 'security',
-    severity: 'medium',
-    title: 'Deployment pipeline needs approval and credential review',
-    summary: `${resource.label} appears to affect deployment or release operations.`,
-    evidence: [{ label: 'Pipeline signal', value: redactInline(`${resource.label} ${resource.description}`), kind: 'inference' }],
-    affectedResources: [resourceReference(resource)],
-    recommendations: [{
-      title: 'Verify production guardrails',
-      detail: 'Confirm production approval, least-privilege credentials, rollback notes, and runbook links are present in the pipeline definition.',
-    }],
-    confidence: 66,
-  }];
-}
-
-function buildScheduleResourceFindings(resource: AnalyzableResource, peers: AnalyzableResource[]): FindingDraft[] {
-  const duplicateSchedule = peers.some(peer => normalizeResourceName(peer.description) === normalizeResourceName(resource.description));
-  if (!duplicateSchedule) return [];
-  return [{
-    category: 'efficiency',
-    severity: 'medium',
-    title: 'Schedule appears duplicated',
-    summary: `${resource.label} shares timing or target metadata with another schedule.`,
-    evidence: [{ label: 'Schedule metadata', value: redactInline(resource.description), kind: 'inference' }],
-    affectedResources: [resourceReference(resource)],
-    recommendations: [{
-      title: 'Consolidate schedule triggers',
-      detail: 'Keep one schedule per operational intent and remove duplicate timing paths that run the same pipeline unnecessarily.',
-    }],
-    confidence: 67,
-  }];
-}
-
-function buildTriggerResourceFindings(resource: AnalyzableResource): FindingDraft[] {
-  if (normalizePath(resource.teamPath)) return [];
-  return [{
-    category: 'security',
-    severity: 'medium',
-    title: 'Global trigger source needs scope review',
-    summary: `${resource.label} is visible without team-local ownership metadata.`,
-    evidence: [{ label: 'Trigger scope', value: 'Global', kind: 'fact' }],
-    affectedResources: [resourceReference(resource)],
-    recommendations: [{
-      title: 'Restrict event reach',
-      detail: 'Use repository allowlists, team run paths, and event validation to avoid broad trigger access.',
-    }],
-    confidence: 70,
-  }];
 }
 
 function buildPipelineFindingDrafts(input: PipelineAnalysisInput): FindingDraft[] {
@@ -2084,64 +1612,6 @@ function hasCycle(steps: PipelineAnalysisStep[]) {
   return steps.some(step => visit(step.name));
 }
 
-function duplicateResourceGroups(resources: AnalyzableResource[]) {
-  return Array.from(groupBy(resources, resource => normalizeResourceName(resource.label)).values())
-    .filter(group => group.length > 1);
-}
-
-function similarResourceGroups(resources: AnalyzableResource[]) {
-  const groups: AnalyzableResource[][] = [];
-  const used = new Set<string>();
-  resources.forEach(resource => {
-    if (used.has(resource.id)) return;
-    const group = resources.filter(other => other.id !== resource.id && !used.has(other.id) && resourceSimilarity(resource, other) >= 0.8);
-    if (group.length === 0) return;
-    const fullGroup = [resource, ...group].slice(0, 6);
-    fullGroup.forEach(item => used.add(item.id));
-    groups.push(fullGroup);
-  });
-  return groups;
-}
-
-function resourceSimilarity(left: AnalyzableResource, right: AnalyzableResource) {
-  if (left.kind !== right.kind) return 0;
-  const leftTokens = new Set(resourceTokens(left));
-  const rightTokens = new Set(resourceTokens(right));
-  if (!leftTokens.size || !rightTokens.size) return 0;
-  const intersection = Array.from(leftTokens).filter(token => rightTokens.has(token)).length;
-  const union = new Set([...leftTokens, ...rightTokens]).size;
-  return intersection / union;
-}
-
-function resourceTokens(resource: AnalyzableResource) {
-  return `${resource.label} ${resource.description}`
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(token => token.length > 2 && !['the', 'and', 'for', 'with', 'pipeline', 'enabled', 'global', 'team'].includes(token));
-}
-
-function resourceMatchesToken(resource: AnalyzableResource, token: string) {
-  const normalizedToken = normalizeResourceName(token);
-  return resourceTokens(resource).some(candidate => candidate === normalizedToken || candidate.includes(normalizedToken) || normalizedToken.includes(candidate));
-}
-
-function reusableKind(kind: string) {
-  return ['pipeline', 'step', 'schedule', 'trigger', 'agent_role', 'model', 'mcp_profile'].includes(kind);
-}
-
-function sensitiveKind(kind: string) {
-  return ['credential', 'mcp_profile', 'model', 'agent_role', 'scope', 'knowledge_context', 'trigger', 'external_trigger', 'git_webhook_source'].includes(kind);
-}
-
-function resourceReference(resource: AnalyzableResource): ResourceReference {
-  return {
-    type: kindLabel(resource.kind),
-    id: resource.id,
-    label: resource.label,
-    href: resource.href,
-  };
-}
-
 function pipelineReference(detail: PipelineAnalysisInput['detail']): ResourceReference {
   return {
     type: 'Pipeline',
@@ -2168,17 +1638,6 @@ function stepReference(stepName: string): ResourceReference {
   };
 }
 
-function groupBy<T>(items: T[], keyFor: (item: T) => string): Map<string, T[]> {
-  const map = new Map<string, T[]>();
-  items.forEach(item => {
-    const key = keyFor(item);
-    const group = map.get(key) || [];
-    group.push(item);
-    map.set(key, group);
-  });
-  return map;
-}
-
 function uniqueBy<T>(items: T[], keyFor: (item: T) => string): T[] {
   const seen = new Set<string>();
   return items.filter(item => {
@@ -2200,31 +1659,6 @@ function normalizeResourceName(value: string) {
     .replace(/[_\s]+/g, '-')
     .replace(/[^a-z0-9.-]+/g, '')
     .replace(/^-+|-+$/g, '');
-}
-
-function normalizeSource(value?: string) {
-  const source = String(value || '').trim().toLowerCase();
-  if (!source) return '';
-  if (source.includes('git')) return 'git';
-  if (source.includes('db') || source.includes('database')) return 'database';
-  if (source.includes('disabled')) return 'disabled';
-  return source;
-}
-
-function kindLabel(kind: string) {
-  return kind.replace(/_/g, ' ');
-}
-
-function lastPathSegment(value: string) {
-  return normalizePath(value).split('/').filter(Boolean).pop() || normalizeResourceName(value);
-}
-
-function teamResourceSummary(resources: AnalyzableResource[], findings: FindingDraft[], activeResource?: AnalyzableResource | null) {
-  if (activeResource) {
-    return `Reviewed ${activeResource.label} as a ${kindLabel(activeResource.kind)} using visible metadata only.`;
-  }
-  const criticalHigh = findings.filter(finding => finding.severity === 'critical' || finding.severity === 'high').length;
-  return `Reviewed ${resources.length} resources across ${new Set(resources.map(resource => resource.kind)).size} resource kinds. ${criticalHigh} critical or high findings.`;
 }
 
 function scoreFindings(findings: AnalysisFinding[], inputs: string[] = []): AnalysisScoreBasis & { score: number } {
@@ -2298,13 +1732,6 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
-}
-
-function redactResourceForSnapshot(resource: AnalyzableResource) {
-  return {
-    ...resource,
-    description: redactInline(resource.description),
-  };
 }
 
 function redactRunForSnapshot(run: RunAnalysisRunInfo) {

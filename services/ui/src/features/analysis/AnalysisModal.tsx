@@ -27,6 +27,7 @@ import {
   analysisAssistantPageContext,
   type AnalysisAiPromptContext,
 } from './ai.js';
+import { analysisEvaluationCostNotice } from './evaluationCost.js';
 import { useAnalysisAiEvaluation, type AnalysisAiEvaluationState } from './useAnalysisAiEvaluation.js';
 import {
   buildAnalysisScoreView,
@@ -272,7 +273,9 @@ function AnalysisWorkspaceContent({
                 state={workspace.aiEvaluation.state}
                 autoEvaluates={workspace.aiEvaluation.autoEvaluates}
                 historyCount={workspace.aiEvaluation.history.length}
+                findingCount={result.findings.length}
                 onRequest={() => void workspace.aiEvaluation.requestEvaluation()}
+                onCancel={() => workspace.aiEvaluation.cancelEvaluation()}
               />
 
               {result.comparison?.length ? (
@@ -518,12 +521,16 @@ function AiEvaluationPanel({
   state,
   autoEvaluates,
   historyCount,
+  findingCount,
   onRequest,
+  onCancel,
 }: {
   state: AnalysisAiEvaluationState;
   autoEvaluates: boolean;
   historyCount: number;
+  findingCount: number;
   onRequest: () => void;
+  onCancel: () => void;
 }) {
   return (
     <section className="rounded-lg border border-[var(--border-primary)] bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-900">
@@ -536,19 +543,29 @@ function AiEvaluationPanel({
           <p className="mt-1 text-xs text-[var(--text-secondary)]">
             Uses redacted evidence to refine the health score, explain scored findings, and produce safe suggestions.
           </p>
+          {/* Said before the call, not after: this one spends money and time, and
+              how much depends on how much there is to review. */}
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+            {analysisEvaluationCostNotice(findingCount)}
+          </p>
         </div>
         {state.status !== 'loading' ? (
           <button type="button" className="glass-button-ghost" onClick={onRequest}>
             <Sparkles className="h-4 w-4" aria-hidden="true" />
             {state.status === 'ready' ? 'Regenerate' : autoEvaluates ? 'Retry AI' : 'Generate AI'}
           </button>
-        ) : null}
+        ) : (
+          <button type="button" className="glass-button-ghost" onClick={onCancel}>
+            <X className="h-4 w-4" aria-hidden="true" />
+            Cancel
+          </button>
+        )}
       </div>
 
       {state.status === 'loading' ? (
         <div className="mt-4 flex items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm text-[var(--text-secondary)] dark:border-white/10 dark:bg-white/5">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          AI is reviewing the redacted evidence.
+          Reviewing the redacted evidence. This can take a while; cancelling stops the request.
         </div>
       ) : state.status === 'ready' ? (
         <div className="mt-4 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 dark:border-white/10 dark:bg-white/5">
