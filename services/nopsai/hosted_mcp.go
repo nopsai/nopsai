@@ -13,11 +13,20 @@ import (
 	"github.com/google/uuid"
 
 	"nopsai/config"
+	"nopsai/pkg/buildinfo"
 	"nopsai/pkg/httpapi"
 	aaamodel "nopsai/services/aaa/pkg/model"
 )
 
 const hostedMCPProtocolVersion = "2025-06-18"
+
+// Versions this server can speak. The newest is what it offers when a client
+// asks for something it does not know.
+var hostedMCPSupportedProtocolVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// A page big enough that most clients need one request, small enough that a
+// context-constrained client can ask for less. Clients must follow nextCursor.
+const hostedMCPListPageSize = 100
 
 type hostedMCPRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -52,6 +61,14 @@ func (a *App) registerHostedMCPRoutes(mux *http.ServeMux) {
 }
 
 func (a *App) handleHostedMCP(w http.ResponseWriter, r *http.Request) {
+	// After initialization a client states the version it negotiated. Accepting a
+	// version we do not speak would let both sides believe they agreed, so this is
+	// answered before anything else: it is a fact about the request, not about
+	// whether this install has an assistant configured.
+	if header := strings.TrimSpace(r.Header.Get("MCP-Protocol-Version")); header != "" && !hostedMCPProtocolVersionSupported(header) {
+		http.Error(w, "unsupported MCP-Protocol-Version: "+header, http.StatusBadRequest)
+		return
+	}
 	if !a.requireAssistantEnabled(w) {
 		return
 	}
@@ -122,19 +139,37 @@ func (a *App) processHostedMCPRequest(ctx context.Context, subject aaamodel.Subj
 	switch req.Method {
 	case "initialize":
 		return hostedMCPResultResponse(req.ID, map[string]any{
-			"protocolVersion": hostedMCPProtocolVersion,
+			"protocolVersion": hostedMCPNegotiatedProtocolVersion(req.Params),
+			// listChanged is not advertised: this transport is request/response,
+			// so there is no channel to send the notification on. Claiming it
+			// would tell a client to wait for something that never arrives.
 			"capabilities": map[string]any{
-				"tools":     map[string]any{"listChanged": true},
-				"resources": map[string]any{"listChanged": true},
+				"tools":       map[string]any{},
+				"resources":   map[string]any{},
+				"prompts":     map[string]any{},
+				"completions": map[string]any{},
 			},
-			"serverInfo": map[string]string{
+			"serverInfo": map[string]any{
 				"name":    "nopsai-hosted-mcp",
-				"version": "foundation",
+				"title":   "NopsAI",
+				"version": buildinfo.Current().Version,
 			},
+			"instructions": hostedMCPServerInstructions,
 		})
+	case "ping":
+		return hostedMCPResultResponse(req.ID, map[string]any{})
 	case "tools/list":
 		tools := a.hostedMCPToolsForSubject(ctx, subject)
-		return hostedMCPResultResponse(req.ID, map[string]any{"tools": tools})
+		page, nextCursor := hostedMCPPageTools(tools, hostedMCPListCursor(req.Params))
+		described := make([]map[string]any, 0, len(page))
+		for _, tool := range page {
+			described = append(described, hostedMCPDescribeTool(tool))
+		}
+		result := map[string]any{"tools": described}
+		if nextCursor != "" {
+			result["nextCursor"] = nextCursor
+		}
+		return hostedMCPResultResponse(req.ID, result)
 	case "tools/call":
 		var params hostedMCPToolCallParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -156,7 +191,31 @@ func (a *App) processHostedMCPRequest(ctx context.Context, subject aaamodel.Subj
 		return hostedMCPResultResponse(req.ID, hostedMCPToolResult(result, false))
 	case "resources/list":
 		resources := a.hostedMCPResourcesForSubject(ctx, subject)
-		return hostedMCPResultResponse(req.ID, map[string]any{"resources": resources})
+		page, nextCursor := hostedMCPPageResources(resources, hostedMCPListCursor(req.Params))
+		result := map[string]any{"resources": page}
+		if nextCursor != "" {
+			result["nextCursor"] = nextCursor
+		}
+		return hostedMCPResultResponse(req.ID, result)
+	case "completion/complete":
+		return hostedMCPResultResponse(req.ID, a.hostedMCPCompletion(ctx, subject, hostedMCPCompletionParamsFrom(req.Params)))
+	case "prompts/list":
+		prompts := a.hostedMCPPromptsForSubject(ctx, subject)
+		return hostedMCPResultResponse(req.ID, map[string]any{"prompts": prompts})
+	case "prompts/get":
+		params := hostedMCPPromptGetParamsFrom(req.Params)
+		prompt, ok := a.hostedMCPPromptByName(ctx, subject, params.Name)
+		if !ok {
+			return hostedMCPErrorResponse(req.ID, -32602, fmt.Sprintf("prompt %q is not available", params.Name))
+		}
+		if missing := hostedMCPPromptMissingArguments(prompt, params.Arguments); len(missing) > 0 {
+			return hostedMCPErrorResponse(req.ID, -32602, fmt.Sprintf("prompt %q requires %s", prompt.Name, strings.Join(missing, ", ")))
+		}
+		return hostedMCPResultResponse(req.ID, hostedMCPPromptMessages(prompt, params.Arguments))
+	case "resources/templates/list":
+		return hostedMCPResultResponse(req.ID, map[string]any{
+			"resourceTemplates": a.hostedMCPResourceTemplatesForSubject(ctx, subject),
+		})
 	case "resources/read":
 		var params hostedMCPResourceReadParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {

@@ -31,6 +31,33 @@ the first failure point, and what changed since the last successful run. The ide
 `POST /v1/analysis/team`, `POST /v1/analysis/pipeline`, and
 `POST /v1/analysis/run`, which need no LLM.
 
+The JSON-RPC surface implements `initialize` (with protocol-version negotiation,
+server instructions, and no capability it cannot honour), `ping`, `tools/list`
+and `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`,
+`prompts/list`, `prompts/get`, and `completion/complete`. `tools/list` and
+`resources/list` paginate 100 per page with an opaque cursor; clients must follow
+`nextCursor`.
+
+Resource templates cover pipelines, runs, schedules, triggers, teams, dashboards,
+knowledge contexts, and analysis
+(`nopsai://analysis/{subject_type}/{subject_id}`). A templated read runs through
+the same tool path as the equivalent call, so the concrete resource is authorized
+and audited identically. Completion answers prompt and template arguments from
+the same permission-filtered inventories.
+
+Every tool publishes `title`, `annotations` (`readOnlyHint`, `destructiveHint`,
+`idempotentHint`, `openWorldHint`) and, for the analysis tools, an
+`outputSchema`. The annotations are advisory: the AAA check at call time is what
+enforces, and it does not read them.
+
+The transport is request/response over `POST /v1/mcp`. There is no server-to-client
+stream and no session id, so `listChanged` is deliberately **not** advertised —
+integrators should re-list rather than wait for a notification.
+
+Prompts cover the flows NopsAI answers well — review a team, explain a run
+failure, review a pipeline, explain platform spend, prepare a GitOps change — and
+are filtered to the ones the calling user's permissions allow.
+
 Tool routing is derived from what each tool declares — its AAA resource type,
 action, name, and description — rather than from a per-tool keyword table, so a
 newly registered tool is routable immediately. `nopsai.find_tools` searches the
