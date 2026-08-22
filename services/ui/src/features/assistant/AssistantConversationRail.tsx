@@ -1,14 +1,11 @@
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon.js';
-import type { CurrentUser } from '../../app/types.js';
-import { currentUserDisplayName, currentUserInitials, currentUserRoleLabel } from '../../app/userIdentity.js';
 import { assistantConversationTitle, groupAssistantConversations } from './conversationGroups.js';
 import type { AssistantConversation } from './model.js';
 
 export function AssistantConversationRail({
   conversations,
   activeConversation,
-  currentUser,
   enabled,
   loading,
   sending,
@@ -20,7 +17,6 @@ export function AssistantConversationRail({
 }: {
   conversations: AssistantConversation[];
   activeConversation: AssistantConversation | null;
-  currentUser?: CurrentUser | null;
   enabled: boolean;
   loading: boolean;
   sending: boolean;
@@ -80,15 +76,6 @@ export function AssistantConversationRail({
         ))}
       </div>
 
-      <div className="flex items-center gap-3 border-t border-[var(--border-primary)] p-4">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--bg-tertiary)] text-xs font-medium text-[var(--text-secondary)]">
-          {currentUserInitials(currentUser)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-[var(--text-primary)]">{currentUserDisplayName(currentUser)}</div>
-          <div className="truncate text-xs text-[var(--text-secondary)]">{currentUserRoleLabel(currentUser)}</div>
-        </div>
-      </div>
     </aside>
   );
 }

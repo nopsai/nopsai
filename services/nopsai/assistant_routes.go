@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
 
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
@@ -145,7 +146,7 @@ func (a *App) handleListAssistantConversations(w http.ResponseWriter, r *http.Re
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at
+		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at, running_turn_started_at
 		FROM assistant_conversations
 		WHERE user_id = $1
 		ORDER BY updated_at DESC, created_at DESC
@@ -168,10 +169,12 @@ func (a *App) handleListAssistantConversations(w http.ResponseWriter, r *http.Re
 			&conversation.Scope,
 			&conversation.CreatedAt,
 			&conversation.UpdatedAt,
+			&conversation.RunningTurnStartedAt,
 		); err != nil {
 			http.Error(w, "failed to scan assistant conversation", http.StatusInternalServerError)
 			return
 		}
+		conversation.TurnRunning = assistantTurnIsRunning(conversation.RunningTurnStartedAt)
 		conversation.Messages = []assistantMessage{}
 		conversations = append(conversations, conversation)
 	}
@@ -324,22 +327,29 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 	}
 	conversation.Messages = messages
 	conversation.Usage = assistantConversationUsageFromMessages(messages)
+	// The turn outlives the request. A refresh or a navigation cancels the client
+	// side of the connection, and losing a half-finished turn — already charged to
+	// the user — because they changed page is the wrong trade.
+	turnCtx := context.WithoutCancel(r.Context())
 	turnStarted := time.Now()
-	orchestration := a.runAssistantConversationTurnWithPageContext(r.Context(), subject, userID, conversation, req.Content, selectedProfile, req.PageContext)
+	a.markAssistantTurnRunning(turnCtx, conversationID, userID, true)
+	defer a.markAssistantTurnRunning(turnCtx, conversationID, userID, false)
+
+	orchestration := a.runAssistantConversationTurnWithPageContext(turnCtx, subject, userID, conversation, req.Content, selectedProfile, req.PageContext)
 	replyUsage := assistantUsageForAssistantReply(orchestration.Reply, orchestration.ToolCalls, time.Since(turnStarted), a.assistantLLMPricer())
-	reply, err := insertAssistantMessageTx(r.Context(), a.db, conversationID, assistantRoleAssistant, orchestration.Reply, orchestration.ToolCalls, replyUsage)
+	reply, err := insertAssistantMessageTx(turnCtx, a.db, conversationID, assistantRoleAssistant, orchestration.Reply, orchestration.ToolCalls, replyUsage)
 	if err != nil {
 		http.Error(w, "failed to append assistant reply", http.StatusInternalServerError)
 		return
 	}
 	if a.assistantConfig().Memory.Enabled {
-		if _, err := a.upsertAssistantMemory(r.Context(), conversationID, orchestration.Memory); err != nil {
+		if _, err := a.upsertAssistantMemory(turnCtx, conversationID, orchestration.Memory); err != nil {
 			http.Error(w, "failed to update assistant memory", http.StatusInternalServerError)
 			return
 		}
 	}
 
-	conversation, err = a.loadAssistantConversation(r.Context(), userID, conversationID, true)
+	conversation, err = a.loadAssistantConversation(turnCtx, userID, conversationID, true)
 	if err != nil {
 		http.Error(w, "failed to load assistant conversation", http.StatusInternalServerError)
 		return
@@ -349,6 +359,25 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 		UserMessage:  userMessage,
 		Reply:        reply,
 	})
+}
+
+// markAssistantTurnRunning records that a turn is in flight, or that it is not.
+// A failure to record it is logged rather than surfaced: the flag is how the UI
+// shows progress, and refusing to answer because a progress marker did not save
+// would be worse than showing no spinner.
+func (a *App) markAssistantTurnRunning(ctx context.Context, conversationID uuid.UUID, userID string, running bool) {
+	var startedAt any
+	if running {
+		startedAt = time.Now().UTC()
+	}
+	if _, err := a.db.Exec(ctx, `
+		UPDATE assistant_conversations
+		SET running_turn_started_at = $1
+		WHERE id = $2 AND user_id = $3
+	`, startedAt, conversationID, userID); err != nil {
+		log.Warn().Err(err).Str("conversation_id", conversationID.String()).Bool("running", running).
+			Msg("Failed to record assistant turn state")
+	}
 }
 
 func (a *App) handleSummarizeAssistantMemory(w http.ResponseWriter, r *http.Request) {
@@ -423,7 +452,7 @@ func (a *App) validateAssistantLLMProfile(ctx context.Context, profileName strin
 func (a *App) loadAssistantConversation(ctx context.Context, userID string, conversationID uuid.UUID, includeMessages bool) (assistantConversation, error) {
 	var conversation assistantConversation
 	err := a.db.QueryRow(ctx, `
-		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at
+		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at, running_turn_started_at
 		FROM assistant_conversations
 		WHERE id = $1 AND user_id = $2
 	`, conversationID, userID).Scan(
@@ -435,10 +464,12 @@ func (a *App) loadAssistantConversation(ctx context.Context, userID string, conv
 		&conversation.Scope,
 		&conversation.CreatedAt,
 		&conversation.UpdatedAt,
+		&conversation.RunningTurnStartedAt,
 	)
 	if err != nil {
 		return assistantConversation{}, err
 	}
+	conversation.TurnRunning = assistantTurnIsRunning(conversation.RunningTurnStartedAt)
 	if includeMessages {
 		messages, err := a.loadAssistantMessages(ctx, conversationID)
 		if err != nil {
