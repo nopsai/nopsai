@@ -4,11 +4,13 @@ An audit of NopsAI's MCP surface against the Model Context Protocol spec
 (`2025-06-18`, the version the server already declares) and against how MCP
 clients behave in practice.
 
-The verdict: **the tool catalogue is strong, the protocol implementation is
-thin.** 224 permission-filtered tools with real AAA checks is more coverage than
-most MCP servers ship. What is missing is the protocol scaffolding that lets a
-general client use them well and safely — annotations, pagination, prompts,
-resource templates, and honest capability advertisement.
+The original verdict was: **the tool catalogue is strong, the protocol
+implementation is thin.** 224 permission-filtered tools with real AAA checks is
+more coverage than most MCP servers ship; what was missing was the protocol
+scaffolding that lets a general client use them well and safely.
+
+Phases A, B, and C below are now implemented. What remains is one open decision:
+whether the transport stays request/response or becomes Streamable HTTP.
 
 ## What is already right
 
@@ -27,9 +29,11 @@ resource templates, and honest capability advertisement.
   handshake, sends `notifications/initialized`, follows `nextCursor` pagination,
   carries `Mcp-Session-Id` and `MCP-Protocol-Version`, and parses SSE replies.
 
-## Gaps
+## Gaps found by the audit
 
-Ordered by what a real client notices first.
+Ordered by what a real client notices first. Items 1–7 are addressed in the plan
+below; item 8 remains an open decision. They are kept here in full because the
+reasoning is what makes the fixes reviewable.
 
 ### 1. Tools carry no annotations, title, or output schema — high
 
@@ -106,46 +110,100 @@ rather than a bug.
 
 ## Plan
 
-### Phase A — Publish what we already know (small, high value)
+### Phase A — Publish what we already know (done)
 
-- [ ] Add `title` and `annotations` to every tool, derived from the routing
-      metadata that already exists (`hostedMCPToolRoutingFor`): read tools get
-      `readOnlyHint: true`; mutations get `destructiveHint: true` unless the
-      action is additive; proposals are read-only because they apply nothing;
-      `openWorldHint: false` for everything except the tools that reach a
-      configured external MCP server or Git provider.
-- [ ] Add `outputSchema` to the analysis tools first, since their result shape is
-      already a published contract, then to the list/read tools.
-- [ ] Stop advertising `listChanged` until it is emitted.
-- [ ] Implement `ping`.
-- [ ] Echo the client's `protocolVersion` when supported, and read the
-      `MCP-Protocol-Version` request header.
+- [x] `title` and `annotations` on every tool, derived from the routing metadata
+      rather than a second hand-maintained list: reads and proposals are
+      `readOnlyHint: true` (a proposal applies nothing, however alarming its
+      name); deletes, ejects, revokes, cancels, and disables are
+      `destructiveHint: true`; `idempotentHint` marks the calls a client may
+      safely retry; `openWorldHint` marks the tools that reach a Git provider,
+      mail server, or external trigger.
 
-### Phase B — Make the catalogue navigable (medium)
+      The hints are advisory and nothing enforces on them. The AAA check at call
+      time is what actually stops a tool, and it does not read them.
+- [x] `outputSchema` on the analysis tools. It requires only `analysis` and `ok`,
+      the two fields every path sets including the failure path, because a schema
+      a real response can fail is worse than no schema — clients validate it.
+- [x] `listChanged` is no longer advertised. On a request/response transport
+      there is no channel to send the notification on, so claiming it told a
+      client to wait for something that could never arrive.
+- [x] `ping`.
+- [x] `initialize` echoes the client's `protocolVersion` when this server speaks
+      it (`2025-06-18`, `2025-03-26`, `2024-11-05`) and answers with its own when
+      it does not. The `MCP-Protocol-Version` request header is validated and an
+      unsupported value is refused with `400` — before the availability checks,
+      because a version mismatch is a fact about the request, and answering
+      "service unavailable" would send the client debugging the wrong thing.
+- [x] `initialize` also returns `instructions` and a real `serverInfo.version`.
 
-- [ ] Cursor pagination for `tools/list` and `resources/list`, with a default
-      page size around 50 and a stable ordering.
-- [ ] `resources/templates/list` plus templated reads for the resources that have
-      a natural identifier: pipelines, runs, schedules, triggers, dashboards,
-      teams, knowledge contexts.
-- [ ] `completion/complete` for template arguments, so a client can offer
-      pipeline ids rather than asking the user to type one.
+### Phase B — Make the catalogue navigable (done)
 
-### Phase C — Prompts (medium)
+- [x] Cursor pagination on `tools/list` and `resources/list`, 100 per page. The
+      cursor carries the last name of the previous page rather than an index, so
+      a catalogue that changes between pages cannot silently skip an entry.
+- [x] `resources/templates/list` with templated reads for pipelines, runs,
+      schedules, triggers, teams, and analysis
+      (`nopsai://analysis/{subject_type}/{subject_id}`). Each templated read runs
+      through the same tool path as the equivalent `tools/call`, so the concrete
+      resource is authorized and audited identically — the template is not the
+      thing being permitted.
+- [x] `completion/complete` for both prompt arguments and resource template
+      arguments. Candidates come from the same permission-filtered tools a call
+      would use, so a completion never reveals that something exists which the
+      caller could not read anyway. Matches are prefix-first, then substring,
+      de-duplicated and bounded at 100 with `hasMore`.
 
-- [ ] `prompts/list` and `prompts/get` covering the flows NopsAI is good at:
-      review a team, explain a run failure, review a pipeline before merge,
-      explain platform spend, prepare a GitOps change. Each prompt names the
-      tools it expects to use, so the client's model starts with the right plan.
+      A completion is a convenience, so a source it cannot read yields no values
+      rather than an error: failing a keystroke is worse than offering nothing to
+      pick from.
+- [x] Templates for dashboards and knowledge contexts. Collection URIs keep their
+      own meaning — `nopsai://dashboards` is still the inventory, and only
+      `nopsai://dashboards/{id}` resolves through a template.
 
-### Phase D — Decide the transport (needs a decision first)
+### Phase C — Prompts (done)
 
-- [ ] Record whether NopsAI stays request/response or implements Streamable HTTP
-      with an SSE channel and `Mcp-Session-Id`.
-- [ ] If streaming: emit `notifications/tools/list_changed` when AAA grants or
-      the MCP registry change, and re-advertise `listChanged`.
-- [ ] If not: document the stateless choice in `mcp-feature-coverage.md` so
-      integrators know not to wait for notifications.
+- [x] `prompts/list` and `prompts/get` for the five flows NopsAI answers well:
+      review a team, explain a run failure, review a pipeline, explain platform
+      spend, prepare a GitOps change. Each prompt names the tool that does the
+      work and states how the answer should be shaped — which is the part a
+      general model improvises badly.
+- [x] Prompts are filtered by permission: a prompt whose tool the caller may not
+      call is not listed, because offering a workflow that will be refused is
+      worse than not offering it. A missing required argument is refused with the
+      argument named rather than rendered with an empty subject.
+
+### Phase D — Decide the transport (open, needs a product decision)
+
+The server is request/response over `POST /v1/mcp`: no session id, no
+server-to-client stream, no resumability. `GET /v1/mcp` already answers `405` with
+`Allow: POST`, which is what the spec asks of a server that offers no stream, and
+no capability claims otherwise. So today's behaviour is conformant — the question
+is whether to add a stream, not whether we are wrong without one.
+
+**What a stream would buy.** Two things, and only two:
+
+1. **Progress on slow calls.** `notifications/progress` needs a stream. A team
+   analysis with inventory makes eight internal reads; `run_pipeline` can take
+   longer. Today a client waits with no signal until the result lands.
+2. **`listChanged` becoming true.** Tool lists change when AAA grants change or
+   the MCP registry is edited. With a stream we could tell clients instead of
+   asking them to re-list.
+
+**What it would cost.** Session state (`Mcp-Session-Id`) in a service that is
+currently horizontally scalable with no affinity; SSE connection lifecycle and
+resumability (`Last-Event-ID`); and a second code path through the same
+authorization checks, which is the part most likely to grow a bug.
+
+**Recommendation: stay request/response** until a client asks for progress. The
+calls that would benefit are the analysis tools, and the right fix for those is
+to make them faster or narrower — `include_inventory: false` already exists — not
+to stream a spinner. Revisit if long-running mutating flows (`run_pipeline` with
+wait semantics) become a common external-client use case.
+
+- [ ] Decide: stay stateless, or implement Streamable HTTP with sessions and SSE.
+- [ ] If streaming: emit `notifications/tools/list_changed` on AAA and registry
+      changes, and re-advertise `listChanged`.
 
 ## Non-goals
 

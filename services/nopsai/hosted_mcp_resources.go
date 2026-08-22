@@ -72,7 +72,20 @@ func (a *App) readHostedMCPResource(ctx context.Context, subject aaamodel.Subjec
 		}
 	}
 	if !found {
-		return hostedMCPResource{}, "", fmt.Errorf("resource %q is not available", uri)
+		// A URI that matches no fixed resource may still match a template, which
+		// is how a client reads one pipeline instead of the whole inventory.
+		resource, payload, handled, err := a.hostedMCPTemplatedResource(ctx, subject, uri)
+		if !handled {
+			return hostedMCPResource{}, "", fmt.Errorf("resource %q is not available", uri)
+		}
+		if err != nil {
+			return hostedMCPResource{}, "", err
+		}
+		raw, marshalErr := json.MarshalIndent(payload, "", "  ")
+		if marshalErr != nil {
+			return hostedMCPResource{}, "", marshalErr
+		}
+		return resource, string(raw), nil
 	}
 
 	var (
