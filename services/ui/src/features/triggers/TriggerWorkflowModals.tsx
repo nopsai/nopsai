@@ -1,7 +1,11 @@
-import type { ReactNode } from 'react';
 import { Edit3, ListPlus, Plus } from 'lucide-react';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
-import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import {
+  WorkflowDialogCloseButton,
+  WorkflowDialogFrame,
+  WorkflowInlineAlert,
+  WorkflowPropertyRow,
+} from '../../components/WorkflowPrimitives';
 import { YamlValidationPanel, type YamlValidationError } from '../editor/YamlValidationPanel';
 import {
   GLOBAL_RESOURCE_TEAM_PATH,
@@ -112,7 +116,7 @@ function TriggerRepositoryDialog({
         </span>
       )}
       cardClassName="trigger-modal-card"
-      bodyClassName="trigger-modal-body"
+      bodyClassName="modal-form-body"
       actions={(
         <>
           <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
@@ -124,26 +128,25 @@ function TriggerRepositoryDialog({
         </>
       )}
     >
-      <div className="trigger-modal-field-repository">
-        <label htmlFor={inputId} className="modal-property-label">
-          {isCreate ? 'Repository' : 'Target repository'}
-        </label>
+      <div className="modal-hero">
         <input
           id={inputId}
           type="text"
-          className="pipelines-input w-full mt-1"
+          className="modal-hero-input"
+          aria-label={isCreate ? 'Repository' : 'Target repository'}
           placeholder="owner/repo"
           value={modal.repository}
           onChange={event => onUpdateRepository(event.target.value)}
           disabled={modal.pending}
           data-dialog-initial-focus
         />
-        <p id={descriptionId} className="trigger-modal-hint">
+        <p id={descriptionId} className="modal-hero-note">
           {isCreate
             ? 'Creates or replaces a trigger override stored in the database.'
             : 'Copies the current trigger into an editable target override.'}
         </p>
       </div>
+      <hr className="modal-divider" />
       {modalDetails && onUpdateDetails ? (
         <TriggerMetadataFields
           details={modalDetails}
@@ -154,17 +157,23 @@ function TriggerRepositoryDialog({
         />
       ) : null}
       {'yamlPreview' in modal ? (
-        <div className="trigger-modal-field-repository">
-          <label className="modal-property-label">
-            {isCreate ? 'Template' : 'Definition'}
+        <div className="modal-property-grid">
+          <WorkflowPropertyRow
+            label={isCreate ? 'Template' : 'Definition'}
+            hint="Trigger YAML written to the override"
+            htmlFor={`${modalId}-yaml`}
+            span="full"
+            layout="stacked"
+          >
             <textarea
+              id={`${modalId}-yaml`}
               className="pipelines-input min-h-52 w-full font-mono text-xs"
               value={modal.yamlPreview}
               onChange={event => onUpdateYamlPreview?.(event.target.value)}
               disabled={modal.pending}
               spellCheck={false}
             />
-          </label>
+          </WorkflowPropertyRow>
         </div>
       ) : null}
       {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
@@ -215,7 +224,7 @@ function TriggerEditDialog({
         </span>
       )}
       cardClassName="trigger-modal-card"
-      bodyClassName="trigger-modal-body"
+      bodyClassName="modal-form-body"
       actions={(
         <>
           <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
@@ -232,7 +241,7 @@ function TriggerEditDialog({
           Saving here creates a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
         </div>
       ) : null}
-      <p id={descriptionId} className="trigger-modal-hint">
+      <p id={descriptionId} className="modal-hero-note">
         Select the NopsAI team and Git ingress, then adjust the trigger rules.
       </p>
       <TriggerMetadataFields
@@ -242,16 +251,25 @@ function TriggerEditDialog({
         webhookSources={webhookSources}
         onUpdate={onUpdateDetails}
       />
-      <Field label="Definition">
-        <textarea
-          className="pipelines-input min-h-72 w-full font-mono text-xs"
-          value={modal.yamlPreview}
-          onChange={event => onUpdateYamlPreview(event.target.value)}
-          disabled={modal.pending}
-          spellCheck={false}
-          data-dialog-initial-focus
-        />
-      </Field>
+      <div className="modal-property-grid">
+        <WorkflowPropertyRow
+          label="Definition"
+          hint="Trigger YAML written to the override"
+          htmlFor="triggers-edit-modal-yaml"
+          span="full"
+          layout="stacked"
+        >
+          <textarea
+            id="triggers-edit-modal-yaml"
+            className="pipelines-input min-h-72 w-full font-mono text-xs"
+            value={modal.yamlPreview}
+            onChange={event => onUpdateYamlPreview(event.target.value)}
+            disabled={modal.pending}
+            spellCheck={false}
+            data-dialog-initial-focus
+          />
+        </WorkflowPropertyRow>
+      </div>
       <YamlValidationPanel id={validationId} errors={modal.validationErrors} />
     </WorkflowFormDialog>
   );
@@ -403,9 +421,10 @@ function TriggerMetadataFields({
   const compatibleWebhookSources = webhookSources.filter(source => source.provider === details.provider);
 
   return (
-    <div className="trigger-modal-details-grid">
-      <Field label="Provider">
+    <div className="modal-property-grid">
+      <WorkflowPropertyRow label="Provider" hint="Git host" htmlFor="trigger-provider">
         <select
+          id="trigger-provider"
           className="pipelines-input w-full"
           value={details.provider}
           onChange={event => onUpdate(triggerDetailsWithProvider(details, event.target.value as TriggerProvider))}
@@ -415,9 +434,10 @@ function TriggerMetadataFields({
             <option key={provider} value={provider}>{provider}</option>
           ))}
         </select>
-      </Field>
-      <Field label="Team">
+      </WorkflowPropertyRow>
+      <WorkflowPropertyRow label="Team" hint="Owning team" htmlFor="trigger-team">
         <select
+          id="trigger-team"
           className="pipelines-input w-full"
           value={details.teamPath}
           onChange={event => onUpdate({ ...details, teamPath: event.target.value })}
@@ -427,9 +447,10 @@ function TriggerMetadataFields({
             <option key={path} value={path}>{triggerTeamLabel(path)}</option>
           ))}
         </select>
-      </Field>
-      <Field label="Webhook source">
+      </WorkflowPropertyRow>
+      <WorkflowPropertyRow label="Webhook source" hint="Where deliveries arrive" htmlFor="trigger-webhook-source" span="full" control="wide">
         <select
+          id="trigger-webhook-source"
           className="pipelines-input w-full font-mono"
           value={details.webhookSourceID}
           onChange={event => onUpdate({ ...details, webhookSourceID: event.target.value })}
@@ -450,23 +471,8 @@ function TriggerMetadataFields({
             </>
           )}
         </select>
-      </Field>
+      </WorkflowPropertyRow>
     </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className="block text-sm text-[var(--text-primary)]">
-      <span className="font-medium text-[var(--text-secondary)]">{label}</span>
-      <span className="mt-1 block">{children}</span>
-    </label>
   );
 }
 

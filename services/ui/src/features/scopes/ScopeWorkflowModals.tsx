@@ -1,5 +1,10 @@
 import { Copy, KeyRound } from 'lucide-react';
-import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import {
+  WorkflowDialogCloseButton,
+  WorkflowDialogFrame,
+  WorkflowInlineAlert,
+  WorkflowPropertyRow,
+} from '../../components/WorkflowPrimitives';
 import { normalizeScopeLabel, parseScopedIdentity } from './model';
 import {
   SAMPLE_SCOPE_VARIABLE,
@@ -84,28 +89,26 @@ function ScopeCreateDialog({
           <WorkflowDialogCloseButton onClose={onClose} disabled={modal.pending} />
         </header>
         <form
-          className="pipelines-modal-body space-y-4"
+          className="pipelines-modal-body modal-form-body"
           onSubmit={event => {
             event.preventDefault();
             onSubmit();
           }}
         >
-          <div>
-            <label htmlFor="scope-new-name" className="modal-property-label">
-              Scope Name
-            </label>
+          <div className="modal-hero">
             <input
               id="scope-new-name"
               type="text"
-              className="pipelines-input w-full mt-1"
-              placeholder="e.g. dev"
+              className="modal-hero-input"
+              aria-label="Scope Name"
+              placeholder="dev"
               value={modal.name}
               onChange={event => onUpdateName(event.target.value)}
               disabled={modal.pending}
               data-dialog-initial-focus
             />
-            <p className="text-xs text-[var(--text-secondary)] mt-1">
-              Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested teams.
+            <p className="modal-hero-note">
+              Letters, numbers, dots, underscores, and hyphens; slashes nest under a team.
             </p>
           </div>
           <div className="space-y-2 bg-[var(--bg-tertiary)] rounded-md p-3 text-xs text-[var(--text-secondary)]">
@@ -286,14 +289,17 @@ function ScopedValueDialog({
           ) : null}
           <div className="grid gap-4 md:grid-cols-[1.6fr_1fr]">
             <div className="space-y-4">
-              <div className="space-y-1">
-                <label htmlFor={nameId} className="modal-property-label">
-                  {isVariable ? 'Variable' : 'Secret'} Name
-                </label>
+              <WorkflowPropertyRow
+                label={`${isVariable ? 'Variable' : 'Secret'} Name`}
+                hint={isVariable ? 'Key read by the run' : 'Include the repo prefix when scoped'}
+                htmlFor={nameId}
+                span="full"
+                layout="stacked"
+              >
                 <input
                   id={nameId}
                   type="text"
-                  className="pipelines-input w-full"
+                  className="pipelines-input w-full font-mono"
                   placeholder={isVariable ? 'DATABASE_URL' : 'API_KEY'}
                   value={modal.name}
                   onChange={event => onUpdate({ name: event.target.value })}
@@ -302,14 +308,14 @@ function ScopedValueDialog({
                   disabled={modal.pending}
                   data-dialog-initial-focus={modal.mode === 'create' ? true : undefined}
                 />
-                {!isVariable ? (
-                  <p className="text-xs text-[var(--text-secondary)]">Name the secret; include repo prefix if scoped.</p>
-                ) : null}
-              </div>
-              <div className="space-y-1">
-                <label htmlFor={repositoryId} className="modal-property-label">
-                  Repository (optional)
-                </label>
+              </WorkflowPropertyRow>
+              <WorkflowPropertyRow
+                label="Repository (optional)"
+                hint={isVariable ? 'Link a repo to scope the variable' : 'Blank is global; a repo scopes the secret'}
+                htmlFor={repositoryId}
+                span="full"
+                layout="stacked"
+              >
                 <input
                   id={repositoryId}
                   type="text"
@@ -326,12 +332,8 @@ function ScopedValueDialog({
                     <option key={`${kind}-repo-${repository}`} value={repository} />
                   ))}
                 </datalist>
-                <p className="text-xs text-[var(--text-secondary)]">
-                  {isVariable ? 'Link a repo to scope the variable.' : 'Leave blank for global; add repo for scoped secret.'}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <label htmlFor={valueId} className="modal-property-label">Value</label>
+              </WorkflowPropertyRow>
+              <WorkflowPropertyRow label="Value" hint={valueHint} htmlFor={valueId} span="full" layout="stacked">
                 <textarea
                   id={valueId}
                   rows={4}
@@ -342,8 +344,7 @@ function ScopedValueDialog({
                   disabled={modal.pending || valueLoading}
                   data-dialog-initial-focus={modal.mode === 'update' ? true : undefined}
                 />
-                <p className="text-xs text-[var(--text-secondary)]">{valueHint}</p>
-              </div>
+              </WorkflowPropertyRow>
               {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
             </div>
             <ScopeSuggestions
@@ -414,34 +415,42 @@ function GitOpsEncryptDialog({
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
             Encrypt a secret value for a Git-managed scope file.
           </p>
-          <div className="space-y-1">
-            <label htmlFor="gitops-secret-value" className="modal-property-label">
-              Value
-            </label>
-            <textarea
-              id="gitops-secret-value"
-              rows={4}
-              className="pipelines-input w-full"
-              value={modal.value}
-              onChange={event => onUpdateValue(event.target.value)}
-              disabled={modal.pending}
-              data-dialog-initial-focus
-            />
-          </div>
-          {modal.encryptedValue ? (
-            <div className="space-y-1">
-              <label htmlFor="gitops-secret-encrypted-value" className="modal-property-label">
-                Encrypted Value
-              </label>
+          <div className="modal-property-grid">
+            <WorkflowPropertyRow
+              label="Value"
+              hint="Plain text to encrypt"
+              htmlFor="gitops-secret-value"
+              span="full"
+              layout="stacked"
+            >
               <textarea
-                id="gitops-secret-encrypted-value"
+                id="gitops-secret-value"
                 rows={4}
-                className="pipelines-input w-full font-mono text-xs"
-                value={modal.encryptedValue}
-                readOnly
+                className="pipelines-input w-full"
+                value={modal.value}
+                onChange={event => onUpdateValue(event.target.value)}
+                disabled={modal.pending}
+                data-dialog-initial-focus
               />
-            </div>
-          ) : null}
+            </WorkflowPropertyRow>
+            {modal.encryptedValue ? (
+              <WorkflowPropertyRow
+                label="Encrypted Value"
+                hint="Copy this into the Git-managed scope file"
+                htmlFor="gitops-secret-encrypted-value"
+                span="full"
+                layout="stacked"
+              >
+                <textarea
+                  id="gitops-secret-encrypted-value"
+                  rows={4}
+                  className="pipelines-input w-full font-mono text-xs"
+                  value={modal.encryptedValue}
+                  readOnly
+                />
+              </WorkflowPropertyRow>
+            ) : null}
+          </div>
           {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
         </div>
         <footer className="pipelines-modal-footer">

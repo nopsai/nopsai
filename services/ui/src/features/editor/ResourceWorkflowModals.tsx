@@ -1,5 +1,10 @@
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
-import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import {
+  WorkflowDialogCloseButton,
+  WorkflowDialogFrame,
+  WorkflowInlineAlert,
+  WorkflowPropertyRow,
+} from '../../components/WorkflowPrimitives';
 
 export type ResourceFormModal = {
   mode: 'create' | 'clone';
@@ -65,6 +70,7 @@ function ResourceFormDialog({
       closeDisabled={formModal.pending}
       kicker={formModal.mode === 'create' ? `New ${resourceLabel}` : `Clone ${resourceLabel}`}
       title={formModal.mode === 'create' ? `Create ${resourceLabel}` : `Clone ${resourceLabel}`}
+      bodyClassName="modal-form-body"
       actions={(
         <>
           <button type="button" className="glass-button-ghost" onClick={onClose} disabled={formModal.pending}>
@@ -76,33 +82,36 @@ function ResourceFormDialog({
         </>
       )}
     >
-      <div>
-        <label htmlFor={pathInputId} className="modal-property-label">
-          {resourceTitle} Path
-        </label>
-        <input
-          id={pathInputId}
-          type="text"
-          className="pipelines-input w-full mt-1"
-          placeholder={pathPlaceholder}
-          value={formModal.path}
-          onChange={event => onChangeForm({ path: event.target.value })}
-          data-dialog-initial-focus
-        />
-        <p className="text-xs text-[var(--text-secondary)] mt-1">Optional team path. Leave blank for root.</p>
-      </div>
-      <div>
-        <label htmlFor={nameInputId} className="modal-property-label">
-          {resourceTitle} Name
-        </label>
+      <div className="modal-hero">
         <input
           id={nameInputId}
           type="text"
-          className="pipelines-input w-full mt-1"
+          className="modal-hero-input"
+          aria-label={`${resourceTitle} Name`}
           placeholder={namePlaceholder}
           value={formModal.name}
           onChange={event => onChangeForm({ name: event.target.value })}
+          data-dialog-initial-focus
         />
+      </div>
+      <hr className="modal-divider" />
+      <div className="modal-property-grid">
+        <WorkflowPropertyRow
+          label={`${resourceTitle} Path`}
+          hint="Optional team path; blank means root"
+          htmlFor={pathInputId}
+          span="full"
+          control="wide"
+        >
+          <input
+            id={pathInputId}
+            type="text"
+            className="pipelines-input w-full"
+            placeholder={pathPlaceholder}
+            value={formModal.path}
+            onChange={event => onChangeForm({ path: event.target.value })}
+          />
+        </WorkflowPropertyRow>
       </div>
       {formModal.error ? <WorkflowInlineAlert id={errorId}>{formModal.error}</WorkflowInlineAlert> : null}
     </WorkflowFormDialog>

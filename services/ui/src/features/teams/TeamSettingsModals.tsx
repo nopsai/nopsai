@@ -12,6 +12,7 @@ import { CONFIG_REPOSITORY_PROVIDER_OPTIONS, type ConfigRepositoryProvider } fro
 import type { TeamParentOption } from './model';
 import {
   WorkflowDialogCloseButton,
+  WorkflowPropertyRow,
   workflowDialogOverlayClass,
 } from '../../components/WorkflowPrimitives';
 import {
@@ -158,7 +159,22 @@ export function NewTeamItemModal({
             </div>
             <WorkflowDialogCloseButton onClose={onClose} disabled={pending} />
           </header>
-          <div className="pipelines-modal-body space-y-4">
+          <div className="pipelines-modal-body modal-form-body">
+            <div className="modal-hero">
+              <input
+                ref={nameInputRef}
+                id="new-team-name"
+                name="new-team-name"
+                type="text"
+                required
+                value={name}
+                onChange={event => setName(event.target.value)}
+                className="modal-hero-input"
+                aria-label={kind === 'app' ? 'Application Name' : 'Team Name'}
+                placeholder={kind === 'app' ? 'service-api' : 'platform'}
+              />
+            </div>
+            <hr className="modal-divider" />
             <div className="modal-segmented" role="group" aria-label="Create item type">
               {(['team', 'app'] as const).map(option => (
                 <button
@@ -171,72 +187,49 @@ export function NewTeamItemModal({
                 </button>
               ))}
             </div>
-            <div className="space-y-2">
-              <label htmlFor="new-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
-                Parent team
-              </label>
-              <select
-                id="new-team-parent"
-                name="new-team-parent"
-                value={parentID == null ? 'root' : String(parentID)}
-                onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
-                className="pipelines-input w-full"
-              >
-                {parentOptions.map(option => (
-                  <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="new-team-name" className="text-sm font-medium text-[var(--text-primary)]">
-                {kind === 'app' ? 'Application Name' : 'Team Name'}
-              </label>
-              <input
-                ref={nameInputRef}
-                id="new-team-name"
-                name="new-team-name"
-                type="text"
-                required
-                value={name}
-                onChange={event => setName(event.target.value)}
-                className="pipelines-input w-full"
-                placeholder={kind === 'app' ? 'service-api' : 'platform'}
-              />
-            </div>
-            {kind === 'app' ? (
-              <div className="space-y-2">
-                <label htmlFor="new-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
-                  Repository URL
-                </label>
-                <input
-                  id="new-team-repo-url"
-                  name="new-team-repo-url"
-                  type="text"
-                  required
-                  value={repoURL}
-                  onChange={event => setRepoURL(event.target.value)}
+            <div className="modal-property-grid">
+              <WorkflowPropertyRow label="Parent team" hint="Where this sits in the hierarchy" htmlFor="new-team-parent" span="full" control="wide">
+                <select
+                  id="new-team-parent"
+                  name="new-team-parent"
+                  value={parentID == null ? 'root' : String(parentID)}
+                  onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
                   className="pipelines-input w-full"
-                  placeholder="https://github.com/acme/service-api"
-                />
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <label htmlFor="new-team-description" className="text-sm font-medium text-[var(--text-primary)]">
-                  Description <span className="text-[var(--text-secondary)]">(optional)</span>
-                </label>
-                <textarea
-                  id="new-team-description"
-                  name="new-team-description"
-                  value={description}
-                  onChange={event => setDescription(event.target.value)}
-                  rows={3}
-                  className="pipelines-input w-full"
-                  placeholder="Add a short summary for this team"
-                />
-              </div>
-            )}
+                >
+                  {parentOptions.map(option => (
+                    <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </WorkflowPropertyRow>
+              {kind === 'app' ? (
+                <WorkflowPropertyRow label="Repository URL" hint="Repository this application builds from" htmlFor="new-team-repo-url" span="full" layout="stacked">
+                  <input
+                    id="new-team-repo-url"
+                    name="new-team-repo-url"
+                    type="text"
+                    required
+                    value={repoURL}
+                    onChange={event => setRepoURL(event.target.value)}
+                    className="pipelines-input w-full"
+                    placeholder="https://github.com/acme/service-api"
+                  />
+                </WorkflowPropertyRow>
+              ) : (
+                <WorkflowPropertyRow label="Description" hint="Optional summary for this team" htmlFor="new-team-description" span="full" layout="stacked">
+                  <textarea
+                    id="new-team-description"
+                    name="new-team-description"
+                    value={description}
+                    onChange={event => setDescription(event.target.value)}
+                    rows={3}
+                    className="pipelines-input w-full"
+                    placeholder="Add a short summary for this team"
+                  />
+                </WorkflowPropertyRow>
+              )}
+            </div>
             {error && <div className="text-sm text-red-600">{error}</div>}
           </div>
           <footer className="pipelines-modal-footer">
@@ -321,11 +314,8 @@ export function EditTeamItemModal({
             </div>
             <WorkflowDialogCloseButton onClose={onClose} disabled={pending} />
           </header>
-          <div className="pipelines-modal-body space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="edit-team-name" className="text-sm font-medium text-[var(--text-primary)]">
-                {app ? 'Application Name' : 'Team Name'}
-              </label>
+          <div className="pipelines-modal-body modal-form-body">
+            <div className="modal-hero">
               <input
                 ref={nameInputRef}
                 id="edit-team-name"
@@ -334,61 +324,53 @@ export function EditTeamItemModal({
                 required
                 value={name}
                 onChange={event => setName(event.target.value)}
-                className="pipelines-input w-full"
+                className="modal-hero-input"
+                aria-label={app ? 'Application Name' : 'Team Name'}
               />
             </div>
-
-            <div className="space-y-2">
-              <label htmlFor="edit-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
-                Parent team
-              </label>
-              <select
-                id="edit-team-parent"
-                name="edit-team-parent"
-                value={parentID == null ? 'root' : String(parentID)}
-                onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
-                className="pipelines-input w-full"
-              >
-                {parentOptions.map(option => (
-                  <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+            <hr className="modal-divider" />
+            <div className="modal-property-grid">
+              <WorkflowPropertyRow label="Parent team" hint="Where this sits in the hierarchy" htmlFor="edit-team-parent" span="full" control="wide">
+                <select
+                  id="edit-team-parent"
+                  name="edit-team-parent"
+                  value={parentID == null ? 'root' : String(parentID)}
+                  onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
+                  className="pipelines-input w-full"
+                >
+                  {parentOptions.map(option => (
+                    <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </WorkflowPropertyRow>
+              {app ? (
+                <WorkflowPropertyRow label="Repository URL" hint="Repository this application builds from" htmlFor="edit-team-repo-url" span="full" layout="stacked">
+                  <input
+                    id="edit-team-repo-url"
+                    name="edit-team-repo-url"
+                    type="text"
+                    required
+                    value={repoURL}
+                    onChange={event => setRepoURL(event.target.value)}
+                    className="pipelines-input w-full"
+                    placeholder="https://github.com/acme/service-api"
+                  />
+                </WorkflowPropertyRow>
+              ) : (
+                <WorkflowPropertyRow label="Description" hint="Optional summary for this team" htmlFor="edit-team-description" span="full" layout="stacked">
+                  <textarea
+                    id="edit-team-description"
+                    name="edit-team-description"
+                    value={description}
+                    onChange={event => setDescription(event.target.value)}
+                    rows={3}
+                    className="pipelines-input w-full"
+                  />
+                </WorkflowPropertyRow>
+              )}
             </div>
-
-            {app ? (
-              <div className="space-y-2">
-                <label htmlFor="edit-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
-                  Repository URL
-                </label>
-                <input
-                  id="edit-team-repo-url"
-                  name="edit-team-repo-url"
-                  type="text"
-                  required
-                  value={repoURL}
-                  onChange={event => setRepoURL(event.target.value)}
-                  className="pipelines-input w-full"
-                  placeholder="https://github.com/acme/service-api"
-                />
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <label htmlFor="edit-team-description" className="text-sm font-medium text-[var(--text-primary)]">
-                  Description <span className="text-[var(--text-secondary)]">(optional)</span>
-                </label>
-                <textarea
-                  id="edit-team-description"
-                  name="edit-team-description"
-                  value={description}
-                  onChange={event => setDescription(event.target.value)}
-                  rows={3}
-                  className="pipelines-input w-full"
-                />
-              </div>
-            )}
-
             {error && <div className="text-sm text-red-600">{error}</div>}
           </div>
           <footer className="pipelines-modal-footer">
