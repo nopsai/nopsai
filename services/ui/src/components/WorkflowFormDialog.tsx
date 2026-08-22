@@ -1,5 +1,9 @@
 import { type FormEventHandler, type ReactNode } from 'react';
-import { WorkflowDialogFrame } from './WorkflowPrimitives';
+import {
+  WorkflowDialogCloseButton,
+  WorkflowDialogFrame,
+  workflowDialogOverlayClass,
+} from './WorkflowPrimitives';
 
 type WorkflowFormDialogProps = {
   id: string;
@@ -53,21 +57,9 @@ export function WorkflowFormDialog({
             {subtitle ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{subtitle}</p> : null}
           </div>
         </div>
-        <button
-          type="button"
-          className="glass-button-ghost"
-          onClick={onClose}
-          disabled={closeDisabled}
-        >
-          Close
-        </button>
+        <WorkflowDialogCloseButton onClose={onClose} disabled={closeDisabled} />
       </header>
-      <div
-        className={joinClasses(
-          'pipelines-modal-body max-h-[calc(100vh-12rem)] overflow-y-auto',
-          bodyClassName
-        )}
-      >
+      <div className={joinClasses('pipelines-modal-body', bodyClassName)}>
         {children}
       </div>
       <footer className="pipelines-modal-footer">
@@ -88,7 +80,7 @@ export function WorkflowFormDialog({
         size === 'xwide' && 'workflow-form-dialog--xwide',
         cardClassName
       )}
-      overlayClassName="workflow-form-dialog-overlay fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-4 show"
+      overlayClassName={`workflow-form-dialog-overlay ${workflowDialogOverlayClass}`}
     >
       {onSubmit ? <form onSubmit={onSubmit}>{content}</form> : content}
     </WorkflowDialogFrame>

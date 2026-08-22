@@ -1,9 +1,9 @@
 import { useId, type ReactNode } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import {
+  WorkflowDialogCloseButton,
   WorkflowDialogFrame,
   WorkflowEmptyState,
-  WorkflowIconButton,
 } from '../../../components/WorkflowPrimitives';
 
 export function AccessEditorEmptyState({
@@ -41,6 +41,7 @@ export function AccessModal({
   icon,
   onClose,
   children,
+  actions,
   variant = 'default',
 }: {
   kicker: string;
@@ -49,6 +50,8 @@ export function AccessModal({
   icon?: ReactNode;
   onClose: () => void;
   children: ReactNode;
+  /** Dialog actions. They render on the shared action bar under the canvas. */
+  actions?: ReactNode;
   variant?: 'default' | 'minimal';
 }) {
   const titleID = useId();
@@ -61,7 +64,7 @@ export function AccessModal({
       titleId={titleID}
       descriptionId={subtitle ? descriptionID : undefined}
       onClose={onClose}
-      className={`pipelines-modal-card access-modal-card max-w-xl w-full ${minimal ? 'access-modal-card--minimal' : ''}`}
+      className={`pipelines-modal-card access-modal-card w-full ${minimal ? 'workflow-dialog--compact' : ''}`}
     >
         <header className={`pipelines-modal-header access-modal-header ${minimal ? 'access-modal-header--minimal' : ''}`}>
           <div className="access-modal-heading">
@@ -86,15 +89,14 @@ export function AccessModal({
               ) : null}
             </div>
           </div>
-          <WorkflowIconButton
-            label="Close"
-            className={minimal ? 'access-inline-btn' : 'glass-button-ghost'}
-            icon={<X className="h-4 w-4" aria-hidden="true" />}
-            showLabel={!minimal}
-            onClick={onClose}
-          />
+          <WorkflowDialogCloseButton onClose={onClose} />
         </header>
         <div className={`pipelines-modal-body access-modal-body ${minimal ? 'access-modal-body--minimal' : ''}`}>{children}</div>
+        {actions ? (
+          <footer className="pipelines-modal-footer">
+            <div className="pipelines-modal-actions">{actions}</div>
+          </footer>
+        ) : null}
     </WorkflowDialogFrame>
   );
 }

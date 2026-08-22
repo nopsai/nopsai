@@ -33,6 +33,7 @@ Start here when you want to understand the system from different angles:
 - [final-output-rendering.md](./final-output-rendering.md): Final-output generation contracts, retry/audit behavior, current renderers, and the structured-document rendering roadmap.
 - [system-logs.md](./system-logs.md): Live allow-listed platform logs, Docker and Kubernetes providers, SSE replay, AAA, redaction, limits, GitOps configuration, and monitoring.
 - [browser-console-troubleshooting.md](./browser-console-troubleshooting.md): How to triage DevTools warnings from injected browser extension content scripts versus NopsAI UI code.
+- [ui-modal-shell.md](./ui-modal-shell.md): The shared skin every create/edit dialog wears — the title pill, the form canvas, the action bar, the in-dialog control set, and the width and repaint rules a feature must follow.
 
 Existing focused docs:
 

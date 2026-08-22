@@ -4,10 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { Check, Plus } from 'lucide-react';
 import { expect, test, vi } from 'vitest';
 import {
+  WorkflowDialogCloseButton,
   WorkflowDialogFrame,
   WorkflowEmptyState,
   WorkflowIconButton,
   WorkflowInlineAlert,
+  WorkflowPropertyRow,
+  WorkflowSegmentedControl,
 } from './WorkflowPrimitives';
 
 function DialogHarness({ onClose }: { onClose: () => void }) {
@@ -102,4 +105,64 @@ test('renders shared alerts, empty states, and icon buttons with accessible name
   await user.click(screen.getByRole('button', { name: 'Approve' }));
   expect(onAction).toHaveBeenCalledOnce();
   expect(onIconClick).toHaveBeenCalledOnce();
+});
+
+test('closes a dialog from the title-pill icon button and can take opening focus', async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<WorkflowDialogCloseButton onClose={onClose} initialFocus />);
+
+  const close = screen.getByRole('button', { name: 'Close' });
+  expect(close).toHaveClass('workflow-dialog-close');
+  expect(close).toHaveAttribute('data-dialog-initial-focus');
+
+  await user.click(close);
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
+test('disables the close button while a dialog is saving', () => {
+  render(<WorkflowDialogCloseButton onClose={vi.fn()} disabled />);
+
+  expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+});
+
+test('lays out a property row with its label, hint, and control', () => {
+  render(
+    <WorkflowPropertyRow label="Kind" hint="Spec classification" htmlFor="property-row-kind" span="full">
+      <select id="property-row-kind" aria-label="Kind">
+        <option value="runbook">runbook</option>
+      </select>
+    </WorkflowPropertyRow>
+  );
+
+  const control = screen.getByRole('combobox', { name: 'Kind' });
+  const row = control.closest('.modal-property-row');
+  expect(row).toHaveClass('modal-property-row--full');
+  expect(within(row as HTMLElement).getByText('Spec classification')).toHaveClass('modal-property-hint');
+  expect(control.parentElement).toHaveClass('modal-property-control');
+});
+
+test('reports the chosen option from the segmented control', async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(
+    <WorkflowSegmentedControl
+      name="content-source"
+      legend="Content source"
+      value="inline"
+      options={[
+        { value: 'inline', label: 'Inline content' },
+        { value: 'external', label: 'External page' },
+      ]}
+      onChange={onChange}
+      stretch
+    />
+  );
+
+  const group = screen.getByRole('group', { name: 'Content source' });
+  expect(group).toHaveClass('modal-segmented', 'modal-segmented--stretch');
+  expect(screen.getByRole('radio', { name: 'Inline content' })).toBeChecked();
+
+  await user.click(screen.getByRole('radio', { name: 'External page' }));
+  expect(onChange).toHaveBeenCalledWith('external');
 });

@@ -3,7 +3,7 @@ import { AlertTriangle, CalendarClock, Pencil, PlugZap, RefreshCw, Save, Trash2,
 
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
-import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import {
   MONTHDAY_VALUES,
   MONTH_OPTIONS,
@@ -1016,18 +1016,14 @@ export function RefreshScheduleModal({
           {form.cronMode === 'weekly' ? (
             <fieldset className="space-y-2 md:col-span-2">
               <legend className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Days</legend>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="modal-chip-list">
                 {WEEKDAY_OPTIONS.map(option => (
-                  <label
-                    key={option.value}
-                    className="flex items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
-                  >
+                  <label key={option.value} className="modal-chip">
                     <input
                       type="checkbox"
                       checked={selectedWeekdays.has(option.value)}
                       onChange={() => updateCron({ cronWeekday: toggleCronListValue(form.cronWeekday, option.value, WEEKDAY_VALUES, '1') })}
                       disabled={saving}
-                      className="h-4 w-4 rounded border-[var(--border-primary)]"
                     />
                     <span>{option.short}</span>
                   </label>
@@ -1038,18 +1034,14 @@ export function RefreshScheduleModal({
           {form.cronMode === 'monthly' ? (
             <fieldset className="space-y-2 md:col-span-2">
               <legend className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Days of month</legend>
-              <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+              <div className="modal-chip-list">
                 {MONTHDAY_VALUES.map(day => (
-                  <label
-                    key={day}
-                    className="flex items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-2 py-2 text-sm text-[var(--text-primary)]"
-                  >
+                  <label key={day} className="modal-chip">
                     <input
                       type="checkbox"
                       checked={selectedMonthdays.has(day)}
                       onChange={() => updateCron({ cronMonthday: toggleCronListValue(form.cronMonthday, day, MONTHDAY_VALUES, '1') })}
                       disabled={saving}
-                      className="h-4 w-4 rounded border-[var(--border-primary)]"
                     />
                     <span>{day}</span>
                   </label>
@@ -1211,7 +1203,6 @@ export function DashboardDeleteModal({
       descriptionId={`${descriptionId}${errorId ? ` ${errorId}` : ''}`}
       onClose={saving ? () => undefined : onClose}
       className="pipelines-modal-card workflow-form-dialog workflow-form-dialog--wide w-full"
-      overlayClassName="workflow-form-dialog-overlay fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-4 show"
     >
       <header className="pipelines-modal-header">
         <div className="flex min-w-0 items-center gap-3">
@@ -1223,9 +1214,7 @@ export function DashboardDeleteModal({
             </h3>
           </div>
         </div>
-        <button type="button" className="glass-button-ghost" onClick={onClose} disabled={saving}>
-          Close
-        </button>
+        <WorkflowDialogCloseButton onClose={onClose} disabled={saving} />
       </header>
       <div className="pipelines-modal-body space-y-4">
         <FormSection title={target.sectionTitle} description={target.description}>

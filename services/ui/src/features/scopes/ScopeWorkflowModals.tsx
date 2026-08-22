@@ -1,5 +1,5 @@
 import { Copy, KeyRound } from 'lucide-react';
-import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import { normalizeScopeLabel, parseScopedIdentity } from './model';
 import {
   SAMPLE_SCOPE_VARIABLE,
@@ -71,7 +71,7 @@ function ScopeCreateDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className="pipelines-modal-card max-w-md w-full"
+      className="pipelines-modal-card workflow-dialog--compact w-full"
     >
         <header className="pipelines-modal-header">
           <div>
@@ -81,9 +81,7 @@ function ScopeCreateDialog({
               Parent: {formatScopeDisplay(modal.parent)}
             </p>
           </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-            Close
-          </button>
+          <WorkflowDialogCloseButton onClose={onClose} disabled={modal.pending} />
         </header>
         <form
           className="pipelines-modal-body space-y-4"
@@ -260,113 +258,113 @@ function ScopedValueDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className={`pipelines-modal-card ${isVariable ? 'max-w-10xl rounded-xl' : 'max-w-6xl rounded-lg'} w-full overflow-hidden border border-[var(--border-primary)] shadow-xl`}
+      className={`pipelines-modal-card ${isVariable ? 'workflow-dialog--xwide' : 'workflow-dialog--wide'} w-full`}
     >
-        <header className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded-full text-[11px] uppercase tracking-[0.18em] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                {modal.mode === 'update' ? 'Update' : 'Create'}
-              </span>
-              <span className="text-xs text-[var(--text-secondary)]">{formatScopeDisplay(modal.scope)}</span>
-            </div>
-            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
-            <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
-              {isVariable ? 'Plain text value; best for non-sensitive config.' : 'Encrypted value; use for sensitive credentials.'}
+      <form
+        onSubmit={event => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <header className="pipelines-modal-header">
+          <div className="min-w-0">
+            <p className="pipelines-modal-kicker">
+              {modal.mode === 'update' ? 'Update' : 'Create'} · {formatScopeDisplay(modal.scope)}
             </p>
-            {modal.mode === 'update' && modal.gitOpsManaged ? (
-              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
-                Saving here creates a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
-              </p>
-            ) : null}
+            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
           </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-            Close
-          </button>
+          <WorkflowDialogCloseButton onClose={onClose} disabled={modal.pending} />
         </header>
-        <div className="grid gap-4 md:grid-cols-[1.6fr_1fr] p-4 bg-[var(--bg-primary)]">
-          <form
-            className="space-y-4"
-            onSubmit={event => {
-              event.preventDefault();
-              onSubmit();
-            }}
-          >
-            <div className="space-y-1">
-              <label htmlFor={nameId} className="block text-sm font-medium text-[var(--text-secondary)]">
-                {isVariable ? 'Variable' : 'Secret'} Name
-              </label>
-              <input
-                id={nameId}
-                type="text"
-                className="pipelines-input w-full"
-                placeholder={isVariable ? 'DATABASE_URL' : 'API_KEY'}
-                value={modal.name}
-                onChange={event => onUpdate({ name: event.target.value })}
-                readOnly={modal.mode === 'update'}
-                aria-readonly={modal.mode === 'update'}
-                disabled={modal.pending}
-                data-dialog-initial-focus={modal.mode === 'create' ? true : undefined}
-              />
-              {!isVariable ? (
-                <p className="text-xs text-[var(--text-secondary)]">Name the secret; include repo prefix if scoped.</p>
-              ) : null}
+        <div className="pipelines-modal-body space-y-4">
+          <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
+            {isVariable ? 'Plain text value; best for non-sensitive config.' : 'Encrypted value; use for sensitive credentials.'}
+          </p>
+          {modal.mode === 'update' && modal.gitOpsManaged ? (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
+              Saving here creates a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+            </p>
+          ) : null}
+          <div className="grid gap-4 md:grid-cols-[1.6fr_1fr]">
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label htmlFor={nameId} className="block text-sm font-medium text-[var(--text-secondary)]">
+                  {isVariable ? 'Variable' : 'Secret'} Name
+                </label>
+                <input
+                  id={nameId}
+                  type="text"
+                  className="pipelines-input w-full"
+                  placeholder={isVariable ? 'DATABASE_URL' : 'API_KEY'}
+                  value={modal.name}
+                  onChange={event => onUpdate({ name: event.target.value })}
+                  readOnly={modal.mode === 'update'}
+                  aria-readonly={modal.mode === 'update'}
+                  disabled={modal.pending}
+                  data-dialog-initial-focus={modal.mode === 'create' ? true : undefined}
+                />
+                {!isVariable ? (
+                  <p className="text-xs text-[var(--text-secondary)]">Name the secret; include repo prefix if scoped.</p>
+                ) : null}
+              </div>
+              <div className="space-y-1">
+                <label htmlFor={repositoryId} className="block text-sm font-medium text-[var(--text-secondary)]">
+                  Repository (optional)
+                </label>
+                <input
+                  id={repositoryId}
+                  type="text"
+                  className="pipelines-input w-full"
+                  placeholder="owner/repository"
+                  list={repositoryListId}
+                  value={modal.repository}
+                  onChange={event => onUpdate({ repository: event.target.value })}
+                  disabled={modal.pending || modal.mode === 'update'}
+                  aria-disabled={modal.mode === 'update'}
+                />
+                <datalist id={repositoryListId}>
+                  {knownRepositories.map(repository => (
+                    <option key={`${kind}-repo-${repository}`} value={repository} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-[var(--text-secondary)]">
+                  {isVariable ? 'Link a repo to scope the variable.' : 'Leave blank for global; add repo for scoped secret.'}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label htmlFor={valueId} className="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
+                <textarea
+                  id={valueId}
+                  rows={4}
+                  className="pipelines-input w-full"
+                  placeholder={valuePlaceholder}
+                  value={modal.value}
+                  onChange={event => onUpdate({ value: event.target.value })}
+                  disabled={modal.pending || valueLoading}
+                  data-dialog-initial-focus={modal.mode === 'update' ? true : undefined}
+                />
+                <p className="text-xs text-[var(--text-secondary)]">{valueHint}</p>
+              </div>
+              {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
             </div>
-            <div className="space-y-1">
-              <label htmlFor={repositoryId} className="block text-sm font-medium text-[var(--text-secondary)]">
-                Repository (optional)
-              </label>
-              <input
-                id={repositoryId}
-                type="text"
-                className="pipelines-input w-full"
-                placeholder="owner/repository"
-                list={repositoryListId}
-                value={modal.repository}
-                onChange={event => onUpdate({ repository: event.target.value })}
-                disabled={modal.pending || modal.mode === 'update'}
-                aria-disabled={modal.mode === 'update'}
-              />
-              <datalist id={repositoryListId}>
-                {knownRepositories.map(repository => (
-                  <option key={`${kind}-repo-${repository}`} value={repository} />
-                ))}
-              </datalist>
-              <p className="text-xs text-[var(--text-secondary)]">
-                {isVariable ? 'Link a repo to scope the variable.' : 'Leave blank for global; add repo for scoped secret.'}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <label htmlFor={valueId} className="block text-sm font-medium text-[var(--text-secondary)]">Value</label>
-              <textarea
-                id={valueId}
-                rows={4}
-                className="pipelines-input w-full"
-                placeholder={valuePlaceholder}
-                value={modal.value}
-                onChange={event => onUpdate({ value: event.target.value })}
-                disabled={modal.pending || valueLoading}
-                data-dialog-initial-focus={modal.mode === 'update' ? true : undefined}
-              />
-              <p className="text-xs text-[var(--text-secondary)]">{valueHint}</p>
-            </div>
-            {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-                Cancel
-              </button>
-              <button type="submit" className="glass-button-primary" disabled={modal.pending || valueLoading}>
-                {submitLabel}
-              </button>
-            </div>
-          </form>
-          <ScopeSuggestions
-            kind={kind}
-            modal={modal}
-            entries={suggestions}
-            onChoose={onChooseSuggestion}
-          />
+            <ScopeSuggestions
+              kind={kind}
+              modal={modal}
+              entries={suggestions}
+              onChoose={onChooseSuggestion}
+            />
+          </div>
         </div>
+        <footer className="pipelines-modal-footer">
+          <div className="pipelines-modal-actions">
+            <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
+              Cancel
+            </button>
+            <button type="submit" className="glass-button-primary" disabled={modal.pending || valueLoading}>
+              {submitLabel}
+            </button>
+          </div>
+        </footer>
+      </form>
     </WorkflowDialogFrame>
   );
 }
@@ -394,30 +392,28 @@ function GitOpsEncryptDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className="pipelines-modal-card max-w-3xl w-full overflow-hidden rounded-lg border border-[var(--border-primary)] shadow-xl"
+      className="pipelines-modal-card workflow-dialog--wide w-full"
     >
-        <header className="flex items-start justify-between gap-3 px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
-              <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">GitOps</span>
+      <form
+        onSubmit={event => {
+          event.preventDefault();
+          onEncrypt();
+        }}
+      >
+        <header className="pipelines-modal-header">
+          <div className="flex min-w-0 items-center gap-3">
+            <KeyRound className="h-4 w-4 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="pipelines-modal-kicker">GitOps</p>
+              <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">Secret Encryption</h3>
             </div>
-            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">Secret Encryption</h3>
-            <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
-              Encrypt a secret value for a Git-managed scope file.
-            </p>
           </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-            Close
-          </button>
+          <WorkflowDialogCloseButton onClose={onClose} disabled={modal.pending} />
         </header>
-        <form
-          className="space-y-3 p-4 bg-[var(--bg-primary)]"
-          onSubmit={event => {
-            event.preventDefault();
-            onEncrypt();
-          }}
-        >
+        <div className="pipelines-modal-body space-y-3">
+          <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
+            Encrypt a secret value for a Git-managed scope file.
+          </p>
           <div className="space-y-1">
             <label htmlFor="gitops-secret-value" className="block text-sm font-medium text-[var(--text-secondary)]">
               Value
@@ -447,7 +443,9 @@ function GitOpsEncryptDialog({
             </div>
           ) : null}
           {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
-          <div className="flex items-center justify-end gap-2 pt-1">
+        </div>
+        <footer className="pipelines-modal-footer">
+          <div className="pipelines-modal-actions">
             {modal.encryptedValue ? (
               <button type="button" className="glass-button-ghost inline-flex items-center gap-2" onClick={onCopy} disabled={modal.pending}>
                 <Copy className="h-4 w-4" aria-hidden="true" />
@@ -461,7 +459,8 @@ function GitOpsEncryptDialog({
               {modal.pending ? 'Encrypting...' : 'Encrypt'}
             </button>
           </div>
-        </form>
+        </footer>
+      </form>
     </WorkflowDialogFrame>
   );
 }
@@ -487,16 +486,14 @@ function ScopedValueDeleteDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className="pipelines-modal-card max-w-md w-full"
+      className="pipelines-modal-card workflow-dialog--compact w-full"
     >
         <header className="pipelines-modal-header">
           <div>
             <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete {modal.kind}</p>
             <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">Confirm removal</h3>
           </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-            Close
-          </button>
+          <WorkflowDialogCloseButton onClose={onClose} disabled={modal.pending} />
         </header>
         <div className="pipelines-modal-body space-y-4">
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">

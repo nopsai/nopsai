@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Edit3, ListPlus, Plus } from 'lucide-react';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
-import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
+import { WorkflowDialogCloseButton, WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import { YamlValidationPanel, type YamlValidationError } from '../editor/YamlValidationPanel';
 import {
   GLOBAL_RESOURCE_TEAM_PATH,
@@ -277,16 +277,14 @@ function TriggerDeleteDialog({
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className="pipelines-modal-card max-w-md w-full"
+      className="pipelines-modal-card workflow-dialog--compact w-full"
     >
         <header className="pipelines-modal-header">
           <div>
             <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete trigger</p>
             <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">Remove {modal.slug}?</h3>
           </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-            Close
-          </button>
+          <WorkflowDialogCloseButton onClose={onClose} disabled={modal.pending} />
         </header>
         <div className="pipelines-modal-body space-y-3">
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">

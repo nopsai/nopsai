@@ -185,14 +185,23 @@ export function GitWebhookSourceForm({
             placeholder="120"
           />
         </Field>
-        <label className="flex items-center gap-3 self-end rounded-lg border border-[var(--border-primary)] px-4 py-3 text-sm text-[var(--text-primary)]">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={event => update('enabled', event.target.checked)}
-          />
-          Accept webhook deliveries
-        </label>
+        <div className="modal-property-row self-end">
+          <div className="min-w-0">
+            <label className="modal-property-label" htmlFor="git-webhook-source-enabled">
+              Accept webhook deliveries
+            </label>
+            <span className="modal-property-hint">Pause the source without deleting it.</span>
+          </div>
+          <label className="modal-toggle">
+            <input
+              id="git-webhook-source-enabled"
+              type="checkbox"
+              checked={form.enabled}
+              onChange={event => update('enabled', event.target.checked)}
+            />
+            <span />
+          </label>
+        </div>
       </div>
 
       {error ? (

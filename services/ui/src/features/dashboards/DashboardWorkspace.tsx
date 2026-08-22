@@ -21,7 +21,7 @@ import {
 import { ObjectIcon } from '../../components/ObjectIcon';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
-import { WorkflowDialogFrame } from '../../components/WorkflowPrimitives';
+import { WorkflowDialogFrame, workflowDialogOverlayClass } from '../../components/WorkflowPrimitives';
 import { friendlyCronLabel } from '../schedules/model';
 import { dashboardAttentionSignals, type DashboardAttentionSignal, type DashboardAttentionTone } from './dashboardAttention';
 import { DashboardPublicationGrid } from './DashboardPublicationGrid';
@@ -452,7 +452,7 @@ function DashboardDetailsModal({ children, onClose }: { children: ReactNode; onC
       id="dashboard-details-modal"
       titleId="dashboard-details-modal-title"
       onClose={onClose}
-      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6 show"
+      overlayClassName={workflowDialogOverlayClass}
       className="relative max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-md outline-none"
     >
       <button
