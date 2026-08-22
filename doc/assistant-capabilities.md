@@ -222,6 +222,19 @@ metadata available on demand.
 - Sample, template, schema, and definition-shape requests are routed through
   current NopsAI docs or capability evidence before the assistant answers. The
   chat path must not use hardcoded example payloads as a fallback.
+- Tool routing is derived from each tool's own resource type, action, name, and
+  description, so a newly registered tool is reachable without editing the
+  planner. `nopsai.find_tools` lets the assistant search the tools the current
+  user may call and read their input schemas when the one it needs was not
+  included.
+- Change mode is enforced by exclusion rather than ranking: a request to set a
+  value is not offered GitOps proposal tools, a GitOps request is not offered
+  runtime write tools, and a read request is offered neither.
+- When a plan names a read tool that exists and is permitted but whose schema was
+  not included for that request, NopsAI adds the schema and lets the planner try
+  once more, rather than ending the turn on its own routing omission. Repair is
+  bounded to one retry and covers reads only: proposal and mutating tools are
+  withheld deliberately by mode selection, so they keep the hard rejection.
 - Planner prompts keep the live hosted MCP tool list visible, but include
   compact input schemas only for tools that look relevant to the request,
   extracted context, or previous evidence. This keeps planning grounded in
@@ -546,6 +559,69 @@ Main MCP coverage: `nopsai.get_notification_mail_settings`,
 `nopsai.get_notification_route`,
 `nopsai.propose_notification_route_update`, and
 `nopsai.propose_notification_route_delete`.
+
+### Teams, Applications, And Delivery Analysis
+
+Team is the ownership unit of the product, so it has first-class tools: the
+assistant can list the teams and applications the current user can see, read one
+by id or path, and analyse a team's or a pipeline's delivery health over a
+window.
+
+Analysis is not a data dump. `nopsai.analyze_team` and `nopsai.analyze_pipeline`
+read permission-filtered monitoring evidence and return **ranked findings**, each
+with severity, category, measured evidence, a recommendation, and a confidence
+score, plus per-category scores, a health score, and `next_actions` naming the
+tool call that investigates the top finding. Findings and scores are computed
+deterministically on the server; the model explains them and never derives the
+score itself.
+
+`nopsai.analyze_pipeline` also reads the stored definition, so a review covers
+how the pipeline is written as well as how it behaves: embedded secret literals
+(reported as the redacted line, never the value), unpinned images, privileged
+execution, risky shell scripts, a missing timeout, a production path with no
+approval gate or with self-approval allowed, broken or cyclic step dependencies,
+no operator-facing output, and check steps chained when they could run together.
+A pipeline that has never run is therefore still reviewable and still scores.
+
+Team analysis covers ownership as well as delivery: duplicate resources,
+near-identical definitions that will drift apart, resources a team depends on but
+does not own, a split between GitOps-managed and database-managed resources,
+disabled or deprecated resources still in the way, and hierarchy deeper than the
+boundaries it represents. Another team's resources never enter the analysis, and
+`include_inventory: false` skips it when only delivery metrics are wanted.
+
+`nopsai.analyze_run` answers the question operators actually ask about a
+failure: **whose problem is it**. It classifies the run into a likely domain —
+application code, application tests, pipeline definition, credential or
+authorization, runner infrastructure, timeout or capacity, approval or policy,
+AI provider, or trigger input — with a confidence, names the first failure point
+(step, task, exit code) so later cascade errors are not mistaken for the cause,
+and lists what changed since the last successful run of the same pipeline.
+
+The same analyses are available over REST at `POST /v1/analysis/team`,
+`POST /v1/analysis/pipeline`, and `POST /v1/analysis/run` for surfaces that are
+not the chat. They use no model, so they work with the assistant disabled.
+
+The health score uses the same formula as the Analysis modal in the UI: baseline
+100, minus critical x 25, high x 15, medium x 8, low x 3, opportunity x 1,
+clamped to 0-100. A monitoring source that cannot be read is reported as a
+limitation and never scores as a healthy category, and with no readable run
+evidence no score is produced at all.
+
+Ask:
+
+- "How is the platform team doing this month?"
+- "What should we fix first in team `platform`?"
+- "Review the last 7 days for my team."
+- "Analyse `platform/deploy-api` — it feels slow and flaky."
+- "Which of our pipelines is the least reliable, and why?"
+- "Why did run `e3850cec-550f-456a-bec8-e67777d71d24` fail?"
+- "Is that failure our code or the platform?"
+- "List the teams I can see."
+
+Main MCP coverage: `nopsai.list_teams`, `nopsai.get_team`,
+`nopsai.analyze_team`, `nopsai.analyze_pipeline`, `nopsai.analyze_run`. Team writes stay on guarded
+REST routes through `nopsai.call_api`.
 
 ### Monitoring, Analytics, Cost, And Recommendations
 

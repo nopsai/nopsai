@@ -76,6 +76,8 @@ test('uses structured AI findings to update health and metric scores', () => {
     generatedAt: '2026-07-24T10:05:00Z',
     modelLabel: 'gpt-test',
     profileName: 'analysis',
+    serverGrounded: true,
+    dataSources: ['/v1/monitoring/summary'],
     usage: { totalTokens: 1000, durationMs: 2500 },
   };
 
@@ -135,6 +137,8 @@ test('marks reusable cached reviews from older snapshots as previous-snapshot sc
     generatedAt: '2026-07-24T10:05:00Z',
     modelLabel: 'gpt-test',
     profileName: 'analysis',
+    serverGrounded: true,
+    dataSources: ['/v1/monitoring/summary'],
     usage: { totalTokens: 100, durationMs: 1000 },
     snapshotRevision: 'snapshot-older',
   };

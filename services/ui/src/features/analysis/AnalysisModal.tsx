@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   Bot,
@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Info,
   Loader2,
+  MessageSquare,
   ShieldCheck,
   Sparkles,
   X,
@@ -21,7 +22,11 @@ import {
   type AnalysisScore,
   type AnalysisSeverity,
 } from './model.js';
-import type { AnalysisAiPromptContext } from './ai.js';
+import {
+  analysisAssistantChatPrompt,
+  analysisAssistantPageContext,
+  type AnalysisAiPromptContext,
+} from './ai.js';
 import { useAnalysisAiEvaluation, type AnalysisAiEvaluationState } from './useAnalysisAiEvaluation.js';
 import {
   buildAnalysisScoreView,
@@ -101,6 +106,7 @@ export function AnalysisModal({
   onClose: () => void;
 }) {
   const workspace = useAnalysisWorkspaceState({ result, loadAiPromptContext });
+  const navigate = useNavigate();
   return (
     <div className="fixed inset-0 z-[90] bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation">
       <section
@@ -124,6 +130,23 @@ export function AnalysisModal({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="glass-button-ghost"
+              onClick={() => {
+                onClose();
+                navigate('/assistant', {
+                  state: {
+                    assistantPageContext: analysisAssistantPageContext(result),
+                    assistantStartFresh: true,
+                    assistantDraft: analysisAssistantChatPrompt(result),
+                  },
+                });
+              }}
+            >
+              <MessageSquare className="h-4 w-4" aria-hidden="true" />
+              Ask NopsAI
+            </button>
             <button type="button" className="glass-button-ghost" onClick={() => void workspace.copyReport()}>
               <ClipboardCopy className="h-4 w-4" aria-hidden="true" />
               {workspace.copyState === 'copied' ? 'Copied' : workspace.copyState === 'error' ? 'Copy failed' : 'Copy'}
@@ -532,6 +555,11 @@ function AiEvaluationPanel({
           <StructuredAiEvaluation evaluation={state.evaluation.evaluation} />
           <div className="mt-3 text-xs text-[var(--text-secondary)]">
             {state.evaluation.profileName} · {state.evaluation.modelLabel} · {state.evaluation.usage.totalTokens.toLocaleString()} tokens
+          </div>
+          <div className="mt-1 text-xs text-[var(--text-secondary)]">
+            {state.evaluation.serverGrounded
+              ? `Grounded in NopsAI server analysis${state.evaluation.dataSources.length > 0 ? ` (${state.evaluation.dataSources.length} evidence source${state.evaluation.dataSources.length === 1 ? '' : 's'})` : ''}.`
+              : 'Reviewed from this page snapshot only; no server evidence was available for this subject.'}
           </div>
           <div className="mt-1 text-xs text-[var(--text-secondary)]">
             {state.source === 'cache'

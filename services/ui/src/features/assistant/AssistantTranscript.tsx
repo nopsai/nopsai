@@ -7,9 +7,11 @@ import { copyTextToClipboard } from '../../lib/clipboard.js';
 import {
   assistantExecutionPlanFromMessage,
   assistantMessageUsageLabel,
+  assistantSuggestedActions,
   type AssistantExecutionPlan,
   type AssistantExecutionPlanStep,
   type AssistantMessage,
+  type AssistantSuggestedAction,
 } from './model.js';
 import {
   assistantFailureDetailBody,
@@ -57,6 +59,7 @@ export function AssistantMessageRow({
   actionsDisabled,
   onCopy,
   onRetry,
+  onSuggestion,
 }: {
   message: AssistantMessage;
   currentUser?: CurrentUser | null;
@@ -64,6 +67,7 @@ export function AssistantMessageRow({
   actionsDisabled: boolean;
   onCopy: () => void;
   onRetry?: () => void;
+  onSuggestion?: (suggestion: AssistantSuggestedAction) => void;
 }) {
   const isUser = message.role === 'user';
   const failure = assistantMessageFailure(message);
@@ -120,11 +124,45 @@ export function AssistantMessageRow({
               </div>
             )}
             {failure && <AssistantFailureCard failure={failure} onRetry={onRetry} retryDisabled={actionsDisabled} />}
+            {onSuggestion && <AssistantSuggestions message={message} disabled={actionsDisabled} onSuggestion={onSuggestion} />}
           </div>
         )}
       </div>
       {isUser && <AssistantUserAvatar currentUser={currentUser} />}
     </article>
+  );
+}
+
+/** The analysis already worked out what to look at next, so acting on it is one click. */
+function AssistantSuggestions({
+  message,
+  disabled,
+  onSuggestion,
+}: {
+  message: AssistantMessage;
+  disabled: boolean;
+  onSuggestion: (suggestion: AssistantSuggestedAction) => void;
+}) {
+  const suggestions = assistantSuggestedActions(message);
+  if (suggestions.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Suggested next step</p>
+      <div className="flex flex-wrap gap-2">
+        {suggestions.map(suggestion => (
+          <button
+            key={suggestion.label}
+            type="button"
+            className="rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-1.5 text-left text-xs font-medium text-[var(--text-primary)] transition hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => onSuggestion(suggestion)}
+            disabled={disabled}
+            title={suggestion.tool ? `Runs ${suggestion.tool}` : undefined}
+          >
+            {suggestion.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

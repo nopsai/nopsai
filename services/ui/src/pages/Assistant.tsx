@@ -12,9 +12,16 @@ export default function AssistantPage() {
     [location.state]
   );
   const startFresh = readAssistantStartFreshState(location.state);
+  const initialDraft = readAssistantDraftState(location.state);
   return (
     <div className="h-full min-h-0 bg-[var(--bg-primary)]">
-      <AssistantPanel variant="page" startFresh={startFresh} pageContext={pageContext} currentUser={currentUser} />
+      <AssistantPanel
+        variant="page"
+        startFresh={startFresh}
+        pageContext={pageContext}
+        currentUser={currentUser}
+        initialDraft={initialDraft}
+      />
     </div>
   );
 }
@@ -23,6 +30,12 @@ function readAssistantPageContextState(state: unknown): Partial<AssistantPageCon
   if (!state || typeof state !== 'object') return null;
   const value = (state as { assistantPageContext?: unknown }).assistantPageContext;
   return value && typeof value === 'object' ? value as Partial<AssistantPageContext> : null;
+}
+
+function readAssistantDraftState(state: unknown): string {
+  if (!state || typeof state !== 'object') return '';
+  const value = (state as { assistantDraft?: unknown }).assistantDraft;
+  return typeof value === 'string' ? value : '';
 }
 
 function readAssistantStartFreshState(state: unknown): boolean {

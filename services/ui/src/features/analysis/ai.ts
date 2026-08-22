@@ -214,6 +214,19 @@ export function parseAnalysisAiEvaluation(content: string): StructuredAnalysisAi
   };
 }
 
+/** The chat opener for an analysis, so moving from a finding to a conversation needs no retyping. */
+export function analysisAssistantChatPrompt(result: AnalysisResult): string {
+  const blocking = result.counts.critical + result.counts.high;
+  const subject = `${result.subjectType} ${result.subjectLabel}`.trim();
+  if (blocking > 0) {
+    return `Walk me through the analysis of ${subject} (score ${result.healthScore}/100, ${blocking} critical or high findings) and tell me what to fix first.`;
+  }
+  if (result.findings.length > 0) {
+    return `Walk me through the analysis of ${subject} (score ${result.healthScore}/100) and tell me which finding is worth acting on.`;
+  }
+  return `The analysis of ${subject} scored ${result.healthScore}/100 with no findings. What else should I check?`;
+}
+
 export function analysisAssistantPageContext(result: AnalysisResult): Partial<AssistantPageContext> {
   if (result.subjectType === 'run') {
     return {

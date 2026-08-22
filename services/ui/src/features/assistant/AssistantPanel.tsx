@@ -27,6 +27,7 @@ export function AssistantPanel({
   startFresh = false,
   pageContext = null,
   currentUser = null,
+  initialDraft = '',
   onExpand,
   onClose,
 }: {
@@ -34,6 +35,8 @@ export function AssistantPanel({
   startFresh?: boolean;
   pageContext?: Partial<AssistantPageContext> | null;
   currentUser?: CurrentUser | null;
+  /** Prefills the composer once, for hand-offs such as "Ask NopsAI" from an analysis. */
+  initialDraft?: string;
   onExpand?: () => void;
   onClose?: () => void;
 }) {
@@ -46,6 +49,13 @@ export function AssistantPanel({
   const pageContextLabel = pageContextRemoved ? '' : assistantPageContextLabel(pageContext);
   const [progressNow, setProgressNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement>(null);
+
+  const draftSeeded = useRef(false);
+  useEffect(() => {
+    if (draftSeeded.current || !initialDraft) return;
+    draftSeeded.current = true;
+    assistant.setDraft(initialDraft);
+  }, [assistant, initialDraft]);
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -127,6 +137,7 @@ export function AssistantPanel({
                         actionsDisabled={actionsDisabled}
                         onCopy={() => void assistant.copyMessage(message)}
                         onRetry={prompt ? () => void assistant.retryMessage(prompt) : undefined}
+                        onSuggestion={suggestion => assistant.setDraft(suggestion.label)}
                       />
                     );
                   })

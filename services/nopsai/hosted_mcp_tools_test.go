@@ -26,12 +26,15 @@ func TestHostedMCPToolsAreFilteredByAAA(t *testing.T) {
 	app := &App{aaaLocal: allowPipelineList}
 
 	tools := app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"})
-	if len(tools) != 4 {
-		t.Fatalf("tools len = %d, want 4: %#v", len(tools), tools)
+	if len(tools) != 5 {
+		t.Fatalf("tools len = %d, want 5: %#v", len(tools), tools)
 	}
+	// Authenticated-only tools expose nothing the subject could not already read:
+	// the version banner, and a search over this same filtered tool list.
+	authenticatedOnly := map[string]bool{"nopsai.get_platform_version": true, "nopsai.find_tools": true}
 	for _, tool := range tools {
 		if tool.AuthenticatedOnly {
-			if tool.Name != "nopsai.get_platform_version" {
+			if !authenticatedOnly[tool.Name] {
 				t.Fatalf("unexpected authenticated-only tool escaped filter: %#v", tool)
 			}
 			continue

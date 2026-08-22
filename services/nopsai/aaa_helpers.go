@@ -53,6 +53,9 @@ func isAuthenticatedOnlyPath(path string) bool {
 			path == "/v1/assistant/models" ||
 			path == "/v1/assistant/conversations" ||
 			path == "/v1/analysis/evaluate" ||
+			path == "/v1/analysis/team" ||
+			path == "/v1/analysis/pipeline" ||
+			path == "/v1/analysis/run" ||
 			path == "/v1/internal/dispatcher/routing" ||
 			strings.HasPrefix(path, "/internal/v1/runtime-config/") ||
 			strings.HasPrefix(path, "/v1/internal/runs/") ||

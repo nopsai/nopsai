@@ -76,6 +76,8 @@ test('stores AI evaluation history by subject and exact snapshot revision', () =
     generatedAt: '2026-07-24T10:05:00Z',
     modelLabel: 'gpt-test',
     profileName: 'analysis',
+    serverGrounded: true,
+    dataSources: ['/v1/monitoring/summary'],
     usage: { totalTokens: 120, durationMs: 800 },
   };
 

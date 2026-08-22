@@ -17,6 +17,13 @@ const (
 	assistantMaxPlannerIterations  = 4
 	assistantMaxPlannerAttempts    = 2
 	assistantMaxPlannerSchemaTools = 18
+
+	// How many tools relevance alone may contribute. Structural context and mode
+	// policy add on top of this; the rest of the budget stays for them.
+	assistantPlannerMaxRoutedTools = 6
+
+	// Discovery needs the purpose of a tool, not its full argument prose.
+	assistantPlannerCatalogDescriptionLimit = 140
 )
 
 type assistantPlannerResult struct {
@@ -151,12 +158,14 @@ func (a *App) requestAssistantPlannerDecision(
 	profile config.LLMProfile,
 	client *llmclient.Client,
 ) (assistantPlannerDecision, []assistantToolActivity, bool) {
-	basePrompt := a.buildAssistantPlannerPrompt(ctx, subject, conversation, content, plan, toolCalls, remainingToolCalls, iteration)
 	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
 	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content, plan.PageContext), plan, toolCalls, availableTools)
+	basePrompt := a.buildAssistantPlannerPromptWithSchemas(conversation, content, plan, toolCalls, remainingToolCalls, iteration, availableTools, schemaToolNames)
 	prompt := basePrompt
 	activities := []assistantToolActivity{}
-	for attempt := 1; attempt <= assistantMaxPlannerAttempts; attempt++ {
+	maxAttempts := assistantMaxPlannerAttempts
+	schemaRepaired := false
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		completion, err := client.Complete(ctx, prompt)
 		output := map[string]any{
 			"iteration": iteration,
@@ -182,6 +191,24 @@ func (a *App) requestAssistantPlannerDecision(
 			return assistantPlannerDecision{}, activities, false
 		}
 		if err := assistantValidatePlannerDecisionUsesSchemaTools(decision, schemaToolNames); err != nil {
+			// Naming a real tool whose schema was not shipped is a routing miss on
+			// our side, not a bad plan. Hand over the schemas and let the planner
+			// finish instead of ending the turn on our own omission.
+			missing := assistantPlannerRepairableSchemaTools(decision, schemaToolNames, availableTools)
+			if len(missing) > 0 && !schemaRepaired {
+				schemaRepaired = true
+				maxAttempts++
+				for _, name := range missing {
+					schemaToolNames[name] = true
+				}
+				output["fallback_reason"] = err.Error()
+				output["schema_repair"] = missing
+				output["will_retry"] = true
+				activities = append(activities, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output))
+				basePrompt = a.buildAssistantPlannerPromptWithSchemas(conversation, content, plan, toolCalls, remainingToolCalls, iteration, availableTools, schemaToolNames)
+				prompt = assistantPlannerSchemaRepairPrompt(basePrompt, missing)
+				continue
+			}
 			output["fallback_reason"] = err.Error()
 			output["raw_response"] = assistantTruncateForPrompt(completion.Text)
 			activities = append(activities, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output))
@@ -208,6 +235,46 @@ func assistantPlannerDecisionRetryable(err error) bool {
 	reason := strings.ToLower(err.Error())
 	return strings.Contains(reason, "planner response did not contain a json object") ||
 		strings.Contains(reason, "parse planner json")
+}
+
+// assistantPlannerRepairableSchemaTools returns the read-only tools a plan asked
+// for that exist, are permitted for this subject, and were not given a schema.
+//
+// Only reads are repaired. A missing read schema is a routing miss on our side,
+// and the tool call is still AAA-checked when it runs. A missing write or
+// proposal schema is usually the opposite: schema selection withheld it on
+// purpose, because plain "add a secret" must not be quietly turned into a GitOps
+// proposal, and an unconfirmed mutation must not be handed the tool it needs.
+// Repairing those would relax a guardrail rather than fix an omission.
+func assistantPlannerRepairableSchemaTools(decision assistantPlannerDecision, schemaToolNames map[string]bool, tools []hostedMCPTool) []string {
+	available := map[string]hostedMCPTool{}
+	for _, tool := range tools {
+		available[tool.Name] = tool
+	}
+	seen := map[string]bool{}
+	missing := []string{}
+	for _, step := range decision.Steps {
+		name := strings.TrimSpace(step.Tool)
+		if name == "" || schemaToolNames[name] || seen[name] {
+			continue
+		}
+		tool, ok := available[name]
+		if !ok {
+			continue
+		}
+		if assistantPlannedToolIsProposal(name) || assistantToolRequiresActionExecution(tool) {
+			continue
+		}
+		seen[name] = true
+		missing = append(missing, name)
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func assistantPlannerSchemaRepairPrompt(basePrompt string, missing []string) string {
+	return basePrompt + "\n\nThe schemas for " + strings.Join(missing, ", ") +
+		" are now included in schema_tools because your previous plan selected them. Return the plan again using those exact argument names."
 }
 
 func assistantPlannerRepairPrompt(originalPrompt string, rawResponse string, err error) string {
@@ -368,6 +435,19 @@ func assistantPlanHasTerminalEvidence(plan assistantTurnPlan, toolCalls []assist
 func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.Subject, conversation assistantConversation, content string, plan assistantTurnPlan, toolCalls []assistantToolActivity, remainingToolCalls int, iteration int) string {
 	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
 	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content, plan.PageContext), plan, toolCalls, availableTools)
+	return a.buildAssistantPlannerPromptWithSchemas(conversation, content, plan, toolCalls, remainingToolCalls, iteration, availableTools, schemaToolNames)
+}
+
+func (a *App) buildAssistantPlannerPromptWithSchemas(
+	conversation assistantConversation,
+	content string,
+	plan assistantTurnPlan,
+	toolCalls []assistantToolActivity,
+	remainingToolCalls int,
+	iteration int,
+	availableTools []hostedMCPTool,
+	schemaToolNames map[string]bool,
+) string {
 	payload := map[string]any{
 		"user_request":         strings.TrimSpace(content),
 		"conversation_memory":  normalizeAssistantMemory(conversation.Memory),
@@ -405,10 +485,12 @@ func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.
 
 Create a safe hosted MCP tool plan from user_request, available_tools, schema_tools, and observed tool results.
 Use conversation_history, memory, and page_context for follow-ups; explicit user targets win.
-Use only tool names from available_tools. Put a tool in steps only when schema_included is true; false is discoverability only.
-Select tools from their descriptions and use schema_tools for exact argument names. Never invent tools or arguments. Never request direct database access.
+Use only tool names from available_tools. Put a tool in steps only when it also appears in schema_tools; the rest of available_tools is discoverability only. Catalogue flags (schema_included, mutating, proposal) appear only when true.
+Select tools from their descriptions and use schema_tools for exact argument names. If the tool you need has no schema here, call nopsai.find_tools with a short query to get its schema instead of guessing arguments. Never invent tools or arguments. Never request direct database access.
 Step reasons are user-visible; keep them short and operational, not hidden reasoning.
 Prefer first-party analytics tools over stitching raw data manually.
+For health, review, "how is X doing", "why did this run fail", or "what should we fix first" questions, call nopsai.analyze_team, nopsai.analyze_pipeline, or nopsai.analyze_run first: they return ranked findings with evidence, category scores, a likely failure domain for runs, and the next tool to call. Fall back to individual monitoring tools only when the user asks for one specific metric.
+When an analysis result lists next_actions, treat the first one as the recommended next step and offer it to the user.
 For reads, choose the smallest evidence set that can answer the question.
 If previous_evidence is enough for a follow-up calculation, estimate, comparison, or explanation, return no steps and final_answer with "Data source" and "Confidence". Separate MCP-backed facts from LLM-derived assumptions.
 For cost estimates, do not invent exact pricing. If pricing is missing, give a formula or scenario with explicit per-token/per-million-token assumptions.
@@ -443,18 +525,46 @@ Context:
 func assistantPlannerToolCatalog(tools []hostedMCPTool, schemaToolNames map[string]bool) []map[string]any {
 	items := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
-		items = append(items, map[string]any{
-			"name":            tool.Name,
-			"description":     tool.Description,
-			"schema_included": schemaToolNames[tool.Name],
-			"mutating":        assistantToolRequiresActionExecution(tool),
-			"proposal":        assistantPlannedToolIsProposal(tool.Name),
-		})
+		description := tool.Description
+		if !schemaToolNames[tool.Name] {
+			description = assistantPlannerCatalogDescription(description)
+		}
+		// Flags are emitted only when true. Across 200+ tools the false ones were
+		// most of the catalogue's size and none of its information.
+		item := map[string]any{"name": tool.Name, "description": description}
+		if schemaToolNames[tool.Name] {
+			item["schema_included"] = true
+		}
+		if assistantToolRequiresActionExecution(tool) {
+			item["mutating"] = true
+		}
+		if assistantPlannedToolIsProposal(tool.Name) {
+			item["proposal"] = true
+		}
+		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		return fmt.Sprint(items[i]["name"]) < fmt.Sprint(items[j]["name"])
 	})
 	return items
+}
+
+// assistantPlannerCatalogDescription keeps the sentence that says what a tool is
+// for and drops the argument and confirmation detail, which only matters once the
+// tool's schema is actually included.
+func assistantPlannerCatalogDescription(description string) string {
+	description = strings.TrimSpace(description)
+	if len(description) <= assistantPlannerCatalogDescriptionLimit {
+		return description
+	}
+	if cut := strings.Index(description, ". "); cut > 0 && cut+1 <= assistantPlannerCatalogDescriptionLimit {
+		return description[:cut+1]
+	}
+	trimmed := description[:assistantPlannerCatalogDescriptionLimit]
+	if space := strings.LastIndex(trimmed, " "); space > 40 {
+		trimmed = trimmed[:space]
+	}
+	return strings.TrimRight(trimmed, " ,;:") + "..."
 }
 
 func assistantPlannerSchemaToolCatalog(tools []hostedMCPTool, schemaToolNames map[string]bool) []map[string]any {
@@ -476,6 +586,7 @@ func assistantPlannerSchemaToolCatalog(tools []hostedMCPTool, schemaToolNames ma
 
 func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, toolCalls []assistantToolActivity, tools []hostedMCPTool) map[string]bool {
 	scores := map[string]int{}
+	blocked := map[string]bool{}
 	available := map[string]bool{}
 	for _, tool := range tools {
 		available[tool.Name] = true
@@ -492,15 +603,8 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 			}
 		}
 	}
-	addContains := func(fragment string, score int) {
-		for name := range available {
-			if strings.Contains(name, fragment) {
-				add(name, score)
-			}
-		}
-	}
-
 	lower := strings.ToLower(strings.TrimSpace(content))
+	modePolicy := assistantPlannerModePolicyFor(lower, plan)
 	for _, tool := range tools {
 		if strings.Contains(lower, strings.ToLower(tool.Name)) {
 			add(tool.Name, 100)
@@ -513,6 +617,7 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add(call.Name, 60)
 	}
 	if plan.RunID != "" {
+		add("nopsai.analyze_run", 55)
 		add("nopsai.get_pipeline_run", 45)
 		add("nopsai.get_pipeline_run_logs", 45)
 		add("nopsai.analyze_pipeline_run_failure", 45)
@@ -596,7 +701,18 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.explain_scope_permissions", 25)
 	}
 
+	if assistantTextHasAny(lower, "team", "teams", "squad", "organisation", "organization", "our group", "my group") {
+		add("nopsai.list_teams", 45)
+		add("nopsai.get_team", 40)
+		add("nopsai.analyze_team", 55)
+	}
+	if assistantTextHasAny(lower, "analyse", "analyze", "analysis", "review", "health", "healthy", "how is", "how are", "how's", "doing", "what should i fix", "what should we fix", "where should i start", "posture", "state of", "assessment", "audit") {
+		add("nopsai.analyze_team", 50)
+		add("nopsai.analyze_pipeline", 50)
+		add("nopsai.analyze_run", 45)
+	}
 	if assistantTextHasAny(lower, "pipeline", "yaml", "build", "deploy", "approval", "step", "rollout", "release") {
+		add("nopsai.analyze_pipeline", 40)
 		add("nopsai.list_pipelines", 20)
 		add("nopsai.search_pipelines", 35)
 		add("nopsai.get_pipeline", 35)
@@ -608,113 +724,51 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.get_pipeline_knowledge_context", 20)
 		add("nopsai.explain_pipeline_health", 20)
 	}
-	if assistantTextHasAny(lower, "dashboard", "dashboards", "dashboardspec", "dashboard spec") {
-		add("nopsai.list_dashboards", 25)
-		add("nopsai.get_dashboard", 25)
-		add("nopsai.get_feature_capabilities", 40)
-		add("nopsai.search_docs", 45)
+	// Everything below domain policy is derived, not enumerated: tools are ranked
+	// against the request from their own name, description, action, and resource
+	// type, so a newly registered tool is routable without editing this function.
+	for name, score := range hostedMCPTopRoutingScores(hostedMCPRoutingScores(content, tools, modePolicy), assistantPlannerMaxRoutedTools) {
+		add(name, score)
 	}
-	if assistantTextHasAny(lower, "run", "failed", "failure", "error", "log", "logs", "why did", "lab") {
-		add("nopsai.list_pipeline_runs", 35)
-		add("nopsai.get_pipeline_run", 45)
-		add("nopsai.get_pipeline_run_logs", 45)
-		add("nopsai.analyze_pipeline_run_failure", 55)
-		add("nopsai.explain_lab_result", 25)
+	// Intent rules. Relevance ranks tools by domain; these few cover the cases
+	// where the answer needs a particular shape of evidence, or where the tool a
+	// domain match would offer is the wrong one to offer. Each is a statement
+	// about answers, not a routing entry per tool.
+	if assistantTextHasAny(lower, "analyse", "analyze", "analysis", "review", "health", "healthy", "how is", "how are", "how's", "doing", "what should i fix", "what should we fix", "where should i start", "posture", "state of", "assessment", "audit") {
+		add("nopsai.analyze_team", 50)
+		add("nopsai.analyze_pipeline", 50)
+		add("nopsai.analyze_run", 45)
 	}
-	if assistantTextHasAny(lower, "monitor", "monitoring", "health", "reliability", "efficiency", "security", "performance", "analytics", "usage", "tokens", "token", "cost", "estimate", "estimation", "calculate", "calculation", "runner utilization") {
-		addPrefix("nopsai.get_monitoring_", 35)
-		add("nopsai.get_pipeline_efficiency", 30)
-		add("nopsai.compare_pipelines", 25)
-		add("nopsai.compare_schedules", 25)
-		add("nopsai.explain_pipeline_health", 35)
-		add("nopsai.find_optimization_opportunities", 30)
-		add("nopsai.get_cost_summary", 25)
-		add("nopsai.suggest_cost_improvements", 25)
-	}
-	if assistantTextHasAny(lower, "slowest", "fastest", "longest", "duration", "latency", "bottleneck", "bottlenecks", "p95", "p99") {
-		add("nopsai.get_monitoring_step_performance", 55)
-		add("nopsai.get_monitoring_task_performance", 45)
-		add("nopsai.get_monitoring_pipeline_performance", 35)
-		add("nopsai.get_monitoring_summary", 30)
-		add("nopsai.find_optimization_opportunities", 25)
-	}
-	if assistantTextHasAny(lower, "find data", "show data", "list data", "understand", "analyse", "analysis", "investigate", "insight", "insights", "estimate", "estimation", "calculate", "calculation") {
-		add("nopsai.get_feature_capabilities", 35)
-		add("nopsai.search_docs", 25)
-		add("nopsai.get_monitoring_summary", 25)
-	}
-	if assistantTextHasAny(lower, "object", "objects", "resource", "resources", "record", "records") {
-		add("nopsai.get_feature_capabilities", 45)
-		add("nopsai.search_docs", 25)
-		add("nopsai.get_ui_context", 20)
-	}
-	if assistantTextHasAny(lower, "trigger", "webhook") {
-		add("nopsai.list_triggers", 45)
-		add("nopsai.get_trigger", 45)
-		if assistantPlannerWantsChangeSchema(lower) || assistantPlannerWantsGitOpsProposalSchema(lower) {
-			add("nopsai.propose_trigger_change", 45)
-			addContains("webhook_source", 35)
-			addContains("external_trigger", 35)
-		}
-		add("nopsai.explain_webhook_ingress_policy", 35)
-	}
-	if assistantTextHasAny(lower, "schedule", "cron") {
-		add("nopsai.list_schedules", 45)
-		add("nopsai.get_schedule", 45)
-		if assistantPlannerWantsChangeSchema(lower) || assistantPlannerWantsGitOpsProposalSchema(lower) {
-			add("nopsai.propose_schedule_change", 45)
-			addContains("schedule", 25)
-		}
-	}
-	if assistantTextHasAny(lower, "credential", "credentials", "api key", "credential token", "api token", "personal token", "service account token", "rotate credential", "rotate credentials") {
-		addContains("credential", 45)
-	}
-	if assistantTextHasAny(lower, "runner", "dispatcher", "kubernetes", "k8s", "docker", "bootstrap command") {
-		addContains("runner", 45)
-		add("nopsai.get_dispatcher_status", 35)
-	}
-	if assistantTextHasAny(lower, "setup", "install", "bootstrap", "first install", "template") {
-		addContains("setup", 45)
-	}
-	if assistantTextHasAny(lower, "docs", "documentation", "knowledge", "policy", "guardrail", "guideline", "sample", "samples", "example", "examples", "template", "schema", "definition", "definitions", "looks like", "look like") {
-		add("nopsai.search_docs", 45)
-		add("nopsai.read_doc", 35)
-		add("nopsai.list_knowledge_contexts", 35)
-		add("nopsai.get_knowledge_context", 35)
-	}
-	if assistantTextHasAny(lower, "policy", "policies", "guardrail", "guardrails") {
-		add("nopsai.get_feature_capabilities", 45)
-	}
-	if assistantTextHasAny(lower, "knowledge connection", "knowledge connections", "notion", "confluence", "wiki connection", "external page") {
-		add("nopsai.list_knowledge_connections", 40)
-	}
-	if assistantTextHasAny(lower, "profile", "profiles", "llm", "mcp", "capability", "capabilities", "feature coverage", "what can you") {
+	if assistantTextHasAny(lower, "policy", "policies", "guardrail", "guardrails", "allowed to", "are we allowed") {
 		add("nopsai.get_feature_capabilities", 55)
-		add("nopsai.get_llm_profiles", 40)
-		add("nopsai.get_mcp_profiles", 40)
 	}
-	if assistantTextHasAny(lower, "permission", "permissions", "access", "grant", "aaa", "role", "roles") {
-		addContains("access", 40)
-		addContains("permission", 40)
-		addContains("grant", 40)
-		add("nopsai.get_effective_permissions", 50)
+	// "What should this look like" is answered from current docs and validation,
+	// never from an example the model remembers.
+	if assistantPlannerWantsExampleSchema(lower) {
+		add("nopsai.search_docs", 60)
+		add("nopsai.read_doc", 50)
+		add("nopsai.list_knowledge_contexts", 40)
+		add("nopsai.get_knowledge_context", 40)
+		add("nopsai.get_feature_capabilities", 45)
+		add("nopsai.validate_pipeline", 45)
 	}
-	if assistantTextHasAny(lower, "system", "status", "ready", "dispatcher") {
-		add("nopsai.get_system_status", 35)
-		add("nopsai.get_dispatcher_status", 35)
+	// A "which is slowest" question is answered at step and task granularity; the
+	// pipeline-level roll-up alone cannot name the step.
+	if assistantTextHasAny(lower, "slowest", "fastest", "longest", "bottleneck", "bottlenecks", "duration", "latency", "p95", "p99") {
+		add("nopsai.get_monitoring_step_performance", 65)
+		add("nopsai.get_monitoring_task_performance", 60)
+		add("nopsai.get_monitoring_pipeline_performance", 55)
 	}
-	if assistantTextHasAny(lower, "suggest", "improve", "optimization", "recommendation", "recommendations") {
-		add("nopsai.suggest_design_improvements", 35)
-		add("nopsai.suggest_cost_improvements", 35)
-		add("nopsai.find_optimization_opportunities", 35)
-		add("nopsai.get_monitoring_efficiency", 25)
-		add("nopsai.get_monitoring_reliability", 25)
-		addContains("recommendation", 25)
+	// An exposure question is about what the platform reveals. Answering it by
+	// reading a value would be the exposure the question is asking about.
+	if assistantPlannerWantsExposurePolicySchema(lower) {
+		add("nopsai.list_variables_metadata", 55)
+		add("nopsai.list_secrets_metadata", 55)
+		add("nopsai.explain_scope_permissions", 40)
+		blocked["nopsai.get_variable_value"] = true
+		blocked["nopsai.get_secret_value"] = true
 	}
 
-	if len(scores) < 4 {
-		addLexicalSchemaToolMatches(lower, tools, scores)
-	}
 	if len(scores) == 0 {
 		add("nopsai.get_feature_capabilities", 15)
 	}
@@ -725,7 +779,7 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 	}
 	candidates := make([]candidate, 0, len(scores))
 	for name, score := range scores {
-		if score <= 0 {
+		if score <= 0 || blocked[name] {
 			continue
 		}
 		candidates = append(candidates, candidate{name: name, score: score})
@@ -744,6 +798,19 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		out[candidate.name] = true
 	}
 	return out
+}
+
+// assistantPlannerModePolicyFor reads the requested change mode from the wording
+// the user chose. Asking to set a value is not asking for a file plan, and asking
+// for a proposal is not asking to apply anything.
+func assistantPlannerModePolicyFor(lower string, plan assistantTurnPlan) assistantPlannerModePolicy {
+	if assistantPlannerWantsGitOpsProposalSchema(lower) {
+		return assistantPlannerModePolicy{AllowProposal: true}
+	}
+	if assistantPlannerWantsChangeSchema(lower) || plan.UserConfirmed {
+		return assistantPlannerModePolicy{AllowMutation: true}
+	}
+	return assistantPlannerModePolicy{}
 }
 
 func assistantPlannerSchemaContext(conversation assistantConversation, content string, pageContext assistantPageContext) string {
@@ -798,6 +865,16 @@ func assistantPlannerWantsPipelineProposalSchema(lower string, plan assistantTur
 		"delete pipeline",
 		"add step",
 		"remove step",
+	)
+}
+
+// assistantPlannerWantsExampleSchema recognises "show me what this should look
+// like", which must be answered from current docs rather than from memory.
+func assistantPlannerWantsExampleSchema(lower string) bool {
+	return assistantTextHasAny(lower,
+		"example", "examples", "sample", "samples", "template", "templates",
+		"looks like", "look like", "how it is implemented", "how is it implemented",
+		"working example", "starter", "boilerplate", "what should this",
 	)
 }
 
@@ -857,6 +934,28 @@ func assistantPlannerWantsWriteSchema(lower string) bool {
 		"set ",
 		"update ",
 		"write ",
+		// Operational verbs are change requests too. Missing one used to be
+		// harmless because a fallback re-admitted the tool anyway; now that mode
+		// selection decides what may appear at all, the verb list is the decision.
+		"pause ",
+		"resume ",
+		"drain ",
+		"eject ",
+		"cancel ",
+		"stop ",
+		"start ",
+		"restart ",
+		"rotate ",
+		"disable ",
+		"approve ",
+		"reject ",
+		"trigger ",
+		"rerun ",
+		"retry ",
+		"sync ",
+		"refresh ",
+		"activate ",
+		"deactivate ",
 	)
 }
 
@@ -866,60 +965,6 @@ func assistantPlannerWantsDeleteSchema(lower string) bool {
 		"disable ",
 		"remove ",
 	)
-}
-
-func addLexicalSchemaToolMatches(lower string, tools []hostedMCPTool, scores map[string]int) {
-	requestTokens := assistantPlannerSignificantTokens(lower)
-	if len(requestTokens) == 0 {
-		return
-	}
-	for _, tool := range tools {
-		if !assistantPlannerAllowsLexicalToolMatch(lower, tool.Name) {
-			continue
-		}
-		haystack := strings.ToLower(tool.Name + " " + tool.Description)
-		score := 0
-		for token := range requestTokens {
-			if strings.Contains(haystack, token) {
-				score++
-			}
-		}
-		if score >= 2 {
-			scores[tool.Name] += score * 8
-		}
-	}
-}
-
-func assistantPlannerAllowsLexicalToolMatch(lower, toolName string) bool {
-	toolName = strings.TrimSpace(toolName)
-	isProposalMode := strings.HasPrefix(toolName, "nopsai.propose_") ||
-		strings.HasPrefix(toolName, "nopsai.plan_") ||
-		strings.HasPrefix(toolName, "nopsai.preview_")
-	return !isProposalMode || assistantPlannerWantsGitOpsProposalSchema(lower)
-}
-
-func assistantPlannerSignificantTokens(text string) map[string]bool {
-	text = strings.NewReplacer("_", " ", "-", " ", "/", " ", ".", " ").Replace(strings.ToLower(text))
-	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
-	})
-	stop := map[string]bool{
-		"a": true, "an": true, "and": true, "are": true, "about": true, "can": true,
-		"create": true, "do": true, "for": true, "from": true, "give": true, "help": true,
-		"how": true, "i": true, "in": true, "is": true, "it": true, "me": true,
-		"need": true, "of": true, "on": true, "or": true, "plan": true, "please": true,
-		"show": true, "set": true, "the": true, "this": true, "to": true, "use": true,
-		"want": true, "what": true, "with": true, "you": true,
-	}
-	out := map[string]bool{}
-	for _, field := range fields {
-		field = strings.TrimSpace(field)
-		if len(field) < 3 || stop[field] {
-			continue
-		}
-		out[field] = true
-	}
-	return out
 }
 
 func assistantTextHasAny(text string, needles ...string) bool {

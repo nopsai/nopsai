@@ -6,6 +6,7 @@ import {
   assistantExecutionPlanFromMessage,
   assistantLastUserMessage,
   assistantMessageUsageLabel,
+  assistantSuggestedActions,
   normalizeAssistantConfig,
   normalizeAssistantConversation,
   normalizeAssistantConversationsPayload,
@@ -133,6 +134,37 @@ describe('assistant model', () => {
     assert.equal(config.actions.require_confirmation, true);
     assert.equal('credential_ref' in config, false);
     assert.equal('api_key_secret' in config, false);
+  });
+
+  it('reads analysis next actions as suggested follow-ups without duplicates', () => {
+    const conversation = normalizeAssistantConversation({
+      id: 'c1',
+      messages: [{
+        id: 'm1',
+        role: 'assistant',
+        content: 'Platform scores 60/100.',
+        tool_calls: [
+          {
+            name: 'nopsai.analyze_team',
+            status: 'success',
+            output: {
+              next_actions: [
+                { label: 'Analyse platform/deploy-api', tool: 'nopsai.analyze_pipeline' },
+                { label: 'Analyse platform/deploy-api', tool: 'nopsai.analyze_pipeline' },
+                { label: 'Read the most recent failure', tool: 'nopsai.analyze_pipeline_run_failure' },
+              ],
+            },
+          },
+          { name: 'nopsai.analyze_pipeline', status: 'error', output: { next_actions: [{ label: 'Ignored', tool: 'x' }] } },
+        ],
+      }],
+    });
+
+    assert.deepEqual(assistantSuggestedActions(conversation.messages[0]), [
+      { label: 'Analyse platform/deploy-api', tool: 'nopsai.analyze_pipeline' },
+      { label: 'Read the most recent failure', tool: 'nopsai.analyze_pipeline_run_failure' },
+    ]);
+    assert.deepEqual(assistantSuggestedActions({ ...conversation.messages[0], role: 'user' }), []);
   });
 
   it('keeps a sub-dollar conversation spend instead of reporting it as free', () => {

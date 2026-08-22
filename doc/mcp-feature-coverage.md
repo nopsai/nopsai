@@ -18,6 +18,29 @@ the current user's coverage. The response includes:
 For a user-facing capability catalog with example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
 
+Team, application, and delivery-analysis coverage is first class:
+`nopsai.list_teams`, `nopsai.get_team`, `nopsai.analyze_team`, and
+`nopsai.analyze_pipeline`, and `nopsai.analyze_run`. The analysis tools return ranked findings with
+evidence, category scores, a health score, and the recommended next tool call,
+computed deterministically from permission-filtered monitoring evidence rather
+than returned as raw payloads for the caller to interpret. Pipeline analysis
+additionally reads the stored definition and applies the same rules the Analysis
+modal applies, so behaviour and definition are reviewed together. Team analysis covers both delivery metrics and
+inventory ownership. Run analysis adds a likely failure domain with a confidence,
+the first failure point, and what changed since the last successful run. The identical results are available over REST at
+`POST /v1/analysis/team`, `POST /v1/analysis/pipeline`, and
+`POST /v1/analysis/run`, which need no LLM.
+
+Tool routing is derived from what each tool declares — its AAA resource type,
+action, name, and description — rather than from a per-tool keyword table, so a
+newly registered tool is routable immediately. `nopsai.find_tools` searches the
+caller's own permission-filtered catalogue and returns input schemas for the
+matches, so a planner that needs a tool it was not handed can ask for it.
+
+Change mode is a filter, not a ranking: a request to set a value is not offered
+GitOps proposal tools, a GitOps request is not offered runtime write tools, and a
+read request is offered neither.
+
 The assistant LLM planner maps normal-language requests to first-party MCP
 tools from the live permission-filtered tool list, descriptions, and input
 schemas when the target is clear, and asks a clarifying question before tool

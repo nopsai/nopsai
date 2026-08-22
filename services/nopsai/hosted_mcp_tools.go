@@ -35,6 +35,7 @@ type hostedMCPTool struct {
 func allHostedMCPTools() []hostedMCPTool {
 	tools := []hostedMCPTool{
 		authenticatedToolDef("nopsai.call_api", "Call an allowed NopsAI REST API route as the current authenticated subject. Mutating calls require confirm:true and route/resource AAA checks still apply.", objectSchema(map[string]any{"method": stringSchema(), "path": stringSchema(), "query": objectSchema(map[string]any{}), "body": objectSchema(map[string]any{}), "headers": objectSchema(map[string]any{}), "confirm": booleanSchema(), "include_sensitive_response": booleanSchema()})),
+		authenticatedToolDef("nopsai.find_tools", "Search the NopsAI tools this user may call by natural-language query or domain, and return their input schemas. Use it when the tool you need is not in schema_tools.", objectSchema(map[string]any{"query": stringSchema(), "domain": stringSchema(), "limit": numberSchema()})),
 		authenticatedToolDef("nopsai.get_platform_version", "Read the public platform version, compatibility ranges, protocols, capabilities, and optional legacy release manifest digest.", objectSchema(map[string]any{})),
 		toolDef("nopsai.search_docs", "Search Nopsai knowledge and docs.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"query": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.read_doc", "Read a Nopsai knowledge document by id.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema()})),
@@ -82,6 +83,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.get_dispatcher_status", "Read dispatcher and runner health, queued jobs, and runner capacity.", "system.read", "dispatcher", "status", objectSchema(map[string]any{})),
 	}
 	tools = append(tools, hostedMCPDedicatedTools()...)
+	tools = append(tools, hostedMCPAnalysisTools()...)
 	return append(tools, hostedMCPFinalTools()...)
 }
 
@@ -234,6 +236,8 @@ func assistantFeatureForTool(name string) string {
 	case strings.Contains(name, "cost"):
 		return "cost_recommendations"
 	case name == "nopsai.get_statistics" ||
+		name == "nopsai.analyze_team" ||
+		name == "nopsai.analyze_pipeline" ||
 		strings.Contains(name, "monitoring_") ||
 		strings.Contains(name, "analytics"):
 		return "statistics_insights"
@@ -256,7 +260,8 @@ func assistantFeatureForTool(name string) string {
 		strings.HasPrefix(name, "nopsai.propose_notification_") ||
 		strings.HasPrefix(name, "nopsai.propose_credential_"):
 		return "config_generation"
-	case strings.Contains(name, "pipeline_run") ||
+	case name == "nopsai.analyze_run" ||
+		strings.Contains(name, "pipeline_run") ||
 		strings.Contains(name, "pipeline_runs") ||
 		strings.Contains(name, "run_approval") ||
 		strings.Contains(name, "lab_") ||
@@ -326,7 +331,7 @@ func (a *App) authorizeHostedMCPToolCall(ctx context.Context, subject aaamodel.S
 		permission.Resource.ID = pipelineWritePlanResourceID(args)
 	case "nopsai.get_knowledge_context":
 		permission.Resource.ID = a.knowledgeContextArgID(ctx, args)
-	case "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_output", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure", "nopsai.get_lab_item", "nopsai.explain_lab_result":
+	case "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_output", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure", "nopsai.analyze_run", "nopsai.get_lab_item", "nopsai.explain_lab_result":
 		permission.Resource.ID = stringArg(args, "run_id")
 	case "nopsai.get_trigger", "nopsai.propose_trigger_change":
 		permission.Resource.ID = stringArg(args, "repository")
@@ -336,6 +341,8 @@ func (a *App) authorizeHostedMCPToolCall(ctx context.Context, subject aaamodel.S
 		permission.Resource.ID = firstNonEmptyString(stringArg(args, "dashboard_id"), stringArg(args, "id"), stringArg(args, "ref"))
 	case "nopsai.get_scope", "nopsai.explain_scope_permissions":
 		permission.Resource.ID = stringArg(args, "scope")
+	case "nopsai.analyze_pipeline":
+		permission.Resource.ID = pipelineArgID(args)
 	}
 	if strings.TrimSpace(permission.Resource.ID) == "" {
 		permission.Resource.ID = tool.Resource.ID
@@ -347,6 +354,9 @@ func (a *App) authorizeHostedMCPToolCall(ctx context.Context, subject aaamodel.S
 }
 
 func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject, name string, args map[string]any) (map[string]any, error) {
+	if result, handled, err := a.executeHostedMCPAnalysisTool(ctx, subject, name, args); handled {
+		return result, err
+	}
 	if result, handled, err := a.executeHostedMCPFinalTool(ctx, subject, name, args); handled {
 		return result, err
 	}
@@ -356,6 +366,8 @@ func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject
 	switch name {
 	case "nopsai.call_api":
 		return a.hostedMCPCallAPI(ctx, subject, args)
+	case "nopsai.find_tools":
+		return a.hostedMCPFindTools(a.hostedMCPToolsForSubject(ctx, subject), args), nil
 	case "nopsai.get_platform_version":
 		return versionInfoMap(), nil
 	case "nopsai.search_docs":
