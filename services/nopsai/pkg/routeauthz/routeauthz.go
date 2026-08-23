@@ -51,6 +51,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case r.Method == http.MethodDelete:
 			return "credential.delete", resource, true, nil
 		}
+	// Entitlement status is read-only and reports no key material, only what
+	// the installation is allowed to run.
+	case path == "/v1/system/license":
+		return "system.read", model.ResourceRef{Type: "system", ID: "license"}, false, nil
 	case path == "/v1/system/config":
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil

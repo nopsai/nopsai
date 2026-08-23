@@ -52,6 +52,7 @@ type runtimeSettingsGitOpsFile struct {
 	LogFormat                     *string                       `json:"log_format" yaml:"log_format,omitempty"`
 	Environment                   *string                       `json:"environment" yaml:"environment,omitempty"`
 	PublicURL                     *string                       `json:"public_url" yaml:"public_url,omitempty"`
+	LicenseKey                    *string                       `json:"license_key" yaml:"license_key,omitempty"`
 	CORSAllowedOrigins            []string                      `json:"cors_allowed_origins" yaml:"cors_allowed_origins,omitempty"`
 	MetricsRequireAuth            *bool                         `json:"metrics_require_auth" yaml:"metrics_require_auth,omitempty"`
 	NotificationMailLogoURL       *string                       `json:"notification_mail_logo_url" yaml:"notification_mail_logo_url,omitempty"`
@@ -151,6 +152,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		LogFormat:                     file.LogFormat,
 		Environment:                   file.Environment,
 		PublicURL:                     file.PublicURL,
+		LicenseKey:                    file.LicenseKey,
 		CORSAllowedOrigins:            file.CORSAllowedOrigins,
 		MetricsRequireAuth:            file.MetricsRequireAuth,
 		NotificationMailLogoURL:       file.NotificationMailLogoURL,
@@ -255,6 +257,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		LogFormat:                     stringPtr(cfg.LogFormat),
 		Environment:                   stringPtr(cfg.Environment),
 		PublicURL:                     stringPtr(cfg.PublicURL),
+		LicenseKey:                    stringPtr(cfg.LicenseKey),
 		CORSAllowedOrigins:            normalizeRuntimeStringSlice(cfg.CORSAllowedOrigins),
 		MetricsRequireAuth:            boolPtr(cfg.MetricsRequireAuth),
 		NotificationMailLogoURL:       stringPtr(cfg.NotificationMailLogoURL),

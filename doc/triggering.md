@@ -72,7 +72,7 @@ curl -X POST \
 - **Run not created**: Check the git-bot logs for repository access issues or trigger mismatches. The API logs (container `nopsai`) will also record trigger evaluations.
 - **No UI updates**: Refresh the Pipeline runs page and verify authenticated `/v1/runs` requests are succeeding.
 
-When integrating with GitHub cloud, expose the git-bot via a tunnelling service (ngrok, Cloudflare Tunnel, etc.) and point the GitHub App webhook URL to that public address.
+When integrating with GitHub cloud, expose the git-bot via a tunnelling service (ngrok, Cloudflare Tunnel, etc.) and point the GitHub App webhook URL to that public address. See [webhook-tunnelling.md](./webhook-tunnelling.md) for a working ngrok Compose template, the Cloudflare Tunnel equivalent, and why only git-bot should ever be tunnelled.
 
 ---
 

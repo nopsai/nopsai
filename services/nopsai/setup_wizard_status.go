@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"nopsai/pkg/licensenotice"
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/systemconfig"
 	"nopsai/services/nopsai/pkg/auth"
@@ -91,6 +92,20 @@ func (a *App) buildSetupStatus(ctx context.Context) (setupStatusResponse, error)
 		GitHub:           a.setupGitHubInfo(),
 		GlobalConfigRepo: globalRepo,
 	}
+	accepted, acceptedAt, acceptedBy, acceptedVersion, err := a.licenseAcceptance(ctx)
+	if err != nil {
+		return setupStatusResponse{}, err
+	}
+	resp.License = setupLicenseState{
+		Accepted:             accepted,
+		AcceptedAt:           acceptedAt,
+		AcceptedBy:           acceptedBy,
+		AcceptedVersion:      acceptedVersion,
+		DocumentVersion:      licensenotice.Version,
+		DocumentSHA256:       licensenotice.SHA256(),
+		ReacceptanceRequired: !accepted && acceptedVersion != "",
+	}
+
 	resp.Checks = a.setupHealthChecks(ctx, counts, globalRepo, resp.GitHub)
 	return resp, nil
 }
@@ -328,8 +343,19 @@ func (a *App) loadSetupState(ctx context.Context) (map[string]string, error) {
 }
 
 func (a *App) markSetupComplete(ctx context.Context, profile string) error {
+	// Fail closed: an installation must not be able to finish setup, and so
+	// leave the first-install gate, without a recorded acceptance of the notice
+	// it is actually running. A check that cannot be evaluated blocks too.
+	accepted, _, _, _, err := a.licenseAcceptance(ctx)
+	if err != nil {
+		return fmt.Errorf("licence acceptance could not be verified: %w", err)
+	}
+	if !accepted {
+		return errSetupLicenseNotAccepted
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := a.db.Exec(ctx, `
+	_, err = a.db.Exec(ctx, `
 		INSERT INTO setup_state (key, value, updated_at)
 		VALUES ($1, $2, NOW()), ($3, $4, NOW())
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()

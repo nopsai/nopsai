@@ -489,13 +489,38 @@ payload; they do not save product state directly.
 
 The UI setup wizard uses `/v1/setup/*` to bootstrap an empty database. The
 public preflight endpoint is available before login so the UI can explain
-missing database, master-key, or JWT configuration. Other `GET` setup routes
-require `system.read` on `system:config`; `POST` setup routes require
-`system.update` on `system:config`.
+missing database, master-key, or JWT configuration. `GET /v1/setup/license` is
+public for the same reason: the proprietary notice must be readable before
+anyone is asked to accept it, and it is the same text already shipped in every
+artifact. Other `GET` setup routes require `system.read` on `system:config`;
+`POST` setup routes require `system.update` on `system:config`.
+
+### Licence Acceptance
+
+Setup cannot complete until an administrator accepts the proprietary notice.
+`POST /v1/setup/bootstrap` answers `412 Precondition Failed` while acceptance is
+missing, and an installation that accepted an earlier notice version counts as
+not accepted once the wording changes.
+
+Acceptance is recorded in `setup_state` as `license_accepted_at`,
+`license_accepted_by`, `license_document_version`, and
+`license_document_sha256`, and is written to the audit trail as
+`system.license.accept`.
 
 ```bash
 # Public readiness check before login
 curl http://localhost:8080/v1/setup/preflight
+
+# Read the notice, its version, its digest, and current acceptance state
+curl http://localhost:8080/v1/setup/license
+
+# Record acceptance. The digest must match the notice the server is serving,
+# so a stale browser tab cannot accept superseded wording.
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"accept": true, "document_sha256": "<document_sha256 from GET>"}' \
+  http://localhost:8080/v1/setup/license/accept
 
 # Current setup status, health checks, and GitHub guidance
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \

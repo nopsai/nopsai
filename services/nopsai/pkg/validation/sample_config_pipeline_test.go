@@ -14,7 +14,7 @@ import (
 func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	path := filepath.Join(
 		"..", "..", "..", "..",
-		".nopsai", "nopsai-platform-release.yaml",
+		"release", "nopsai-platform-release.yaml",
 	)
 	raw, err := os.ReadFile(path)
 	if err != nil {

@@ -262,7 +262,10 @@ func (a *App) registerMonitoringRoutes(mux *http.ServeMux) {
 }
 
 func (a *App) registerSetupRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/system/license", a.handleGetSystemLicense)
 	mux.HandleFunc("GET /v1/setup/preflight", a.handleSetupPreflight)
+	mux.HandleFunc("GET /v1/setup/license", a.handleGetSetupLicense)
+	mux.HandleFunc("POST /v1/setup/license/accept", a.handleAcceptSetupLicense)
 	mux.HandleFunc("GET /v1/setup/status", a.handleGetSetupStatus)
 	mux.HandleFunc("GET /v1/setup/templates", a.handleGetSetupTemplates)
 	mux.HandleFunc("GET /v1/setup/templates.zip", a.handleDownloadSetupTemplates)

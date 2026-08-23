@@ -35,6 +35,7 @@ type systemConfigPayload struct {
 	LogFormat                     *string                            `json:"log_format"`
 	Environment                   *string                            `json:"environment"`
 	PublicURL                     *string                            `json:"public_url"`
+	LicenseKey                    *string                            `json:"license_key"`
 	CORSAllowedOrigins            []string                           `json:"cors_allowed_origins"`
 	MetricsRequireAuth            *bool                              `json:"metrics_require_auth"`
 	NotificationMailLogoURL       *string                            `json:"notification_mail_logo_url"`

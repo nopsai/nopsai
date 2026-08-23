@@ -304,6 +304,12 @@ type Config struct {
 	Environment string `yaml:"environment" env:"NOPSAI_ENVIRONMENT"`
 	PublicURL   string `yaml:"public_url" env:"NOPSAI_PUBLIC_URL"`
 
+	// LicenseKey is signed, offline-verifiable data rather than a credential,
+	// so it is held in plain GitOps configuration instead of the encrypted
+	// credential registry. Leaking one grants nobody rights the licence
+	// agreement did not already grant.
+	LicenseKey string `yaml:"license_key" env:"NOPSAI_LICENSE_KEY"`
+
 	CORSAllowedOrigins []string `yaml:"cors_allowed_origins" env:"-"`
 	MetricsRequireAuth bool     `yaml:"metrics_require_auth" env:"METRICS_REQUIRE_AUTH"`
 
@@ -368,21 +374,21 @@ type Config struct {
 	AAASharedToken       string `yaml:"aaa_shared_internal_token" env:"AAA_SHARED_INTERNAL_TOKEN"`
 
 	// Git Bot specific configuration
-	GitHubWebhookCredentialRef    string                     `yaml:"github_webhook_credential_ref" env:"GITHUB_WEBHOOK_CREDENTIAL_REF"`
-	GitHubPrivateKeyCredentialRef string                     `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
-	GitHubAppID                   string                     `yaml:"github_app_id" env:"GITHUB_APP_ID"`
-	GitHubAppSlug                 string                     `yaml:"github_app_slug" env:"GITHUB_APP_SLUG"`
+	GitHubWebhookCredentialRef    string `yaml:"github_webhook_credential_ref" env:"GITHUB_WEBHOOK_CREDENTIAL_REF"`
+	GitHubPrivateKeyCredentialRef string `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
+	GitHubAppID                   string `yaml:"github_app_id" env:"GITHUB_APP_ID"`
+	GitHubAppSlug                 string `yaml:"github_app_slug" env:"GITHUB_APP_SLUG"`
 	// GitHubAppOwner is the account the App was registered on. The App is
 	// public so it can serve many accounts, so this is what separates the
 	// operator's own installation from one a stranger started.
-	GitHubAppOwner                string                     `yaml:"github_app_owner,omitempty" env:"GITHUB_APP_OWNER"`
-	GitHubWebhookURL              string                     `yaml:"github_webhook_url" env:"GITHUB_WEBHOOK_URL"`
-	GitHubInstallID               string                     `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
-	GitHubInstallations           []GitHubInstallationConfig `yaml:"github_installations" env:"-"`
-	NopsaiGitBotAPIURL            string                     `yaml:"git_bot_api_url" env:"GIT_BOT_API_URL"`
-	LegacyGitHubWebhookSecret     string                     `yaml:"github_webhook_secret,omitempty" env:"GITHUB_WEBHOOK_SECRET" json:"-"`
-	LegacyGitHubPrivateKeyPath    string                     `yaml:"github_private_key_path,omitempty" env:"GITHUB_PRIVATE_KEY_PATH" json:"-"`
-	LegacyGitHubPrivateKey        string                     `yaml:"github_private_key,omitempty" env:"GITHUB_PRIVATE_KEY" json:"-"`
+	GitHubAppOwner             string                     `yaml:"github_app_owner,omitempty" env:"GITHUB_APP_OWNER"`
+	GitHubWebhookURL           string                     `yaml:"github_webhook_url" env:"GITHUB_WEBHOOK_URL"`
+	GitHubInstallID            string                     `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
+	GitHubInstallations        []GitHubInstallationConfig `yaml:"github_installations" env:"-"`
+	NopsaiGitBotAPIURL         string                     `yaml:"git_bot_api_url" env:"GIT_BOT_API_URL"`
+	LegacyGitHubWebhookSecret  string                     `yaml:"github_webhook_secret,omitempty" env:"GITHUB_WEBHOOK_SECRET" json:"-"`
+	LegacyGitHubPrivateKeyPath string                     `yaml:"github_private_key_path,omitempty" env:"GITHUB_PRIVATE_KEY_PATH" json:"-"`
+	LegacyGitHubPrivateKey     string                     `yaml:"github_private_key,omitempty" env:"GITHUB_PRIVATE_KEY" json:"-"`
 
 	DockerNetworkName         string `yaml:"docker_network_name" env:"DOCKER_NETWORK_NAME"`
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container" env:"AUTO_REMOVAL_AGENT_CONTAINER"`
@@ -404,10 +410,10 @@ type Config struct {
 }
 
 type GitHubInstallationConfig struct {
-	InstallationID          string `yaml:"installation_id" json:"installation_id"`
-	AccountLogin            string `yaml:"account_login,omitempty" json:"account_login,omitempty"`
-	AccountType             string `yaml:"account_type,omitempty" json:"account_type,omitempty"`
-	Enabled                 *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	InstallationID string `yaml:"installation_id" json:"installation_id"`
+	AccountLogin   string `yaml:"account_login,omitempty" json:"account_login,omitempty"`
+	AccountType    string `yaml:"account_type,omitempty" json:"account_type,omitempty"`
+	Enabled        *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	// PendingApproval marks an installation that arrived from an account the
 	// operator has not accepted yet. It stays disabled, and therefore inert,
 	// until someone enables it from Git Apps.

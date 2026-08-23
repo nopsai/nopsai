@@ -20,6 +20,8 @@ Start here when you want to understand the system from different angles:
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
 - [performance-testing.md](./performance-testing.md): Backend load-test harness, request/auth/webhook/pipeline suites, concurrency ramps, per-service resource sampling, saturation analysis, and regression gating.
 - [license-compliance.md](./license-compliance.md): Commercial dependency-license policy, current language dependency audit, container/service review boundaries, and MCP/plugin obligations.
+- [licensing-enforcement-plan.md](./licensing-enforcement-plan.md): The staged plan for public artifact distribution, the third-party notice bundle, the release secret-scan gate, first-install licence acceptance, and the offline licence key and entitlement model.
+- [licensing-entitlements.md](./licensing-entitlements.md): Offline Ed25519 licence keys, GitOps key configuration, issuing, evaluation limits, and exactly where entitlement enforcement applies.
 - [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): Enterprise feature ownership, SSO follow-up status, and remaining refactor targets.
 - [credential-management.md](./credential-management.md): Implemented single credential interface, encrypted registry, bootstrap boundary, GitOps references and encrypted envelopes, AAA, rotation, and migration behavior.
 - [package-ownership.md](./package-ownership.md): Handler, service, store, domain, DTO, provider-client, and bootstrap ownership rules.
@@ -41,6 +43,7 @@ Existing focused docs:
 - [triggering.md](./triggering.md): Local GitHub and generic Git webhook simulation.
 - [git-webhook-sources.md](./git-webhook-sources.md): GitLab, Bitbucket, Gitea, and generic source configuration, security, GitOps, payload normalization, path filters, and operations.
 - [git-apps.md](./git-apps.md): GitHub App multi-installation management, GitOps schema, git-bot routing, AAA, monitoring, and MCP boundaries.
+- [webhook-tunnelling.md](./webhook-tunnelling.md): Exposing only the git-bot webhook endpoint for local development with ngrok or Cloudflare Tunnel, and the security limits of doing so.
 - [../examples/sso/README.md](../examples/sso/README.md): Runnable SSO example fixtures for local Keycloak and multi-provider IdP scenario testing.
 - [../examples/gitops-quickstart/README.md](../examples/gitops-quickstart/README.md): The GitOps sample with a global config repository, a team config repository, and one pipeline per feature area.
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.

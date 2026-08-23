@@ -20,9 +20,25 @@ export type SetupCounts = {
   config_repositories: number;
 };
 
+export type SetupLicenseState = {
+  accepted: boolean;
+  accepted_at?: string;
+  accepted_by?: string;
+  accepted_version?: string;
+  document_version: string;
+  document_sha256: string;
+  /** True when an earlier notice was accepted but the wording has since changed. */
+  reacceptance_required: boolean;
+};
+
+export type SetupLicenseDocument = SetupLicenseState & {
+  text: string;
+};
+
 export type SetupStatus = {
   completed: boolean;
   completed_at?: string;
+  license?: SetupLicenseState;
   counts: SetupCounts;
   checks: SetupCheck[];
   github: {
@@ -78,7 +94,7 @@ export type UserDraft = {
   team: string;
 };
 
-export type SetupStepID = 'readiness' | 'runtime' | 'github' | 'gitops' | 'repositories' | 'ai' | 'users' | 'review';
+export type SetupStepID = 'license' | 'readiness' | 'runtime' | 'github' | 'gitops' | 'repositories' | 'ai' | 'users' | 'review';
 export type RuntimeImplementation = 'docker' | 'kubernetes';
 export type RuntimeDefaults = {
   nopsaiAPIURL: string;
@@ -126,6 +142,7 @@ export type SetupBootstrapRequest = {
 };
 
 export const WIZARD_STEPS: Array<{ id: SetupStepID; label: string; required: boolean }> = [
+  { id: 'license', label: 'Licence', required: true },
   { id: 'readiness', label: 'Readiness', required: true },
   { id: 'runtime', label: 'Runtime', required: true },
   { id: 'github', label: 'GitHub', required: false },

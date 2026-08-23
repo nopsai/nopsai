@@ -1,0 +1,1205 @@
+name: nopsai-platform-release
+version: "1.0.0"
+description: Build and publish NopsAI container images, versioned Helm chart, CLI archives, changelog, and checksums from a NopsAI pipeline run.
+container_image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+working_directory: /workspace
+timeout: 3h
+llm_enabled: false
+llm_content_preload: false
+display_option: list
+access:
+  visibility: restricted
+  use_access:
+    grants:
+      - repository: nopsai/nopsai
+      - service_account: nopsai-release-bot
+variables:
+  - NOPSAI_RELEASE_REPOSITORY_URL
+  - NOPSAI_RELEASE_SOURCE_REF
+  - NOPSAI_RELEASE_REQUIRE_MAIN
+  - NOPSAI_RELEASE_ALLOW_EXISTING
+  - NOPSAI_RELEASE_REGISTRY
+  - NOPSAI_RELEASE_GITHUB_REPOSITORY
+  - NOPSAI_RELEASE_GHCR_USERNAME
+  - NOPSAI_RELEASE_PLATFORMS
+  - NOPSAI_RELEASE_ENABLE_QEMU
+  - NOPSAI_RELEASE_BUILDX_NAME
+  - NOPSAI_RELEASE_HELM_VERSION
+  - NOPSAI_RELEASE_HELM_SHA256_AMD64
+  - NOPSAI_RELEASE_HELM_SHA256_ARM64
+  - NOPSAI_RELEASE_GH_VERSION
+  - NOPSAI_RELEASE_GH_SHA256_AMD64
+  - NOPSAI_RELEASE_GH_SHA256_ARM64
+  - NOPSAI_RELEASE_GITHUB_RETRY_DELAYS
+  - NOPSAI_RELEASE_ORAS_VERSION
+  - NOPSAI_RELEASE_ORAS_SHA256_AMD64
+  - NOPSAI_RELEASE_ORAS_SHA256_ARM64
+  - DOCKER_HOST
+steps:
+  - name: checkout-repository
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    secrets:
+      - NOPSAI_RELEASE_GITHUB_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash git
+      bash <<'BASH'
+      set -euo pipefail
+
+      repo_url="${NOPSAI_RELEASE_REPOSITORY_URL:-${GIT_CLONE_URL:-}}"
+      if [[ -z "$repo_url" && -n "${NOPSAI_RELEASE_GITHUB_REPOSITORY:-}" ]]; then
+        repo_url="https://github.com/${NOPSAI_RELEASE_GITHUB_REPOSITORY}.git"
+      fi
+      if [[ -z "$repo_url" ]]; then
+        echo "NOPSAI_RELEASE_REPOSITORY_URL, GIT_CLONE_URL, or NOPSAI_RELEASE_GITHUB_REPOSITORY is required for checkout" >&2
+        exit 1
+      fi
+
+      export GIT_TERMINAL_PROMPT=0
+
+      if [[ -d .git ]]; then
+        git remote set-url origin "$repo_url" 2>/dev/null || git remote add origin "$repo_url"
+      else
+        if find . -mindepth 1 -maxdepth 1 | grep -q .; then
+          echo "Workspace is not empty and is not a git checkout; refusing to clone over existing files" >&2
+          exit 1
+        fi
+        git init .
+        git remote add origin "$repo_url"
+      fi
+      if [[ -n "${NOPSAI_RELEASE_GITHUB_TOKEN:-}" ]]; then
+        askpass_path="$(git rev-parse --absolute-git-dir)/nopsai-git-askpass"
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'case "$1" in' \
+          '  *Username*) printf "%s\n" "x-access-token" ;;' \
+          '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
+          '  *) printf "\n" ;;' \
+          'esac' >"$askpass_path"
+        chmod 700 "$askpass_path"
+        export GIT_ASKPASS="$askpass_path"
+      fi
+
+      source_ref="${NOPSAI_RELEASE_SOURCE_REF:-${GIT_COMMIT_SHA:-main}}"
+      git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+
+      checkout_ref=""
+      if git rev-parse --verify --quiet "$source_ref^{commit}" >/dev/null; then
+        checkout_ref="$source_ref"
+      elif git rev-parse --verify --quiet "origin/$source_ref^{commit}" >/dev/null; then
+        checkout_ref="origin/$source_ref"
+      elif [[ "$source_ref" == refs/heads/* ]] && git rev-parse --verify --quiet "origin/${source_ref#refs/heads/}^{commit}" >/dev/null; then
+        checkout_ref="origin/${source_ref#refs/heads/}"
+      elif [[ "$source_ref" == refs/tags/* ]] && git rev-parse --verify --quiet "${source_ref#refs/tags/}^{commit}" >/dev/null; then
+        checkout_ref="${source_ref#refs/tags/}"
+      else
+        git fetch --force origin "$source_ref"
+        checkout_ref="FETCH_HEAD"
+      fi
+
+      git checkout --detach "$checkout_ref"
+      git reset --hard
+      git clean -ffdx
+      echo "checked_out_commit=$(git rev-parse HEAD)"
+      BASH
+
+  - name: release-metadata
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - checkout-repository
+    secrets:
+      - NOPSAI_RELEASE_GITHUB_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash coreutils git ruby
+      bash <<'BASH'
+      set -euo pipefail
+
+      if [[ -n "${NOPSAI_RELEASE_GITHUB_TOKEN:-}" ]]; then
+        askpass_path="$(git rev-parse --absolute-git-dir)/nopsai-git-askpass"
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'case "$1" in' \
+          '  *Username*) printf "%s\n" "x-access-token" ;;' \
+          '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
+          '  *) printf "\n" ;;' \
+          'esac' >"$askpass_path"
+        chmod 700 "$askpass_path"
+        export GIT_ASKPASS="$askpass_path"
+      fi
+      export GIT_TERMINAL_PROMPT=0
+
+      source_ref="${NOPSAI_RELEASE_SOURCE_REF:-HEAD}"
+      require_main="${NOPSAI_RELEASE_REQUIRE_MAIN:-true}"
+      allow_existing="${NOPSAI_RELEASE_ALLOW_EXISTING:-false}"
+
+      git fetch --force --tags origin main:refs/remotes/origin/main
+      if [[ "$source_ref" != "HEAD" ]]; then
+        git fetch --force --tags origin "$source_ref" || git fetch --force --tags origin
+        if git rev-parse --verify --quiet "$source_ref^{commit}" >/dev/null; then
+          git checkout --detach "$source_ref"
+        elif git rev-parse --verify --quiet "origin/$source_ref^{commit}" >/dev/null; then
+          git checkout --detach "origin/$source_ref"
+        else
+          echo "Unable to resolve NOPSAI_RELEASE_SOURCE_REF=$source_ref" >&2
+          exit 1
+        fi
+      fi
+
+      source_commit="$(git rev-parse HEAD)"
+      main_commit="$(git rev-parse origin/main)"
+      if [[ "$require_main" == "true" && "$source_commit" != "$main_commit" ]]; then
+        echo "Release source $source_commit is not current origin/main $main_commit" >&2
+        exit 1
+      fi
+
+      version="$(scripts/release-version.sh --ref "$source_commit")"
+      release_tags=()
+      while IFS= read -r release_tag; do
+        release_tags+=("$release_tag")
+      done < <(scripts/release-tags.sh "$version")
+      release_tags_csv="$(IFS=,; printf '%s' "${release_tags[*]}")"
+      should_release=true
+      if git rev-parse --verify --quiet "refs/tags/v$version" >/dev/null; then
+        tag_commit="$(git rev-list -n 1 "refs/tags/v$version")"
+        if [[ "$tag_commit" != "$source_commit" ]]; then
+          echo "Release tag v$version points to $tag_commit, not $source_commit" >&2
+          exit 1
+        fi
+        if [[ "$allow_existing" == "true" ]]; then
+          echo "Release v$version already exists; package publication will run in recovery mode"
+        else
+          echo "Release v$version already exists; downstream publishing steps will skip"
+          should_release=false
+        fi
+      fi
+
+      repo="${NOPSAI_RELEASE_GITHUB_REPOSITORY:-}"
+      if [[ -z "$repo" ]]; then
+        remote_url="$(git config --get remote.origin.url || true)"
+        case "$remote_url" in
+          https://github.com/*)
+            repo="${remote_url#https://github.com/}"
+            repo="${repo%.git}"
+            ;;
+          git@github.com:*)
+            repo="${remote_url#git@github.com:}"
+            repo="${repo%.git}"
+            ;;
+        esac
+      fi
+      if [[ "$repo" != */* ]]; then
+        echo "NOPSAI_RELEASE_GITHUB_REPOSITORY must be owner/repository when origin is not a GitHub remote" >&2
+        exit 1
+      fi
+      repo_owner="${repo%%/*}"
+      repo_name="${repo#*/}"
+      repo_owner_lower="$(printf '%s' "$repo_owner" | tr '[:upper:]' '[:lower:]')"
+      repo_name_lower="$(printf '%s' "$repo_name" | tr '[:upper:]' '[:lower:]')"
+      registry="${NOPSAI_RELEASE_REGISTRY:-ghcr.io/$repo_owner_lower}"
+      ghcr_username="${NOPSAI_RELEASE_GHCR_USERNAME:-$repo_owner}"
+      platforms="${NOPSAI_RELEASE_PLATFORMS:-linux/amd64,linux/arm64}"
+      source_url="https://github.com/$repo_owner_lower/$repo_name_lower"
+      compatibility_env="$(
+        ruby -ryaml -e '
+          def value(contract, key)
+            raw = contract.fetch(key) { abort "release/compatibility.yaml is missing #{key}" }
+            text = raw.to_s.strip
+            abort "release/compatibility.yaml #{key} is empty" if text.empty?
+            text
+          end
+
+          def normalized_range(contract, key)
+            value(contract, key).split.join(",")
+          end
+
+          def emit(key, value)
+            puts "#{key}=#{value}"
+          end
+
+          contract = YAML.load_file("release/compatibility.yaml")
+          api_versions = Array(contract.fetch("apiCompatibility") { abort "release/compatibility.yaml is missing apiCompatibility" }).map { |item| item.to_s.strip }.reject(&:empty?)
+          abort "release/compatibility.yaml apiCompatibility is empty" if api_versions.empty?
+          capabilities = Array(contract.fetch("capabilities") { abort "release/compatibility.yaml is missing capabilities" }).map { |item| item.to_s.strip }.reject(&:empty?)
+          abort "release/compatibility.yaml capabilities is empty" if capabilities.empty?
+
+          emit "API_VERSION", api_versions.first
+          emit "RUNNER_PROTOCOL_VERSION", value(contract, "runnerProtocolVersion")
+          emit "CLI_COMPATIBILITY", normalized_range(contract, "platformCompatibility")
+          emit "PLATFORM_COMPATIBILITY", normalized_range(contract, "platformCompatibility")
+          emit "RUNNER_COMPATIBILITY", normalized_range(contract, "runnerCompatibility")
+          emit "CAPABILITIES", capabilities.join(",")
+        '
+      )"
+
+      mkdir -p dist/release
+      {
+        printf 'VERSION=%q\n' "$version"
+        printf 'SOURCE_COMMIT=%q\n' "$source_commit"
+        printf 'BUILD_DATE=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'REGISTRY=%q\n' "${registry%/}"
+        printf 'GITHUB_REPOSITORY=%q\n' "$repo"
+        printf 'GITHUB_REPOSITORY_OWNER=%q\n' "$repo_owner"
+        printf 'GHCR_USERNAME=%q\n' "$ghcr_username"
+        printf 'PLATFORMS=%q\n' "$platforms"
+        printf 'SOURCE_URL=%q\n' "$source_url"
+        printf 'ALLOW_EXISTING_RELEASE=%q\n' "$allow_existing"
+        printf 'SHOULD_RELEASE=%q\n' "$should_release"
+        printf 'RELEASE_TAGS=%q\n' "$release_tags_csv"
+        while IFS='=' read -r key value; do
+          [[ -n "$key" ]] || continue
+          case "$key" in
+            API_VERSION|RUNNER_PROTOCOL_VERSION|CLI_COMPATIBILITY|PLATFORM_COMPATIBILITY|RUNNER_COMPATIBILITY|CAPABILITIES) ;;
+            *)
+              echo "Unexpected compatibility env key $key" >&2
+              exit 1
+              ;;
+          esac
+          printf '%s=%q\n' "$key" "$value"
+        done <<< "$compatibility_env"
+      } >dist/release/env
+
+      cp scripts/install-release-tools.sh dist/release/install-release-tools.sh
+      chmod 755 dist/release/install-release-tools.sh
+
+      echo "release_version=$version"
+      echo "release_tags=$release_tags_csv"
+      echo "source_commit=$source_commit"
+      echo "registry=${registry%/}"
+      echo "source_url=$source_url"
+      echo "should_release=$should_release"
+      BASH
+
+  - name: quality-gates
+    image: golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+    depends_on:
+      - release-metadata
+    script: |
+      set -eu
+      apk add --no-cache bash build-base coreutils curl docker-cli docker-cli-compose git jq perl-utils ruby tar gzip
+      bash <<'BASH'
+      set -euo pipefail
+
+      install_go_gate_tools() {
+        export GOBIN=/usr/local/bin
+        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+        go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
+        go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+      }
+
+      . dist/release/env
+      . dist/release/install-release-tools.sh
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping quality gates"
+        exit 0
+      fi
+
+      install_helm
+      install_go_gate_tools
+      SKIP_DOCKER_BUILDS=1 scripts/enterprise-gates.sh
+      BASH
+
+  - name: ui-gates
+    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+    depends_on:
+      - release-metadata
+    script: |
+      set -eu
+      apk add --no-cache bash
+      bash <<'BASH'
+      set -euo pipefail
+
+      . dist/release/env
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping UI gates"
+        exit 0
+      fi
+
+      run_ui_gate() {
+        local label="$1"
+        shift
+        local started_at finished_at status duration
+        started_at="$(date -u +%s)"
+        printf '\n==> [ui-gates] %s started_at=%s\n' "$label" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        set +e
+        "$@"
+        status=$?
+        set -e
+        finished_at="$(date -u +%s)"
+        duration=$((finished_at - started_at))
+        if [[ "$status" -eq 0 ]]; then
+          printf '==> [ui-gates] %s completed duration_seconds=%s finished_at=%s\n' "$label" "$duration" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        else
+          printf '==> [ui-gates] %s failed status=%s duration_seconds=%s finished_at=%s\n' "$label" "$status" "$duration" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >&2
+        fi
+        return "$status"
+      }
+
+      export CI=1
+      export NPM_CONFIG_AUDIT=false
+      export NPM_CONFIG_FOREGROUND_SCRIPTS=true
+      export NPM_CONFIG_FUND=false
+      export NPM_CONFIG_PROGRESS=false
+      node --version
+      npm --version
+      cd services/ui
+      run_ui_gate npm-ci npm ci --foreground-scripts --no-audit --no-fund --loglevel=notice
+      run_ui_gate lint npm run lint
+      run_ui_gate ui-boundaries npm run check:ui-boundaries
+      run_ui_gate tests npm run test
+      run_ui_gate build npm run build
+      BASH
+
+  # The base image compiles every service binary, which is the longest single
+  # build in the release and needs nothing the gates produce. It runs beside
+  # them and exports only to the registry build cache, so no release tag is
+  # published before the gates pass. The gates remain a hard prerequisite for
+  # publish-base-image below.
+  # THIRD_PARTY_NOTICES.md is the notice index and requires a release-specific
+  # bundle with the actual licence texts before external distribution. The
+  # generator fails closed when a distributed component ships no licence text.
+  - name: release-notices
+    image: golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+    depends_on:
+      - release-metadata
+    script: |
+      set -eu
+      apk add --no-cache bash coreutils findutils git jq nodejs npm
+      bash <<'BASH'
+      set -euo pipefail
+      RELEASE_PHASE=release-notices
+      trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
+
+      . dist/release/env
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping notice bundle generation"
+        exit 0
+      fi
+
+      echo "release_phase=release-notices"
+
+      # Production dependencies only: the UI image serves built assets, so build
+      # and test tooling is never distributed and carries no notice obligation.
+      ( cd services/ui && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null )
+
+      mkdir -p dist/notices
+      scripts/generate-notices.sh \
+        --version "$VERSION" \
+        --output "dist/notices/THIRD-PARTY-NOTICES-$VERSION.md"
+
+      cp "dist/notices/THIRD-PARTY-NOTICES-$VERSION.md" dist/notices/THIRD-PARTY-NOTICES.md
+      cp dist/notices/THIRD-PARTY-NOTICES.md dist/assets/ 2>/dev/null || true
+
+      echo "notice_bundle=dist/notices/THIRD-PARTY-NOTICES-$VERSION.md"
+      echo "release_phase=release-notices complete"
+      BASH
+
+  - name: build-base-image
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    depends_on:
+      - release-metadata
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash docker-cli-buildx jq
+      bash scripts/build-release-base-image.sh cache
+
+  - name: publish-base-image
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    depends_on:
+      - quality-gates
+      - ui-gates
+      - release-notices
+      - build-base-image
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash docker-cli-buildx jq
+      bash scripts/build-release-base-image.sh push
+
+  # Every release image is built and pushed by the same script and differs only
+  # in name, build context, and Dockerfile. They run as parallel tasks in one
+  # step, so the release installs the image toolchain once instead of ten times,
+  # logs in to GHCR once, and shares a single BuildKit builder. Sharing the
+  # builder is what lets the base image be pulled once for all ten and lets the
+  # layers these Dockerfiles have in common be built once rather than ten times.
+  - name: publish-images
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    depends_on:
+      - publish-base-image
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    tasks:
+      - name: prepare-image-tools
+        script: |
+          set -eu
+          apk add --no-cache bash docker-cli-buildx jq
+          bash <<'BASH'
+          set -euo pipefail
+
+          . dist/release/env
+          if [[ "$SHOULD_RELEASE" != "true" ]]; then
+            echo "Release v$VERSION already exists; skipping image toolchain preparation"
+            exit 0
+          fi
+          if [[ -z "${NOPSAI_RELEASE_GHCR_TOKEN:-}" ]]; then
+            echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish container images" >&2
+            exit 1
+          fi
+
+          printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+
+          builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}"
+          docker buildx rm --force "$builder" >/dev/null 2>&1 || true
+          docker buildx create --name "$builder" --driver docker-container
+          docker buildx inspect --bootstrap --builder "$builder"
+          echo "shared_builder=$builder"
+          BASH
+
+      - name: nopsai-api
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-api . container/Dockerfile.nopsai
+
+      - name: nopsai-aaa
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-aaa . container/Dockerfile.aaa
+
+      - name: nopsai-agent
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-agent . container/Dockerfile.agent
+
+      - name: nopsai-dispatcher
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-dispatcher . container/Dockerfile.dispatcher
+
+      - name: nopsai-git-bot
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-git-bot . container/Dockerfile.git-bot
+
+      - name: nopsai-docker-runner
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-docker-runner . container/Dockerfile.docker-runner
+
+      - name: nopsai-k8s-runner
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-k8s-runner . container/Dockerfile.k8s-runner
+
+      - name: nopsai-docker-socket-proxy
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-docker-socket-proxy . container/Dockerfile.socket-proxy
+
+      - name: nopsai-ui
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh nopsai-ui services/ui services/ui/Dockerfile
+
+      - name: pipeline-image
+        depends_on: [prepare-image-tools]
+        script: |
+          set -eu
+          bash scripts/publish-release-image.sh pipeline-image . container/Dockerfile.pipeline
+
+      # Removes the shared builder container once every image is published.
+      # prepare-image-tools force-removes a builder of the same name first, so a
+      # failed release that skips this task cannot leave one behind for the next.
+      - name: cleanup-image-tools
+        depends_on:
+          - nopsai-api
+          - nopsai-aaa
+          - nopsai-agent
+          - nopsai-dispatcher
+          - nopsai-git-bot
+          - nopsai-docker-runner
+          - nopsai-k8s-runner
+          - nopsai-docker-socket-proxy
+          - nopsai-ui
+          - pipeline-image
+        script: |
+          set -eu
+          docker buildx rm --force "${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}" >/dev/null 2>&1 || true
+
+  - name: verify-image-digests
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - publish-images
+    script: |
+      set -eu
+      apk add --no-cache bash
+      bash <<'BASH'
+      set -euo pipefail
+
+      . dist/release/env
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping image digest verification"
+        exit 0
+      fi
+
+      image_names=(
+        nopsai-base
+        nopsai-api
+        nopsai-aaa
+        nopsai-agent
+        nopsai-dispatcher
+        nopsai-git-bot
+        nopsai-docker-runner
+        nopsai-k8s-runner
+        nopsai-docker-socket-proxy
+        nopsai-ui
+        pipeline-image
+      )
+
+      for image_name in "${image_names[@]}"; do
+        digest_file="dist/digests/${image_name}.digest"
+        if [[ ! -s "$digest_file" ]]; then
+          echo "Missing digest file for $image_name" >&2
+          exit 1
+        fi
+        digest="$(tr -d '\r\n' <"$digest_file")"
+        if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+          echo "Invalid digest for $image_name: $digest" >&2
+          exit 1
+        fi
+        echo "verified_image=$REGISTRY/$image_name@$digest"
+      done
+      BASH
+
+  # Published images are publicly pullable, so their contents are scanned before
+  # the chart and the GitHub release make the version discoverable. A finding
+  # fails the release while the version is still unannounced.
+  - name: scan-published-images
+    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    depends_on:
+      - verify-image-digests
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    environment:
+      DOCKER_HOST: ${DOCKER_HOST}
+    script: |
+      set -eu
+      apk add --no-cache bash git grep coreutils findutils tar
+      bash <<'BASH'
+      set -euo pipefail
+
+      . dist/release/env
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping published image scan"
+        exit 0
+      fi
+
+      echo "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+
+      image_names=(
+        nopsai-base
+        nopsai-api
+        nopsai-aaa
+        nopsai-agent
+        nopsai-dispatcher
+        nopsai-git-bot
+        nopsai-docker-runner
+        nopsai-k8s-runner
+        nopsai-docker-socket-proxy
+        nopsai-ui
+        pipeline-image
+      )
+
+      for image_name in "${image_names[@]}"; do
+        digest="$(tr -d '\r\n' <"dist/digests/${image_name}.digest")"
+        reference="$REGISTRY/$image_name@$digest"
+        echo "scanning_image=$reference"
+        docker pull --quiet "$reference"
+        scripts/secret-scan.sh --image "$reference"
+      done
+
+      echo "release_phase=scan-published-images complete"
+      BASH
+
+  # Chart packaging reads the checked-out source and dist/release/env only, so it
+  # runs beside the image builds instead of waiting for them. Publication still
+  # waits for verified image digests.
+  - name: package-helm-chart
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - quality-gates
+      - ui-gates
+      - release-notices
+    script: |
+      set -eu
+      apk add --no-cache bash curl git ruby tar gzip
+      bash <<'BASH'
+      set -euo pipefail
+      RELEASE_PHASE=package-helm-chart
+      trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
+
+      . dist/release/env
+      . dist/release/install-release-tools.sh
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping Helm chart packaging"
+        exit 0
+      fi
+
+      install_helm
+
+      echo "release_phase=package-helm-chart"
+      rm -rf dist/release/chart
+      mkdir -p dist/release
+      cp -R deploy/helm/nopsai dist/release/chart
+      ruby -ryaml -e '
+        path = "dist/release/chart/Chart.yaml"
+        version = ARGV.fetch(0)
+        chart = YAML.load_file(path)
+        chart["version"] = version
+        chart["appVersion"] = version
+        File.write(path, chart.to_yaml)
+      ' "$VERSION"
+      helm lint dist/release/chart
+      helm package dist/release/chart --destination dist/release
+      scripts/generate-changelog.sh "$VERSION" dist/release/CHANGELOG.md "$SOURCE_COMMIT"
+
+      rm -rf dist/assets
+      mkdir -p dist/assets
+      echo "release_phase=package-helm-chart complete"
+      BASH
+
+  - name: publish-helm-chart
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - package-helm-chart
+      - verify-image-digests
+      - scan-published-images
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash curl tar gzip
+      bash <<'BASH'
+      set -euo pipefail
+      RELEASE_PHASE=publish-helm-chart
+      trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
+
+      . dist/release/env
+      . dist/release/install-release-tools.sh
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping Helm chart publication"
+        exit 0
+      fi
+      if [[ -z "${NOPSAI_RELEASE_GHCR_TOKEN:-}" ]]; then
+        echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish the Helm chart to GHCR" >&2
+        exit 1
+      fi
+      # Without a username helm and oras fall back to prompting, and the agent
+      # has no terminal, so the login dies as "inappropriate ioctl for device"
+      # instead of saying what is missing.
+      if [[ -z "${GHCR_USERNAME:-}" ]]; then
+        echo "GHCR_USERNAME is required to publish the Helm chart to GHCR" >&2
+        exit 1
+      fi
+
+      install_helm
+      install_oras
+      echo "release_phase=publish-helm-chart"
+      # Both logins stay on one line. A wrapped command loses its flags if any
+      # layer between this file and the agent drops the continuations, and a
+      # credential flag that goes missing turns into an interactive prompt.
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+      # Default release registry resolves to oci://ghcr.io/<owner>/charts.
+      chart_repository="oci://$REGISTRY/charts"
+      chart_reference="$chart_repository/nopsai"
+      oras_chart_reference="${chart_reference#oci://}"
+      chart_push_output="$(helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1)"
+      printf '%s\n' "$chart_push_output"
+      chart_digest="$(printf '%s\n' "$chart_push_output" | tr -d '\r' | grep -Eo 'sha256:[a-f0-9]{64}' | tail -1 || true)"
+      if [[ ! "$chart_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+        echo "Helm did not return a valid OCI chart digest in push output:" >&2
+        printf '%s\n' "$chart_push_output" >&2
+        exit 1
+      fi
+      printf '%s\n' "$chart_reference@$chart_digest" >dist/release/helm-chart.digest
+      while IFS= read -r release_tag; do
+        if [[ "$release_tag" == "$VERSION" ]]; then
+          continue
+        fi
+        oras copy "$oras_chart_reference:$VERSION" "$oras_chart_reference:$release_tag"
+        echo "published_chart_alias=$chart_reference:$release_tag"
+      done < <(scripts/release-tags.sh "$VERSION")
+      echo "release_phase=publish-helm-chart complete"
+      BASH
+
+  # Cross-compiling the CLI needs the source and dist/release/env only, so it runs
+  # beside the image and chart work rather than after it.
+  - name: build-cli-archives
+    image: golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+    depends_on:
+      - quality-gates
+      - ui-gates
+      - release-notices
+    script: |
+      set -eu
+      apk add --no-cache bash git tar gzip zip
+      bash <<'BASH'
+      set -euo pipefail
+
+      . dist/release/env
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping CLI archive build"
+        exit 0
+      fi
+
+      rm -rf dist/cli
+      mkdir -p dist/cli
+      ldflags="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${SOURCE_COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.APIVersion=${API_VERSION} -X nopsai/pkg/buildinfo.RunnerProtocolVersion=${RUNNER_PROTOCOL_VERSION} -X nopsai/pkg/buildinfo.CLICompatibility=${CLI_COMPATIBILITY} -X nopsai/pkg/buildinfo.RunnerCompatibility=${RUNNER_COMPATIBILITY} -X nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY} -X nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}"
+
+      for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+        goos="${target%/*}"
+        goarch="${target#*/}"
+        package_dir="dist/package/${goos}-${goarch}"
+        rm -rf "$package_dir"
+        mkdir -p "$package_dir"
+        binary=nopsai
+        if [[ "$goos" == "windows" ]]; then
+          binary=nopsai.exe
+        fi
+        echo "Building CLI for ${goos}/${goarch}"
+        CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="$ldflags" -o "$package_dir/$binary" ./cmd/nopsai-cli
+        asset="nopsai-cli_${VERSION}_${goos}_${goarch}"
+        if [[ "$goos" == "windows" ]]; then
+          (cd "$package_dir" && zip -9 "../../cli/${asset}.zip" "$binary")
+        else
+          tar -C "$package_dir" -czf "dist/cli/${asset}.tar.gz" "$binary"
+        fi
+      done
+
+      shopt -s nullglob
+      cli_assets=(dist/cli/*)
+      if (( ${#cli_assets[@]} == 0 )); then
+        echo "No CLI release artifacts were built into dist/cli" >&2
+        exit 1
+      fi
+      BASH
+
+  - name: package-release-assets
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - build-cli-archives
+      - publish-helm-chart
+      - release-notices
+    script: |
+      set -eu
+      apk add --no-cache bash coreutils perl-utils tar gzip
+      bash <<'BASH'
+      set -euo pipefail
+      RELEASE_PHASE=package-release-assets
+      trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
+
+      . dist/release/env
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping release asset packaging"
+        exit 0
+      fi
+
+      echo "release_phase=package-release-assets"
+      helm_chart_asset="nopsai-helm-chart-$VERSION.tgz"
+      changelog_asset="nopsai-changelog-$VERSION.md"
+      shopt -s nullglob
+      cli_assets=(dist/cli/*)
+      if (( ${#cli_assets[@]} == 0 )); then
+        echo "No CLI release artifacts were built into dist/cli" >&2
+        exit 1
+      fi
+      cp "${cli_assets[@]}" dist/assets/
+      cp dist/release/CHANGELOG.md "dist/assets/$changelog_asset"
+      cp "dist/release/nopsai-$VERSION.tgz" "dist/assets/$helm_chart_asset"
+      (
+        cd dist/assets
+        find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 >SHA256SUMS
+      )
+      echo "release_phase=package-release-assets complete"
+      BASH
+
+  - name: publish-cli-package
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - package-release-assets
+    secrets:
+      - NOPSAI_RELEASE_GHCR_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash curl tar gzip
+      bash <<'BASH'
+      set -euo pipefail
+      RELEASE_PHASE=publish-cli-package
+      trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
+
+      . dist/release/env
+      . dist/release/install-release-tools.sh
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping CLI package publication"
+        exit 0
+      fi
+      if [[ -z "${NOPSAI_RELEASE_GHCR_TOKEN:-}" ]]; then
+        echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish CLI package artifacts" >&2
+        exit 1
+      fi
+      if [[ -z "${GHCR_USERNAME:-}" ]]; then
+        echo "GHCR_USERNAME is required to publish CLI package artifacts" >&2
+        exit 1
+      fi
+
+      install_oras
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+      cli_package_reference="${NOPSAI_RELEASE_CLI_PACKAGE:-$REGISTRY/nopsai-cli}"
+      shopt -s nullglob
+      cli_assets=(dist/cli/*)
+      if (( ${#cli_assets[@]} == 0 )); then
+        echo "No CLI release artifacts were built into dist/cli" >&2
+        exit 1
+      fi
+      rm -rf dist/cli-package
+      mkdir -p dist/cli-package
+      cp dist/assets/SHA256SUMS dist/cli-package/SHA256SUMS
+      cp "${cli_assets[@]}" dist/cli-package/
+      oras_args=(
+        --artifact-type application/vnd.nopsai.cli.release.v1
+        --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+        --annotation "org.opencontainers.image.version=$VERSION"
+        "SHA256SUMS:text/plain"
+      )
+      (
+        cd dist/cli-package
+        for cli_asset in nopsai-cli_*; do
+          case "$cli_asset" in
+            *.zip) media_type=application/zip ;;
+            *.tar.gz) media_type=application/gzip ;;
+            *) media_type=application/octet-stream ;;
+          esac
+          oras_args+=("$cli_asset:$media_type")
+        done
+        oras push "$cli_package_reference:$VERSION" "${oras_args[@]}"
+      )
+      while IFS= read -r release_tag; do
+        if [[ "$release_tag" == "$VERSION" ]]; then
+          continue
+        fi
+        oras copy "$cli_package_reference:$VERSION" "$cli_package_reference:$release_tag"
+        echo "published_cli_package_alias=$cli_package_reference:$release_tag"
+      done < <(scripts/release-tags.sh "$VERSION")
+      echo "published_cli_package=$cli_package_reference:$VERSION"
+      echo "release_phase=publish-cli-package complete"
+      BASH
+
+  - name: publish-release
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    depends_on:
+      - package-release-assets
+      - publish-cli-package
+    secrets:
+      - NOPSAI_RELEASE_GITHUB_TOKEN
+    script: |
+      set -eu
+      apk add --no-cache bash curl git tar gzip
+      bash <<'BASH'
+      set -euo pipefail
+      RELEASE_PHASE=publish-github-release
+      trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
+
+      configure_git_auth() {
+        local askpass_path
+        askpass_path="$(git rev-parse --absolute-git-dir)/nopsai-git-askpass"
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'case "$1" in' \
+          '  *Username*) printf "%s\n" "x-access-token" ;;' \
+          '  *Password*) printf "%s\n" "$NOPSAI_RELEASE_GITHUB_TOKEN" ;;' \
+          '  *) printf "\n" ;;' \
+          'esac' >"$askpass_path"
+        chmod 700 "$askpass_path"
+        export GIT_ASKPASS="$askpass_path"
+        export GIT_TERMINAL_PROMPT=0
+      }
+
+      delete_release_assets() {
+        local release_tag="$1"
+        local asset assets_output
+        if ! run_gh_with_retry github-release-assets \
+          gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'; then
+          echo "Failed to list the assets on release $release_tag: $GH_OUTPUT" >&2
+          exit 1
+        fi
+        assets_output="$GH_OUTPUT"
+        while IFS= read -r asset; do
+          [[ -n "$asset" ]] || continue
+          if ! run_gh_with_retry github-release-delete-asset \
+            gh release delete-asset "$release_tag" "$asset" --repo "$GITHUB_REPOSITORY" -y; then
+            echo "Failed to delete asset $asset from release $release_tag; the upload below replaces it: $GH_OUTPUT" >&2
+          fi
+        done <<< "$assets_output"
+      }
+
+      release_not_found_error() {
+        printf '%s' "$1" | grep -qi 'release not found'
+      }
+
+      release_already_exists_error() {
+        printf '%s' "$1" | grep -qi 'already exists'
+      }
+
+      retryable_gh_error() {
+        printf '%s' "$1" | grep -Eqi 'status code: (429|5[0-9][0-9])|HTTP (429|5[0-9][0-9])|Service Unavailable|Bad Gateway|Gateway Timeout|temporarily unavailable|timed out|timeout|connection reset|EOF'
+      }
+
+      # Every GitHub call runs through run_gh_with_retry, not just the asset
+      # upload. A transient 5xx on a lookup is not an answer, and a phase that
+      # treats it as one reports whatever it guessed: reading a failed lookup
+      # as "this release belongs to another commit" is what failed reruns that
+      # were republishing their own release. The combined output stays in
+      # GH_OUTPUT so callers can tell "not found" from "never answered".
+      GH_OUTPUT=""
+      run_gh_with_retry() {
+        local label="$1"
+        shift
+        local status attempt delay
+        local -a retry_delays
+        read -r -a retry_delays <<< "${NOPSAI_RELEASE_GITHUB_RETRY_DELAYS:-5 15 30 60 120}"
+        attempt=1
+        while true; do
+          status=0
+          GH_OUTPUT="$("$@" 2>&1)" || status=$?
+          if (( status == 0 )); then
+            return 0
+          fi
+          if ! retryable_gh_error "$GH_OUTPUT" || (( attempt > ${#retry_delays[@]} )); then
+            return "$status"
+          fi
+          delay="${retry_delays[$((attempt - 1))]}"
+          if [[ ! "$delay" =~ ^[0-9]+$ ]]; then
+            echo "Invalid NOPSAI_RELEASE_GITHUB_RETRY_DELAYS value: $delay" >&2
+            return "$status"
+          fi
+          echo "github_release_retry label=$label attempt=$attempt delay_seconds=$delay" >&2
+          printf '%s\n' "$GH_OUTPUT" >&2
+          sleep "$delay"
+          attempt=$((attempt + 1))
+        done
+      }
+
+      # run_gh is run_gh_with_retry for the calls whose output belongs in the
+      # run log rather than in a variable.
+      run_gh() {
+        local status=0
+        run_gh_with_retry "$@" || status=$?
+        if (( status == 0 )); then
+          [[ -z "$GH_OUTPUT" ]] || printf '%s\n' "$GH_OUTPUT"
+          return 0
+        fi
+        [[ -z "$GH_OUTPUT" ]] || printf '%s\n' "$GH_OUTPUT" >&2
+        return "$status"
+      }
+
+      # load_release_metadata records what GitHub knows about a release: the
+      # commit it targets and whether it is still the draft that a create left
+      # behind when the call that would have published it failed midway. It
+      # answers only what it can prove, so it returns non-zero for a release
+      # GitHub positively reported as missing and aborts the phase for a lookup
+      # that never answered, because guessing "does not exist" sends the
+      # release down the create path and turns a transient API error into a
+      # hard failure after every asset has already been built.
+      EXISTING_RELEASE_TARGET=""
+      EXISTING_RELEASE_IS_DRAFT=""
+      load_release_metadata() {
+        local release_tag="$1"
+        EXISTING_RELEASE_TARGET=""
+        EXISTING_RELEASE_IS_DRAFT=""
+        if run_gh_with_retry github-release-view \
+          gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" \
+          --json tagName,targetCommitish,isDraft \
+          --jq '[.targetCommitish, (.isDraft | tostring)] | @tsv'; then
+          EXISTING_RELEASE_TARGET="${GH_OUTPUT%%$'\t'*}"
+          if [[ "$GH_OUTPUT" == *$'\t'* ]]; then
+            EXISTING_RELEASE_IS_DRAFT="${GH_OUTPUT##*$'\t'}"
+          else
+            EXISTING_RELEASE_IS_DRAFT=false
+          fi
+          return 0
+        fi
+        if release_not_found_error "$GH_OUTPUT"; then
+          return 1
+        fi
+        echo "Failed to determine whether release $release_tag exists: $GH_OUTPUT" >&2
+        exit 1
+      }
+
+      release_exists() {
+        load_release_metadata "$1"
+      }
+
+      update_release() {
+        local release_tag="$1"
+        shift
+        local -a edit_args=("$@")
+        if [[ "$EXISTING_RELEASE_IS_DRAFT" == "true" ]]; then
+          # A draft is what gh leaves behind when publishing the release it
+          # just created fails ("cleaning up draft failed"). The draft carries
+          # no git tag, so every later attempt finds a release that exists and
+          # a tag that does not; publishing the draft is what finishes it.
+          echo "github_release_draft_action=publish tag=$release_tag"
+          edit_args+=(--draft=false)
+        fi
+        delete_release_assets "$release_tag"
+        run_gh github-release-upload gh release upload "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
+        run_gh github-release-edit gh release edit "$release_tag" --repo "$GITHUB_REPOSITORY" "${edit_args[@]}" --notes-file dist/release/CHANGELOG.md
+      }
+
+      # create_release falls back to updating when GitHub reports the release
+      # already exists. Another run can create it between the lookup and the
+      # create, and a release that exists is the state this phase wanted.
+      # require_recovery is true only for the version release: alias releases
+      # such as latest are moving pointers that every release replaces.
+      create_release() {
+        local release_tag="$1"
+        local require_recovery="$2"
+        shift 2
+        if run_gh github-release-create \
+          gh release create "$release_tag" dist/assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" "$@" --notes-file dist/release/CHANGELOG.md; then
+          return 0
+        fi
+        if ! release_already_exists_error "$GH_OUTPUT"; then
+          return 1
+        fi
+        echo "github_release_action=create_raced_existing tag=$release_tag"
+        EXISTING_RELEASE_TARGET=""
+        EXISTING_RELEASE_IS_DRAFT=""
+        if [[ "$require_recovery" == "true" ]]; then
+          require_existing_release_recovery "$release_tag"
+        elif ! load_release_metadata "$release_tag"; then
+          # Alias releases are moving pointers, so a create that raced a
+          # release GitHub no longer lists is still replaced by this run.
+          EXISTING_RELEASE_IS_DRAFT=false
+        fi
+        update_release "$release_tag" "$@"
+      }
+
+      # release_target_matches_source answers from metadata the lookup already
+      # proved. An unanswered lookup is not evidence of another commit, so it
+      # aborts rather than reporting a mismatch it never established.
+      release_target_matches_source() {
+        local release_tag="$1"
+        local target_commitish tag_commit
+        if [[ -z "$EXISTING_RELEASE_TARGET" ]] && ! load_release_metadata "$release_tag"; then
+          # A release GitHub positively does not list is a release this run
+          # cannot claim as its own; the recovery guard below decides what
+          # happens next. A lookup that never answered never reaches here:
+          # load_release_metadata aborts on those rather than guessing.
+          echo "Release $release_tag was reported as existing but GitHub does not list it" >&2
+          return 1
+        fi
+        target_commitish="$EXISTING_RELEASE_TARGET"
+        if [[ -z "$target_commitish" ]]; then
+          echo "GitHub did not report which commit release $release_tag was published from" >&2
+          exit 1
+        fi
+        if [[ "$target_commitish" == "$SOURCE_COMMIT" ]]; then
+          return 0
+        fi
+        tag_commit="$(git rev-parse --verify --quiet "$target_commitish^{commit}" 2>/dev/null || true)"
+        if [[ "$tag_commit" == "$SOURCE_COMMIT" ]]; then
+          return 0
+        fi
+        tag_commit="$(git rev-list -n 1 "refs/tags/$release_tag" 2>/dev/null || true)"
+        if [[ -n "$tag_commit" && "$tag_commit" == "$SOURCE_COMMIT" ]]; then
+          return 0
+        fi
+        return 1
+      }
+
+      require_existing_release_recovery() {
+        local release_tag="$1"
+        if release_target_matches_source "$release_tag"; then
+          if [[ "$EXISTING_RELEASE_IS_DRAFT" == "true" ]]; then
+            echo "Release $release_tag is the unpublished draft a previous attempt left for $SOURCE_COMMIT; publishing it"
+          else
+            echo "Release $release_tag already exists for $SOURCE_COMMIT; replacing assets for an idempotent rerun"
+          fi
+          return 0
+        fi
+        if [[ "$ALLOW_EXISTING_RELEASE" != "true" ]]; then
+          echo "Release $release_tag already exists for another source and recovery mode is disabled; rerun with NOPSAI_RELEASE_ALLOW_EXISTING=true to replace release assets, or delete $release_tag before retrying a clean publish" >&2
+          exit 1
+        fi
+      }
+
+      publish_alias_release() {
+        local release_alias="$1"
+        local release_tag="$2"
+        git tag -f "$release_tag" "$SOURCE_COMMIT"
+        git push --force origin "refs/tags/$release_tag"
+        if release_exists "$release_tag"; then
+          echo "github_release_alias_action=update alias=$release_alias tag=$release_tag"
+          update_release "$release_tag" --title "NopsAI $release_alias ($VERSION)" --latest=false
+        else
+          echo "github_release_alias_action=create alias=$release_alias tag=$release_tag"
+          create_release "$release_tag" false --title "NopsAI $release_alias ($VERSION)" --latest=false
+        fi
+      }
+
+      . dist/release/env
+      . dist/release/install-release-tools.sh
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping GitHub release publication"
+        exit 0
+      fi
+      if [[ -z "${NOPSAI_RELEASE_GITHUB_TOKEN:-}" ]]; then
+        echo "NOPSAI_RELEASE_GITHUB_TOKEN is required to publish GitHub release assets" >&2
+        exit 1
+      fi
+
+      install_gh
+      configure_git_auth
+      export GH_TOKEN="$NOPSAI_RELEASE_GITHUB_TOKEN"
+      echo "release_phase=publish-github-release"
+      legacy_assets=(
+        CHANGELOG.md
+        "nopsai-$VERSION.tgz"
+        "nopsai_${VERSION}_linux_amd64.tar.gz"
+        "nopsai_${VERSION}_linux_arm64.tar.gz"
+        "nopsai_${VERSION}_darwin_amd64.tar.gz"
+        "nopsai_${VERSION}_darwin_arm64.tar.gz"
+        "nopsai_${VERSION}_windows_amd64.zip"
+      )
+      if release_exists "v$VERSION"; then
+        require_existing_release_recovery "v$VERSION"
+        echo "github_release_action=update"
+        for asset in "${legacy_assets[@]}"; do
+          gh release delete-asset "v$VERSION" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
+        done
+        update_release "v$VERSION" --title "NopsAI $VERSION" --latest
+      else
+        echo "github_release_action=create"
+        create_release "v$VERSION" true --title "NopsAI $VERSION" --latest
+      fi
+      while IFS= read -r release_tag; do
+        case "$release_tag" in
+          "$VERSION"|latest) continue ;;
+          *) publish_alias_release "$release_tag" "v$release_tag" ;;
+        esac
+      done < <(scripts/release-tags.sh "$VERSION")
+      echo "release_phase=publish-github-release complete"
+      BASH

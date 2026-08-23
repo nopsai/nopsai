@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
@@ -360,10 +360,25 @@ test('sends a team model rate card through the team profile API', async () => {
   );
 
   const profileList = await screen.findByLabelText('LLM profiles');
+  // The team profile fetch re-renders the panel when it resolves and resets the
+  // edit form with it. Interacting before it settles loses the typed rate card,
+  // so wait for the load to finish rather than racing it.
+  await waitFor(() => expect(teamProfileMocks.fetchTeamLLMProfiles).toHaveBeenCalledWith('platform/ml'));
+
   await user.click(within(profileList).getByRole('button', { name: 'Select LLM profile reasoning' }));
   await user.click(screen.getByRole('button', { name: /edit profile/i }));
-  await user.type(screen.getByLabelText('Input'), '3');
-  await user.type(screen.getByLabelText('Output'), '15');
+  await screen.findByLabelText('Input');
+  // fireEvent.change sets the rate card in one event. user.type commits one
+  // keystroke at a time, and a re-render landing between keystrokes drops the
+  // digit and submits a zeroed rate card.
+  fireEvent.change(screen.getByLabelText('Input'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Output'), { target: { value: '15' } });
+  // The rate card inputs mount while the edit form is still settling, so a
+  // keystroke can land on an element that is replaced before it commits.
+  // Assert the values are actually held before saving, otherwise the test
+  // races the re-render and submits a zeroed rate card.
+  await waitFor(() => expect(screen.getByLabelText('Input')).toHaveValue(3));
+  await waitFor(() => expect(screen.getByLabelText('Output')).toHaveValue(15));
   await user.click(screen.getByRole('button', { name: /save profile/i }));
 
   await waitFor(() => expect(teamProfileMocks.upsertTeamLLMProfile).toHaveBeenCalledWith(

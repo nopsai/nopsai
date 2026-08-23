@@ -20,7 +20,12 @@ test('renders setup wizard primitives and delegates step navigation', async () =
 
   expect(screen.getByText('Prepare setup')).toBeInTheDocument();
   expect(screen.getByText('Review runtime secrets before saving.')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /readiness required/i })).toHaveAttribute('aria-current', 'step');
+  // Derived from the step list for the same reason as the assertion below: the
+  // first step is whichever step the wizard puts first.
+  const firstStep = WIZARD_STEPS[0];
+  expect(
+    screen.getByRole('button', { name: new RegExp(`${firstStep.label} ${firstStep.required ? 'Required' : 'Optional'}`, 'i') })
+  ).toHaveAttribute('aria-current', 'step');
 
   await user.click(screen.getByRole('button', { name: /teams optional/i }));
 

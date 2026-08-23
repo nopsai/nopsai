@@ -86,7 +86,7 @@ const (
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/favicon.ico", "/version", "/healthz", "/livez", "/metrics", "/v1/auth/providers", "/v1/auth/discover", "/v1/auth/session/exchange", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
+	case "/favicon.ico", "/version", "/healthz", "/livez", "/metrics", "/v1/auth/providers", "/v1/auth/discover", "/v1/auth/session/exchange", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/setup/preflight", "/v1/setup/license", "/v1/system/dispatcher/runner-bootstrap":
 		return true
 	// GitHub redirects the operator's browser back to these callbacks without a
 	// bearer token; each one authorizes itself with a single-use state.

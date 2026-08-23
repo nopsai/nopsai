@@ -1,9 +1,13 @@
 package nopsai
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/buildinfo"
+	"nopsai/pkg/license"
 	"nopsai/pkg/startupgates"
 )
 
@@ -18,7 +22,7 @@ func enterpriseStartupGateChecks(cfg *config.Config) []setupPreflightCheck {
 	}
 
 	strict := cfg.RequiresProductionGates()
-	checks := []setupPreflightCheck{enterpriseGateModeCheck(strict)}
+	checks := []setupPreflightCheck{enterpriseGateModeCheck(strict), licenseEntitlementCheck(cfg, strict)}
 
 	if masterKey := strings.TrimSpace(cfg.MasterKey); masterKey != "" {
 		checks = append(checks, secretStrengthCheck(
@@ -251,4 +255,50 @@ func githubAppConfigured(cfg *config.Config) bool {
 		strings.TrimSpace(cfg.GitHubInstallID) != "" ||
 		strings.TrimSpace(cfg.GitHubPrivateKeyCredentialRef) != "" ||
 		strings.TrimSpace(cfg.GitHubWebhookCredentialRef) != ""
+}
+
+// licenseEntitlementCheck blocks production startup on an installation that is
+// not licensed. Outside production mode it is advisory: an evaluator must be
+// able to run NopsAI without talking to anyone, and refusing to start would
+// make the product unevaluable rather than protected.
+//
+// In production mode it is required, because an administrator declaring an
+// installation production while running under evaluation limits is running
+// unlicensed by accident, which is exactly what the gate exists to prevent.
+func licenseEntitlementCheck(cfg *config.Config, strict bool) setupPreflightCheck {
+	publicKey, buildCanVerify := license.ParsePublicKey(buildinfo.LicensePublicKey)
+	entitlement := license.Resolve(cfg.LicenseKey, publicKey, time.Now().UTC())
+
+	// A build compiled without a verification key cannot check any licence, so
+	// blocking on it would punish the build configuration rather than the
+	// operator, and would stop a build that predates licensing from starting at
+	// all. Such a build reports the situation and never blocks.
+	blocking := strict && buildCanVerify
+
+	if entitlement.Licensed {
+		message := fmt.Sprintf("Licensed to %s (%s tier).", entitlement.Claims.Licensee, entitlement.Claims.Tier)
+		if !entitlement.Claims.ExpiresAt.IsZero() {
+			message += fmt.Sprintf(" Expires %s.", entitlement.Claims.ExpiresAt.UTC().Format("2006-01-02"))
+		}
+		return setupPreflightCheck{
+			ID:       "license_entitlement",
+			Label:    "Licence entitlement",
+			Status:   "success",
+			Required: blocking,
+			Message:  message,
+		}
+	}
+
+	status := "warning"
+	if blocking {
+		status = "error"
+	}
+	return setupPreflightCheck{
+		ID:           "license_entitlement",
+		Label:        "Licence entitlement",
+		Status:       status,
+		Required:     blocking,
+		Message:      entitlement.Reason + " Set license_key in setting/system/runner.yaml, or NOPSAI_LICENSE_KEY, to license this installation.",
+		SuggestedEnv: map[string]string{"NOPSAI_LICENSE_KEY": ""},
+	}
 }

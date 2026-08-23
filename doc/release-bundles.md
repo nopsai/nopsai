@@ -28,7 +28,7 @@ chrome so operators can confirm the deployed build without opening diagnostics.
 
 ## Published Assets
 
-The GitOps-managed `.nopsai/nopsai-platform-release.yaml` pipeline publishes
+The GitOps-managed `release/nopsai-platform-release.yaml` pipeline publishes
 `platform/prod/nopsai-platform-release` assets:
 
 - multi-architecture GHCR images for the base, API, AAA, agent, dispatcher,

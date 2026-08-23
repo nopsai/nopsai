@@ -72,6 +72,23 @@ type setupStatusResponse struct {
 	StarterProfiles  []setupStarterProfile    `json:"starter_profiles"`
 	GitHub           setupGitHubInfo          `json:"github"`
 	GlobalConfigRepo *models.ConfigRepository `json:"global_config_repo,omitempty"`
+	License          setupLicenseState        `json:"license"`
+}
+
+// setupLicenseState is the wizard's view of the acceptance gate. Accepted is
+// false both for a fresh install and for an upgrade that changed the notice, so
+// the UI can require the step in either case.
+type setupLicenseState struct {
+	Accepted        bool   `json:"accepted"`
+	AcceptedAt      string `json:"accepted_at,omitempty"`
+	AcceptedBy      string `json:"accepted_by,omitempty"`
+	AcceptedVersion string `json:"accepted_version,omitempty"`
+	DocumentVersion string `json:"document_version"`
+	DocumentSHA256  string `json:"document_sha256"`
+	// ReacceptanceRequired distinguishes "never accepted" from "accepted an
+	// earlier notice", which is the difference between a first install and an
+	// upgrade that changed the terms.
+	ReacceptanceRequired bool `json:"reacceptance_required"`
 }
 
 type setupConfigRepositoryInput struct {

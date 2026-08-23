@@ -301,6 +301,17 @@ copy_reports() {
   cp "$SUMMARY" "$REPORT_DIR/license-summary.txt"
 }
 
+# Single-file classification used by scripts/generate-notices.sh, so both the
+# gate and the notice bundle agree on what a licence file says.
+if [[ "${1:-}" == "--classify" ]]; then
+  if [[ -z "${2:-}" || ! -f "${2:-}" ]]; then
+    printf 'UNKNOWN\n'
+    exit 0
+  fi
+  classify_go_license_file "$2"
+  exit 0
+fi
+
 collect_go_licenses
 collect_ui_licenses
 

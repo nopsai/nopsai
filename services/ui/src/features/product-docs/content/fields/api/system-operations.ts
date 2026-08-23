@@ -837,4 +837,33 @@ export const system_operationsRoutes: WikiApiRoute[] = [
     coveringTests: ['services/nopsai/data_management_gitops_test.go'],
     evidence: ['services/nopsai/data_management.go'],
   },
+  {
+    method: 'GET',
+    path: '/v1/system/license',
+    area: 'System operations',
+    access: 'authenticated',
+    purpose: 'What this installation is entitled to run, and why.',
+    depth: 'full',
+    parameters: [],
+    requestSample: {
+      title: 'Check the entitlement',
+      language: 'bash',
+      code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" "$NOPSAI_URL/v1/system/license" | jq \'{licensed, tier, limits, usage, reason}\'',
+      expectedOutput: 'On an unlicensed install, `licensed: false` with evaluation limits and a reason naming what to fix.',
+    },
+    responses: [
+      {
+        status: 200,
+        description: 'Entitlement, limits, current usage against them, and the reason for any non-licensed state.',
+        contentType: 'application/json',
+        sample:
+          '{\n  "licensed": false,\n  "tier": "evaluation",\n  "reason": "No licence key is configured. Running under evaluation limits.",\n  "limits": { "max_users": 5, "max_teams": 2, "max_concurrent_runs": 2 },\n  "usage": { "users": 1, "teams": 0 }\n}',
+      },
+    ],
+    errors: [],
+    sideEffects: ['None. The entitlement is resolved from configuration on each call and cached nowhere.'],
+    coveringTests: ['pkg/license/license_test.go'],
+    evidence: ['services/nopsai/system_license.go', 'pkg/license/entitlement.go'],
+    notes: 'Reports no key material, only what the installation may run. A limit of 0 means unlimited, so an omitted limit never reads as forbidding everything. Verification is a local Ed25519 check: NopsAI never calls home.',
+  },
 ];

@@ -167,6 +167,15 @@ func (a *App) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 	if !a.authorizeTeamCreate(w, r, team.ParentID) {
 		return
 	}
+	// Checked after authorization so an unauthorized caller learns nothing
+	// about this installation's entitlement.
+	if err := a.enforceTeamEntitlement(r.Context()); err != nil {
+		if a.writeEntitlementError(w, r, err) {
+			return
+		}
+		http.Error(w, "Failed to create team", http.StatusInternalServerError)
+		return
+	}
 	created, err := a.insertTeamRecord(r.Context(), team)
 	if err != nil {
 		writeTeamMutationError(w, err, "Failed to create team")

@@ -125,7 +125,7 @@ release model logic.
 - `deploy/helm/nopsai` owns the published NopsAI Helm chart.
 - `.nopsai/triggers/nopsai/nopsai.yaml` owns the GitHub App main-branch release
   trigger for the release pipeline.
-- `.nopsai/nopsai-platform-release.yaml` owns the GitOps release pipeline for
+- `release/nopsai-platform-release.yaml` owns the GitOps release pipeline for
   package validation, GHCR images, OCI source metadata, OCI Helm publication,
   public CLI OCI package publication, CLI archive compatibility assets,
   changelog, checksums, release tag aliases, and GitHub Release publication.

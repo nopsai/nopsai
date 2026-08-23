@@ -31,6 +31,13 @@ var (
 	RunnerCompatibility   = DefaultRunnerCompatibility
 	PlatformCompatibility = DefaultPlatformCompatibility
 	Capabilities          = DefaultCapabilities
+
+	// LicensePublicKey is the base64 Ed25519 key that licence keys are verified
+	// against, set at build time with -ldflags. It is a public key: shipping it
+	// in every binary is the point, and it is what lets verification work with
+	// no network access. A build without it verifies nothing, so every
+	// installation of that build runs under evaluation limits.
+	LicensePublicKey = ""
 )
 
 type Info struct {

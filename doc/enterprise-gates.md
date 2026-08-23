@@ -125,7 +125,7 @@ install/runtime stack and build-only service images.
 
 The local gate itself is read-only and never publishes artifacts to a registry.
 Main-branch publication is owned by
-`.nopsai/nopsai-platform-release.yaml`, which runs release metadata, backend
+`release/nopsai-platform-release.yaml`, which runs release metadata, backend
 quality gates, UI gates, container publication, Helm chart publication, CLI
 archive packaging, changelog generation, checksums, and GitHub Release
 publication as one GitOps-managed NopsAI pipeline. See
@@ -177,7 +177,7 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
 ## CI Gates
 
-`.nopsai/nopsai-platform-release.yaml` is the GitOps-compatible CI and release
+`release/nopsai-platform-release.yaml` is the GitOps-compatible CI and release
 workflow. It runs the same backend categories as the local gate before any
 publication step:
 

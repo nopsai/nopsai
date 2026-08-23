@@ -462,7 +462,7 @@ export const operationsSection: WikiSection = {
       details: [
         'Multi-arch container builds carry `org.opencontainers.image.source` as both Dockerfile labels and OCI index/manifest annotations so GHCR can associate packages with the source repository. Already-created unlinked packages may still need a one-time settings connection or a delete and republish.',
         'The exact GitHub Release is marked latest, and moving `v<major>` and `v<major>.<minor>` release aliases carry compatibility copies of the same CLI assets.',
-        'Repository-owned platform release automation lives in `.nopsai/nopsai-platform-release.yaml`.',
+        'Repository-owned platform release automation lives in `release/nopsai-platform-release.yaml`.',
       ],
       examples: [
         {

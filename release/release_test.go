@@ -600,7 +600,7 @@ func TestInstallGeneratorDeclaresEveryCompatibilityImageKey(t *testing.T) {
 
 func readNopsAIReleasePipeline(t *testing.T) string {
 	t.Helper()
-	contents, err := os.ReadFile("../.nopsai/nopsai-platform-release.yaml")
+	contents, err := os.ReadFile("nopsai-platform-release.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,4 +651,87 @@ func dockerfilesContain(t *testing.T, required string) bool {
 		}
 	}
 	return false
+}
+
+// A credential inside a publicly pullable image is permanently public, so the
+// release must not be able to publish a discoverable version without scanning
+// both the source tree and the images it just pushed.
+func TestReleasePipelineScansForCredentialsBeforePublication(t *testing.T) {
+	pipeline := readNopsAIReleasePipeline(t)
+	for _, required := range []string{
+		"- name: scan-published-images",
+		"scripts/secret-scan.sh --image \"$reference\"",
+		"- scan-published-images",
+	} {
+		if !strings.Contains(pipeline, required) {
+			t.Errorf("release pipeline is missing credential scan contract %q", required)
+		}
+	}
+
+	gates, err := os.ReadFile("../scripts/enterprise-gates.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gates), "run scripts/secret-scan.sh") {
+		t.Error("enterprise gates must run the credential scan so it gates local and CI runs, not only releases")
+	}
+
+	scan, err := os.ReadFile("../scripts/secret-scan.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The counter is only meaningful when the scan loop runs in the current
+	// shell; a pipeline would discard every finding and exit clean.
+	if strings.Contains(string(scan), "| scan_stream") {
+		t.Error("secret scan must not pipe into scan_stream, because the finding count is lost to the subshell")
+	}
+	for _, required := range []string{"findings=$((findings + 1))", "exit 1"} {
+		if !strings.Contains(string(scan), required) {
+			t.Errorf("secret scan is missing fail-closed contract %q", required)
+		}
+	}
+}
+
+// THIRD_PARTY_NOTICES.md is a notice index that requires a release-specific
+// bundle before external distribution, so the release must not be able to
+// publish an artifact that does not carry one.
+func TestReleasePipelineGeneratesThirdPartyNoticeBundle(t *testing.T) {
+	pipeline := readNopsAIReleasePipeline(t)
+	for _, required := range []string{
+		"- name: release-notices",
+		"scripts/generate-notices.sh",
+		`--output "dist/notices/THIRD-PARTY-NOTICES-$VERSION.md"`,
+		"npm ci --omit=dev",
+	} {
+		if !strings.Contains(pipeline, required) {
+			t.Errorf("release pipeline is missing notice bundle contract %q", required)
+		}
+	}
+
+	// Every distributed artifact family must wait for the bundle.
+	for _, consumer := range []string{"publish-base-image", "package-helm-chart", "build-cli-archives", "package-release-assets"} {
+		index := strings.Index(pipeline, "- name: "+consumer)
+		if index < 0 {
+			t.Fatalf("release pipeline has no %q step", consumer)
+		}
+		window := pipeline[index:]
+		if next := strings.Index(window[1:], "\n  - name: "); next >= 0 {
+			window = window[:next]
+		}
+		if !strings.Contains(window, "- release-notices") {
+			t.Errorf("step %q must depend on release-notices so the artifact carries the bundle", consumer)
+		}
+	}
+
+	generator, err := os.ReadFile("../scripts/generate-notices.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A component with no reproducible licence text cannot lawfully be shipped,
+	// so the generator must fail rather than emit an incomplete bundle.
+	for _, required := range []string{"missing=$((missing + 1))", "Notice bundle incomplete", "exit 1"} {
+		if !strings.Contains(string(generator), required) {
+			t.Errorf("notice generator is missing fail-closed contract %q", required)
+		}
+	}
 }

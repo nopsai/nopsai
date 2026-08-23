@@ -15,6 +15,7 @@ import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProv
 import { SetupReviewOutput } from './setup/SetupReviewOutput';
 import { SetupBootstrapResult, SetupStatusOverview } from './setup/SetupStatusPanels';
 import SetupGitHubStep from './setup/SetupGitHubStep';
+import { SetupLicenseStep } from './setup/SetupLicenseStep';
 import { SetupStatusIcon, SetupStepNavigation, StepIntro, WarningCallout } from './setup/SetupWizardPrimitives';
 import {
   LLM_SKIP_WARNING,
@@ -68,6 +69,8 @@ function SetupWizard({
   const [users, setUsers] = useState<UserDraft[]>([]);
   const [bootstrapResult, setBootstrapResult] = useState<BootstrapResponse | null>(null);
   const [wizardStepIndex, setWizardStepIndex] = useState(0);
+  const [licenseAccepted, setLicenseAccepted] = useState(false);
+  const markLicenseAccepted = useCallback(() => setLicenseAccepted(true), []);
 
   const currentWizardStep = WIZARD_STEPS[Math.min(wizardStepIndex, WIZARD_STEPS.length - 1)];
   const normalizedRepositoryTeams = useMemo(
@@ -224,8 +227,12 @@ function SetupWizard({
     [runtimeEnvSections]
   );
 
+  const licenseIsAccepted = licenseAccepted || status?.license?.accepted === true;
+
   const canContinueWizard = (() => {
     switch (currentWizardStep.id) {
+      case 'license':
+        return licenseIsAccepted;
       case 'readiness':
         return !loading && requiredHealthErrors.length === 0;
       default:
@@ -322,6 +329,8 @@ function SetupWizard({
 
   const renderWizardStep = () => {
     switch (currentWizardStep.id) {
+      case 'license':
+        return <SetupLicenseStep canManage={canManage} onAccepted={markLicenseAccepted} />;
       case 'readiness':
         return (
           <div className="space-y-4">
@@ -579,7 +588,7 @@ function SetupWizard({
             <button className="rounded-md border border-[var(--border-primary)] px-4 py-2 text-sm" onClick={() => setWizardStepIndex(index => Math.max(0, index - 1))} disabled={wizardStepIndex === 0}>Back</button>
             {!currentWizardStep.required && <button className="rounded-md border border-[var(--border-primary)] px-4 py-2 text-sm" onClick={skipCurrentStep}>Skip</button>}
             {wizardStepIndex >= WIZARD_STEPS.length - 1 ? (
-              <button className="glass-button-primary inline-flex items-center gap-2" onClick={() => void applySetup()} disabled={!canManage || saving || !canContinueWizard}>
+              <button className="glass-button-primary inline-flex items-center gap-2" onClick={() => void applySetup()} disabled={!canManage || saving || !canContinueWizard || !licenseIsAccepted}>
                 <PlayCircle className="h-4 w-4" />
                 {saving ? 'Applying...' : 'Apply setup'}
               </button>

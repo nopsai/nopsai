@@ -3,6 +3,7 @@ package nopsai
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path"
@@ -176,6 +177,12 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.markSetupComplete(r.Context(), req.Profile); err != nil {
+		// An unaccepted licence is an operator-fixable precondition, not a
+		// server fault, so it answers 412 with the action to take.
+		if errors.Is(err, errSetupLicenseNotAccepted) {
+			http.Error(w, err.Error(), http.StatusPreconditionFailed)
+			return
+		}
 		http.Error(w, "failed to save setup completion state", http.StatusInternalServerError)
 		return
 	}

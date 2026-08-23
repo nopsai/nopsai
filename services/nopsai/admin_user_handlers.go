@@ -199,6 +199,17 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email already in use", http.StatusConflict)
 		return
 	}
+	// An upsert of an existing user is not a new seat, so the limit is only
+	// checked when this request would actually add one.
+	if excludeUserID == nil {
+		if err := a.enforceUserEntitlement(r.Context()); err != nil {
+			if a.writeEntitlementError(w, r, err) {
+				return
+			}
+			http.Error(w, "failed to create user", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	userID := uuid.New()
 	tx, err := a.db.Begin(r.Context())

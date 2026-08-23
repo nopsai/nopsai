@@ -50,6 +50,10 @@ run scripts/test-backend.sh
 run scripts/test-backend.sh -race
 run scripts/release-tooling-test.sh
 run scripts/license-check.sh
+
+# A credential in a publicly pullable artifact is permanently public, so the
+# scan gates every publish step rather than only the release job.
+run scripts/secret-scan.sh
 run go vet ./...
 
 require_golangci_lint_compatible
@@ -79,3 +83,9 @@ run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-git-bot:ci -f c
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-runner:ci -f container/Dockerfile.docker-runner .
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-k8s-runner:ci -f container/Dockerfile.k8s-runner .
 run docker build -t nopsai-ui:ci -f services/ui/Dockerfile services/ui
+
+for image in nopsai-base:ci nopsai-api:ci nopsai-aaa:ci nopsai-agent:ci \
+  nopsai-dispatcher:ci nopsai-git-bot:ci nopsai-runner:ci nopsai-k8s-runner:ci \
+  nopsai-docker-socket-proxy:ci nopsai-pipeline:ci nopsai-ui:ci; do
+  run scripts/secret-scan.sh --image "$image"
+done

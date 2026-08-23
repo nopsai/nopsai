@@ -178,7 +178,7 @@ awk '
   /^      delete_release_assets\(\) \{$/ { capture = 1 }
   /^      \. dist\/release\/env$/ { capture = 0 }
   capture { sub(/^      /, ""); print }
-' "$ROOT_DIR/.nopsai/nopsai-platform-release.yaml" >"$publish_helpers"
+' "$ROOT_DIR/release/nopsai-platform-release.yaml" >"$publish_helpers"
 require_text "release_exists()" "$publish_helpers" "the extracted release lookup helper"
 require_text "create_release()" "$publish_helpers" "the extracted release create helper"
 require_text "release_target_matches_source()" "$publish_helpers" "the extracted same-source release guard"

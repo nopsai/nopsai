@@ -17,7 +17,7 @@ leaving the operator at a broken sign-in form.
 Use it for a new installation, a local evaluation environment, or a controlled
 bootstrap of a team workspace. The wizard uses one setup path: required steps
 must be completed, while optional integrations can be skipped and configured
-later.
+later. Licence acceptance is the first required step and cannot be skipped.
 
 ## Required Access
 
@@ -25,6 +25,12 @@ The authenticated setup page is a system administration surface:
 
 - `GET /v1/setup/preflight` is public so the UI can explain missing initial
   configuration before authentication is available.
+- `GET /v1/setup/license` is public for the same reason: an administrator has to
+  be able to read the proprietary notice before being asked to accept it, and
+  the notice is the same text already shipped in every artifact.
+- `POST /v1/setup/license/accept` requires `system.update` on `system:config`,
+  because recording acceptance is an administrator action even though reading
+  the notice is not.
 - `GET /v1/setup/*` requires `system.read` on `system:config`.
 - `POST /v1/setup/*` requires `system.update` on `system:config`.
 - Until `setup_state.completed_at` is written, authenticated API requests other
@@ -39,6 +45,7 @@ admin must change password.
 
 There are no starter profiles in the UI. The wizard is a single guided flow:
 
+- required licence acceptance, before anything else
 - required readiness and runtime configuration steps
 - optional GitHub App connection and installation
 - optional GitOps repository connection and sync kickoff
@@ -363,3 +370,46 @@ Important response fields:
   same `SERVICE_JWT_SIGNING_KEY`.
 - **Starter run cannot execute**: Check dispatcher/runner health, runner
   registration, Docker access, and the configured model.
+
+## Licence Acceptance
+
+NopsAI is proprietary software, and possession of a binary, image, or chart
+grants no right to use it. Container images are publicly pullable, so the
+wizard is where an anonymous puller becomes an installation that has agreed to
+terms.
+
+The first wizard step shows the full notice — not a link to it — with an
+explicit checkbox and a disabled continue button until it is ticked. Acceptance
+records four keys in `setup_state`: `license_accepted_at`,
+`license_accepted_by`, `license_document_version`, and
+`license_document_sha256`, plus a `system.license.accept` audit entry naming
+the accepting administrator and the exact document digest.
+
+The gate fails closed in three places, so no single UI change can bypass it:
+
+1. The accept endpoint refuses a digest that does not match the notice the
+   server is serving, which stops a stale browser tab from accepting
+   superseded wording.
+2. `markSetupComplete` refuses to write `completed_at` while the current notice
+   is unaccepted, and refuses equally when acceptance cannot be evaluated at
+   all. `POST /v1/setup/bootstrap` answers `412 Precondition Failed`.
+3. The wizard disables both Continue and Apply setup until acceptance is
+   recorded.
+
+Because the first-install gate already blocks the rest of the API until
+`setup_state.completed_at` is written, an installation that never accepts the
+notice never becomes usable.
+
+### Re-acceptance After A Changed Notice
+
+Acceptance is bound to a document digest rather than to a boolean. An upgrade
+that changes the notice leaves `license_document_sha256` pointing at wording the
+installation is no longer running, so `accepted` becomes false and the wizard
+asks for acceptance again, naming the version previously agreed to. A release
+that does not change the notice leaves acceptance untouched.
+
+The notice text lives in `pkg/licensenotice` rather than being embedded from the
+repository root, because `go:embed` cannot reach outside a package directory.
+`TestLicenseNoticeMatchesShippedLicenseFile` fails if that copy ever drifts from
+the `LICENSE` file shipped beside the binaries, so the accepted notice is always
+the shipped notice.

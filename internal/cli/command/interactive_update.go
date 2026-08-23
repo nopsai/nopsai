@@ -1,7 +1,11 @@
 package command
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"nopsai/internal/cli/interactive"
@@ -139,13 +143,22 @@ func updateResultScreenOptions(options *updateOptions, state homeState) interact
 func runInteractiveLicense(command *cobra.Command, prompter *interactive.Prompter, state homeState) error {
 	if err := showInteractiveCommandPreview(prompter, "License command preview", []string{"nopsai", "license"}, []string{
 		"Print the NopsAI proprietary software notice.",
+		"Show what this installation is entitled to run, the same as `nopsai license status`.",
 	}, commandPreviewScreenOptions([]string{"Home", "License", "Preview"}, "License Preview", sessionHeaderLines(state))); err != nil {
 		return err
 	}
 	if !prompter.CanUseLiveSelector() {
 		return renderLicenseNotice(command)
 	}
-	err := prompter.ShowTextScreen("License", strings.Split(proprietaryLicenseNotice, "\n"), interactive.ScreenOptions{
+
+	// The console must cover the same ground as the CLI, so the entitlement is
+	// shown here rather than only under `nopsai license status`. It is
+	// best-effort: an unreachable or unauthenticated API leaves the notice
+	// readable instead of failing the screen.
+	lines := interactiveLicenseEntitlementLines(command, state)
+	lines = append(lines, strings.Split(proprietaryLicenseNotice, "\n")...)
+
+	err := prompter.ShowTextScreen("License", lines, interactive.ScreenOptions{
 		Breadcrumb: []string{"Home", "License"},
 		Title:      "License",
 		Header:     sessionHeaderLines(state),
@@ -155,4 +168,50 @@ func runInteractiveLicense(command *cobra.Command, prompter *interactive.Prompte
 		return nil
 	}
 	return err
+}
+
+// interactiveLicenseEntitlementLines renders the entitlement summary shown above
+// the notice in the interactive console. It never returns an error: a console
+// that cannot reach the API must still be able to display the notice.
+func interactiveLicenseEntitlementLines(command *cobra.Command, state homeState) []string {
+	if state.Session.Client == nil {
+		return []string{"Entitlement: not available without an API context.", ""}
+	}
+	request, err := state.Session.Client.NewRequest(http.MethodGet, "/v1/system/license", nil)
+	if err != nil {
+		return []string{"Entitlement: could not be requested.", ""}
+	}
+	response, err := state.Session.Client.Do(request.WithContext(command.Context()))
+	if err != nil {
+		return []string{"Entitlement: API unreachable.", ""}
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil || response.StatusCode != http.StatusOK {
+		return []string{"Entitlement: not readable with the current credentials.", ""}
+	}
+	var status licenseStatusResponse
+	if err := json.Unmarshal(body, &status); err != nil {
+		return []string{"Entitlement: response could not be decoded.", ""}
+	}
+
+	lines := []string{}
+	if status.Licensed {
+		lines = append(lines, fmt.Sprintf("Entitlement: licensed to %s (%s tier)", status.Licensee, status.Tier))
+		if status.ExpiresAt != "" {
+			lines = append(lines, "Expires:     "+status.ExpiresAt)
+		}
+	} else {
+		lines = append(lines, fmt.Sprintf("Entitlement: not licensed (%s tier)", status.Tier))
+		if status.Reason != "" {
+			lines = append(lines, "Reason:      "+status.Reason)
+		}
+	}
+	lines = append(lines,
+		"Users:       "+limitLine(status.Usage.Users, status.Limits.MaxUsers),
+		"Teams:       "+limitLine(status.Usage.Teams, status.Limits.MaxTeams),
+		"Runs:        "+ceilingLine(status.Limits.MaxConcurrentRuns),
+		"",
+	)
+	return lines
 }

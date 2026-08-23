@@ -189,6 +189,9 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	if payload.Environment != nil {
 		cfg.Environment = strings.TrimSpace(*payload.Environment)
 	}
+	if payload.LicenseKey != nil {
+		cfg.LicenseKey = strings.TrimSpace(*payload.LicenseKey)
+	}
 	if payload.PublicURL != nil {
 		cfg.PublicURL = strings.TrimSpace(*payload.PublicURL)
 	}
