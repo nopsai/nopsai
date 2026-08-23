@@ -613,16 +613,22 @@ steps:
         echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish the Helm chart to GHCR" >&2
         exit 1
       fi
+      # Without a username helm and oras fall back to prompting, and the agent
+      # has no terminal, so the login dies as "inappropriate ioctl for device"
+      # instead of saying what is missing.
+      if [[ -z "${GHCR_USERNAME:-}" ]]; then
+        echo "GHCR_USERNAME is required to publish the Helm chart to GHCR" >&2
+        exit 1
+      fi
 
       install_helm
       install_oras
       echo "release_phase=publish-helm-chart"
-      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | helm registry login ghcr.io \
-        --username "$GHCR_USERNAME" \
-        --password-stdin
-      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io \
-        --username "$GHCR_USERNAME" \
-        --password-stdin
+      # Both logins stay on one line. A wrapped command loses its flags if any
+      # layer between this file and the agent drops the continuations, and a
+      # credential flag that goes missing turns into an interactive prompt.
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | helm registry login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io --username "$GHCR_USERNAME" --password-stdin
       # Default release registry resolves to oci://ghcr.io/<owner>/charts.
       chart_repository="oci://$REGISTRY/charts"
       chart_reference="$chart_repository/nopsai"
@@ -759,11 +765,13 @@ steps:
         echo "NOPSAI_RELEASE_GHCR_TOKEN is required to publish CLI package artifacts" >&2
         exit 1
       fi
+      if [[ -z "${GHCR_USERNAME:-}" ]]; then
+        echo "GHCR_USERNAME is required to publish CLI package artifacts" >&2
+        exit 1
+      fi
 
       install_oras
-      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io \
-        --username "$GHCR_USERNAME" \
-        --password-stdin
+      printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io --username "$GHCR_USERNAME" --password-stdin
       cli_package_reference="${NOPSAI_RELEASE_CLI_PACKAGE:-$REGISTRY/nopsai-cli}"
       shopt -s nullglob
       cli_assets=(dist/cli/*)

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { AssistantPanel } from './AssistantPanel';
@@ -208,6 +208,44 @@ test('sends the draft and attaches a text file into it', async () => {
 
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   expect(submitMessage).toHaveBeenCalled();
+});
+
+test('sends on Enter and writes a newline on Shift+Enter', async () => {
+  const user = userEvent.setup();
+  const setDraft = vi.fn();
+  const submitMessage = vi.fn();
+
+  mockController({ draft: 'why is this failing?', setDraft, submitMessage });
+
+  render(<AssistantPanel variant="dock" />);
+  const composer = screen.getByPlaceholderText('Message NopsAI...');
+
+  composer.focus();
+  await user.keyboard('{Enter}');
+  expect(submitMessage).toHaveBeenCalledOnce();
+
+  // Shift+Enter belongs to the textarea: it writes a newline and sends nothing.
+  setDraft.mockClear();
+  await user.keyboard('{Shift>}{Enter}{/Shift}');
+  expect(submitMessage).toHaveBeenCalledOnce();
+  expect(setDraft).toHaveBeenCalledOnce();
+  expect(setDraft.mock.calls[0][0]).toContain('\n');
+});
+
+test('leaves Enter to the IME while a candidate is being composed', async () => {
+  const submitMessage = vi.fn();
+
+  mockController({ draft: 'なぜ', submitMessage });
+
+  render(<AssistantPanel variant="dock" />);
+  const composer = screen.getByPlaceholderText('Message NopsAI...');
+
+  composer.focus();
+  fireEvent.keyDown(composer, { key: 'Enter', isComposing: true });
+  expect(submitMessage).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(composer, { key: 'Enter' });
+  expect(submitMessage).toHaveBeenCalledOnce();
 });
 
 test('prefills the composer once when handed a draft from another surface', () => {
