@@ -49,10 +49,15 @@ export function AssistantComposer({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      onSubmit();
-    }
+    if (event.key !== 'Enter') return;
+    // An IME uses Enter to accept the candidate it is showing; sending there
+    // would cut the word in half.
+    if (event.nativeEvent.isComposing) return;
+    // Shift+Enter writes a newline. Enter on its own sends, the way every chat
+    // box does — Cmd/Ctrl+Enter keeps working for the same reason.
+    if (event.shiftKey) return;
+    event.preventDefault();
+    onSubmit();
   };
 
   const handleAttach = async (event: ChangeEvent<HTMLInputElement>) => {
