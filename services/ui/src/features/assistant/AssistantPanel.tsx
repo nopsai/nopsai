@@ -8,7 +8,7 @@ import {
   assistantLastUserMessage,
   type AssistantConversation,
 } from './model.js';
-import { assistantProgressSteps, assistantReadyLine } from './experience.js';
+import { assistantProgressLabel, assistantReadyLine } from './experience.js';
 import { assistantSendFailure } from './failures.js';
 import { AssistantComposer } from './AssistantComposer.js';
 import { AssistantConversationRail } from './AssistantConversationRail.js';
@@ -150,7 +150,7 @@ export function AssistantPanel({
                 {assistant.activeConversationSending && (
                   <AssistantThinkingRow
                     elapsedMs={progressElapsedMs}
-                    steps={assistantProgressSteps(assistant.activeMessages, assistant.activeConversation, progressElapsedMs)}
+                    label={assistantProgressLabel(assistant.activeConversation)}
                   />
                 )}
                 {assistant.error && (

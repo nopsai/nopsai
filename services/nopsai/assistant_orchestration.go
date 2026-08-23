@@ -63,11 +63,11 @@ func (a *App) runAssistantConversationTurnWithPageContext(
 		return result
 	}
 
-	planned := a.runAssistantLLMPlannedTurnWithPageContext(ctx, subject, userID, conversation, content, selectedProfile, pageContext)
+	planned := a.runAssistantAgentTurn(ctx, subject, userID, conversation, content, selectedProfile, pageContext)
 	if planned.Handled {
 		memory := assistantMemoryForTurn(conversation, planned.Plan)
 		memory = assistantMemoryAfterTools(memory, planned.ToolCalls)
-		if pending, ok := a.assistantPendingConfirmationFromDeniedPlan(ctx, subject, planned.Plan, planned.ToolCalls); ok {
+		if pending, ok := a.assistantPendingConfirmationFromDeniedCall(ctx, subject, planned.ToolCalls); ok {
 			memory = assistantSetPendingConfirmation(memory, pending)
 			memory.Summary = "Waiting for explicit confirmation before applying a direct MCP change."
 			return assistantOrchestrationResult{
@@ -101,7 +101,7 @@ func (a *App) runAssistantConversationTurnWithPageContext(
 		plan = assistantBaseTurnPlanWithPageContext(content, conversation.Memory, pageContext)
 	}
 	memory := assistantMemoryForTurn(conversation, plan)
-	reply := a.assistantPlannerFailureReply(ctx, subject, content, plan, planned.ToolCalls)
+	reply := a.assistantModelFailureReply(planned.ToolCalls)
 	return assistantOrchestrationResult{
 		Reply:     reply,
 		ToolCalls: planned.ToolCalls,
@@ -109,8 +109,11 @@ func (a *App) runAssistantConversationTurnWithPageContext(
 	}
 }
 
+// A turn skips synthesis only when the model already wrote the answer itself —
+// a clarifying question or a final answer. Tool output never ends a turn on its
+// own: evidence is what the model reasons over, not a reply.
 func assistantTurnReplyIsCompleteWithoutSynthesis(planned assistantPlannerResult) bool {
-	return planned.Plan.Intent == "clarify" || planned.Plan.FinalAnswer != "" || planned.SkipSynthesis
+	return planned.Plan.Intent == "clarify" || planned.Plan.FinalAnswer != ""
 }
 
 type assistantTurnPlan struct {
@@ -1423,65 +1426,16 @@ func assistantPlannerFailureReason(toolCalls []assistantToolActivity) string {
 	return ""
 }
 
-func (a *App) assistantPlannerFailureReply(ctx context.Context, subject model.Subject, content string, plan assistantTurnPlan, toolCalls []assistantToolActivity) string {
+// assistantModelFailureReply is what the user sees when the provider could not
+// be reached or refused the request. It names the provider failure, because that
+// is what happened — there is no planner to blame, and "invalid plan" sent people
+// looking for a bug in their question.
+func (a *App) assistantModelFailureReply(toolCalls []assistantToolActivity) string {
 	reason := assistantPlannerFailureReason(toolCalls)
-	if assistantPlannerFailureIsSchemaSubset(reason) {
-		if reply := a.assistantSchemaSubsetFailureReply(ctx, subject, content, plan); reply != "" {
-			return reply
-		}
-		return "I did not run that because the requested tool plan did not match an available safe tool for this request. For estimates or calculations, I can use existing same-chat MCP evidence with a clearly labeled LLM-derived estimate, or I can inspect the relevant NopsAI data first. No changes were applied."
+	if reason == "" {
+		return "I could not reach the assistant model, so I did not answer. No changes were applied."
 	}
-	reply := "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan. No changes were applied."
-	if reason != "" {
-		reply = "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan: " + reason + ". No changes were applied."
-	}
-	return reply
-}
-
-func assistantPlannerFailureIsSchemaSubset(reason string) bool {
-	reason = strings.ToLower(strings.TrimSpace(reason))
-	return strings.Contains(reason, "schema_tools") && strings.Contains(reason, "selected")
-}
-
-func (a *App) assistantSchemaSubsetFailureReply(ctx context.Context, subject model.Subject, content string, plan assistantTurnPlan) string {
-	if strings.TrimSpace(plan.LowerContent) == "" {
-		plan = assistantBaseTurnPlan(content)
-	}
-	lower := strings.ToLower(strings.TrimSpace(content))
-	if lower == "" {
-		lower = plan.LowerContent
-	}
-	if assistantPlannerWantsExposurePolicySchema(lower) ||
-		(assistantTextHasAny(lower, "policy", "policies", "guardrail", "guardrails") &&
-			assistantTextHasAny(lower, "knowledge", "docs", "documentation")) {
-		return "I could not validate the read plan for that policy question. This should be answered from permission-bound feature capabilities or knowledge context search, using metadata only for variables/secrets and no plaintext values. No changes were applied."
-	}
-	if assistantPlannerWantsGitOpsProposalSchema(lower) || !assistantPlannerWantsChangeSchema(lower) {
-		return ""
-	}
-	kind := ""
-	switch {
-	case assistantTextHasAny(lower, "secret", "secrets"):
-		kind = "secret"
-	case assistantTextHasAny(lower, "env var", "environment variable", "variable", "variables", "var ", "_var"):
-		kind = "variable"
-	default:
-		return ""
-	}
-	action := "write"
-	if assistantPlannerWantsDeleteSchema(lower) {
-		action = "delete"
-	}
-	directTool := "nopsai.write_" + kind + "_value"
-	if action == "delete" {
-		directTool = "nopsai.delete_" + kind + "_value"
-	}
-	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
-	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(assistantConversation{}, content, plan.PageContext), plan, nil, availableTools)
-	if schemaToolNames[directTool] {
-		return fmt.Sprintf("I did not use GitOps because you did not ask for a GitOps proposal. This should be a direct MCP %s %s, and NopsAI requires explicit confirmation before applying it. Please confirm the direct %s %s with the name, value, and scope. No changes were applied.", kind, action, kind, action)
-	}
-	return fmt.Sprintf("I did not use GitOps because you did not ask for a GitOps proposal. The direct MCP %s %s tool is not available in this session, likely because assistant action execution or AAA permission is disabled. Enable direct action execution/permission, or explicitly ask for a GitOps proposal if that is the workflow you want. No changes were applied.", kind, action)
+	return "I could not reach the assistant model, so I did not answer: " + reason + ". No changes were applied."
 }
 
 func composeAssistantPlanDeniedReply(call assistantToolActivity) string {

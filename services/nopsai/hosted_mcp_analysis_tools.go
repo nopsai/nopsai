@@ -337,6 +337,22 @@ func (a *App) analysisRunLogEvidence(ctx context.Context, subject aaamodel.Subje
 	})
 }
 
+// analysisEvidenceSection turns one bridge payload into the section the readers
+// below expect. Collection endpoints answer with a bare array — run logs are the
+// one that matters most — and the readers look for rows under the source key, so
+// an array is wrapped rather than discarded. Discarding it is how run analysis
+// ended up blind to logs and reporting an unknown failure domain.
+func analysisEvidenceSection(key string, payload map[string]any) (map[string]any, string) {
+	switch response := payload["response"].(type) {
+	case map[string]any:
+		return response, ""
+	case []any:
+		return map[string]any{key: response}, ""
+	default:
+		return nil, fmt.Sprintf("%s returned no readable payload.", key)
+	}
+}
+
 func analysisRunSubjectLabel(set analysisEvidenceSet, runID string) string {
 	runInfo := analysisSubsection(set.section("detail"), "run_info")
 	if pipeline := analysisRunPipelineID(runInfo); pipeline != "" {
@@ -388,12 +404,12 @@ func (a *App) analysisEvidence(
 			set.Limitations = append(set.Limitations, fmt.Sprintf("%s could not be read: %s", spec.Key, message))
 			continue
 		}
-		response, ok := payload["response"].(map[string]any)
-		if !ok {
-			set.Limitations = append(set.Limitations, fmt.Sprintf("%s returned no readable payload.", spec.Key))
+		section, limitation := analysisEvidenceSection(spec.Key, payload)
+		if limitation != "" {
+			set.Limitations = append(set.Limitations, limitation)
 			continue
 		}
-		set.Data[spec.Key] = response
+		set.Data[spec.Key] = section
 	}
 	return set
 }

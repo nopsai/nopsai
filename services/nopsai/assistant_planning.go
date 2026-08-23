@@ -1,13 +1,11 @@
 package nopsai
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"nopsai/config"
-	aaamodel "nopsai/services/aaa/pkg/model"
 )
 
 const (
@@ -31,75 +29,6 @@ type assistantAnswerQuality struct {
 	EmptyResultExplained bool
 	SuggestedNextStep    bool
 	NoFakeData           bool
-}
-
-func (a *App) validateAssistantToolPlan(ctx context.Context, subject aaamodel.Subject, plan assistantTurnPlan) error {
-	if len(plan.Steps) == 0 {
-		return nil
-	}
-	if len(plan.Steps) > assistantMaxPlanToolCalls {
-		return fmt.Errorf("assistant plan has %d tool calls; max allowed is %d", len(plan.Steps), assistantMaxPlanToolCalls)
-	}
-	for idx, step := range plan.Steps {
-		toolName := strings.TrimSpace(step.ToolName)
-		if toolName == "" {
-			return fmt.Errorf("assistant plan step %d has no tool", idx+1)
-		}
-		if len(step.Args) > assistantMaxPlanArgKeys {
-			return fmt.Errorf("assistant plan step %d has too many arguments", idx+1)
-		}
-		if err := assistantValidatePlanArgs(step.Args, 0); err != nil {
-			return fmt.Errorf("assistant plan step %d has unsafe arguments: %w", idx+1, err)
-		}
-		tool, ok := a.hostedMCPToolByName(ctx, subject, toolName)
-		if !ok {
-			return fmt.Errorf("assistant plan step %d requested unavailable tool %q", idx+1, toolName)
-		}
-		if err := assistantValidatePlanArgsAgainstToolSchema(step.Args, tool.InputSchema); err != nil {
-			return fmt.Errorf("assistant plan step %d has arguments that do not match %s input schema: %w", idx+1, toolName, err)
-		}
-		userConfirmed := plan.UserConfirmed || assistantFeatureConfirmed(plan.LowerContent)
-		if assistantToolRequiresActionExecution(tool) &&
-			boolArg(step.Args, "confirm", false) &&
-			!assistantPlannedToolIsProposal(tool.Name) &&
-			!userConfirmed {
-			return fmt.Errorf("assistant plan step %d requested mutating tool %q with confirm:true but the user did not explicitly confirm", idx+1, toolName)
-		}
-		if assistantToolRequiresActionExecution(tool) &&
-			configuredAssistantRequiresConfirm(a) &&
-			!assistantPlannedToolIsProposal(tool.Name) &&
-			!boolArg(step.Args, "confirm", false) {
-			return fmt.Errorf("assistant plan step %d requested mutating tool %q without confirm:true", idx+1, toolName)
-		}
-	}
-	return nil
-}
-
-func assistantValidatePlanArgsAgainstToolSchema(args map[string]any, schema map[string]any) error {
-	if len(schema) == 0 {
-		return nil
-	}
-	if schemaType, _ := schema["type"].(string); schemaType != "" && !assistantSchemaTypeMatches(schemaType, args) {
-		return fmt.Errorf("root must be %s", schemaType)
-	}
-	properties, _ := schema["properties"].(map[string]any)
-	if len(properties) == 0 {
-		return nil
-	}
-	for key, value := range args {
-		rawProperty, ok := properties[key]
-		if !ok {
-			continue
-		}
-		property, _ := rawProperty.(map[string]any)
-		if len(property) == 0 {
-			continue
-		}
-		if err := assistantValidateValueAgainstSchema(value, property, key); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func assistantValidateValueAgainstSchema(value any, schema map[string]any, path string) error {

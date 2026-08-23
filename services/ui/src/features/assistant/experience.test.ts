@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { assistantProgressLabel, assistantProgressSteps, assistantReadyLine } from './experience.js';
-import { emptyAssistantMessageUsage, type AssistantConfig } from './model.js';
+import { assistantProgressElapsedLabel, assistantProgressLabel, assistantReadyLine } from './experience.js';
+import {
+  emptyAssistantConversationUsage,
+  emptyAssistantMemory,
+  type AssistantConfig,
+  type AssistantConversation,
+} from './model.js';
 
 describe('assistant experience helpers', () => {
   it('summarizes readiness with the active confirmation policy', () => {
@@ -9,32 +14,19 @@ describe('assistant experience helpers', () => {
     assert.match(assistantReadyLine({ ...enabledConfig, actions: { require_confirmation: false } }), /review policy is relaxed/);
   });
 
-  it('uses contextual progress copy for common operational asks', () => {
-    assert.equal(assistantProgressLabel([message('Why did this run fail?')], null), 'Plan the request with current permissions');
-    assert.deepEqual(progressLabels(assistantProgressSteps([message('Analyze AI usage cost by provider')], null)), [
-      'Plan the request with current permissions',
-      'Read AI usage, profile, and cost evidence',
-      'Compare recorded usage with configured profiles',
-      'Synthesize an evidence-backed answer',
-      'Save and reconcile the chat result',
-    ]);
-    assert.deepEqual(progressLabels(assistantProgressSteps([message('Check system health')], null)), [
-      'Plan the request with current permissions',
-      'Check system and runner health evidence',
-      'Separate warnings from blocking issues',
-      'Synthesize an evidence-backed answer',
-      'Save and reconcile the chat result',
-    ]);
+  it('shows the step the running turn reported', () => {
+    assert.equal(assistantProgressLabel(conversationInProgress('Reading pipeline run logs')), 'Reading pipeline run logs');
   });
 
-  it('advances progress state by elapsed time', () => {
-    assert.deepEqual(assistantProgressSteps([message('Analyze AI usage cost by provider')], null, 12000).map(step => step.state), [
-      'done',
-      'done',
-      'active',
-      'pending',
-      'pending',
-    ]);
+  it('says something neutral when the turn has reported nothing yet', () => {
+    assert.equal(assistantProgressLabel(null), 'Working on it');
+    assert.equal(assistantProgressLabel(conversationInProgress('   ')), 'Working on it');
+  });
+
+  it('reports elapsed time in the header, where it is shown once', () => {
+    assert.equal(assistantProgressElapsedLabel(500), 'just started');
+    assert.equal(assistantProgressElapsedLabel(12000), '12s');
+    assert.equal(assistantProgressElapsedLabel(125000), '2m 5s');
   });
 });
 
@@ -64,18 +56,22 @@ const enabledConfig: AssistantConfig = {
   actions: { require_confirmation: true },
 };
 
-function message(content: string) {
+function conversationInProgress(turnProgress: string): AssistantConversation {
   return {
-    id: 'm1',
-    conversation_id: 'c1',
-    role: 'user',
-    content,
-    tool_calls: [],
-    usage: emptyAssistantMessageUsage,
+    id: 'c1',
+    user_id: 'u1',
+    title: 'Conversation',
+    selected_llm_profile: 'standard',
+    docs_version: 'auto',
+    scope: '',
+    memory: emptyAssistantMemory,
+    messages: [],
+    usage: emptyAssistantConversationUsage,
     created_at: '2026-06-20T00:00:00Z',
+    updated_at: '2026-06-20T00:00:00Z',
+    turn_running: true,
+    running_turn_started_at: '2026-06-20T00:00:00Z',
+    turn_progress: turnProgress,
   };
 }
 
-function progressLabels(steps: ReturnType<typeof assistantProgressSteps>) {
-  return steps.map(step => step.label);
-}

@@ -361,12 +361,34 @@ test('shows a turn the server reports as running even when this client did not s
 
   render(<AssistantPanel variant="dock" />);
 
-  expect(screen.getByText('Working through the request')).toBeVisible();
+  expect(screen.getByText('Working on it')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
 });
 
-test('renders staged progress while the active conversation is sending', () => {
+test('shows what the running turn is actually doing', () => {
   const messages = [assistantMessage('m1', 'user', 'Analyze AI usage cost by provider')];
+  // The label comes from the turn itself. It used to be guessed from keywords in
+  // the question, which announced steps the turn never took.
+  const conversation = { ...assistantConversation(messages), turn_progress: 'Reading pipeline run logs' };
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    sending: true,
+    sendingConversationID: 'c1',
+    activeConversationSending: true,
+    activeConversationSendingStartedAt: Date.now(),
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  expect(screen.getByText('Reading pipeline run logs')).toBeVisible();
+  expect(screen.queryByText('Read AI usage, profile, and cost evidence')).not.toBeInTheDocument();
+});
+
+test('says something neutral when the turn has not reported a step yet', () => {
+  const messages = [assistantMessage('m1', 'user', 'why did this fail?')];
   const conversation = assistantConversation(messages);
 
   mockController({
@@ -381,10 +403,7 @@ test('renders staged progress while the active conversation is sending', () => {
 
   render(<AssistantPanel variant="dock" />);
 
-  expect(screen.getByText('Working through the request')).toBeVisible();
-  expect(screen.getByText('Plan the request with current permissions')).toBeVisible();
-  expect(screen.getByText('Read AI usage, profile, and cost evidence')).toBeVisible();
-  expect(screen.getByText('Synthesize an evidence-backed answer')).toBeVisible();
+  expect(screen.getByText('Working on it')).toBeVisible();
 });
 
 test('surfaces a provider failure as a card with the raw reason and a retry', async () => {
@@ -585,3 +604,25 @@ function assistantMessage(id: string, role: 'user' | 'assistant', content: strin
 function toolActivity(name: string, status: string): AssistantToolActivity {
   return { name, input: {}, output: {}, status, resource_uris: [] };
 }
+
+test('shows the progress line once, with elapsed time only in the header', () => {
+  const messages = [assistantMessage('m1', 'user', 'why did this fail?')];
+  const conversation = { ...assistantConversation(messages), turn_progress: 'Reading pipeline run logs' };
+
+  mockController({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    sending: true,
+    sendingConversationID: 'c1',
+    activeConversationSending: true,
+    activeConversationSendingStartedAt: Date.now() - 12000,
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  // The row used to repeat itself: a static heading, the same label again as a
+  // list item, and the elapsed time in both the header and the list.
+  expect(screen.getAllByText('Reading pipeline run logs')).toHaveLength(1);
+  expect(screen.getAllByText(/^\d+s$/)).toHaveLength(1);
+});

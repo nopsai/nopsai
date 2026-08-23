@@ -148,7 +148,7 @@ func (a *App) handleListAssistantConversations(w http.ResponseWriter, r *http.Re
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at, running_turn_started_at
+		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at, running_turn_started_at, turn_progress
 		FROM assistant_conversations
 		WHERE user_id = $1
 		ORDER BY updated_at DESC, created_at DESC
@@ -172,11 +172,15 @@ func (a *App) handleListAssistantConversations(w http.ResponseWriter, r *http.Re
 			&conversation.CreatedAt,
 			&conversation.UpdatedAt,
 			&conversation.RunningTurnStartedAt,
+			&conversation.TurnProgress,
 		); err != nil {
 			http.Error(w, "failed to scan assistant conversation", http.StatusInternalServerError)
 			return
 		}
 		conversation.TurnRunning = assistantTurnIsRunning(conversation.RunningTurnStartedAt)
+		if !conversation.TurnRunning {
+			conversation.TurnProgress = ""
+		}
 		conversation.Messages = []assistantMessage{}
 		conversations = append(conversations, conversation)
 	}
@@ -372,11 +376,15 @@ func (a *App) markAssistantTurnRunning(ctx context.Context, conversationID uuid.
 	if running {
 		startedAt = time.Now().UTC()
 	}
+	progress := ""
+	if running {
+		progress = "Starting"
+	}
 	if _, err := a.db.Exec(ctx, `
 		UPDATE assistant_conversations
-		SET running_turn_started_at = $1
-		WHERE id = $2 AND user_id = $3
-	`, startedAt, conversationID, userID); err != nil {
+		SET running_turn_started_at = $1, turn_progress = $2
+		WHERE id = $3 AND user_id = $4
+	`, startedAt, progress, conversationID, userID); err != nil {
 		log.Warn().Err(err).Str("conversation_id", conversationID.String()).Bool("running", running).
 			Msg("Failed to record assistant turn state")
 	}
@@ -454,7 +462,7 @@ func (a *App) validateAssistantLLMProfile(ctx context.Context, profileName strin
 func (a *App) loadAssistantConversation(ctx context.Context, userID string, conversationID uuid.UUID, includeMessages bool) (assistantConversation, error) {
 	var conversation assistantConversation
 	err := a.db.QueryRow(ctx, `
-		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at, running_turn_started_at
+		SELECT id, user_id, title, selected_llm_profile, docs_version, scope, created_at, updated_at, running_turn_started_at, turn_progress
 		FROM assistant_conversations
 		WHERE id = $1 AND user_id = $2
 	`, conversationID, userID).Scan(
@@ -467,11 +475,15 @@ func (a *App) loadAssistantConversation(ctx context.Context, userID string, conv
 		&conversation.CreatedAt,
 		&conversation.UpdatedAt,
 		&conversation.RunningTurnStartedAt,
+		&conversation.TurnProgress,
 	)
 	if err != nil {
 		return assistantConversation{}, err
 	}
 	conversation.TurnRunning = assistantTurnIsRunning(conversation.RunningTurnStartedAt)
+	if !conversation.TurnRunning {
+		conversation.TurnProgress = ""
+	}
 	if includeMessages {
 		messages, err := a.loadAssistantMessages(ctx, conversationID)
 		if err != nil {

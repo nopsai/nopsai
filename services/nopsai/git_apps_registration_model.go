@@ -206,12 +206,12 @@ func trustedGitHubCallbackOrigin(cfg config.Config, origin, requestHost string) 
 
 func buildGitHubAppManifest(appName, callbackBaseURL, webhookURL string) gitHubAppManifest {
 	return gitHubAppManifest{
-		Name:                  appName,
-		URL:                   callbackBaseURL,
-		HookAttributes:        gitHubAppManifestHook{URL: webhookURL, Active: true},
-		RedirectURL:           callbackBaseURL + gitHubAppRegisterCallbackPath,
-		SetupURL:              callbackBaseURL + gitHubAppInstallCallbackPath,
-		SetupOnUpdate:         true,
+		Name:           appName,
+		URL:            callbackBaseURL,
+		HookAttributes: gitHubAppManifestHook{URL: webhookURL, Active: true},
+		RedirectURL:    callbackBaseURL + gitHubAppRegisterCallbackPath,
+		SetupURL:       callbackBaseURL + gitHubAppInstallCallbackPath,
+		SetupOnUpdate:  true,
 		// One App serves every account, which is only possible when GitHub
 		// lets accounts other than the owner install it. A public App is not
 		// advertised anywhere and grants nothing on its own: installing still

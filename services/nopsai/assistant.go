@@ -34,6 +34,9 @@ type assistantConversation struct {
 	// is a worse lie than one that says nothing.
 	TurnRunning          bool       `json:"turn_running"`
 	RunningTurnStartedAt *time.Time `json:"running_turn_started_at,omitempty"`
+	// TurnProgress is what the running turn is doing right now, published as it
+	// happens rather than guessed from the question.
+	TurnProgress string `json:"turn_progress,omitempty"`
 }
 
 // A turn that has not reported back within this window is treated as finished:
@@ -99,6 +102,10 @@ type assistantToolActivity struct {
 	Phase        string         `json:"phase,omitempty"`
 	Confidence   string         `json:"confidence,omitempty"`
 	Purpose      string         `json:"purpose,omitempty"`
+	// DurationMS is wall time for this step. A turn's total says how long the
+	// user waited; this says where the wait went — a slow provider, a slow tool,
+	// or too many steps.
+	DurationMS int64 `json:"duration_ms,omitempty"`
 }
 
 type assistantExecutionPlan struct {
@@ -107,6 +114,17 @@ type assistantExecutionPlan struct {
 	Summary              string                       `json:"summary"`
 	RequiresConfirmation bool                         `json:"requires_confirmation"`
 	Steps                []assistantExecutionPlanStep `json:"steps"`
+	Timing               assistantExecutionPlanTiming `json:"timing"`
+}
+
+// assistantExecutionPlanTiming splits the turn's wall time so "why was that
+// slow" is answerable from the panel: the provider thinking, the tools working,
+// or the number of model turns it took to get there.
+type assistantExecutionPlanTiming struct {
+	ModelMS    int64 `json:"model_ms"`
+	ToolMS     int64 `json:"tool_ms"`
+	ModelTurns int   `json:"model_turns"`
+	ToolCalls  int   `json:"tool_calls"`
 }
 
 type assistantExecutionPlanStep struct {
@@ -118,6 +136,7 @@ type assistantExecutionPlanStep struct {
 	Tool       string `json:"tool,omitempty"`
 	Reason     string `json:"reason,omitempty"`
 	Status     string `json:"status,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
 type assistantConversationMemory struct {

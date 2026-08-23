@@ -130,17 +130,29 @@ export function useAssistantController({
     if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
   }, []);
 
-  // While a turn this client did not start is running, re-read the conversation
-  // until it finishes. Without this the result only appears on the next manual
-  // refresh, which is the bug that made a running turn look like a lost one.
+  // While a turn is running, re-read the conversation until it finishes.
+  //
+  // For a turn this client did not start, the whole conversation is adopted:
+  // without it the result only appears on the next manual refresh, which made a
+  // running turn look like a lost one. For a turn this client started, only the
+  // progress line is taken — the send request is still in flight and owns the
+  // messages, so a poll landing late must not overwrite the answer with the
+  // conversation as it looked mid-turn.
   useEffect(() => {
-    if (!remoteTurnRunning || locallySending) return;
     const conversationID = activeConversation?.id;
-    if (!conversationID) return;
+    if (!conversationID || !(remoteTurnRunning || locallySending)) return;
     const interval = window.setInterval(() => {
       void fetchAssistantConversation(conversationID)
         .then(conversation => {
           if (activeConversationIDRef.current !== conversationID) return;
+          if (locallySending) {
+            setActiveConversation(current =>
+              current && current.id === conversation.id
+                ? { ...current, turn_progress: conversation.turn_progress }
+                : current
+            );
+            return;
+          }
           activateConversation(conversation);
           setConversations(current => current.map(item => (item.id === conversation.id ? conversation : item)));
         })
