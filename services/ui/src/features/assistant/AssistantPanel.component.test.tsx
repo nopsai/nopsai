@@ -17,6 +17,23 @@ vi.mock('./useAssistantController', () => ({
   useAssistantController: vi.fn(),
 }));
 
+const contextOptionMocks = vi.hoisted(() => ({
+  fetchAssistantContextOptions: vi.fn(async (kind: string) => (kind === 'pipeline'
+    ? [{
+      kind: 'pipeline',
+      id: 'nopsai/nopsai-platform-release',
+      label: 'nopsai-platform-release',
+      detail: 'nopsai/nopsai-platform-release',
+      scope: 'nopsai',
+      pipeline: 'nopsai/nopsai-platform-release',
+    }]
+    : [])),
+}));
+vi.mock('./contextOptions', async importOriginal => ({
+  ...(await importOriginal<typeof import('./contextOptions')>()),
+  fetchAssistantContextOptions: contextOptionMocks.fetchAssistantContextOptions,
+}));
+
 const useAssistantControllerMock = vi.mocked(useAssistantController);
 type AssistantControllerState = ReturnType<typeof useAssistantController>;
 
@@ -162,11 +179,13 @@ test('lets users remove page context from the composer', async () => {
   render(<AssistantPanel variant="dock" pageContext={pageContext} />);
 
   expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext });
-  expect(screen.getByText('Context')).toBeVisible();
+  expect(screen.getByText('Pipelines · deploy · /platform')).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: 'Remove page context' }));
 
-  expect(screen.queryByText('Context')).toBeNull();
+  // The row stays so the context can be picked again; only the target is gone.
+  expect(screen.queryByText('Pipelines · deploy · /platform')).toBeNull();
+  expect(screen.getByText('Nothing selected')).toBeVisible();
   expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext: null });
 });
 
@@ -423,6 +442,33 @@ test('reports conversation spend and switches the model profile', async () => {
 
   await user.selectOptions(screen.getByLabelText('Model'), 'local-lab');
   expect(setSelectedProfile).toHaveBeenCalledWith('local-lab');
+});
+
+test('picks the chat context from the composer when the route has none', async () => {
+  const user = userEvent.setup();
+  mockController({});
+
+  render(<AssistantPanel variant="page" />);
+
+  expect(screen.getByText('Nothing selected')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Add chat context' }));
+
+  const picker = await screen.findByRole('dialog', { name: 'Select chat context' });
+  await waitFor(() => expect(within(picker).getByText('nopsai-platform-release')).toBeVisible());
+  await user.click(within(picker).getByText('nopsai-platform-release'));
+
+  expect(screen.queryByRole('dialog', { name: 'Select chat context' })).toBeNull();
+  expect(screen.getByText('Pipelines · nopsai-platform-release · /nopsai')).toBeVisible();
+
+  const controllerCall = useAssistantControllerMock.mock.calls.at(-1)?.[0];
+  expect(controllerCall?.pageContext).toMatchObject({
+    resource_type: 'pipeline',
+    pipeline_id: 'nopsai/nopsai-platform-release',
+    scope: 'nopsai',
+  });
+
+  await user.click(screen.getByRole('button', { name: 'Remove page context' }));
+  expect(screen.getByText('Nothing selected')).toBeVisible();
 });
 
 function mockController(overrides: Partial<AssistantControllerState>) {

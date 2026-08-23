@@ -138,10 +138,11 @@ type assistantConversationsResponse struct {
 }
 
 type assistantCreateConversationRequest struct {
-	Title              string `json:"title"`
-	SelectedLLMProfile string `json:"selected_llm_profile"`
-	DocsVersion        string `json:"docs_version"`
-	Scope              string `json:"scope"`
+	Title              string               `json:"title"`
+	SelectedLLMProfile string               `json:"selected_llm_profile"`
+	DocsVersion        string               `json:"docs_version"`
+	Scope              string               `json:"scope"`
+	PageContext        assistantPageContext `json:"page_context,omitempty"`
 }
 
 type assistantCreateMessageRequest struct {
@@ -281,7 +282,11 @@ func normalizeAssistantConversationRequest(req assistantCreateConversationReques
 	if req.DocsVersion == "" {
 		req.DocsVersion = "auto"
 	}
+	req.PageContext = normalizeAssistantPageContext(req.PageContext)
 	req.Scope = strings.Trim(strings.TrimSpace(req.Scope), "/")
+	if req.Scope == "" {
+		req.Scope = assistantPageContextScope(req.PageContext)
+	}
 	return req
 }
 

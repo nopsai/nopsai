@@ -157,6 +157,9 @@ func TestAssistantPlanDoesNotTreatQuestionGrammarAsScope(t *testing.T) {
 	if pipelineID := assistantPipelineIDFromMessage("metrics, events, and pipeline gonna build docker images"); pipelineID != "" {
 		t.Fatalf("pipeline id = %q, want empty grammar ignored", pipelineID)
 	}
+	if pipelineID := assistantPipelineIDFromMessage("make the pipeline more efficient and faster"); pipelineID != "" {
+		t.Fatalf("pipeline id = %q, want empty grammar ignored", pipelineID)
+	}
 }
 
 func TestAssistantRunAnalysisReplyIncludesMCPChainAndLogHint(t *testing.T) {
@@ -286,6 +289,26 @@ func TestAssistantPlannerTerminalEvidenceRequiresSuccessfulAnalysis(t *testing.T
 		Output: map[string]any{"total_tokens": 42},
 	}}) {
 		t.Fatal("successful AI usage evidence with tokens should skip final synthesis")
+	}
+	if !assistantPlanHasTerminalEvidence(assistantTurnPlan{
+		Intent: "optimization_review",
+		Steps:  []assistantPlanStep{{ToolName: "nopsai.find_optimization_opportunities"}},
+	}, []assistantToolActivity{{
+		Name:   "nopsai.find_optimization_opportunities",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{"ok": true},
+	}}) {
+		t.Fatal("successful optimization evidence should skip final synthesis")
+	}
+	if !assistantPlanHasTerminalEvidence(assistantTurnPlan{
+		Intent: "pipeline_review",
+		Steps:  []assistantPlanStep{{ToolName: "nopsai.analyze_pipeline"}},
+	}, []assistantToolActivity{{
+		Name:   "nopsai.analyze_pipeline",
+		Status: assistantToolStatusSuccess,
+		Output: analysisTestTeamOutput(),
+	}}) {
+		t.Fatal("successful first-party analysis evidence should skip final synthesis")
 	}
 }
 
@@ -1662,6 +1685,156 @@ func TestAssistantFeatureReplySummarizesMonitoringResponseItems(t *testing.T) {
 		if !strings.Contains(reply, want) {
 			t.Fatalf("monitoring feature reply missing %q:\n%s", want, reply)
 		}
+	}
+}
+
+func TestAssistantOptimizationReplySummarizesCombinedMonitoringEvidence(t *testing.T) {
+	reply := composeAssistantReply(assistantTurnPlan{
+		Intent: "optimization_review",
+		Goal:   "make this more efficient",
+	}, "standard", []assistantToolActivity{{
+		Name:   "nopsai.find_optimization_opportunities",
+		Status: assistantToolStatusSuccess,
+		Input:  map[string]any{"pipeline": "nopsai/nopsai-platform-release"},
+		Output: map[string]any{
+			"ok":      true,
+			"applied": false,
+			"source_paths": []string{
+				"/v1/monitoring/efficiency?conversation_id=turn-1&pipelinePath=nopsai&pipelineName=nopsai-platform-release",
+				"/v1/monitoring/recommendations?pipelinePath=nopsai&pipelineName=nopsai-platform-release",
+			},
+			"efficiency": map[string]any{
+				"response": map[string]any{
+					"total_runtime_seconds": 1200,
+					"total_ai_spend_usd":    0,
+					"recommendations": []string{
+						"Pipeline nopsai/nopsai-platform-release has a 45% success rate across 123 runs.",
+						"Pipeline main-test is the highest AI token consumer in this window.",
+						"Team Root has average queue time above five minutes.",
+					},
+					"costly_low_success_pipelines": []map[string]any{{
+						"key":          "prod/main-test",
+						"success_rate": 0.05,
+						"total_runs":   66,
+					}},
+				},
+			},
+			"ai_usage": map[string]any{
+				"response": map[string]any{
+					"spend_usd":      0,
+					"unpriced_calls": 2,
+				},
+			},
+			"pipeline_performance": map[string]any{
+				"response": map[string]any{
+					"items": []map[string]any{{
+						"key":                      "nopsai/nopsai-platform-release",
+						"total_runs":               123,
+						"failed_runs":              68,
+						"failure_rate":             0.55,
+						"average_duration_seconds": 402.25,
+						"p99_duration_seconds":     1424.52,
+					}},
+				},
+			},
+		},
+	}})
+
+	for _, want := range []string{
+		"Optimization opportunities:",
+		"Target: nopsai/nopsai-platform-release",
+		"123 runs, 68 failed, 55% failure rate, 402s average, 1425s p99",
+		"Runtime in window: 1200 runner-seconds",
+		"AI spend in window: $0.00 recorded",
+		"Pipeline nopsai/nopsai-platform-release has a 45% success rate across 123 runs.",
+		"Data source: NopsAI monitoring evidence via `nopsai.find_optimization_opportunities`",
+		"No changes were applied",
+	} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("optimization reply missing %q:\n%s", want, reply)
+		}
+	}
+	for _, unwanted := range []string{
+		"main-test",
+		"Team Root",
+		"conversation_id",
+		"pipelinePath",
+	} {
+		if strings.Contains(reply, unwanted) {
+			t.Fatalf("optimization reply should not contain %q:\n%s", unwanted, reply)
+		}
+	}
+	if strings.Contains(reply, "NopsAI feature workflow") || strings.Contains(reply, "find optimization opportunities:") {
+		t.Fatalf("optimization reply should not use generic feature fallback:\n%s", reply)
+	}
+}
+
+func TestAssistantOptimizationReplyFallsBackWhenOnlyOtherPipelineRecommendationsExist(t *testing.T) {
+	reply := composeAssistantReply(assistantTurnPlan{
+		Intent: "optimization_review",
+		Goal:   "make this more efficient",
+	}, "standard", []assistantToolActivity{{
+		Name:   "nopsai.find_optimization_opportunities",
+		Status: assistantToolStatusSuccess,
+		Input:  map[string]any{"pipeline": "nopsai/nopsai-platform-release"},
+		Output: map[string]any{
+			"ok": true,
+			"efficiency": map[string]any{
+				"response": map[string]any{
+					"recommendations": []string{
+						"Pipeline main-test is the highest AI token consumer in this window.",
+						"Team Root has average queue time above five minutes.",
+					},
+				},
+			},
+			"pipeline_performance": map[string]any{
+				"response": map[string]any{
+					"items": []map[string]any{{
+						"key":                   "nopsai/nopsai-platform-release",
+						"average_queue_seconds": 420,
+					}},
+				},
+			},
+		},
+	}})
+
+	if strings.Contains(reply, "main-test") || strings.Contains(reply, "Team Root") {
+		t.Fatalf("reply should filter recommendations for other pipelines:\n%s", reply)
+	}
+	if !strings.Contains(reply, "Reduce queue time for nopsai/nopsai-platform-release") {
+		t.Fatalf("reply should fall back to a target-specific next step:\n%s", reply)
+	}
+}
+
+func TestAssistantExecutionPlanLabelsDeterministicAnalysisStep(t *testing.T) {
+	executionPlan := assistantExecutionPlanFromTurnPlan(assistantTurnPlan{
+		Goal: "make this pipeline efficient",
+		Steps: []assistantPlanStep{{
+			ToolName: "nopsai.find_optimization_opportunities",
+			Thought:  "Find optimization opportunities from monitoring evidence.",
+		}},
+	})
+
+	if !strings.Contains(executionPlan.Summary, "compose a concise answer") {
+		t.Fatalf("summary = %q, want deterministic compose wording", executionPlan.Summary)
+	}
+	if len(executionPlan.Steps) != 2 || executionPlan.Steps[1].Source != "mcp" || executionPlan.Steps[1].Phase != "analysis" {
+		t.Fatalf("execution plan should end with deterministic MCP analysis step: %#v", executionPlan.Steps)
+	}
+}
+
+func TestAssistantPlanDeniedReplyExplainsInvalidPriorEvidenceFinalAnswer(t *testing.T) {
+	reply := composeAssistantPlanDeniedReply(assistantToolActivity{
+		Output: map[string]any{
+			"error": "assistant planner final answer from prior evidence must label the data source and estimate confidence",
+		},
+	})
+
+	if strings.Contains(reply, "assistant planner final answer") {
+		t.Fatalf("reply should not expose internal planner validation wording:\n%s", reply)
+	}
+	if !strings.Contains(reply, "data source and confidence") || !strings.Contains(reply, "No changes were applied") {
+		t.Fatalf("reply missing user-facing source/confidence explanation:\n%s", reply)
 	}
 }
 

@@ -56,6 +56,148 @@ func TestAssistantPlannerRoutesPipelineReviewToTheAnalysisTool(t *testing.T) {
 	}
 }
 
+func TestAssistantPlannerRoutesPagePipelineOptimizationToAnalysisTool(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read", "pipeline.list", "pipeline_run.read")}
+	content := "how to make this more efficient"
+	pageContext := assistantPageContext{ResourceType: "pipeline", ResourceID: "nopsai/nopsai-platform-release"}
+	plan := assistantBaseTurnPlanWithPageContext(content, assistantConversationMemory{}, pageContext)
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		content,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if !schemaNames["nopsai.analyze_pipeline"] {
+		t.Fatalf("page pipeline optimization prompt should ship pipeline analysis schema: %#v", schemaNames)
+	}
+	if !strings.Contains(prompt, "optimization, efficiency") || !strings.Contains(prompt, "nopsai/nopsai-platform-release") {
+		t.Fatalf("planner prompt missing optimization guidance or page pipeline context:\n%s", prompt)
+	}
+}
+
+func TestAssistantPlannerShipsPipelineAnalysisForSelectedPipelineContext(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read", "pipeline.list", "pipeline_run.read")}
+	content := "what should I look at next?"
+	pageContext := assistantPageContext{ResourceType: "pipeline", ResourceID: "nopsai/nopsai-platform-release"}
+	plan := assistantBaseTurnPlanWithPageContext(content, assistantConversationMemory{}, pageContext)
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		content,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if !schemaNames["nopsai.analyze_pipeline"] {
+		t.Fatalf("selected pipeline context should ship pipeline analysis schema: %#v", schemaNames)
+	}
+}
+
+func TestAssistantGroundsAmbiguousTeamPlanToActivePipeline(t *testing.T) {
+	plan := assistantGroundAmbiguousPlanToPipelineContext(assistantTurnPlan{
+		LowerContent: "how to fix queue time",
+		PipelineID:   "nopsai/nopsai-platform-release",
+		Steps: []assistantPlanStep{{
+			ToolName: "nopsai.analyze_team",
+			Args:     map[string]any{"team": "Team Root"},
+		}},
+	})
+
+	if plan.Intent != "pipeline_review" {
+		t.Fatalf("intent = %q, want pipeline_review", plan.Intent)
+	}
+	if len(plan.Steps) != 1 || plan.Steps[0].ToolName != "nopsai.analyze_pipeline" {
+		t.Fatalf("steps = %#v, want active pipeline analysis", plan.Steps)
+	}
+	if got := plan.Steps[0].Args["pipeline"]; got != "nopsai/nopsai-platform-release" {
+		t.Fatalf("pipeline arg = %#v, want active pipeline", got)
+	}
+}
+
+func TestAssistantPlannerFillsMissingPipelineArgFromPageContext(t *testing.T) {
+	base := assistantBaseTurnPlanWithPageContext(
+		"make the pipeline more efficient and faster",
+		assistantConversationMemory{},
+		assistantPageContext{ResourceType: "pipeline", ResourceID: "nopsai/nopsai-platform-release"},
+	)
+	plan := assistantTurnPlanFromPlannerDecision(base, assistantPlannerDecision{
+		Steps: []assistantPlannerStep{{
+			Tool: "nopsai.analyze_pipeline",
+			Args: map[string]any{},
+		}},
+	})
+
+	if len(plan.Steps) != 1 {
+		t.Fatalf("steps = %#v, want one step", plan.Steps)
+	}
+	if got := plan.Steps[0].Args["pipeline"]; got != "nopsai/nopsai-platform-release" {
+		t.Fatalf("pipeline arg = %#v, want page context pipeline", got)
+	}
+}
+
+func TestAssistantPlannerFillsMonitoringPipelineArgFromPageContext(t *testing.T) {
+	base := assistantBaseTurnPlanWithPageContext(
+		"show the bottlenecks",
+		assistantConversationMemory{},
+		assistantPageContext{ResourceType: "pipeline", ResourceID: "nopsai/nopsai-platform-release"},
+	)
+	plan := assistantTurnPlanFromPlannerDecision(base, assistantPlannerDecision{
+		Steps: []assistantPlannerStep{{
+			Tool: "nopsai.get_monitoring_step_performance",
+			Args: map[string]any{},
+		}},
+	})
+
+	if got := plan.Steps[0].Args["pipeline"]; got != "nopsai/nopsai-platform-release" {
+		t.Fatalf("pipeline arg = %#v, want page context pipeline", got)
+	}
+}
+
+func TestAssistantPlannerDoesNotOverrideExplicitPipelineArg(t *testing.T) {
+	base := assistantBaseTurnPlanWithPageContext(
+		"compare with another pipeline",
+		assistantConversationMemory{},
+		assistantPageContext{ResourceType: "pipeline", ResourceID: "nopsai/nopsai-platform-release"},
+	)
+	plan := assistantTurnPlanFromPlannerDecision(base, assistantPlannerDecision{
+		Steps: []assistantPlannerStep{{
+			Tool: "nopsai.analyze_pipeline",
+			Args: map[string]any{"pipeline": "workspace/platform/api"},
+		}},
+	})
+
+	if got := plan.Steps[0].Args["pipeline"]; got != "workspace/platform/api" {
+		t.Fatalf("pipeline arg = %#v, want explicit planner arg", got)
+	}
+}
+
+func TestAssistantKeepsExplicitTeamPlan(t *testing.T) {
+	plan := assistantGroundAmbiguousPlanToPipelineContext(assistantTurnPlan{
+		LowerContent: "how is this team doing?",
+		PipelineID:   "nopsai/nopsai-platform-release",
+		Steps: []assistantPlanStep{{
+			ToolName: "nopsai.analyze_team",
+			Args:     map[string]any{"team": "nopsai"},
+		}},
+	})
+
+	if len(plan.Steps) != 1 || plan.Steps[0].ToolName != "nopsai.analyze_team" {
+		t.Fatalf("explicit team request should keep team analysis: %#v", plan.Steps)
+	}
+}
+
 // A planner that picks a real, permitted tool we forgot to ship a schema for is
 // right; the turn used to die on our omission. It now gets the schema.
 func TestAssistantPlannerRepairsMissingSchemaForPermittedTools(t *testing.T) {

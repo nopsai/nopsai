@@ -218,6 +218,12 @@ test('uses page context for scoped profile loading, new conversations, and sends
     selected_llm_profile: 'assistant',
     docs_version: 'auto',
     scope: 'platform/api',
+    page_context: expect.objectContaining({
+      title: 'Pipeline runs',
+      run_id: 'run-1',
+      scope: 'platform/api',
+      resource_type: 'pipeline_run',
+    }),
   });
   expect(sendAssistantMessageMock).toHaveBeenCalledWith({
     conversation_id: 'c1',

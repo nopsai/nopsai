@@ -3,9 +3,9 @@ import { CircleDollarSign, Maximize2, X } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon.js';
 import type { CurrentUser } from '../../app/types.js';
 import {
+  assistantConversationSpendLabel,
   assistantConversationUsageLabel,
   assistantLastUserMessage,
-  formatAssistantSpend,
   type AssistantConversation,
 } from './model.js';
 import { assistantProgressSteps, assistantReadyLine } from './experience.js';
@@ -21,6 +21,7 @@ import {
 } from './AssistantTranscript.js';
 import { useAssistantController } from './useAssistantController.js';
 import { assistantPageContextKey, assistantPageContextLabel, type AssistantPageContext } from './pageContext.js';
+import { assistantPageContextFromOption } from './contextOptions.js';
 
 export function AssistantPanel({
   variant = 'page',
@@ -41,12 +42,16 @@ export function AssistantPanel({
   onClose?: () => void;
 }) {
   const [removedPageContextKey, setRemovedPageContextKey] = useState('');
-  const pageContextKey = assistantPageContextKey(pageContext);
-  const pageContextRemoved = pageContextKey !== '' && removedPageContextKey === pageContextKey;
-  const effectivePageContext = pageContextRemoved ? null : pageContext;
-  const assistant = useAssistantController({ startFresh, pageContext: effectivePageContext });
+  // A context picked in the composer outranks the route: the assistant page has
+  // no resource of its own, and on a resource page an explicit pick is the user
+  // saying they mean something else.
+  const [pickedPageContext, setPickedPageContext] = useState<AssistantPageContext | null>(null);
+  const routeContextKey = assistantPageContextKey(pageContext);
+  const routeContextRemoved = routeContextKey !== '' && removedPageContextKey === routeContextKey;
+  const activePageContext = pickedPageContext || (routeContextRemoved ? null : pageContext);
+  const assistant = useAssistantController({ startFresh, pageContext: activePageContext });
   const compact = variant === 'dock';
-  const pageContextLabel = pageContextRemoved ? '' : assistantPageContextLabel(pageContext);
+  const pageContextLabel = assistantPageContextLabel(activePageContext);
   const [progressNow, setProgressNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -168,7 +173,11 @@ export function AssistantPanel({
           pageContextLabel={pageContextLabel}
           footnote={`NopsAI can be inaccurate. ${assistantReadyLine(assistant.config)}`}
           onDraftChange={assistant.setDraft}
-          onRemovePageContext={() => setRemovedPageContextKey(pageContextKey)}
+          onRemovePageContext={() => {
+            setPickedPageContext(null);
+            setRemovedPageContextKey(routeContextKey);
+          }}
+          onSelectPageContext={option => setPickedPageContext(assistantPageContextFromOption(option))}
           onSubmit={() => {
             if (!assistant.enabled) return;
             void assistant.submitMessage();
@@ -200,7 +209,7 @@ function AssistantTopBar({
   onExpand?: () => void;
   onClose?: () => void;
 }) {
-  const spend = formatAssistantSpend(activeConversation?.usage.spend_usd || 0);
+  const spend = assistantConversationSpendLabel(activeConversation);
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-2.5">
       <div className="flex items-center justify-between gap-3">

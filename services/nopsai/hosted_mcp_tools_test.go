@@ -1042,6 +1042,23 @@ func TestHostedMCPMonitoringRoadmapToolsAreDiscoverable(t *testing.T) {
 		t.Fatalf("schedule AI usage path = %q", path)
 	}
 
+	path = hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_pipeline_performance", map[string]any{
+		"pipeline": "nopsai/nopsai-platform-release",
+	})
+	if !strings.HasPrefix(path, "/v1/monitoring/pipelines/performance?") ||
+		!strings.Contains(path, "pipelinePath=nopsai") ||
+		!strings.Contains(path, "pipelineName=nopsai-platform-release") ||
+		strings.Contains(path, "pipeline=") {
+		t.Fatalf("pipeline monitoring path = %q", path)
+	}
+
+	path = hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_efficiency", map[string]any{
+		"query": map[string]any{"pipeline": "platform/deploy-api"},
+	})
+	if !strings.Contains(path, "pipelinePath=platform") || !strings.Contains(path, "pipelineName=deploy-api") || strings.Contains(path, "pipeline=") {
+		t.Fatalf("nested pipeline monitoring path = %q", path)
+	}
+
 	paths := hostedMCPMonitoringInsightPaths("nopsai.explain_pipeline_health")
 	if len(paths) != 4 || paths[0].Path != "/v1/monitoring/pipelines/performance" || paths[3].Path != "/v1/monitoring/security" {
 		t.Fatalf("pipeline health paths = %#v", paths)
@@ -1119,5 +1136,51 @@ func TestHostedMCPSystemLogToolsSupportSourceScopedPermission(t *testing.T) {
 		if !found {
 			t.Fatalf("source-scoped subject is missing %s", wanted)
 		}
+	}
+}
+
+func TestHostedMCPMonitoringAnalyticsArgsLeavePipelineToolsUntouched(t *testing.T) {
+	for _, name := range []string{"nopsai.analyze_pipeline", "nopsai.get_pipeline", "nopsai.get_pipeline_knowledge_context"} {
+		args := hostedMCPMonitoringAnalyticsArgs(name, map[string]any{"pipeline": "nopsai/nopsai-platform-release"})
+		path, pipeline := splitPipelineArg(args)
+		if path != "nopsai" || pipeline != "nopsai-platform-release" {
+			t.Fatalf("%s lost its pipeline argument: args=%#v path=%q name=%q", name, args, path, pipeline)
+		}
+	}
+}
+
+func TestHostedMCPMonitoringAnalyticsArgsStillExpandMonitoringFilters(t *testing.T) {
+	args := hostedMCPMonitoringAnalyticsArgs("nopsai.find_optimization_opportunities", map[string]any{"pipeline": "nopsai/nopsai-platform-release"})
+	if stringArg(args, "pipelinePath") != "nopsai" || stringArg(args, "pipelineName") != "nopsai-platform-release" {
+		t.Fatalf("monitoring filter was not expanded: %#v", args)
+	}
+	if _, ok := args["pipeline"]; ok {
+		t.Fatalf("monitoring args kept an unsupported pipeline filter: %#v", args)
+	}
+}
+
+func TestSplitPipelineArgPrefersQualifiedIdentifierOverRepeatedPath(t *testing.T) {
+	path, name := splitPipelineArg(map[string]any{
+		"pipeline": "nopsai/nopsai-platform-release",
+		"path":     "nopsai/nopsai-platform-release",
+		"name":     "nopsai-platform-release",
+	})
+	if path != "nopsai" || name != "nopsai-platform-release" {
+		t.Fatalf("split = (%q, %q), want (nopsai, nopsai-platform-release)", path, name)
+	}
+
+	path, name = splitPipelineArg(map[string]any{"path": "team-1", "name": "build-and-test"})
+	if path != "team-1" || name != "build-and-test" {
+		t.Fatalf("explicit path and name split = (%q, %q)", path, name)
+	}
+
+	path, name = splitPipelineArg(map[string]any{"path": "team-1", "pipeline": "build-and-test"})
+	if path != "team-1" || name != "build-and-test" {
+		t.Fatalf("unqualified identifier split = (%q, %q)", path, name)
+	}
+
+	path, name = splitPipelineArg(map[string]any{"pipeline": "prod/main-test", "name": "other"})
+	if path != "" || name != "other" {
+		t.Fatalf("explicit name should win over a conflicting identifier: (%q, %q)", path, name)
 	}
 }

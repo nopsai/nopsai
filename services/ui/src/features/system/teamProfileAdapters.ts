@@ -12,7 +12,7 @@ import type {
   TeamMCPProfile,
   TeamMCPProfilesResponse,
 } from './teamProfileApi';
-import type { LLMProfileRecord } from './models/model';
+import { normalizeLLMPricing, type LLMProfileRecord } from './models/model';
 import type { MCPProfileRecord } from './mcp/model';
 
 export function teamScopedResourceID(teamPath: string, localName: string) {
@@ -72,6 +72,7 @@ function teamLLMProfileRecord(teamPath: string, profile: TeamLLMProfile): LLMPro
     temperature: typeof profile.temperature === 'number' ? profile.temperature : undefined,
     prompt_cache: profile.prompt_cache,
     provider_state: profile.provider_state,
+    pricing: normalizeLLMPricing(profile.pricing),
     extra: profile.extra || {},
     status: profile.status || 'unknown',
     validation: profile.validation,

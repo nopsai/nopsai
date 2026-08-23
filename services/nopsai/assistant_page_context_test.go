@@ -3,6 +3,8 @@ package nopsai
 import (
 	"strings"
 	"testing"
+
+	"nopsai/config"
 )
 
 func TestNormalizeAssistantPageContextBoundsPromptMetadata(t *testing.T) {
@@ -89,6 +91,40 @@ func TestAssistantBaseTurnPlanKeepsExplicitUserTargetsAheadOfPageContext(t *test
 	}
 }
 
+func TestAssistantBaseTurnPlanCombinesPipelineNameAndScopeFromPageContext(t *testing.T) {
+	pageContext := assistantPageContext{
+		ResourceType: "pipeline",
+		ResourceName: "deploy-api",
+		Scope:        "platform",
+	}
+
+	plan := assistantBaseTurnPlanWithPageContext("review this", assistantConversationMemory{}, pageContext)
+	if plan.PipelineID != "platform/deploy-api" {
+		t.Fatalf("pipeline id = %q, want scope/name from page context", plan.PipelineID)
+	}
+}
+
+func TestNormalizeAssistantConversationRequestUsesPageContext(t *testing.T) {
+	req := normalizeAssistantConversationRequest(assistantCreateConversationRequest{
+		PageContext: assistantPageContext{
+			ResourceType: "pipeline_run",
+			ResourceID:   "00000000-0000-0000-0000-000000000123",
+			PipelineID:   "platform/deploy-api",
+			Scope:        "platform",
+		},
+	}, config.AssistantConfig{DefaultDocsVersion: "auto"})
+
+	if req.Scope != "platform" {
+		t.Fatalf("scope = %q, want page-context scope", req.Scope)
+	}
+	if assistantPageContextRunID(req.PageContext) != "00000000-0000-0000-0000-000000000123" {
+		t.Fatalf("page context run not normalized: %#v", req.PageContext)
+	}
+	if assistantPageContextPipelineID(req.PageContext) != "platform/deploy-api" {
+		t.Fatalf("page context pipeline not normalized: %#v", req.PageContext)
+	}
+}
+
 func TestAssistantPromptsIncludePageContext(t *testing.T) {
 	pageContext := assistantPageContext{
 		Title:        "Pipeline runs",
@@ -108,5 +144,34 @@ func TestAssistantPromptsIncludePageContext(t *testing.T) {
 	schemaContext := assistantPlannerSchemaContext(assistantConversation{}, "explain this", pageContext)
 	if !strings.Contains(schemaContext, pageContext.ResourceID) || !strings.Contains(schemaContext, "pipeline_run") {
 		t.Fatalf("schema context missing page context: %q", schemaContext)
+	}
+}
+
+// The pipeline the user is looking at has to survive planning and argument
+// normalization, or an analysis step reaches the tool with no target at all.
+func TestAssistantPageContextPipelineReachesAnalysisToolArguments(t *testing.T) {
+	pageContext := assistantPageContext{
+		Title:        "Pipelines",
+		Path:         "/pipelines/nopsai/nopsai-platform-release",
+		Route:        "/pipelines/:pipeline_id",
+		Area:         "pipelines",
+		TeamPath:     "nopsai",
+		ResourceType: "pipeline",
+		ResourceID:   "nopsai/nopsai-platform-release",
+		PipelineID:   "nopsai/nopsai-platform-release",
+	}
+	base := assistantBaseTurnPlanWithPageContext("make pipeline more efficient and faster", assistantConversationMemory{}, pageContext)
+
+	plan := assistantTurnPlanFromPlannerDecision(base, assistantPlannerDecision{
+		Steps: []assistantPlannerStep{{Tool: "nopsai.analyze_pipeline", Reason: "review the selected pipeline"}},
+	})
+	if len(plan.Steps) != 1 {
+		t.Fatalf("plan steps = %#v", plan.Steps)
+	}
+
+	args := hostedMCPMonitoringAnalyticsArgs(plan.Steps[0].ToolName, plan.Steps[0].Args)
+	path, name := splitPipelineArg(args)
+	if path != "nopsai" || name != "nopsai-platform-release" {
+		t.Fatalf("analysis tool received (%q, %q) from args %#v", path, name, args)
 	}
 }

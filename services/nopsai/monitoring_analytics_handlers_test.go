@@ -305,12 +305,24 @@ func TestMonitoringEfficiencyRecommendations(t *testing.T) {
 		}},
 		HighQueueTeams:  []monitoringNamedCount{{Label: "Platform", Seconds: 420}},
 		SpendByPipeline: []monitoringNamedCount{{Label: "platform/release", CostUSD: 42.00}},
-	})
+	}, monitoringAnalyticsFilters{})
 	if len(recommendations) != 3 {
 		t.Fatalf("recommendations = %#v, want three", recommendations)
 	}
 	if !strings.Contains(recommendations[0], "platform/release") {
 		t.Fatalf("first recommendation = %q, want pipeline name", recommendations[0])
+	}
+}
+
+func TestMonitoringEfficiencyRecommendationsSkipTeamQueueForPipelineFilter(t *testing.T) {
+	recommendations := monitoringEfficiencyRecommendations(monitoringEfficiencyResponse{
+		HighQueueTeams: []monitoringNamedCount{{Label: "Root", Seconds: 420}},
+	}, monitoringAnalyticsFilters{PipelinePath: "nopsai", PipelineName: "nopsai-platform-release"})
+
+	for _, recommendation := range recommendations {
+		if strings.Contains(recommendation, "Team Root") {
+			t.Fatalf("pipeline-scoped recommendations should not include team queue item: %#v", recommendations)
+		}
 	}
 }
 

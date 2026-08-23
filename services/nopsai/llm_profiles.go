@@ -78,6 +78,44 @@ type llmProfileForm struct {
 	ProviderState  config.LLMFeatureConfig `json:"provider_state,omitempty" yaml:"provider_state,omitempty"`
 	Pricing        *config.LLMPricing      `json:"pricing,omitempty" yaml:"pricing,omitempty"`
 	Extra          map[string]string       `json:"extra,omitempty" yaml:"extra,omitempty"`
+
+	// pricingDeclared records whether the request actually carried a "pricing"
+	// key. An omitted key and an explicit null both decode to a nil pointer, and
+	// a client that does not know about rate cards would otherwise delete one the
+	// operator declared just by saving an unrelated field.
+	pricingDeclared bool
+}
+
+// UnmarshalJSON decodes the form and remembers whether pricing was stated, so a
+// save can tell "leave the rate card alone" apart from "this model has none".
+func (f *llmProfileForm) UnmarshalJSON(data []byte) error {
+	type formFields llmProfileForm
+	var decoded formFields
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var declared map[string]json.RawMessage
+	if err := json.Unmarshal(data, &declared); err != nil {
+		return err
+	}
+	*f = llmProfileForm(decoded)
+	_, f.pricingDeclared = declared["pricing"]
+	return nil
+}
+
+// llmProfilePricingForSave resolves the rate card a save should persist. A form
+// that states pricing wins outright. A form that stays silent keeps whatever the
+// profile already had, and a brand new model falls back to the provider default,
+// which is explicit zeroes for a self-hosted provider and nothing for a hosted
+// one whose rates only the operator knows.
+func llmProfilePricingForSave(form llmProfileForm, existing map[string]config.LLMProfile, name string) *config.LLMPricing {
+	if form.pricingDeclared {
+		return clonePricing(form.Pricing)
+	}
+	if current, ok := existing[config.NormalizeLLMProfileName(name)]; ok && current.Pricing != nil {
+		return clonePricing(current.Pricing)
+	}
+	return config.DefaultLLMPricingForProvider(form.Provider)
 }
 
 type llmProfileView struct {
@@ -1165,6 +1203,8 @@ func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
 		defaultProfile = config.DefaultLLMProfileName
 	}
 
+	cfg := a.getConfigSnapshot()
+	existing := cfg.EffectiveLLMProfiles()
 	profiles := map[string]config.LLMProfile{}
 	for name, profile := range payload.LLMProfiles {
 		profileName := config.NormalizeLLMProfileName(name)
@@ -1179,6 +1219,7 @@ func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "profile name is required", http.StatusBadRequest)
 			return
 		}
+		form.Pricing = llmProfilePricingForSave(form, existing, profileName)
 		profiles[profileName] = profileConfigFromForm(form)
 	}
 	if len(profiles) == 0 {
@@ -1190,7 +1231,7 @@ func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := configWithLLMProfiles(a.getConfigSnapshot(), defaultProfile, profiles)
+	cfg = configWithLLMProfiles(cfg, defaultProfile, profiles)
 	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
 		http.Error(w, "failed to persist LLM profiles", http.StatusInternalServerError)
 		return
@@ -1258,6 +1299,7 @@ func (a *App) handleUpsertLLMProfile(w http.ResponseWriter, r *http.Request) {
 	if profiles == nil {
 		profiles = map[string]config.LLMProfile{}
 	}
+	payload.Pricing = llmProfilePricingForSave(payload, profiles, profileName)
 	profiles[profileName] = profileConfigFromForm(payload)
 	if _, ok := profiles[defaultProfile]; !ok {
 		defaultProfile = profileName

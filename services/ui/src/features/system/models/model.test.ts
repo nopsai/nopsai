@@ -97,6 +97,10 @@ test('converts LLM profile records into editable form state', () => {
     temperature: '0.1',
     prompt_cache: '{\n  "mode": "required",\n  "scope": "run"\n}',
     provider_state: '{\n  "mode": "disabled"\n}',
+    pricing_input: '',
+    pricing_output: '',
+    pricing_cached_input: '',
+    pricing_cache_write: '',
     extra: 'api_version=2024-10-21\ndeployment=local',
   });
 });
@@ -116,6 +120,10 @@ test('builds API payloads from LLM profile form state', () => {
     temperature: '0.25',
     prompt_cache: '{"mode":"auto"}',
     provider_state: '{"mode":"disabled"}',
+    pricing_input: '',
+    pricing_output: '',
+    pricing_cached_input: '',
+    pricing_cache_write: '',
     extra: 'x_title=NopsAI\nhttp_referer=https://nopsai.example.com',
   });
 
@@ -133,6 +141,7 @@ test('builds API payloads from LLM profile form state', () => {
     temperature: 0.25,
     prompt_cache: { mode: 'auto' },
     provider_state: { mode: 'disabled' },
+    pricing: null,
     extra: {
       http_referer: 'https://nopsai.example.com',
       x_title: 'NopsAI',
@@ -154,6 +163,10 @@ test('builds API payloads from LLM profile form state', () => {
       temperature: '',
       prompt_cache: '',
       provider_state: '',
+      pricing_input: '',
+      pricing_output: '',
+      pricing_cached_input: '',
+      pricing_cache_write: '',
       extra: '',
     }).thinking,
     undefined
@@ -186,4 +199,52 @@ test('removes LM Studio-only options from other providers', () => {
 
   assert.equal(payload.reasoning, '');
   assert.equal(payload.thinking, undefined);
+});
+
+test('round-trips a rate card between the profile record and the form', () => {
+  const record: LLMProfileRecord = {
+    name: 'hosted',
+    provider: 'openai',
+    model: 'gpt-5',
+    base_url: '',
+    credential_ref: 'credential://system/llm/openai',
+    allowed_scopes: [],
+    reasoning: '',
+    timeout_seconds: 0,
+    max_tokens: 0,
+    extra: {},
+    status: 'valid',
+    pricing: { input_per_million_usd: 1.25, output_per_million_usd: 10, cached_input_per_million_usd: 0.125 },
+  };
+
+  const form = llmProfileFormFromRecord(record);
+  assert.equal(form.pricing_input, '1.25');
+  assert.equal(form.pricing_output, '10');
+  assert.equal(form.pricing_cached_input, '0.125');
+  assert.equal(form.pricing_cache_write, '');
+
+  const payload = llmProfilePayloadFromForm(form);
+  assert.deepEqual(payload.pricing, {
+    input_per_million_usd: 1.25,
+    output_per_million_usd: 10,
+    cached_input_per_million_usd: 0.125,
+  });
+});
+
+test('states a cleared rate card explicitly so a save does not silently keep the old one', () => {
+  const payload = llmProfilePayloadFromForm({ ...emptyLLMProfileForm, name: 'hosted', provider: 'openai' });
+  assert.equal(payload.pricing, null);
+});
+
+test('normalizes pricing on a profile payload and leaves an unpriced model undefined', () => {
+  const payload = normalizeLLMProfilesPayload({
+    default_profile: 'hosted',
+    profiles: [
+      { name: 'hosted', provider: 'openai', pricing: { input_per_million_usd: 1.25, output_per_million_usd: 10 } },
+      { name: 'local', provider: 'lmstudio' },
+    ],
+  });
+
+  assert.deepEqual(payload.profiles[0]?.pricing, { input_per_million_usd: 1.25, output_per_million_usd: 10 });
+  assert.equal(payload.profiles[1]?.pricing, undefined);
 });

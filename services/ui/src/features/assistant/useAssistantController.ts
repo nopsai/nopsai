@@ -172,11 +172,13 @@ export function useAssistantController({
     setSending(true);
     setError(null);
     try {
-      const conversation = await createAssistantConversation({
+      const createInput: Parameters<typeof createAssistantConversation>[0] = {
         selected_llm_profile: selectedProfile,
         docs_version: config?.default_docs_version || 'auto',
         scope: pageContextScope,
-      });
+      };
+      if (sendPageContext) createInput.page_context = sendPageContext;
+      const conversation = await createAssistantConversation(createInput);
       activateConversation(conversation);
       setConversations(current => [conversation, ...current.filter(item => item.id !== conversation.id)]);
       return conversation;
@@ -186,7 +188,7 @@ export function useAssistantController({
     } finally {
       setSending(false);
     }
-  }, [activateConversation, config?.default_docs_version, config?.enabled, pageContextScope, selectedProfile]);
+  }, [activateConversation, config?.default_docs_version, config?.enabled, pageContextScope, selectedProfile, sendPageContext]);
 
   const finishCopyFeedback = useCallback((messageID = '') => {
     if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
@@ -263,11 +265,13 @@ export function useAssistantController({
     try {
       let conversation = activeConversation;
       if (!conversation) {
-        const createdConversation = await createAssistantConversation({
+        const createInput: Parameters<typeof createAssistantConversation>[0] = {
           selected_llm_profile: selectedProfile,
           docs_version: config?.default_docs_version || 'auto',
           scope: pageContextScope,
-        });
+        };
+        if (sendPageContext) createInput.page_context = sendPageContext;
+        const createdConversation = await createAssistantConversation(createInput);
         conversation = createdConversation;
         activateConversation(conversation);
         setConversations(current => [

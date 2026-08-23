@@ -1975,18 +1975,30 @@ func hostedMCPProposal(kind string, args map[string]any) map[string]any {
 func splitPipelineArg(args map[string]any) (string, string) {
 	pathPart := strings.Trim(strings.TrimSpace(stringArg(args, "path")), "/")
 	namePart := strings.TrimSpace(stringArg(args, "name"))
+	identifierPath, identifierName := splitPipelineIdentifierArg(stringArg(args, "pipeline"))
+	if identifierName == "" {
+		return pathPart, namePart
+	}
+	// A qualified identifier is the canonical form. Callers that repeat it in
+	// path alongside the leaf name would otherwise address "path/name/name".
+	if identifierPath != "" && (namePart == "" || namePart == identifierName) {
+		return identifierPath, identifierName
+	}
 	if namePart != "" {
 		return pathPart, namePart
 	}
-	id := strings.Trim(strings.TrimSpace(stringArg(args, "pipeline")), "/")
+	return pathPart, identifierName
+}
+
+func splitPipelineIdentifierArg(value string) (string, string) {
+	id := strings.Trim(strings.TrimSpace(value), "/")
 	if id == "" {
-		return pathPart, ""
+		return "", ""
 	}
-	parts := strings.Split(id, "/")
-	if len(parts) == 1 {
-		return "", parts[0]
+	if index := strings.LastIndex(id, "/"); index > 0 {
+		return id[:index], id[index+1:]
 	}
-	return strings.Join(parts[:len(parts)-1], "/"), parts[len(parts)-1]
+	return "", id
 }
 
 func pipelineArgID(args map[string]any) string {

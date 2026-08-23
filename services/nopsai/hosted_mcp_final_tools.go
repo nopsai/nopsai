@@ -26,6 +26,7 @@ func hostedMCPFinalTools() []hostedMCPTool {
 		"to":                     stringSchema(),
 		"teamId":                 stringSchema(),
 		"team_id":                stringSchema(),
+		"pipeline":               stringSchema(),
 		"pipelinePath":           stringSchema(),
 		"pipeline_path":          stringSchema(),
 		"pipelineName":           stringSchema(),
@@ -759,24 +760,82 @@ func hostedMCPMonitoringAnalyticsPath(toolName string, args map[string]any) stri
 	return hostedMCPPathWithQuery(base, hostedMCPMonitoringAnalyticsArgs(toolName, args), hostedMCPMonitoringAnalyticsAliases())
 }
 
+// Only the monitoring analytics family speaks pipelinePath/pipelineName query
+// filters. Every other pipeline tool reads the "pipeline" argument itself, so
+// rewriting args for them deletes the only target they were given.
 func hostedMCPMonitoringAnalyticsArgs(toolName string, args map[string]any) map[string]any {
-	if !hostedMCPIsAIUsageMonitoringTool(toolName) || args == nil {
+	if args == nil || !hostedMCPIsMonitoringAnalyticsTool(toolName) {
 		return args
 	}
 	sanitized := make(map[string]any, len(args))
 	for key, value := range args {
 		sanitized[key] = value
 	}
+	hostedMCPExpandPipelineMonitoringFilter(sanitized)
+	isAIUsage := hostedMCPIsAIUsageMonitoringTool(toolName)
 	if query := hostedMCPMapArg(args, "query"); len(query) > 0 {
 		querySanitized := make(map[string]any, len(query))
 		for key, value := range query {
 			querySanitized[key] = value
 		}
-		hostedMCPPruneGenericAIUsageFilters(querySanitized)
+		hostedMCPExpandPipelineMonitoringFilter(querySanitized)
+		if isAIUsage {
+			hostedMCPPruneGenericAIUsageFilters(querySanitized)
+		}
 		sanitized["query"] = querySanitized
 	}
-	hostedMCPPruneGenericAIUsageFilters(sanitized)
+	if isAIUsage {
+		hostedMCPPruneGenericAIUsageFilters(sanitized)
+	}
 	return sanitized
+}
+
+func hostedMCPExpandPipelineMonitoringFilter(args map[string]any) {
+	if len(args) == 0 {
+		return
+	}
+	pipeline := strings.Trim(strings.TrimSpace(fmt.Sprint(args["pipeline"])), "/")
+	if pipeline == "" || pipeline == "<nil>" {
+		return
+	}
+	if stringArg(args, "pipelinePath") == "" && stringArg(args, "pipeline_path") == "" &&
+		stringArg(args, "pipelineName") == "" && stringArg(args, "pipeline_name") == "" {
+		if slash := strings.LastIndex(pipeline, "/"); slash > 0 && slash < len(pipeline)-1 {
+			args["pipelinePath"] = strings.Trim(pipeline[:slash], "/")
+			args["pipelineName"] = strings.TrimSpace(pipeline[slash+1:])
+		} else {
+			args["pipelineName"] = pipeline
+		}
+	}
+	delete(args, "pipeline")
+}
+
+func hostedMCPIsMonitoringAnalyticsTool(toolName string) bool {
+	switch toolName {
+	case "nopsai.get_monitoring_summary",
+		"nopsai.get_monitoring_run_analytics",
+		"nopsai.get_monitoring_pipeline_performance",
+		"nopsai.get_monitoring_step_performance",
+		"nopsai.get_monitoring_task_performance",
+		"nopsai.get_monitoring_trigger_analytics",
+		"nopsai.get_monitoring_external_trigger_analytics",
+		"nopsai.get_monitoring_ai_usage",
+		"nopsai.get_monitoring_reliability",
+		"nopsai.get_monitoring_efficiency",
+		"nopsai.get_monitoring_security",
+		"nopsai.get_monitoring_runner_history",
+		"nopsai.get_monitoring_schedule_ai_usage",
+		"nopsai.get_monitoring_schedule_performance",
+		"nopsai.get_monitoring_trigger_performance",
+		"nopsai.get_pipeline_efficiency",
+		"nopsai.compare_pipelines",
+		"nopsai.compare_schedules",
+		"nopsai.explain_pipeline_health",
+		"nopsai.find_optimization_opportunities":
+		return true
+	default:
+		return false
+	}
 }
 
 func hostedMCPIsAIUsageMonitoringTool(toolName string) bool {
@@ -895,6 +954,9 @@ func hostedMCPMonitoringAnalyticsAliases() map[string]string {
 
 func (a *App) hostedMCPMonitoringInsightTool(ctx context.Context, subject aaamodel.Subject, toolName string, args map[string]any) map[string]any {
 	paths := hostedMCPMonitoringInsightPaths(toolName)
+	// Combined insights build their own query strings, so they normalize the
+	// pipeline filter here rather than relying on the caller to do it.
+	args = hostedMCPMonitoringAnalyticsArgs(toolName, args)
 	result := map[string]any{
 		"analysis":     strings.TrimPrefix(toolName, "nopsai."),
 		"applied":      false,

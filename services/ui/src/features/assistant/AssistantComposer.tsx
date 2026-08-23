@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
-import { Loader2, Paperclip, Send, X } from 'lucide-react';
+import { AtSign, Loader2, Paperclip, Send, X } from 'lucide-react';
 import { appendAssistantAttachment, readAssistantAttachmentText } from './attachments.js';
+import { AssistantContextPicker } from './AssistantContextPicker.js';
+import type { AssistantContextOption } from './contextOptions.js';
 
 const assistantComposerMaxHeight = 160;
 
@@ -13,6 +15,7 @@ export function AssistantComposer({
   footnote,
   onDraftChange,
   onRemovePageContext,
+  onSelectPageContext,
   onSubmit,
 }: {
   compact: boolean;
@@ -23,11 +26,13 @@ export function AssistantComposer({
   footnote: string;
   onDraftChange: (draft: string) => void;
   onRemovePageContext: () => void;
+  onSelectPageContext: (option: AssistantContextOption) => void;
   onSubmit: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachError, setAttachError] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // The box grows with the draft up to a cap, then scrolls, so a long prompt
   // never pushes the transcript off screen.
@@ -71,10 +76,21 @@ export function AssistantComposer({
     >
       <form onSubmit={submit} className="pointer-events-auto mx-auto w-full max-w-3xl">
         <div className="rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-2 shadow-lg transition focus-within:border-[var(--border-accent)] focus-within:ring-2 focus-within:ring-[var(--border-accent-focus-ring)]">
-          {pageContextLabel && (
-            <div className="mb-2 flex min-h-7 items-center gap-2 rounded-lg bg-[var(--bg-tertiary)] px-2 text-xs text-[var(--text-secondary)]">
-              <span className="font-medium text-[var(--text-primary)]">Context</span>
-              <span className="min-w-0 truncate">{pageContextLabel}</span>
+          <div className="relative mb-2 flex min-h-7 items-center gap-2 rounded-lg bg-[var(--bg-tertiary)] px-2 text-xs text-[var(--text-secondary)]">
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-primary)]"
+              onClick={() => setPickerOpen(open => !open)}
+              aria-expanded={pickerOpen}
+              aria-label={pageContextLabel ? 'Change chat context' : 'Add chat context'}
+              title={pageContextLabel ? 'Change context' : 'Add context'}
+              disabled={disabled}
+            >
+              <AtSign className="h-3.5 w-3.5" aria-hidden="true" />
+              Context
+            </button>
+            <span className="min-w-0 truncate">{pageContextLabel || 'Nothing selected'}</span>
+            {pageContextLabel && (
               <button
                 type="button"
                 className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
@@ -84,8 +100,19 @@ export function AssistantComposer({
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
-            </div>
-          )}
+            )}
+            {pickerOpen && (
+              <AssistantContextPicker
+                compact={compact}
+                onClose={() => setPickerOpen(false)}
+                onSelect={option => {
+                  onSelectPageContext(option);
+                  setPickerOpen(false);
+                  textareaRef.current?.focus();
+                }}
+              />
+            )}
+          </div>
           <div className="flex items-end gap-2">
             <label
               className={`mb-0.5 inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] ${disabled ? 'pointer-events-none opacity-50' : ''}`}

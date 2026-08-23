@@ -95,6 +95,7 @@ func (a *App) runAssistantLLMPlannedTurnWithPageContext(
 			return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: false}
 		}
 		plan = assistantTurnPlanFromPlannerDecision(plan, decision)
+		plan = assistantGroundAmbiguousPlanToPipelineContext(plan)
 		if plan.ClarifyQuestion != "" && len(plan.Steps) == 0 {
 			plan.Intent = "clarify"
 			return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: true}
@@ -397,6 +398,7 @@ func assistantTurnPlanFromPlannerDecision(base assistantTurnPlan, decision assis
 			Args:     cloneAssistantArgs(step.Args),
 		})
 	}
+	plan = assistantFillPlanStepContextArgs(plan)
 	if assistantPlanIncludesTool(plan, "nopsai.get_monitoring_ai_usage") {
 		plan.Intent = "ai_token_usage"
 	} else if assistantPlanIncludesTool(plan, "nopsai.analyze_pipeline_run_failure") {
@@ -414,9 +416,126 @@ func assistantTurnPlanFromPlannerDecision(base assistantTurnPlan, decision assis
 	return plan
 }
 
+func assistantFillPlanStepContextArgs(plan assistantTurnPlan) assistantTurnPlan {
+	if len(plan.Steps) == 0 {
+		return plan
+	}
+	for idx := range plan.Steps {
+		step := plan.Steps[idx]
+		args := cloneAssistantArgs(step.Args)
+		if args == nil {
+			args = map[string]any{}
+		}
+		switch {
+		case assistantToolAcceptsPipelineContext(step.ToolName):
+			if !assistantPlanStepHasPipelineArg(args) {
+				if pipeline := assistantPlanPipelineContext(plan); pipeline != "" {
+					args["pipeline"] = pipeline
+				}
+			}
+		case assistantToolAcceptsRunContext(step.ToolName):
+			if stringArg(args, "run_id") == "" && plan.RunID != "" {
+				args["run_id"] = plan.RunID
+			}
+		case assistantToolAcceptsScheduleContext(step.ToolName):
+			if stringArg(args, "schedule_id") == "" && plan.ScheduleID != "" {
+				args["schedule_id"] = plan.ScheduleID
+			}
+		case assistantToolAcceptsRepositoryContext(step.ToolName):
+			if stringArg(args, "repository") == "" && plan.Repository != "" {
+				args["repository"] = plan.Repository
+			}
+		}
+		step.Args = args
+		plan.Steps[idx] = step
+	}
+	return plan
+}
+
+func assistantPlanStepHasPipelineArg(args map[string]any) bool {
+	_, name := splitPipelineArg(args)
+	return strings.TrimSpace(name) != ""
+}
+
+func assistantPlanPipelineContext(plan assistantTurnPlan) string {
+	pipeline := strings.Trim(strings.TrimSpace(plan.PipelineID), "/")
+	if pipeline == "" {
+		return ""
+	}
+	if strings.Contains(pipeline, "/") || strings.TrimSpace(plan.Scope) == "" {
+		return pipeline
+	}
+	return strings.Trim(strings.TrimSpace(plan.Scope), "/") + "/" + pipeline
+}
+
+func assistantToolAcceptsPipelineContext(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "nopsai.analyze_pipeline",
+		"nopsai.get_pipeline",
+		"nopsai.get_pipeline_knowledge_context",
+		"nopsai.get_pipeline_efficiency",
+		"nopsai.compare_pipelines",
+		"nopsai.explain_pipeline_health",
+		"nopsai.find_optimization_opportunities",
+		"nopsai.get_monitoring_summary",
+		"nopsai.get_monitoring_run_analytics",
+		"nopsai.get_monitoring_pipeline_performance",
+		"nopsai.get_monitoring_step_performance",
+		"nopsai.get_monitoring_task_performance",
+		"nopsai.get_monitoring_ai_usage",
+		"nopsai.get_monitoring_reliability",
+		"nopsai.get_monitoring_efficiency",
+		"nopsai.get_monitoring_security",
+		"nopsai.get_monitoring_runner_history":
+		return true
+	default:
+		return false
+	}
+}
+
+func assistantToolAcceptsRunContext(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "nopsai.get_pipeline_run",
+		"nopsai.get_pipeline_run_output",
+		"nopsai.get_pipeline_run_logs",
+		"nopsai.analyze_pipeline_run_failure",
+		"nopsai.analyze_run",
+		"nopsai.get_lab_item",
+		"nopsai.explain_lab_result":
+		return true
+	default:
+		return false
+	}
+}
+
+func assistantToolAcceptsScheduleContext(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "nopsai.get_schedule":
+		return true
+	default:
+		return false
+	}
+}
+
+func assistantToolAcceptsRepositoryContext(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "nopsai.get_trigger":
+		return true
+	default:
+		return false
+	}
+}
+
 func assistantPlanHasTerminalEvidence(plan assistantTurnPlan, toolCalls []assistantToolActivity) bool {
 	for _, step := range plan.Steps {
-		switch strings.TrimSpace(step.ToolName) {
+		toolName := strings.TrimSpace(step.ToolName)
+		if assistantIsAnalysisTool(toolName) {
+			call := assistantFirstToolCall(toolCalls, toolName)
+			if call.Status == assistantToolStatusSuccess {
+				return true
+			}
+		}
+		switch toolName {
 		case "nopsai.analyze_pipeline_run_failure":
 			call := assistantFirstToolCall(toolCalls, step.ToolName)
 			if call.Status == assistantToolStatusSuccess {
@@ -427,9 +546,41 @@ func assistantPlanHasTerminalEvidence(plan assistantTurnPlan, toolCalls []assist
 			if assistantAIUsageCallHasEvents(call) {
 				return true
 			}
+		case "nopsai.find_optimization_opportunities":
+			call := assistantFirstToolCall(toolCalls, step.ToolName)
+			if call.Status == assistantToolStatusSuccess {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func assistantGroundAmbiguousPlanToPipelineContext(plan assistantTurnPlan) assistantTurnPlan {
+	if strings.TrimSpace(plan.PipelineID) == "" || len(plan.Steps) == 0 || assistantUserExplicitlyTargetsTeam(plan.LowerContent) {
+		return plan
+	}
+	for _, step := range plan.Steps {
+		switch strings.TrimSpace(step.ToolName) {
+		case "nopsai.analyze_team", "nopsai.get_team":
+			plan.Intent = "pipeline_review"
+			plan.Goal = "Analyze " + plan.PipelineID + " using the active pipeline context"
+			plan.SuccessCriteria = "Return deterministic findings for the active pipeline and avoid retargeting to unrelated prior recommendations."
+			plan.FinalAnswer = ""
+			plan.ClarifyQuestion = ""
+			plan.Steps = []assistantPlanStep{{
+				ToolName: "nopsai.analyze_pipeline",
+				Args:     map[string]any{"pipeline": plan.PipelineID},
+				Thought:  "Analyze the active pipeline from page context instead of retargeting to a team mentioned only in prior broad evidence.",
+			}}
+			return plan
+		}
+	}
+	return plan
+}
+
+func assistantUserExplicitlyTargetsTeam(lower string) bool {
+	return assistantTextHasAny(lower, "team", "teams", "squad", "organisation", "organization", "group")
 }
 
 func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.Subject, conversation assistantConversation, content string, plan assistantTurnPlan, toolCalls []assistantToolActivity, remainingToolCalls int, iteration int) string {
@@ -485,11 +636,12 @@ func (a *App) buildAssistantPlannerPromptWithSchemas(
 
 Create a safe hosted MCP tool plan from user_request, available_tools, schema_tools, and observed tool results.
 Use conversation_history, memory, and page_context for follow-ups; explicit user targets win.
+When page_context or extracted_context contains a pipeline and the user has not explicitly named a different team, run, or pipeline, keep ambiguous operational follow-ups grounded on that pipeline. Do not retarget to teams or other entities that only appeared in broad prior recommendations.
 Use only tool names from available_tools. Put a tool in steps only when it also appears in schema_tools; the rest of available_tools is discoverability only. Catalogue flags (schema_included, mutating, proposal) appear only when true.
 Select tools from their descriptions and use schema_tools for exact argument names. If the tool you need has no schema here, call nopsai.find_tools with a short query to get its schema instead of guessing arguments. Never invent tools or arguments. Never request direct database access.
 Step reasons are user-visible; keep them short and operational, not hidden reasoning.
 Prefer first-party analytics tools over stitching raw data manually.
-For health, review, "how is X doing", "why did this run fail", or "what should we fix first" questions, call nopsai.analyze_team, nopsai.analyze_pipeline, or nopsai.analyze_run first: they return ranked findings with evidence, category scores, a likely failure domain for runs, and the next tool to call. Fall back to individual monitoring tools only when the user asks for one specific metric.
+For health, review, optimization, efficiency, "how is X doing", "why did this run fail", or "what should we fix first" questions, call nopsai.analyze_team, nopsai.analyze_pipeline, or nopsai.analyze_run first when a team, pipeline, or run target is known: they return ranked findings with evidence, category scores, a likely failure domain for runs, and the next tool to call. Fall back to individual monitoring tools only when the user asks for one specific metric or broad cross-platform opportunity discovery.
 When an analysis result lists next_actions, treat the first one as the recommended next step and offer it to the user.
 For reads, choose the smallest evidence set that can answer the question.
 If previous_evidence is enough for a follow-up calculation, estimate, comparison, or explanation, return no steps and final_answer with "Data source" and "Confidence". Separate MCP-backed facts from LLM-derived assumptions.
@@ -632,6 +784,7 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 	}
 	if plan.PipelineID != "" || (plan.PipelineName != "" && plan.PipelineName != "generated-pipeline") {
 		add("nopsai.get_pipeline", 40)
+		add("nopsai.analyze_pipeline", 45)
 		add("nopsai.search_pipelines", 35)
 		add("nopsai.get_pipeline_knowledge_context", 25)
 	}
@@ -738,6 +891,15 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.analyze_team", 50)
 		add("nopsai.analyze_pipeline", 50)
 		add("nopsai.analyze_run", 45)
+	}
+	if assistantTextHasAny(lower, "efficient", "efficiency", "optimize", "optimise", "optimization", "optimisation", "opportunity", "opportunities") {
+		if plan.PipelineID != "" || (plan.PipelineName != "" && plan.PipelineName != "generated-pipeline") {
+			add("nopsai.analyze_pipeline", 70)
+		} else {
+			add("nopsai.find_optimization_opportunities", 60)
+			add("nopsai.analyze_team", 45)
+		}
+		add("nopsai.get_pipeline_efficiency", 45)
 	}
 	if assistantTextHasAny(lower, "policy", "policies", "guardrail", "guardrails", "allowed to", "are we allowed") {
 		add("nopsai.get_feature_capabilities", 55)

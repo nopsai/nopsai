@@ -1597,7 +1597,7 @@ func (a *App) loadMonitoringEfficiency(ctx context.Context, filters monitoringAn
 	if err != nil {
 		return resp, err
 	}
-	resp.Recommendations = monitoringEfficiencyRecommendations(resp)
+	resp.Recommendations = monitoringEfficiencyRecommendations(resp, filters)
 	if err := a.persistMonitoringRecommendations(ctx, resp.Recommendations); err != nil {
 		log.Debug().Err(err).Msg("Failed to persist monitoring recommendations")
 	}
@@ -2293,13 +2293,13 @@ func (a *App) loadMonitoringPipelineReruns(ctx context.Context, runIDs []string)
 	return items, rows.Err()
 }
 
-func monitoringEfficiencyRecommendations(resp monitoringEfficiencyResponse) []string {
+func monitoringEfficiencyRecommendations(resp monitoringEfficiencyResponse, filters monitoringAnalyticsFilters) []string {
 	recommendations := []string{}
 	if len(resp.CostlyLowSuccessPipelines) > 0 {
 		item := resp.CostlyLowSuccessPipelines[0]
 		recommendations = append(recommendations, fmt.Sprintf("Pipeline %s has a %.0f%% success rate across %d runs.", item.Key, item.SuccessRate*100, item.TotalRuns))
 	}
-	if len(resp.HighQueueTeams) > 0 && resp.HighQueueTeams[0].Seconds > 300 {
+	if len(resp.HighQueueTeams) > 0 && resp.HighQueueTeams[0].Seconds > 300 && !monitoringFiltersArePipelineScoped(filters) {
 		item := resp.HighQueueTeams[0]
 		recommendations = append(recommendations, fmt.Sprintf("Team %s has average queue time above five minutes.", item.Label))
 	}
@@ -2308,4 +2308,8 @@ func monitoringEfficiencyRecommendations(resp monitoringEfficiencyResponse) []st
 		recommendations = append(recommendations, fmt.Sprintf("Pipeline %s is the highest AI spend in this window, at $%.2f.", item.Label, item.CostUSD))
 	}
 	return recommendations
+}
+
+func monitoringFiltersArePipelineScoped(filters monitoringAnalyticsFilters) bool {
+	return strings.TrimSpace(filters.PipelinePath) != "" || strings.TrimSpace(filters.PipelineName) != ""
 }

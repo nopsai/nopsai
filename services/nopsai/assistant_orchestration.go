@@ -138,7 +138,6 @@ func (a *App) runAssistantHostedMCPTool(ctx context.Context, subject model.Subje
 	if args == nil {
 		args = map[string]any{}
 	}
-	args = hostedMCPMonitoringAnalyticsArgs(name, args)
 	if !config.AssistantMCPEnabled(a.assistantConfig().MCP) {
 		return assistantToolActivity{
 			Name:       name,
@@ -317,6 +316,9 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 	// An analysis result already carries ranked findings and a next step, so it
 	// answers the question whatever intent label the planner attached.
 	if reply := composeAnalysisReply(evidenceCalls); reply != "" {
+		return reply
+	}
+	if reply := composeOptimizationReply(evidenceCalls); reply != "" {
 		return reply
 	}
 	switch plan.Intent {
@@ -1487,6 +1489,12 @@ func composeAssistantPlanDeniedReply(call assistantToolActivity) string {
 	if reason == "" {
 		reason = "the requested plan did not pass NopsAI safety and permission validation"
 	}
+	lowerReason := strings.ToLower(reason)
+	if strings.Contains(lowerReason, "final answer from prior evidence") &&
+		strings.Contains(lowerReason, "data source") &&
+		strings.Contains(lowerReason, "confidence") {
+		return "I could not answer that follow-up from prior evidence safely because the model did not label the data source and confidence. No changes were applied."
+	}
 	return "I could not safely execute that assistant plan: " + reason + ". No changes were applied."
 }
 
@@ -1540,7 +1548,7 @@ func assistantLooksLikePipelineYAML(content string) bool {
 func assistantPipelineIDFromMessage(content string) string {
 	id := assistantFirstPatternTeam(assistantPipelineIDPattern, content)
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(id), "/")) {
-	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps", "use", "uses", "using", "highest", "llm", "tokens", "gonna", "going", "will", "would", "should", "must", "can", "could", "to", "build", "deploy":
+	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps", "use", "uses", "using", "highest", "llm", "tokens", "gonna", "going", "will", "would", "should", "must", "can", "could", "to", "build", "deploy", "more", "less", "fast", "faster", "slow", "slower", "efficient", "efficiency":
 		return ""
 	default:
 		return strings.Trim(id, "/")
