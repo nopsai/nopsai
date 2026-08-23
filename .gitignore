@@ -8,7 +8,42 @@
 /nopsai
 /nopsai-api
 /_nopsai
+/licenseissuer
+
+# A stray root-level node_modules appears when a UI tool is run from the
+# repository root instead of services/ui.
+/node_modules/
+
+# Repo-local NopsAI working directory. The platform release pipeline and its
+# push trigger are owned by the GitOps config repositories, not by this repo.
+# See release/nopsai-platform-release.yaml for the tested reference copy.
+/.nopsai/
+
+# Local webhook tunnelling. These files carry personal tunnel authtokens and
+# reserved domains. See doc/webhook-tunnelling.md for the template.
+/ngrok-docker-compose.yaml
+/ngrok.yml
+/ngrok.yaml
+.ngrok/
+
+# Local AI/agent assistant instructions, not part of the distributed product
+/AGENTS.md
+/CLAUDE.md
+/.claude/
+/.cursor/
+/.aider*
+
+# Local environment overrides. The repository tracks .env.example only; a file
+# named .env invites real values and .gitignore cannot protect a tracked path.
+/.env
+.env.local
+.env.*.local
+
+# Local operator scratch scripts kept beside the repository
+/.local/
 
 # OS/editor noise
 .DS_Store
 .codex
+.vscode/
+.idea/

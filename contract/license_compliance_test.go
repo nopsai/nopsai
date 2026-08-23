@@ -1,4 +1,4 @@
-package nopsai
+package contract
 
 import (
 	"os"
@@ -40,8 +40,8 @@ func TestLicenseComplianceDocumentationCoversCommercialSurfaces(t *testing.T) {
 	docsMap := readLicenseContractFile(t, "doc/README.md")
 	requireLicenseContractText(t, docsMap, "license-compliance.md", "doc/README.md")
 
-	readme := readLicenseContractFile(t, "Readme.md")
-	requireLicenseContractText(t, readme, "scripts/license-check.sh", "Readme.md")
+	readme := readLicenseContractFile(t, "README.md")
+	requireLicenseContractText(t, readme, "scripts/license-check.sh", "README.md")
 
 	mcpDoc := readLicenseContractFile(t, "doc/mcp-pipeline-integration.md")
 	requireLicenseContractText(t, mcpDoc, "license-compliance.md", "doc/mcp-pipeline-integration.md")

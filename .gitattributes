@@ -1,0 +1,28 @@
+# Normalise line endings so a Windows checkout does not produce diffs that a
+# Linux CI run cannot reproduce, and so shell scripts stay executable.
+* text=auto eol=lf
+
+# Shell scripts and container entrypoints break at runtime with CRLF endings.
+*.sh text eol=lf
+Dockerfile text eol=lf
+container/Dockerfile.* text eol=lf
+
+# Generated files. Marking them keeps them out of diff review and out of
+# language statistics, without excluding them from version control.
+internal/cli/apicatalog/catalog_generated.go linguist-generated=true
+services/ui/package-lock.json linguist-generated=true
+go.sum linguist-generated=true
+pkg/proto/** linguist-generated=true
+
+# Vendored and example material should not skew the repository language
+# breakdown.
+examples/** linguist-documentation=true
+doc/** linguist-documentation=true
+
+# Binary assets, so git never tries to merge or diff them as text.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.tgz binary

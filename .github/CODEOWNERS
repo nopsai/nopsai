@@ -1,0 +1,26 @@
+# NopsAI is proprietary software with a single rights holder. Every change to
+# licensing, security, or release material needs the owner's review, because
+# those files decide what may be distributed and under what terms.
+
+*                               @hosein-yousefii
+
+# Licensing and legal. Changing any of these changes what customers are bound
+# by, or what NopsAI is obliged to reproduce for third-party components.
+/LICENSE                        @hosein-yousefii
+/THIRD_PARTY_NOTICES.md         @hosein-yousefii
+/SECURITY.md                    @hosein-yousefii
+/legal/                         @hosein-yousefii
+/pkg/licensenotice/             @hosein-yousefii
+/pkg/license/                   @hosein-yousefii
+/doc/licensing-and-distribution.md   @hosein-yousefii
+/doc/licensing-entitlements.md       @hosein-yousefii
+/doc/license-compliance.md           @hosein-yousefii
+
+# Release and supply chain. These decide what is published and what gates it.
+/release/                       @hosein-yousefii
+/scripts/                       @hosein-yousefii
+/.github/                       @hosein-yousefii
+/deploy/                        @hosein-yousefii
+
+# Cross-cutting repository invariants.
+/contract/                      @hosein-yousefii

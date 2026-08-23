@@ -1,4 +1,4 @@
-package nopsai
+package contract
 
 import (
 	"os"
@@ -101,9 +101,15 @@ func TestDockerComposeNamesDockerRunnerExplicitly(t *testing.T) {
 }
 
 func TestTrackedEnvFileIsDocumentationOnly(t *testing.T) {
-	contents, err := os.ReadFile(".env")
+	// The repository tracks .env.example, never .env. A file literally named
+	// .env invites someone to fill in real values locally and commit them, and
+	// .gitignore cannot protect a path that is already tracked.
+	if _, err := os.Stat(".env"); err == nil {
+		t.Fatal(".env must not be tracked; keep the template in .env.example and ignore .env")
+	}
+	contents, err := os.ReadFile(".env.example")
 	if err != nil {
-		t.Fatalf("read .env: %v", err)
+		t.Fatalf("read .env.example: %v", err)
 	}
 	for lineNumber, raw := range strings.Split(string(contents), "\n") {
 		line := strings.TrimSpace(raw)
@@ -111,7 +117,7 @@ func TestTrackedEnvFileIsDocumentationOnly(t *testing.T) {
 			continue
 		}
 		if strings.Contains(line, "=") {
-			t.Fatalf(".env line %d contains an active assignment: %s", lineNumber+1, line)
+			t.Fatalf(".env.example line %d contains an active assignment: %s", lineNumber+1, line)
 		}
 	}
 }

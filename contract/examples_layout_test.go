@@ -1,4 +1,4 @@
-package nopsai
+package contract
 
 import (
 	"errors"
@@ -66,7 +66,7 @@ func TestExampleDocsPointToExamples(t *testing.T) {
 	}
 
 	for path, required := range map[string][]string{
-		"Readme.md": {
+		"README.md": {
 			"examples/gitops-quickstart/README.md",
 			"examples/sso",
 		},
