@@ -102,17 +102,19 @@ func (a *App) handleAssistantDirectValueConfirmation(
 	}, true
 }
 
-func (a *App) assistantPendingConfirmationFromDeniedPlan(ctx context.Context, subject model.Subject, plan assistantTurnPlan, toolCalls []assistantToolActivity) (assistantPendingConfirmation, bool) {
-	denial, ok := assistantFirstPlanDenial(toolCalls)
-	if !ok || !assistantPlanDenialIsMissingConfirm(denial) || len(plan.Steps) != 1 {
+// assistantPendingConfirmationFromDeniedCall turns a refused mutation into the
+// confirmation prompt the user sees. The refused call carries its own name and
+// arguments, so the gate reads the call rather than a plan describing it.
+func (a *App) assistantPendingConfirmationFromDeniedCall(ctx context.Context, subject model.Subject, toolCalls []assistantToolActivity) (assistantPendingConfirmation, bool) {
+	denial, ok := assistantFirstMissingConfirmDenial(toolCalls)
+	if !ok {
 		return assistantPendingConfirmation{}, false
 	}
-	step := plan.Steps[0]
-	tool, ok := a.hostedMCPToolByName(ctx, subject, step.ToolName)
+	tool, ok := a.hostedMCPToolByName(ctx, subject, denial.Name)
 	if !ok || !assistantToolRequiresActionExecution(tool) || assistantPlannedToolIsProposal(tool.Name) {
 		return assistantPendingConfirmation{}, false
 	}
-	args := cloneAssistantArgs(step.Args)
+	args := cloneAssistantArgs(denial.Input)
 	delete(args, "confirm")
 	kind, action := assistantPendingKindActionForTool(tool.Name)
 	return assistantPendingConfirmation{
@@ -411,4 +413,16 @@ func assistantUserCancelledPendingConfirmation(content string) bool {
 	default:
 		return false
 	}
+}
+
+// assistantFirstMissingConfirmDenial finds the call that was refused for want of
+// confirmation. The refusal carries the tool and the arguments the user is being
+// asked to approve.
+func assistantFirstMissingConfirmDenial(toolCalls []assistantToolActivity) (assistantToolActivity, bool) {
+	for _, call := range toolCalls {
+		if call.Status == assistantToolStatusDenied && assistantPlanDenialIsMissingConfirm(call) {
+			return call, true
+		}
+	}
+	return assistantToolActivity{}, false
 }

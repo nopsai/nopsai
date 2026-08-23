@@ -8,6 +8,8 @@ import {
   assistantExecutionPlanFromMessage,
   assistantMessageUsageLabel,
   assistantSuggestedActions,
+  formatAssistantPlanTiming,
+  formatAssistantStepDuration,
   type AssistantExecutionPlan,
   type AssistantExecutionPlanStep,
   type AssistantMessage,
@@ -19,7 +21,7 @@ import {
   assistantMessageProse,
   type AssistantFailure,
 } from './failures.js';
-import { assistantProgressElapsedLabel, assistantPromptStarters, type AssistantProgressStep } from './experience.js';
+import { assistantProgressElapsedLabel, assistantPromptStarters } from './experience.js';
 import { AssistantRichContent } from './rendering.js';
 
 export function AssistantWelcome({ compact, disabled, onStarter }: {
@@ -216,8 +218,7 @@ export function AssistantFailureCard({
   );
 }
 
-export function AssistantThinkingRow({ steps, elapsedMs }: { steps: AssistantProgressStep[]; elapsedMs: number }) {
-  const visibleSteps = steps.length > 0 ? steps : [{ label: 'Preparing a bounded answer', state: 'active' as const }];
+export function AssistantThinkingRow({ label, elapsedMs }: { label: string; elapsedMs: number }) {
   return (
     <article className="flex w-full gap-3 md:gap-4">
       <AssistantAvatar />
@@ -227,28 +228,13 @@ export function AssistantThinkingRow({ steps, elapsedMs }: { steps: AssistantPro
           <span className="text-[11px] text-[var(--text-secondary)]">{assistantProgressElapsedLabel(elapsedMs)}</span>
         </div>
         <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 shadow-sm">
+          {/* One line, because one thing happens at a time. The heading used to
+              sit above a list that repeated it and the elapsed time already in
+              the header, so a turn reported itself three times over. */}
           <div className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-            <span>Working through the request</span>
+            <span>{label}</span>
           </div>
-          <ol className="mt-2 space-y-1 text-xs leading-relaxed">
-            {visibleSteps.map((step, index) => (
-              <li key={`${step.label}-${index}`} className="flex items-start gap-2">
-                <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center">
-                  {step.state === 'done' ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-                  ) : step.state === 'active' ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-accent)]" aria-hidden="true" />
-                  ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--border-secondary)]" aria-hidden="true" />
-                  )}
-                </span>
-                <span className={step.state === 'pending' ? 'text-[var(--text-secondary)] opacity-80' : 'text-[var(--text-secondary)]'}>
-                  {step.label}
-                </span>
-              </li>
-            ))}
-          </ol>
           {elapsedMs > 30000 && (
             <p className="mt-2 max-w-md text-xs leading-relaxed text-[var(--text-secondary)]">
               Still waiting on the selected model. Saved results will appear as soon as the turn finishes.
@@ -297,6 +283,7 @@ function AssistantExecutionPlanBlock({ plan }: { plan: AssistantExecutionPlan })
         )}
       </div>
       {plan.summary && <p className="mt-1 leading-relaxed">{plan.summary}</p>}
+      {plan.timing && <p className="mt-1 font-mono text-[11px]">{formatAssistantPlanTiming(plan.timing)}</p>}
       {visibleSteps.length > 0 && (
         <ol className="mt-2 space-y-1.5">
           {visibleSteps.map((step, index) => (
@@ -311,6 +298,7 @@ function AssistantExecutionPlanBlock({ plan }: { plan: AssistantExecutionPlan })
 function AssistantExecutionPlanRow({ step, fallbackIndex }: { step: AssistantExecutionPlanStep; fallbackIndex: number }) {
   const index = step.index || fallbackIndex;
   const title = step.title || step.reason || step.tool || 'Assistant step';
+  const duration = formatAssistantStepDuration(step.duration_ms);
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 leading-relaxed">
       <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded bg-[var(--bg-tertiary)] text-[11px] font-semibold text-[var(--text-secondary)]">{index}</span>
@@ -320,6 +308,7 @@ function AssistantExecutionPlanRow({ step, fallbackIndex }: { step: AssistantExe
           <AssistantExecutionPlanBadge value={assistantExecutionPlanSourceLabel(step.source)} />
           <AssistantExecutionPlanBadge value={step.phase} />
           <AssistantExecutionPlanBadge value={step.confidence ? `${step.confidence} confidence` : ''} />
+          <AssistantExecutionPlanBadge value={duration} />
         </span>
       </span>
     </li>

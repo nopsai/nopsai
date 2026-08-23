@@ -23,6 +23,7 @@ var assistantSchemaStatements = []string{
 	// dock, a second tab — can see that work is in flight rather than showing an
 	// idle conversation that is quietly about to change.
 	`ALTER TABLE assistant_conversations ADD COLUMN IF NOT EXISTS running_turn_started_at TIMESTAMPTZ`,
+	`ALTER TABLE assistant_conversations ADD COLUMN IF NOT EXISTS turn_progress TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS assistant_messages (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		conversation_id UUID NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE,

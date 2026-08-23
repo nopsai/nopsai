@@ -1057,22 +1057,45 @@ func (a *App) hostedMCPAnalyzePipelineRunFailure(ctx context.Context, args map[s
 	}
 	failureReason, _ := run["failure_reason"].(string)
 	status, _ := run["status"].(string)
-	summary := "No terminal failure reason is recorded yet."
-	if strings.TrimSpace(failureReason) != "" {
+	excerpt, _ := logs["logs"].([]map[string]any)
+
+	// The logs are already in hand, so this tool concludes from them. Reporting
+	// "the run failed, go read the logs" put the analysis back on the operator,
+	// which is the one thing this surface exists to avoid.
+	cause, action, evidence := analyzeRunFailureLogs(excerpt)
+	summary := cause
+	switch {
+	case summary != "":
+	case strings.TrimSpace(failureReason) != "":
 		summary = failureReason
-	} else if strings.EqualFold(status, "failure") {
-		summary = "Run is marked as failure. Review recent logs for the failing step or task."
+	case strings.EqualFold(status, "failure"):
+		summary = "The run is marked failed and its log excerpt holds no error line, so the failure happened outside the captured output — a runner or scheduling fault rather than a command."
+	default:
+		summary = "No terminal failure reason is recorded yet."
 	}
-	return map[string]any{
-		"run":             run,
-		"log_excerpt":     logs["logs"],
-		"root_cause_hint": summary,
-		"suggested_next_steps": []string{
-			"Check the first error in the log excerpt.",
-			"Compare the failing run pipeline definition with the current pipeline.",
-			"Validate any generated YAML before applying it through GitOps.",
-		},
-	}, nil
+
+	nextSteps := []string{}
+	if action != "" {
+		nextSteps = append(nextSteps, action)
+	}
+	nextSteps = append(nextSteps,
+		"Compare the failing run pipeline definition with the current pipeline.",
+		"Validate any generated YAML before applying it through GitOps.",
+	)
+
+	result := map[string]any{
+		"run":                  run,
+		"log_excerpt":          logs["logs"],
+		"root_cause_hint":      summary,
+		"suggested_next_steps": nextSteps,
+	}
+	if strings.TrimSpace(failureReason) != "" {
+		result["recorded_failure_reason"] = failureReason
+	}
+	if len(evidence) > 0 {
+		result["evidence"] = evidence
+	}
+	return result, nil
 }
 
 func (a *App) hostedMCPListTriggers(ctx context.Context, args map[string]any) (map[string]any, error) {

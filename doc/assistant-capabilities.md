@@ -45,11 +45,34 @@ operations as the current authenticated user.
   pipeline evidence. Generated or edited pipeline YAML must go through
   `nopsai.validate_pipeline` or a `nopsai.propose_pipeline_*` tool before the
   assistant can present it as a valid NopsAI pipeline or GitOps plan.
-- Some high-level evidence tools are terminal for the planner loop. For
-  example, a successful `nopsai.analyze_pipeline_run_failure` call already
-  includes run metadata, bounded logs, a root-cause hint, and next steps, so the
-  assistant can render the deterministic run-analysis answer without asking a
-  slower local model to re-process the same evidence.
+- A turn starts with a small working set of common read tools plus
+  `nopsai.find_tools`, and the model pulls in anything else it needs; whatever
+  find_tools returns becomes callable for the rest of that turn. The full
+  catalogue is 213 tools and roughly 23,000 tokens of schema, and a loop pays
+  that prefill again on every step, which is what made a single question take
+  minutes against a local model. The working set is the same for every question —
+  it is a default, not a routing decision — and it is measured in the tests so it
+  cannot quietly grow back into a catalogue.
+- A chat turn is an agent loop, not a plan. The model is given the conversation
+  and every tool this subject may call, asks for the ones it wants, reads the
+  results, and decides again, up to six model turns and eight tool calls. There
+  is no keyword scorer choosing a shortlist, no schema cap, no JSON plan to parse
+  or repair, and no per-question routing rule: which tool answers a question is
+  the model's judgement, made from the tool descriptions.
+- The guards sit on the call, not on a plan. Every call goes through AAA as the
+  current subject, a tool this subject cannot see is refused rather than
+  attempted, and a mutating tool that is not a proposal is refused unless the
+  user confirmed in this turn — the refusal becomes the confirmation prompt.
+- The answer is checked before it is sent. The same answer-quality rules that
+  guarded synthesis now guard the agent's own answer: claiming a change was
+  applied that no tool applied, stating ungrounded pipeline facts, or omitting
+  proposal safety language earns one corrective turn, and a second failure ships
+  the answer marked unverified rather than a fabricated replacement.
+- The execution plan the UI renders is built after the fact from the calls that
+  ran, so it describes what the turn did rather than what it intended to do. It
+  carries the turn's timing split — model milliseconds, tool milliseconds, model
+  turns, tool calls — and each step carries its own duration, so a slow answer
+  says whether the wait was the provider thinking or a tool working.
 - Tool lists, resources, and tool calls are permission-filtered. If a user
   cannot use a route or resource in NopsAI, the assistant cannot bypass that.
 - Enterprise feature flags under `assistant.features` decide which broad

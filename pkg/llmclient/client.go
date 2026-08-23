@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"nopsai/config"
@@ -66,6 +67,13 @@ type Completion struct {
 type Client struct {
 	options    Options
 	httpClient *http.Client
+
+	// loadedLMStudioModels remembers the models this client already confirmed
+	// loaded. A client lives for one assistant turn, and that turn can take six
+	// model calls, so re-asking LM Studio for its model list before every one of
+	// them is six round trips to learn the same answer.
+	lmStudioMu          sync.Mutex
+	loadedLMStudioModel map[string]bool
 }
 
 func New(options Options) *Client {
@@ -447,11 +455,15 @@ func (c *Client) resolveLMStudioModel(ctx context.Context) (string, error) {
 }
 
 func (c *Client) ensureLMStudioModelLoaded(ctx context.Context, model string) error {
+	if c.lmStudioModelKnownLoaded(model) {
+		return nil
+	}
 	available, loaded, err := c.lmStudioModelAvailability(ctx, model)
 	if err != nil {
 		return err
 	}
 	if loaded {
+		c.rememberLMStudioModelLoaded(model)
 		return nil
 	}
 	if !available {
@@ -461,7 +473,23 @@ func (c *Client) ensureLMStudioModelLoaded(ctx context.Context, model string) er
 	if err != nil {
 		return fmt.Errorf("failed to load lm studio model %q: %w", model, err)
 	}
+	c.rememberLMStudioModelLoaded(model)
 	return nil
+}
+
+func (c *Client) lmStudioModelKnownLoaded(model string) bool {
+	c.lmStudioMu.Lock()
+	defer c.lmStudioMu.Unlock()
+	return c.loadedLMStudioModel[model]
+}
+
+func (c *Client) rememberLMStudioModelLoaded(model string) {
+	c.lmStudioMu.Lock()
+	defer c.lmStudioMu.Unlock()
+	if c.loadedLMStudioModel == nil {
+		c.loadedLMStudioModel = map[string]bool{}
+	}
+	c.loadedLMStudioModel[model] = true
 }
 
 func (c *Client) lmStudioModelAvailability(ctx context.Context, model string) (bool, bool, error) {
@@ -749,6 +777,24 @@ func buildLMStudioChatURL(baseURL string) string {
 		return trimmed + "/chat"
 	}
 	return trimmed + "/api/v1/chat"
+}
+
+// buildLMStudioOpenAIChatURL points at LM Studio's OpenAI-compatible endpoint.
+//
+// LM Studio serves two APIs. Its own /api/v1/chat takes a single `input` string
+// and knows nothing about tools, which is why a tool-calling request sent there
+// comes back as "'input' is required". Tool calling goes to /v1/chat/completions,
+// so whichever form the profile configured is normalised back to the host first.
+func buildLMStudioOpenAIChatURL(baseURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	lower := strings.ToLower(trimmed)
+	for _, suffix := range []string{"/api/v1/chat", "/api/v1", "/api", "/v1/chat/completions", "/v1"} {
+		if strings.HasSuffix(lower, suffix) {
+			trimmed = strings.TrimRight(trimmed[:len(trimmed)-len(suffix)], "/")
+			break
+		}
+	}
+	return trimmed + "/v1/chat/completions"
 }
 
 func buildLMStudioModelsURL(baseURL string) string {

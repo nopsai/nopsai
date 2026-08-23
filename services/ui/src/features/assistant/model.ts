@@ -15,6 +15,7 @@ export type AssistantToolActivity = {
 export type AssistantExecutionPlanStep = {
   index: number;
   title: string;
+  duration_ms?: number;
   source: string;
   phase: string;
   confidence: string;
@@ -29,6 +30,15 @@ export type AssistantExecutionPlan = {
   summary: string;
   requires_confirmation: boolean;
   steps: AssistantExecutionPlanStep[];
+  /** Where the turn's wall time went, so a slow answer explains itself. */
+  timing?: AssistantExecutionPlanTiming;
+};
+
+export type AssistantExecutionPlanTiming = {
+  model_ms: number;
+  tool_ms: number;
+  model_turns: number;
+  tool_calls: number;
 };
 
 export type AssistantMessage = {
@@ -71,6 +81,8 @@ export type AssistantMemory = {
 };
 
 export type AssistantConversation = {
+  /** What the running turn is doing right now; empty when no turn is running. */
+  turn_progress?: string;
   id: string;
   user_id: string;
   title: string;
@@ -187,6 +199,7 @@ export function normalizeAssistantConversation(value: unknown): AssistantConvers
     created_at: readString(record.created_at),
     updated_at: readString(record.updated_at),
     turn_running: record.turn_running === true,
+    turn_progress: readString(record.turn_progress).trim() || undefined,
     running_turn_started_at: readString(record.running_turn_started_at),
   };
 }
@@ -508,15 +521,30 @@ function normalizeAssistantExecutionPlan(value: unknown): AssistantExecutionPlan
     summary: readString(record.summary).trim(),
     requires_confirmation: readBoolean(record.requires_confirmation, false),
     steps,
+    timing: normalizeAssistantExecutionPlanTiming(record.timing),
   };
   if (!plan.goal && !plan.summary && plan.steps.length === 0) return null;
   return plan;
+}
+
+function normalizeAssistantExecutionPlanTiming(value: unknown): AssistantExecutionPlanTiming | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const timing = {
+    model_ms: readNonNegativeNumber(record.model_ms),
+    tool_ms: readNonNegativeNumber(record.tool_ms),
+    model_turns: readNonNegativeNumber(record.model_turns),
+    tool_calls: readNonNegativeNumber(record.tool_calls),
+  };
+  if (timing.model_ms === 0 && timing.tool_ms === 0 && timing.model_turns === 0) return undefined;
+  return timing;
 }
 
 function normalizeAssistantExecutionPlanStep(value: unknown): AssistantExecutionPlanStep {
   const record = asRecord(value) || {};
   return {
     index: readNonNegativeNumber(record.index),
+    duration_ms: readNonNegativeNumber(record.duration_ms) || undefined,
     title: readString(record.title).trim(),
     source: readString(record.source).trim(),
     phase: readString(record.phase).trim(),
@@ -525,6 +553,23 @@ function normalizeAssistantExecutionPlanStep(value: unknown): AssistantExecution
     reason: readString(record.reason).trim(),
     status: readString(record.status).trim(),
   };
+}
+
+// The turn's wall time, split so a slow answer says which part was slow.
+export function formatAssistantPlanTiming(timing: AssistantExecutionPlanTiming): string {
+  const parts = [`${formatAssistantDuration(timing.model_ms)} model`];
+  if (timing.tool_ms > 0) parts.push(`${formatAssistantDuration(timing.tool_ms)} tools`);
+  if (timing.model_turns > 0) {
+    parts.push(`${timing.model_turns} model ${timing.model_turns === 1 ? 'turn' : 'turns'}`);
+  }
+  if (timing.tool_calls > 0) {
+    parts.push(`${timing.tool_calls} tool ${timing.tool_calls === 1 ? 'call' : 'calls'}`);
+  }
+  return parts.join(' · ');
+}
+
+export function formatAssistantStepDuration(durationMs?: number): string {
+  return durationMs && durationMs > 0 ? formatAssistantDuration(durationMs) : '';
 }
 
 function formatAssistantDuration(durationMs: number): string {

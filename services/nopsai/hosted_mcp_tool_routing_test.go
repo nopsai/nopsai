@@ -50,25 +50,6 @@ func TestHostedMCPToolRoutingDerivesDomainAndCapability(t *testing.T) {
 
 // The point of deriving routing: a tool registered today is reachable today,
 // without anyone remembering to add a branch for it in the planner.
-func TestHostedMCPRoutingReachesANewlyRegisteredToolWithoutAPlannerEdit(t *testing.T) {
-	tools := append(allHostedMCPTools(), toolDef(
-		"nopsai.get_pipeline_carbon_footprint",
-		"Read the estimated carbon footprint of pipeline runs for a window.",
-		"pipeline_run.list", "pipeline_run", "*",
-		objectSchema(map[string]any{"pipeline": stringSchema(), "days": numberSchema()}),
-	))
-
-	selected := assistantPlannerSchemaToolNames(
-		"what is the carbon footprint of our pipeline runs?",
-		assistantBaseTurnPlan("what is the carbon footprint of our pipeline runs?"),
-		nil,
-		tools,
-	)
-
-	if !selected["nopsai.get_pipeline_carbon_footprint"] {
-		t.Fatalf("a newly registered tool should route from its own metadata: %#v", selected)
-	}
-}
 
 func TestHostedMCPRoutingModePolicyExcludesTheWrongChangeMode(t *testing.T) {
 	tools := []hostedMCPTool{

@@ -1,7 +1,6 @@
 package nopsai
 
 import (
-	"strings"
 	"testing"
 
 	"nopsai/config"
@@ -122,56 +121,5 @@ func TestNormalizeAssistantConversationRequestUsesPageContext(t *testing.T) {
 	}
 	if assistantPageContextPipelineID(req.PageContext) != "platform/deploy-api" {
 		t.Fatalf("page context pipeline not normalized: %#v", req.PageContext)
-	}
-}
-
-func TestAssistantPromptsIncludePageContext(t *testing.T) {
-	pageContext := assistantPageContext{
-		Title:        "Pipeline runs",
-		Route:        "/pipelineruns/:tab/:run_id",
-		ResourceType: "pipeline_run",
-		ResourceID:   "00000000-0000-0000-0000-000000000123",
-		Scope:        "platform",
-		Query:        map[string]string{"status": "failure"},
-	}
-	plan := assistantBaseTurnPlanWithPageContext("explain this", assistantConversationMemory{}, pageContext)
-
-	synthesisPrompt := buildAssistantLLMPrompt(assistantConversation{}, "explain this", plan, nil, "Run summary")
-	if !strings.Contains(synthesisPrompt, `"page_context"`) || !strings.Contains(synthesisPrompt, pageContext.ResourceID) {
-		t.Fatalf("synthesis prompt missing page context:\n%s", synthesisPrompt)
-	}
-
-	schemaContext := assistantPlannerSchemaContext(assistantConversation{}, "explain this", pageContext)
-	if !strings.Contains(schemaContext, pageContext.ResourceID) || !strings.Contains(schemaContext, "pipeline_run") {
-		t.Fatalf("schema context missing page context: %q", schemaContext)
-	}
-}
-
-// The pipeline the user is looking at has to survive planning and argument
-// normalization, or an analysis step reaches the tool with no target at all.
-func TestAssistantPageContextPipelineReachesAnalysisToolArguments(t *testing.T) {
-	pageContext := assistantPageContext{
-		Title:        "Pipelines",
-		Path:         "/pipelines/nopsai/nopsai-platform-release",
-		Route:        "/pipelines/:pipeline_id",
-		Area:         "pipelines",
-		TeamPath:     "nopsai",
-		ResourceType: "pipeline",
-		ResourceID:   "nopsai/nopsai-platform-release",
-		PipelineID:   "nopsai/nopsai-platform-release",
-	}
-	base := assistantBaseTurnPlanWithPageContext("make pipeline more efficient and faster", assistantConversationMemory{}, pageContext)
-
-	plan := assistantTurnPlanFromPlannerDecision(base, assistantPlannerDecision{
-		Steps: []assistantPlannerStep{{Tool: "nopsai.analyze_pipeline", Reason: "review the selected pipeline"}},
-	})
-	if len(plan.Steps) != 1 {
-		t.Fatalf("plan steps = %#v", plan.Steps)
-	}
-
-	args := hostedMCPMonitoringAnalyticsArgs(plan.Steps[0].ToolName, plan.Steps[0].Args)
-	path, name := splitPipelineArg(args)
-	if path != "nopsai" || name != "nopsai-platform-release" {
-		t.Fatalf("analysis tool received (%q, %q) from args %#v", path, name, args)
 	}
 }
