@@ -16,6 +16,7 @@ import { ObjectIcon } from '../../../components/ObjectIcon';
 import GitHubAppCard from './GitHubAppCard';
 import GitHubAppConnectDialog from './GitHubAppConnectDialog';
 import { WorkflowFormDialog } from '../../../components/WorkflowFormDialog';
+import { WorkflowPropertyRow } from '../../../components/WorkflowPrimitives';
 import {
   buildGitHubAppMetrics,
   filterGitHubAppInstallations,
@@ -482,11 +483,10 @@ function InstallationDialog({
         </>
       )}
     >
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-          <span>Installation ID</span>
+      <div className="modal-property-grid">
+        <WorkflowPropertyRow label="Installation ID" hint="Numeric id GitHub assigned">
           <input
-            className="pipelines-input"
+            className="pipelines-input w-full font-mono"
             value={form.installationID}
             onChange={handleChange('installationID')}
             inputMode="numeric"
@@ -494,22 +494,20 @@ function InstallationDialog({
             disabled={saving || Boolean(editing)}
             autoFocus={!editing}
           />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-          <span>Account login</span>
+        </WorkflowPropertyRow>
+        <WorkflowPropertyRow label="Account login" hint="Account the App is installed on">
           <input
-            className="pipelines-input"
+            className="pipelines-input w-full"
             value={form.accountLogin}
             onChange={handleChange('accountLogin')}
             placeholder="nopsai"
             disabled={saving}
             autoFocus={Boolean(editing)}
           />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-          <span>Account type</span>
+        </WorkflowPropertyRow>
+        <WorkflowPropertyRow label="Account type" hint="Organization or user">
           <select
-            className="pipelines-input"
+            className="pipelines-input w-full"
             value={form.accountType || 'organization'}
             onChange={handleChange('accountType')}
             disabled={saving}
@@ -517,16 +515,18 @@ function InstallationDialog({
             <option value="organization">Organization</option>
             <option value="user">User</option>
           </select>
-        </label>
-        <label className="flex min-h-[46px] items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={handleChange('enabled')}
-            disabled={saving}
-          />
-          <span>Enabled</span>
-        </label>
+        </WorkflowPropertyRow>
+        <WorkflowPropertyRow label="Enabled" hint="Pause deliveries without removing it">
+          <label className="modal-toggle">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={handleChange('enabled')}
+              disabled={saving}
+            />
+            <span />
+          </label>
+        </WorkflowPropertyRow>
       </div>
     </WorkflowFormDialog>
   );

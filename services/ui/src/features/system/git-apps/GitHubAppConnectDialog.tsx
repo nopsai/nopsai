@@ -2,6 +2,7 @@ import type { ChangeEvent, FormEvent } from 'react';
 import { Link2 } from 'lucide-react';
 import { ObjectIcon } from '../../../components/ObjectIcon';
 import { WorkflowFormDialog } from '../../../components/WorkflowFormDialog';
+import { WorkflowPropertyRow } from '../../../components/WorkflowPrimitives';
 import {
   gitHubWebhookURLWarning,
   type GitHubAppConnectFormState,
@@ -61,18 +62,17 @@ export default function GitHubAppConnectDialog({
         </>
       )}
     >
-      <div className="space-y-4">
-        <p className="text-sm text-[var(--text-secondary)]">
+      <div className="modal-form-body">
+        <p className="modal-hero-note">
           GitHub asks you to approve a new App, then sends you back here. NopsAI stores the App ID,
           private key, and webhook secret, and{' '}
           {replacing ? 'replaces the credentials of the App in use.' : 'no manual copying is needed.'}
         </p>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-            <span>Account type</span>
+        <div className="modal-property-grid">
+          <WorkflowPropertyRow label="Account type" hint="Where the App is installed">
             <select
-              className="pipelines-input"
+              className="pipelines-input w-full"
               value={form.target}
               onChange={handleTarget}
               disabled={connecting}
@@ -80,49 +80,40 @@ export default function GitHubAppConnectDialog({
               <option value="organization">Organization</option>
               <option value="personal">Personal account</option>
             </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-            <span>Organization</span>
+          </WorkflowPropertyRow>
+          <WorkflowPropertyRow label="Organization" hint="GitHub account that owns the App">
             <input
-              className="pipelines-input"
+              className="pipelines-input w-full"
               value={form.organization}
               onChange={event => onChange({ ...form, organization: event.target.value })}
               placeholder="acme"
               disabled={connecting || form.target !== 'organization'}
               autoFocus={form.target === 'organization'}
             />
-          </label>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-              <span>App name</span>
-              <input
-                className="pipelines-input"
-                value={form.appName}
-                onChange={event => onChange({ ...form, appName: event.target.value })}
-                placeholder="NopsAI"
-                disabled={connecting}
-              />
-            </label>
-            <p className="text-xs text-[var(--text-secondary)]">
-              Optional. GitHub rejects a name that is already taken.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
-            <span>Webhook URL</span>
+          </WorkflowPropertyRow>
+          <WorkflowPropertyRow label="App name" hint="Optional; GitHub rejects a taken name" control="wide">
             <input
-              className="pipelines-input"
+              className="pipelines-input w-full"
+              value={form.appName}
+              onChange={event => onChange({ ...form, appName: event.target.value })}
+              placeholder="NopsAI"
+              disabled={connecting}
+            />
+          </WorkflowPropertyRow>
+          <WorkflowPropertyRow
+            label="Webhook URL"
+            hint="Required; GitHub delivers events here, so it must reach git-bot from the internet"
+            span="full"
+            layout="stacked"
+          >
+            <input
+              className="pipelines-input w-full"
               value={webhookURL}
               onChange={event => onWebhookURLChange(event.target.value)}
               placeholder="https://your-tunnel.example.com/webhook"
               disabled={connecting}
             />
-          </label>
-          <p className="text-xs text-[var(--text-secondary)]">
-            Required. GitHub delivers events here, so it has to reach git-bot from the internet.
-          </p>
+          </WorkflowPropertyRow>
         </div>
 
         {webhookWarning ? (

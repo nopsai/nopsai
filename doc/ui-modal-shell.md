@@ -56,6 +56,31 @@ pill, the canvas, and the action bar). Type follows the same ladder — a displa
 name at 36–56px, a 17–20px summary, 14px field labels, 12px hints and property
 controls — and the actions are 14px pills with 24–32px of horizontal padding.
 
+## Forms are property inspectors
+
+A dialog form is not a column of labels sitting on top of full-width inputs. It
+is the same property inspector the design is drawn as: the object's name (and
+summary, where it has one) is typed onto the canvas as a hero, a fading hairline
+closes the identity, and everything else is a two-column grid of rows that carry
+the label and a short hint on the left and the control on the right, separated by
+row hairlines.
+
+- `bodyClassName="modal-form-body"` spaces the hero, the divider, and the
+  property sections on the canvas rhythm.
+- `modal-property-grid` holds the rows; `WorkflowPropertyRow` renders one.
+- A row spans one column by default, `span="full"` for the whole width, and
+  `layout="stacked"` when the control is a textarea or a chip list that needs the
+  row's full width under its label.
+- `control="wide"` widens the control from 10rem to 16rem, for values that
+  genuinely need the room — a pipeline path, a timezone, a credential reference.
+  It is not for filling the row.
+- Hints are short: two or three words, the way the design writes them. A hint
+  that wraps to three lines is a hint that should have been rewritten.
+- The row labels the control by id. A caller that has no id to give gets one
+  generated, so the control's accessible name stays the label alone and
+  `getByLabelText('Run team')` keeps working — a wrapping label would have folded
+  the hint into the name.
+
 ## Controls
 
 The shell also owns the in-dialog control set, so settings look the same
