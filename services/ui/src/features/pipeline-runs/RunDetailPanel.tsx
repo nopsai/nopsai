@@ -122,8 +122,10 @@ export function RunDetailView({
 
   const actionBase =
     'inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition duration-150 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50';
-  const ghostAction = `${actionBase} border border-[var(--border-primary)]/80 bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-[0_8px_22px_rgba(0,0,0,0.07)] hover:border-indigo-300/60 hover:text-indigo-600 dark:border-white/10 dark:bg-white/5 dark:text-[var(--text-primary)] dark:shadow-[0_8px_22px_rgba(0,0,0,0.22)] dark:hover:border-indigo-300/50 dark:hover:bg-white/10`;
-  const primaryAction = `${actionBase} bg-gradient-to-r from-indigo-500 to-purple-500 text-[var(--text-button)] shadow-[0_10px_28px_rgba(79,70,229,0.22)] hover:shadow-[0_14px_34px_rgba(79,70,229,0.3)] focus:ring-2 focus:ring-offset-2 focus:ring-indigo-400`;
+  const ghostAction = `${actionBase} border border-[var(--border-primary)]/80 bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-[0_8px_22px_rgba(0,0,0,0.07)] hover:border-[var(--border-accent)] hover:text-[var(--text-accent)] dark:border-white/10 dark:bg-white/5 dark:text-[var(--text-primary)] dark:shadow-[0_8px_22px_rgba(0,0,0,0.22)] dark:hover:border-[var(--border-accent)] dark:hover:bg-white/10`;
+  // The primary run action follows the theme accent; it used to be a fixed
+  // indigo-to-purple gradient, which read as a different product in dark mode.
+  const primaryAction = `${actionBase} bg-[var(--accent)] text-[var(--text-button)] shadow-[0_10px_28px_var(--accent-soft)] hover:brightness-110 focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)]`;
   const dangerAction = `${actionBase} border border-red-500/40 text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20`;
   const iconDanger = 'inline-flex items-center justify-center h-9 w-9 rounded-lg p-0 text-red-600 hover:text-red-700 dark:text-red-200 dark:hover:text-red-100 bg-transparent border-none shadow-none';
 
@@ -256,7 +258,9 @@ export function RunDetailView({
   return (
     <>
       <div className="space-y-4">
-      <div className="rounded-lg border border-[var(--border-primary)] bg-white text-[var(--text-primary)] shadow-[0_10px_28px_rgba(8,10,24,0.08)] dark:border-white/10 dark:bg-gradient-to-br from-[#0b0c15] via-[#0c0f1f] to-[#0b0c15] dark:text-[var(--text-primary)] dark:shadow-[0_12px_32px_rgba(8,10,24,0.38)] overflow-hidden">
+      {/* The run hero is a plain panel surface. It used to be a navy gradient in
+          dark mode, which read as a different product next to the page. */}
+      <div className="overflow-hidden rounded-lg border border-[var(--border-primary)] bg-[var(--bg-panel)] text-[var(--text-primary)] shadow-[0_10px_28px_rgba(0,0,0,0.08)] dark:shadow-[0_12px_32px_rgba(0,0,0,0.38)]">
         <div className="p-3 flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-col gap-2">
