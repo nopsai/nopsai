@@ -175,6 +175,15 @@ func assistantPageContextPipelineID(context assistantPageContext) string {
 		return context.PipelineID
 	}
 	if context.ResourceType == "pipeline" {
+		if context.ResourceID == "" && context.ResourceName != "" {
+			if context.Scope != "" {
+				return strings.Trim(context.Scope, "/") + "/" + strings.Trim(context.ResourceName, "/")
+			}
+			return context.ResourceName
+		}
+		if context.ResourceID != "" && !strings.Contains(context.ResourceID, "/") && context.Scope != "" {
+			return strings.Trim(context.Scope, "/") + "/" + strings.Trim(context.ResourceID, "/")
+		}
 		return context.ResourceID
 	}
 	return firstNonEmpty(context.Query["pipeline"], context.Params["pipeline_id"])

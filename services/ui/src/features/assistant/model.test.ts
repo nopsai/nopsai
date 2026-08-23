@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   assistantConversationClipboardText,
+  assistantConversationSpendLabel,
   assistantConversationUsageLabel,
   assistantExecutionPlanFromMessage,
   assistantLastUserMessage,
@@ -176,6 +177,22 @@ describe('assistant model', () => {
 
     assert.equal(conversation.usage.spend_usd, 0.0412);
     assert.match(assistantConversationUsageLabel(conversation), /^\$0\.04 · 4 messages/);
+  });
+
+  it('reports an unpriced conversation as unpriced rather than as costing nothing', () => {
+    const unpriced = normalizeAssistantConversation({
+      id: 'c1',
+      usage: { message_count: 2, spend_usd: 0, unpriced_turns: 2, duration_ms: 4000, llm_calls: 2 },
+      messages: [{ id: 'm1', role: 'user', content: 'hi' }],
+    });
+    assert.equal(assistantConversationSpendLabel(unpriced), 'not priced');
+
+    const free = normalizeAssistantConversation({
+      id: 'c2',
+      usage: { message_count: 2, spend_usd: 0, unpriced_turns: 0, duration_ms: 4000, llm_calls: 2 },
+      messages: [{ id: 'm1', role: 'user', content: 'hi' }],
+    });
+    assert.equal(assistantConversationSpendLabel(free), '$0.00');
   });
 
   it('keeps retry/export helpers focused on user-visible chat content', () => {

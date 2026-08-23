@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { assistantMessageRequestBody, assistantReadableErrorText } from './api.js';
+import { assistantConversationRequestBody, assistantMessageRequestBody, assistantReadableErrorText } from './api.js';
 
 describe('assistant api helpers', () => {
   it('summarizes HTML gateway errors without leaking markup', () => {
@@ -58,6 +58,45 @@ describe('assistant api helpers', () => {
         run_id: 'run-1',
         repository: '',
         query: { status: 'failure' },
+        params: {},
+      },
+    });
+  });
+
+  it('adds sanitized page context when creating a conversation', () => {
+    assert.deepEqual(assistantConversationRequestBody({
+      selected_llm_profile: 'assistant',
+      docs_version: 'auto',
+      scope: 'platform/api',
+      page_context: {
+        title: 'Pipelines',
+        path: '/pipelines/platform/api/deploy',
+        route: '/pipelines/:pipeline_id',
+        area: 'Pipelines',
+        resource_type: 'pipeline',
+        resource_id: 'platform/api/deploy',
+        pipeline_id: 'platform/api/deploy',
+        query: { token: 'secret', tab: 'runs' },
+      },
+    }), {
+      selected_llm_profile: 'assistant',
+      docs_version: 'auto',
+      scope: 'platform/api',
+      page_context: {
+        title: 'Pipelines',
+        path: '/pipelines/platform/api/deploy',
+        route: '/pipelines/:pipeline_id',
+        area: 'pipelines',
+        tab: '',
+        team_path: '',
+        resource_type: 'pipeline',
+        resource_id: 'platform/api/deploy',
+        resource_name: 'deploy',
+        scope: '',
+        pipeline_id: 'platform/api/deploy',
+        run_id: '',
+        repository: '',
+        query: { tab: 'runs' },
         params: {},
       },
     });

@@ -47,6 +47,7 @@ var teamProfileSchemaStatements = []string{
 		temperature DOUBLE PRECISION,
 		prompt_cache JSONB NOT NULL DEFAULT '{}'::jsonb,
 		provider_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+		pricing JSONB,
 		extra JSONB NOT NULL DEFAULT '{}'::jsonb,
 		source TEXT NOT NULL DEFAULT 'ui',
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
@@ -93,6 +94,9 @@ var teamProfileSchemaStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_team_llm_profiles_config_repo ON team_llm_profiles(config_repo_id)`,
 	`ALTER TABLE team_llm_profiles ADD COLUMN IF NOT EXISTS prompt_cache JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE team_llm_profiles ADD COLUMN IF NOT EXISTS provider_state JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	// A team model without a rate card stores NULL, which reports its usage as
+	// unpriced rather than as free.
+	`ALTER TABLE team_llm_profiles ADD COLUMN IF NOT EXISTS pricing JSONB`,
 	`CREATE INDEX IF NOT EXISTS idx_team_agent_profiles_config_repo ON team_agent_profiles(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_team_mcp_profiles_config_repo ON team_mcp_profiles(config_repo_id)`,
 }
@@ -181,7 +185,12 @@ func (a *App) handleReplaceTeamLLMProfiles(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid LLM profiles payload", http.StatusBadRequest)
 		return
 	}
-	defaultProfile, profiles, err := parseTeamLLMProfilesPayload(payload)
+	_, currentProfiles, err := a.loadTeamLLMProfilesFromDB(r.Context(), record.ID)
+	if err != nil {
+		http.Error(w, "failed to load team LLM profiles", http.StatusInternalServerError)
+		return
+	}
+	defaultProfile, profiles, err := parseTeamLLMProfilesPayload(payload, currentProfiles)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -230,6 +239,12 @@ func (a *App) handleUpsertTeamLLMProfile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	payload.Name = profileName
+	_, currentProfiles, err := a.loadTeamLLMProfilesFromDB(r.Context(), record.ID)
+	if err != nil {
+		http.Error(w, "failed to load team LLM profiles", http.StatusInternalServerError)
+		return
+	}
+	payload.Pricing = llmProfilePricingForSave(payload, currentProfiles, profileName)
 	profile := profileConfigFromForm(payload)
 	if status, message := validateLLMProfileDefinition(profileName, profile); status != "valid" {
 		http.Error(w, message, http.StatusBadRequest)
@@ -613,7 +628,10 @@ func (a *App) authorizeTeamProfileAccess(w http.ResponseWriter, r *http.Request,
 	return a.requireAAADecision(w, r, action, model.ResourceRef{Type: grantResourceTeam, ID: resource.ID})
 }
 
-func parseTeamLLMProfilesPayload(payload llmProfilesRequest) (string, map[string]config.LLMProfile, error) {
+// parseTeamLLMProfilesPayload builds the team registry a save should store.
+// existing carries the team's current profiles so a form that never mentions
+// pricing keeps the rate card it already had instead of deleting it.
+func parseTeamLLMProfilesPayload(payload llmProfilesRequest, existing map[string]config.LLMProfile) (string, map[string]config.LLMProfile, error) {
 	defaultProfile := config.NormalizeLLMProfileName(firstNonEmptyString(payload.DefaultProfile, payload.LLMDefaultProfile))
 	profiles := map[string]config.LLMProfile{}
 	for name, profile := range payload.LLMProfiles {
@@ -632,6 +650,7 @@ func parseTeamLLMProfilesPayload(payload llmProfilesRequest) (string, map[string
 		if profileName == "" {
 			return "", nil, fmt.Errorf("LLM profile name is required")
 		}
+		form.Pricing = llmProfilePricingForSave(form, existing, profileName)
 		profile := profileConfigFromForm(form)
 		if status, message := validateLLMProfileDefinition(profileName, profile); status != "valid" {
 			return "", nil, fmt.Errorf("%s", message)
@@ -732,7 +751,7 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 		return "", nil, err
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking, timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, extra
+		SELECT name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking, timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, pricing, extra
 		FROM team_llm_profiles
 		WHERE team_id = $1
 		ORDER BY name ASC
@@ -751,6 +770,7 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 			extraRaw         []byte
 			promptCacheRaw   []byte
 			providerStateRaw []byte
+			pricingRaw       []byte
 			thinking         sql.NullBool
 			temp             sql.NullFloat64
 		)
@@ -768,6 +788,7 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 			&temp,
 			&promptCacheRaw,
 			&providerStateRaw,
+			&pricingRaw,
 			&extraRaw,
 		); err != nil {
 			return "", nil, fmt.Errorf("scan team LLM profile: %w", err)
@@ -788,6 +809,12 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 		}
 		if len(providerStateRaw) > 0 {
 			_ = json.Unmarshal(providerStateRaw, &profile.ProviderState)
+		}
+		if len(pricingRaw) > 0 {
+			var pricing config.LLMPricing
+			if err := json.Unmarshal(pricingRaw, &pricing); err == nil {
+				profile.Pricing = &pricing
+			}
 		}
 		if len(extraRaw) > 0 {
 			_ = json.Unmarshal(extraRaw, &profile.Extra)
@@ -868,13 +895,23 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 	if err != nil {
 		return fmt.Errorf("encode team LLM profile provider state settings: %w", err)
 	}
+	// A model with no rate card stores NULL, so its usage reports as unpriced
+	// instead of as costing nothing.
+	var pricingJSON any
+	if profile.Pricing != nil {
+		encoded, err := json.Marshal(profile.Pricing)
+		if err != nil {
+			return fmt.Errorf("encode team LLM profile pricing: %w", err)
+		}
+		pricingJSON = string(encoded)
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO team_llm_profiles (
 			team_id, name, provider, model, base_url, credential_ref, allowed_scopes,
-			reasoning, thinking, timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, extra, source,
+			reasoning, thinking, timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, pricing, extra, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18, $19, $20, NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb, $17, $18, $19, $20, $21, NOW())
 		ON CONFLICT (team_id, name) DO UPDATE SET
 			provider = EXCLUDED.provider,
 			model = EXCLUDED.model,
@@ -888,6 +925,7 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 			temperature = EXCLUDED.temperature,
 			prompt_cache = EXCLUDED.prompt_cache,
 			provider_state = EXCLUDED.provider_state,
+			pricing = EXCLUDED.pricing,
 			extra = EXCLUDED.extra,
 			source = EXCLUDED.source,
 			config_repo_id = EXCLUDED.config_repo_id,
@@ -895,7 +933,7 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = EXCLUDED.managed_by_config_repo,
 			updated_at = NOW()
-	`, teamID, name, profile.Provider, profile.Model, profile.BaseURL, profile.CredentialRef, string(allowedJSON), profile.Reasoning, profile.Thinking, profile.TimeoutSeconds, profile.MaxTokens, profile.Temperature, string(promptCacheJSON), string(providerStateJSON), string(extraJSON), source, configRepoID, sourcePath, commitSHA, managed)
+	`, teamID, name, profile.Provider, profile.Model, profile.BaseURL, profile.CredentialRef, string(allowedJSON), profile.Reasoning, profile.Thinking, profile.TimeoutSeconds, profile.MaxTokens, profile.Temperature, string(promptCacheJSON), string(providerStateJSON), pricingJSON, string(extraJSON), source, configRepoID, sourcePath, commitSHA, managed)
 	if err != nil {
 		return fmt.Errorf("persist team LLM profile %q: %w", name, err)
 	}

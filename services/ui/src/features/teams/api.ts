@@ -75,6 +75,17 @@ export type TeamLLMProfilePayload = {
     scope?: string;
     retention?: string;
   };
+  /**
+   * Rate card in USD per million tokens. Omitted keeps whatever the profile
+   * already had; null states that this model has no rate card and its usage is
+   * reported as unpriced.
+   */
+  pricing?: {
+    input_per_million_usd: number;
+    output_per_million_usd: number;
+    cached_input_per_million_usd?: number;
+    cache_write_per_million_usd?: number;
+  } | null;
   extra?: Record<string, string>;
 };
 

@@ -40,6 +40,18 @@ func assistantExecutionPlanFromTurnPlan(plan assistantTurnPlan) assistantExecuti
 		for idx, step := range plan.Steps {
 			executionPlan.Steps = append(executionPlan.Steps, assistantExecutionPlanStepFromPlanStep(idx+1, step))
 		}
+		if assistantExecutionPlanUsesDeterministicReply(plan) {
+			executionPlan.Steps = append(executionPlan.Steps, assistantExecutionPlanStep{
+				Index:      len(executionPlan.Steps) + 1,
+				Title:      "Compose the answer from returned evidence",
+				Source:     "mcp",
+				Phase:      "analysis",
+				Confidence: "high",
+				Reason:     "Use deterministic NopsAI reply formatting for complete evidence.",
+				Status:     "planned",
+			})
+			return executionPlan
+		}
 		executionPlan.Steps = append(executionPlan.Steps, assistantExecutionPlanStep{
 			Index:      len(executionPlan.Steps) + 1,
 			Title:      "Synthesize the answer from returned evidence",
@@ -86,6 +98,16 @@ func assistantExecutionPlanFromTurnPlan(plan assistantTurnPlan) assistantExecuti
 	return executionPlan
 }
 
+func assistantExecutionPlanUsesDeterministicReply(plan assistantTurnPlan) bool {
+	for _, step := range plan.Steps {
+		toolName := strings.TrimSpace(step.ToolName)
+		if assistantIsAnalysisTool(toolName) || toolName == "nopsai.find_optimization_opportunities" {
+			return true
+		}
+	}
+	return false
+}
+
 func assistantExecutionPlanStepFromPlanStep(index int, step assistantPlanStep) assistantExecutionPlanStep {
 	tool := strings.TrimSpace(step.ToolName)
 	source, phase, confidence := assistantExecutionSourceForTool(tool)
@@ -111,6 +133,9 @@ func assistantExecutionPlanSummary(plan assistantTurnPlan) string {
 	}
 	if len(plan.Steps) == 0 {
 		return "Prepare a bounded answer without external tool execution."
+	}
+	if assistantExecutionPlanUsesDeterministicReply(plan) {
+		return "Use the validated plan first, then compose a concise answer from returned NopsAI evidence."
 	}
 	return "Use the validated plan first, then synthesize a concise answer from the returned evidence."
 }

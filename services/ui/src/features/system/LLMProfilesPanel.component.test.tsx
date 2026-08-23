@@ -349,3 +349,75 @@ test('counts cached team-owned LLM profiles in the tree', async () => {
   await waitFor(() => expect(teamProfileMocks.fetchTeamLLMProfiles).toHaveBeenCalledWith('platform/ml'));
   await waitFor(() => expect(within(teamButton).getByText('2')).toBeVisible());
 });
+
+test('sends a team model rate card through the team profile API', async () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={['/models?team=platform%2Fml']}>
+      <LLMProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  const profileList = await screen.findByLabelText('LLM profiles');
+  await user.click(within(profileList).getByRole('button', { name: 'Select LLM profile reasoning' }));
+  await user.click(screen.getByRole('button', { name: /edit profile/i }));
+  await user.type(screen.getByLabelText('Input'), '3');
+  await user.type(screen.getByLabelText('Output'), '15');
+  await user.click(screen.getByRole('button', { name: /save profile/i }));
+
+  await waitFor(() => expect(teamProfileMocks.upsertTeamLLMProfile).toHaveBeenCalledWith(
+    'platform/ml',
+    'reasoning',
+    expect.objectContaining({ pricing: { input_per_million_usd: 3, output_per_million_usd: 15 } })
+  ));
+});
+
+test('edits a model rate card instead of silently dropping it on save', async () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  apiMocks.fetchLLMProfiles.mockResolvedValueOnce({
+    default_profile: 'hosted',
+    profiles: [
+      {
+        name: 'hosted',
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+        base_url: 'https://api.openai.com/v1',
+        credential_ref: 'credential://system/llm/openai',
+        allowed_scopes: [],
+        reasoning: '',
+        timeout_seconds: 30,
+        max_tokens: 2048,
+        extra: {},
+        status: 'valid',
+        pricing: { input_per_million_usd: 1.25, output_per_million_usd: 10 },
+      },
+    ],
+  });
+  apiMocks.saveLLMProfile.mockResolvedValueOnce({ name: 'hosted', payload: { default_profile: 'hosted', profiles: [] } });
+
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <LLMProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  await user.click(await screen.findByRole('button', { name: 'Select LLM profile hosted' }));
+  expect(screen.getByText('in $1.25/M · out $10/M')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: /edit profile/i }));
+  const inputRate = screen.getByLabelText('Input') as HTMLInputElement;
+  const outputRate = screen.getByLabelText('Output') as HTMLInputElement;
+  expect(inputRate.value).toBe('1.25');
+  expect(outputRate.value).toBe('10');
+
+  await user.clear(outputRate);
+  await user.type(outputRate, '9');
+  await user.click(screen.getByRole('button', { name: /save profile/i }));
+
+  await waitFor(() => expect(apiMocks.saveLLMProfile).toHaveBeenCalled());
+  const saved = apiMocks.saveLLMProfile.mock.calls[0]?.[0] as { pricing_input: string; pricing_output: string };
+  expect(saved.pricing_input).toBe('1.25');
+  expect(saved.pricing_output).toBe('9');
+});

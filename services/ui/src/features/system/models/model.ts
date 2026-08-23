@@ -18,6 +18,7 @@ export type LLMProfileRecord = {
   temperature?: number;
   prompt_cache?: LLMFeatureConfig;
   provider_state?: LLMFeatureConfig;
+  pricing?: LLMPricing;
   extra: Record<string, string>;
   status: string;
   validation?: string;
@@ -30,6 +31,18 @@ export type LLMFeatureConfig = {
   mode?: string;
   scope?: string;
   retention?: string;
+};
+
+/**
+ * Rate card in USD per million tokens. It is optional: a model without one still
+ * runs, and its usage is reported as unpriced rather than as free, so leaving it
+ * blank never understates spend.
+ */
+export type LLMPricing = {
+  input_per_million_usd: number;
+  output_per_million_usd: number;
+  cached_input_per_million_usd?: number;
+  cache_write_per_million_usd?: number;
 };
 
 export type LLMFeatureMode = 'auto' | 'required' | 'disabled';
@@ -59,6 +72,10 @@ export type LLMProfileFormState = {
   temperature: string;
   prompt_cache: string;
   provider_state: string;
+  pricing_input: string;
+  pricing_output: string;
+  pricing_cached_input: string;
+  pricing_cache_write: string;
   extra: string;
 };
 
@@ -84,6 +101,10 @@ export const emptyLLMProfileForm: LLMProfileFormState = {
   temperature: '',
   prompt_cache: '',
   provider_state: '',
+  pricing_input: '',
+  pricing_output: '',
+  pricing_cached_input: '',
+  pricing_cache_write: '',
   extra: '',
 };
 
@@ -115,6 +136,7 @@ export function normalizeLLMProfilesPayload(value: unknown): LLMProfilesPayload 
         temperature: typeof profile.temperature === 'number' ? profile.temperature : undefined,
         prompt_cache: normalizeLLMFeatureConfig(profile.prompt_cache),
         provider_state: normalizeLLMFeatureConfig(profile.provider_state),
+        pricing: normalizeLLMPricing(profile.pricing),
         extra: normalizeStringMap(profile.extra),
         status: readString(profile.status).trim() || 'unknown',
         validation: readOptionalString(profile.validation),
@@ -148,6 +170,10 @@ export function llmProfileFormFromRecord(profile: LLMProfileRecord): LLMProfileF
     temperature: profile.temperature === undefined ? '' : String(profile.temperature),
     prompt_cache: formatLLMFeatureConfig(profile.prompt_cache),
     provider_state: formatLLMFeatureConfig(profile.provider_state),
+    pricing_input: formatRate(profile.pricing?.input_per_million_usd),
+    pricing_output: formatRate(profile.pricing?.output_per_million_usd),
+    pricing_cached_input: formatRate(profile.pricing?.cached_input_per_million_usd),
+    pricing_cache_write: formatRate(profile.pricing?.cache_write_per_million_usd),
     extra: formatExtraOptions(profile.extra),
   };
 }
@@ -169,8 +195,53 @@ export function llmProfilePayloadFromForm(form: LLMProfileFormState) {
     temperature: providerDefinition.supportsTemperature ? parseOptionalNumber(form.temperature) : undefined,
     prompt_cache: parseLLMFeatureConfig(form.prompt_cache),
     provider_state: parseLLMFeatureConfig(form.provider_state),
+    // Always stated, never omitted: the server keeps an existing rate card when a
+    // payload stays silent, so clearing the fields has to say so explicitly.
+    pricing: llmPricingFromForm(form),
     extra: parseExtraOptions(form.extra),
   };
+}
+
+export function normalizeLLMPricing(value: unknown): LLMPricing | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const pricing: LLMPricing = {
+    input_per_million_usd: normalizeNumber(record.input_per_million_usd),
+    output_per_million_usd: normalizeNumber(record.output_per_million_usd),
+  };
+  if (typeof record.cached_input_per_million_usd === 'number') {
+    pricing.cached_input_per_million_usd = record.cached_input_per_million_usd;
+  }
+  if (typeof record.cache_write_per_million_usd === 'number') {
+    pricing.cache_write_per_million_usd = record.cache_write_per_million_usd;
+  }
+  return pricing;
+}
+
+/**
+ * Builds the rate card a save should store, or null to state that this model has
+ * none. A model that costs nothing says so with explicit zeroes, which is a
+ * claim the operator makes, so a blank form clears rather than keeps.
+ */
+export function llmPricingFromForm(form: LLMProfileFormState): LLMPricing | null {
+  const input = parseOptionalNonNegativeNumber(form.pricing_input);
+  const output = parseOptionalNonNegativeNumber(form.pricing_output);
+  const cachedInput = parseOptionalNonNegativeNumber(form.pricing_cached_input);
+  const cacheWrite = parseOptionalNonNegativeNumber(form.pricing_cache_write);
+  if (input === undefined && output === undefined && cachedInput === undefined && cacheWrite === undefined) {
+    return null;
+  }
+  const pricing: LLMPricing = {
+    input_per_million_usd: input || 0,
+    output_per_million_usd: output || 0,
+  };
+  if (cachedInput !== undefined) pricing.cached_input_per_million_usd = cachedInput;
+  if (cacheWrite !== undefined) pricing.cache_write_per_million_usd = cacheWrite;
+  return pricing;
+}
+
+function formatRate(value?: number): string {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
 }
 
 export function normalizeLLMFeatureConfig(value: unknown): LLMFeatureConfig | undefined {

@@ -373,6 +373,18 @@ export function assistantMessageUsageLabel(message: AssistantMessage): string {
   return parts.join(' · ');
 }
 
+/**
+ * The spend figure the panel header shows. A conversation whose turns could not
+ * be priced reports that instead of "$0.00": zero is a claim that the work was
+ * free, and an unpriced model has made no such claim.
+ */
+export function assistantConversationSpendLabel(conversation: AssistantConversation | null): string {
+  const usage = conversation?.usage || emptyAssistantConversationUsage;
+  const spend = Number(usage.spend_usd || 0);
+  if (spend <= 0 && (usage.unpriced_turns || 0) > 0) return 'not priced';
+  return formatAssistantSpend(spend);
+}
+
 export function assistantConversationUsageLabel(conversation: AssistantConversation | null): string {
   const usage = conversation?.usage || emptyAssistantConversationUsage;
   if (!conversation || usage.message_count === 0) return 'No usage recorded yet';

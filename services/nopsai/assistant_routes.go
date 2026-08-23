@@ -124,6 +124,8 @@ func (a *App) handleCreateAssistantConversation(w http.ResponseWriter, r *http.R
 	}
 	if cfg.Memory.Enabled {
 		memory, err := a.upsertAssistantMemory(r.Context(), conversation.ID, assistantConversationMemory{
+			SelectedRun:         assistantPageContextRunID(req.PageContext),
+			SelectedPipeline:    assistantPageContextPipelineID(req.PageContext),
 			SelectedScope:       req.Scope,
 			SelectedDocsVersion: req.DocsVersion,
 		})

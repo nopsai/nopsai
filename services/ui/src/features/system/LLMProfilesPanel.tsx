@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Bot, CheckCircle2, Edit3, ExternalLink, FlaskConical, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
+import { LLM_PROVIDERS, getLLMProvider, llmProviderIsSelfHosted, replaceProviderDefault } from './llmProviders';
 import { type LLMFeatureConfig, type LLMProfileFormState, type LLMProfileRecord } from './models/model';
 import { LLMFeatureControls } from './models/LLMFeatureControls';
 import { useLLMProfiles } from './models/useLLMProfiles';
@@ -82,6 +82,17 @@ function profileMaxTokensText(profile: LLMProfileRecord) {
 
 function profileTemperatureText(profile: LLMProfileRecord) {
   return profile.temperature === undefined ? 'Provider default' : String(profile.temperature);
+}
+
+// A model with no rate card reads as "Not priced" rather than as free, so an
+// operator can see at a glance which models are missing from spend totals.
+function profilePricingText(profile: LLMProfileRecord) {
+  const pricing = profile.pricing;
+  if (!pricing) return 'Not priced';
+  const parts = [`in $${pricing.input_per_million_usd}/M`, `out $${pricing.output_per_million_usd}/M`];
+  if (pricing.cached_input_per_million_usd !== undefined) parts.push(`cached $${pricing.cached_input_per_million_usd}/M`);
+  if (pricing.cache_write_per_million_usd !== undefined) parts.push(`cache write $${pricing.cache_write_per_million_usd}/M`);
+  return parts.join(' · ');
 }
 
 function isProfileHealthy(profile: LLMProfileRecord) {
@@ -193,6 +204,7 @@ function LLMProfilesPanel({
   const showProfilePanel = panelMode !== null || deleteBlocker !== null;
   const showProfileForm = panelMode === 'create' || panelMode === 'edit';
   const formProvider = getLLMProvider(form.provider);
+  const selfHostedPricing = llmProviderIsSelfHosted(form.provider);
   const teamFilterOptions = useMemo(
     () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.name), teamPaths),
     [payload.profiles, teamPaths]
@@ -531,6 +543,32 @@ function LLMProfilesPanel({
                     )}
                   </div>
                   <p className="text-xs text-[var(--text-secondary)]">{formProvider.generationOptionsNote}</p>
+                  <div className="space-y-2">
+                    <OptionLabel help="Rate card in USD per million tokens, used to report AI usage as money. NopsAI never guesses provider prices: leave these blank and the model still runs, but its usage is reported as not priced instead of as free.">Pricing (USD per million tokens)</OptionLabel>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="text-xs text-[var(--text-secondary)]">Input</span>
+                        <input className="pipelines-input" type="number" min="0" step="0.01" value={form.pricing_input} onChange={event => setForm(prev => ({ ...prev, pricing_input: event.target.value }))} disabled={!canManageCurrentScope} placeholder={selfHostedPricing ? '0' : '1.25'} />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="text-xs text-[var(--text-secondary)]">Output</span>
+                        <input className="pipelines-input" type="number" min="0" step="0.01" value={form.pricing_output} onChange={event => setForm(prev => ({ ...prev, pricing_output: event.target.value }))} disabled={!canManageCurrentScope} placeholder={selfHostedPricing ? '0' : '10'} />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="text-xs text-[var(--text-secondary)]">Cached input</span>
+                        <input className="pipelines-input" type="number" min="0" step="0.01" value={form.pricing_cached_input} onChange={event => setForm(prev => ({ ...prev, pricing_cached_input: event.target.value }))} disabled={!canManageCurrentScope} placeholder="Input rate" />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="text-xs text-[var(--text-secondary)]">Cache write</span>
+                        <input className="pipelines-input" type="number" min="0" step="0.01" value={form.pricing_cache_write} onChange={event => setForm(prev => ({ ...prev, pricing_cache_write: event.target.value }))} disabled={!canManageCurrentScope} placeholder="Input rate" />
+                      </label>
+                    </div>
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      {selfHostedPricing
+                        ? 'A self-hosted model has no per-token charge, so zeroes state that its spend really is nothing.'
+                        : 'Take these from your provider\u2019s price list. Cached input and cache write default to the input rate. Leave every field blank to record this model as not priced.'}
+                    </p>
+                  </div>
                   <LLMFeatureControls form={form} setForm={setForm} disabled={!canManageCurrentScope} />
                   <label className="flex flex-col gap-1 text-sm">
                     <OptionLabel help="Additional provider-specific settings entered as one key=value pair per line.">Provider options</OptionLabel>
@@ -781,6 +819,7 @@ function LLMProfileDetail({
           { label: 'Temperature', value: profileTemperatureText(profile) },
           { label: 'Prompt cache', value: profileFeatureModeText(profile.prompt_cache) },
           { label: 'Provider state', value: profileFeatureModeText(profile.provider_state) },
+          { label: 'Pricing', value: profilePricingText(profile) },
         ]}
       />
       <LLMDetailSection

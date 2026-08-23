@@ -18,7 +18,7 @@ func TestParseTeamLLMProfilesPayloadAcceptsTeamDefault(t *testing.T) {
 		}},
 	}
 
-	defaultProfile, profiles, err := parseTeamLLMProfilesPayload(payload)
+	defaultProfile, profiles, err := parseTeamLLMProfilesPayload(payload, nil)
 	if err != nil {
 		t.Fatalf("parseTeamLLMProfilesPayload() error = %v", err)
 	}
@@ -40,7 +40,7 @@ func TestParseTeamLLMProfilesPayloadPreservesDefaultForTeamScopeValidation(t *te
 		}},
 	}
 
-	defaultProfile, profiles, err := parseTeamLLMProfilesPayload(payload)
+	defaultProfile, profiles, err := parseTeamLLMProfilesPayload(payload, nil)
 	if err != nil {
 		t.Fatalf("parseTeamLLMProfilesPayload() error = %v", err)
 	}
@@ -67,7 +67,7 @@ func TestParseTeamLLMProfilesPayloadRejectsDuplicateProfiles(t *testing.T) {
 		}},
 	}
 
-	_, _, err := parseTeamLLMProfilesPayload(payload)
+	_, _, err := parseTeamLLMProfilesPayload(payload, nil)
 	if err == nil {
 		t.Fatal("parseTeamLLMProfilesPayload() error = nil, want duplicate error")
 	}
@@ -255,5 +255,58 @@ func TestParseGitOpsTeamDefaultsFileRejectsLegacyDefaultKeys(t *testing.T) {
 	_, err := parseGitOpsTeamDefaultsFile("llm_default_profile: chatgpt\n", "defaults.yaml", "platform/ml")
 	if err == nil || !strings.Contains(err.Error(), "must define at least one default") {
 		t.Fatalf("parseGitOpsTeamDefaultsFile() error = %v, want legacy key rejection", err)
+	}
+}
+
+// A team model is priced the same way a global one is: a save that never
+// mentions pricing keeps the rate card, and one that states null clears it.
+func TestParseTeamLLMProfilesPayloadKeepsExistingPricingWhenTheSaveOmitsIt(t *testing.T) {
+	existing := map[string]config.LLMProfile{
+		"hosted": {
+			Provider:      config.LLMProviderOpenAI,
+			Model:         "gpt-5",
+			CredentialRef: "credential://system/llm/openai",
+			Pricing:       &config.LLMPricing{InputPerMillionUSD: 1.25, OutputPerMillionUSD: 10},
+		},
+	}
+	payload := llmProfilesRequest{
+		DefaultProfile: "hosted",
+		Profiles: []llmProfileForm{{
+			Name:          "hosted",
+			Provider:      config.LLMProviderOpenAI,
+			Model:         "gpt-5-mini",
+			CredentialRef: "credential://system/llm/openai",
+		}},
+	}
+
+	_, profiles, err := parseTeamLLMProfilesPayload(payload, existing)
+	if err != nil {
+		t.Fatalf("parseTeamLLMProfilesPayload() error = %v", err)
+	}
+	stored := profiles["hosted"]
+	if stored.Model != "gpt-5-mini" {
+		t.Fatalf("model = %q, want the saved value", stored.Model)
+	}
+	if stored.Pricing == nil || stored.Pricing.OutputPerMillionUSD != 10 {
+		t.Fatalf("pricing = %#v, want the existing rate card preserved", stored.Pricing)
+	}
+}
+
+func TestParseTeamLLMProfilesPayloadDefaultsSelfHostedPricingToExplicitZeroes(t *testing.T) {
+	payload := llmProfilesRequest{
+		DefaultProfile: "local",
+		Profiles: []llmProfileForm{{
+			Name:     "local",
+			Provider: config.LLMProviderLMStudio,
+			BaseURL:  "http://lmstudio:1234",
+		}},
+	}
+
+	_, profiles, err := parseTeamLLMProfilesPayload(payload, nil)
+	if err != nil {
+		t.Fatalf("parseTeamLLMProfilesPayload() error = %v", err)
+	}
+	if pricing := profiles["local"].Pricing; pricing == nil || pricing.InputPerMillionUSD != 0 || pricing.OutputPerMillionUSD != 0 {
+		t.Fatalf("pricing = %#v, want explicit zeroes for a self-hosted team model", pricing)
 	}
 }

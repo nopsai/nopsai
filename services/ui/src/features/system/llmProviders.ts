@@ -143,6 +143,15 @@ export function getLLMProvider(provider: string): LLMProviderDefinition {
   return LLM_PROVIDERS.find(candidate => candidate.id === provider.trim()) ?? LLM_PROVIDERS[0]!;
 }
 
+/**
+ * A provider the operator runs themselves has no per-token charge, so its rate
+ * card is a row of explicit zeroes rather than a price list to copy in.
+ */
+export function llmProviderIsSelfHosted(provider: string): boolean {
+  const id = provider.trim();
+  return id === 'lmstudio' || id === 'ollama';
+}
+
 export function defaultLLMCredentialRef(provider: string): string {
   return getLLMProvider(provider).defaultCredentialRef;
 }

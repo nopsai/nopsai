@@ -85,17 +85,40 @@ export async function createAssistantConversation(input: {
   selected_llm_profile?: string;
   docs_version?: string;
   scope?: string;
+  page_context?: Partial<AssistantPageContext> | null;
 }): Promise<AssistantConversation> {
   const response = await apiClient.fetch('/v1/assistant/conversations', {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify(assistantConversationRequestBody(input)),
   });
   if (!response.ok) {
     throw new Error(await responseError(response, `Failed to create conversation (${response.status})`));
   }
   return normalizeAssistantConversation(await response.json());
+}
+
+export function assistantConversationRequestBody(input: {
+  selected_llm_profile?: string;
+  docs_version?: string;
+  scope?: string;
+  page_context?: Partial<AssistantPageContext> | null;
+}) {
+  const body: {
+    selected_llm_profile: string;
+    docs_version: string;
+    scope: string;
+    page_context?: AssistantPageContext;
+  } = {
+    selected_llm_profile: input.selected_llm_profile || '',
+    docs_version: input.docs_version || '',
+    scope: input.scope || '',
+  };
+  if (!assistantPageContextIsEmpty(input.page_context)) {
+    body.page_context = normalizeAssistantPageContext(input.page_context);
+  }
+  return body;
 }
 
 export async function fetchAssistantConversation(id: string): Promise<AssistantConversation> {
