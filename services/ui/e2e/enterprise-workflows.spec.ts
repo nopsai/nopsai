@@ -481,19 +481,3 @@ test('blocks direct navigation and hides links without capability access', async
   await expect(page.getByRole('link', { name: 'Schedules' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'System' })).toHaveCount(0);
 });
-
-test('TEMP schedule form shot', async ({ page }) => {
-  await installStoredSession(page);
-  await installApiMocks(page);
-  await page.addInitScript(() => window.localStorage.setItem('theme', 'dark'));
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto('/#/schedules');
-  await page.waitForTimeout(900);
-  const buttons = await page.getByRole('button').all();
-  for (const b of buttons) {
-    const label = (await b.getAttribute('aria-label')) || (await b.textContent()) || '';
-    if (/new schedule|create schedule|add schedule/i.test(label)) { await b.click(); break; }
-  }
-  await page.waitForTimeout(800);
-  await page.screenshot({ path: 'shot-schedule-form.png' });
-});
