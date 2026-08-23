@@ -2981,15 +2981,19 @@ html.dark .kc-markdown code {
     cursor: pointer;
 }
 
+/* The primary button follows the theme accent. It used to be a fixed indigo
+   gradient, which stayed indigo-purple in dark mode while the rest of the
+   product had moved to the editor's blue. */
 .glass-button-primary {
-    background: linear-gradient(135deg, rgba(99,102,241,0.85), rgba(129,140,248,0.8));
+    background: var(--accent);
     color: var(--text-button);
-    box-shadow: 0 12px 30px rgba(99,102,241,0.25);
+    box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .glass-button-primary:hover {
     transform: translateY(-1px);
-    box-shadow: 0 16px 32px rgba(99,102,241,0.32);
+    background: color-mix(in srgb, var(--accent) 88%, #ffffff);
+    box-shadow: 0 16px 32px color-mix(in srgb, var(--accent) 36%, transparent);
 }
 
 .glass-button-primary.triggers-create-button {
@@ -22316,131 +22320,79 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-colum
     border-color: transparent !important;
 }
 
+/*
+ * Run and pipeline graph palette.
+ *
+ * The graph used to carry its own theme — a navy canvas with purple accents,
+ * dark by default with a light-mode override — so in dark mode it did not match
+ * the app's greys and in light mode it fought the page. Every value here is now
+ * an alias for a token from the theme in this file, so one block serves both
+ * themes and the graph sits on the same surfaces as the page around it. Only the
+ * status tints stay literal, because they carry meaning.
+ */
 .run-graph-redesign {
-    --rg-bg: #07101e;
-    --rg-panel: #0b1527;
-    --rg-panel-2: #101c30;
-    --rg-panel-3: #152238;
-    --rg-canvas: #040b18;
-    --rg-border: #25334a;
-    --rg-border-strong: #3a4a67;
-    --rg-text: #eef3ff;
-    --rg-text-2: #bec8da;
-    --rg-muted: #7f8ca4;
-    --rg-accent: #8b5cf6;
-    --rg-accent-2: #a78bfa;
-    --rg-accent-soft: rgba(139, 92, 246, 0.14);
-    --rg-success-soft: rgba(34, 211, 154, 0.12);
-    --rg-danger-soft: rgba(251, 113, 133, 0.12);
-    --rg-running-soft: rgba(94, 167, 255, 0.13);
-    --rg-panel-bg: linear-gradient(180deg, rgba(15, 25, 45, 0.98), rgba(8, 15, 29, 0.98));
-    --rg-chip-bg: rgba(255, 255, 255, 0.035);
-    --rg-field-bg: rgba(255, 255, 255, 0.026);
-    --rg-field-hover-bg: rgba(255, 255, 255, 0.055);
-    --rg-control-bg: rgba(7, 16, 30, 0.9);
-    --rg-control-hover-bg: rgba(255, 255, 255, 0.075);
-    --rg-grid-dot: #34415a;
-    --rg-node-fill: #0e1a2d;
-    --rg-node-stroke: #2a3a54;
-    --rg-node-hover-fill: #12213a;
-    --rg-node-hover-stroke: #697a9b;
-    --rg-node-selected-fill: #171e39;
-    --rg-node-selected-stroke: #967bff;
-    --rg-node-title: #d8e0ee;
-    --rg-node-meta: #7f8ca4;
-    --rg-node-kicker: #b9a8ff;
-    --rg-node-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
-    --rg-detail-fill: rgba(15, 25, 45, 0.92);
-    --rg-detail-stroke: rgba(167, 139, 250, 0.5);
-    --rg-detail-hover-fill: rgba(139, 92, 246, 0.35);
-    --rg-detail-hover-stroke: rgba(216, 208, 255, 0.9);
-    --rg-detail-text: #d8d0ff;
-    --rg-include-fill: rgba(99, 102, 241, 0.13);
-    --rg-include-stroke: rgba(167, 139, 250, 0.34);
-    --rg-include-text: #d5ccff;
-    --rg-task-pill-fill: rgba(139, 92, 246, 0.16);
-    --rg-task-pill-stroke: rgba(167, 139, 250, 0.38);
-    --rg-task-pill-text: #c5b7ff;
-    --rg-minimap-bg: rgba(5, 12, 23, 0.86);
-    --rg-minimap-border: rgba(67, 83, 112, 0.74);
-    --rg-minimap-edge: rgba(113, 132, 165, 0.5);
-    --rg-minimap-node-fill: rgba(30, 45, 70, 0.8);
-    --rg-minimap-node-stroke: rgba(125, 145, 178, 0.75);
-    --rg-minimap-selected-fill: rgba(79, 70, 229, 0.32);
-    --rg-minimap-selected-stroke: rgba(190, 181, 255, 0.95);
-    --rg-minimap-window-fill: rgba(99, 102, 241, 0.12);
-    --rg-minimap-window-stroke: rgba(216, 208, 255, 0.95);
-    --rg-task-reveal-bg: linear-gradient(180deg, rgba(16, 25, 44, 0.94), rgba(6, 12, 24, 0.985) 28%, rgba(4, 9, 19, 0.995));
-    --rg-task-reveal-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(148, 163, 184, 0.12);
-    --rg-task-reveal-line: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.34), rgba(45, 212, 191, 0.2), transparent);
-    --rg-task-chip-bg: rgba(13, 22, 39, 0.88);
-    --rg-task-chip-border: rgba(139, 92, 246, 0.3);
-    --rg-task-chip-text: #ded7ff;
+    --rg-bg: var(--bg-panel);
+    --rg-panel: var(--bg-panel);
+    --rg-panel-2: var(--bg-elevated);
+    --rg-panel-3: var(--bg-hover);
+    --rg-canvas: var(--bg-app);
+    --rg-border: var(--border-primary);
+    --rg-border-strong: var(--border-strong);
+    --rg-text: var(--text-primary);
+    --rg-text-2: var(--text-primary);
+    --rg-muted: var(--text-secondary);
+    --rg-accent: var(--accent);
+    --rg-accent-2: var(--text-accent);
+    --rg-accent-soft: var(--accent-soft);
+    --rg-success-soft: rgba(34, 197, 94, 0.14);
+    --rg-danger-soft: rgba(248, 113, 113, 0.14);
+    --rg-running-soft: rgba(56, 189, 248, 0.14);
+    --rg-panel-bg: var(--bg-panel);
+    --rg-chip-bg: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+    --rg-field-bg: var(--bg-input);
+    --rg-field-hover-bg: var(--bg-hover);
+    --rg-control-bg: var(--bg-panel);
+    --rg-control-hover-bg: var(--bg-hover);
+    --rg-grid-dot: color-mix(in srgb, var(--text-secondary) 38%, transparent);
+    --rg-node-fill: var(--bg-panel);
+    --rg-node-stroke: var(--border-primary);
+    --rg-node-hover-fill: var(--bg-hover);
+    --rg-node-hover-stroke: var(--border-strong);
+    --rg-node-selected-fill: var(--bg-active);
+    --rg-node-selected-stroke: var(--accent);
+    --rg-node-title: var(--text-primary);
+    --rg-node-meta: var(--text-secondary);
+    --rg-node-kicker: var(--text-accent);
+    --rg-node-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    --rg-detail-fill: var(--bg-panel);
+    --rg-detail-stroke: color-mix(in srgb, var(--accent) 45%, transparent);
+    --rg-detail-hover-fill: var(--accent-soft);
+    --rg-detail-hover-stroke: var(--accent);
+    --rg-detail-text: var(--text-accent);
+    --rg-include-fill: var(--accent-soft);
+    --rg-include-stroke: color-mix(in srgb, var(--accent) 34%, transparent);
+    --rg-include-text: var(--text-accent);
+    --rg-task-pill-fill: var(--accent-soft);
+    --rg-task-pill-stroke: color-mix(in srgb, var(--accent) 38%, transparent);
+    --rg-task-pill-text: var(--text-accent);
+    --rg-minimap-bg: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+    --rg-minimap-border: var(--border-primary);
+    --rg-minimap-edge: color-mix(in srgb, var(--text-secondary) 50%, transparent);
+    --rg-minimap-node-fill: var(--bg-elevated);
+    --rg-minimap-node-stroke: var(--border-strong);
+    --rg-minimap-selected-fill: var(--accent-soft);
+    --rg-minimap-selected-stroke: var(--accent);
+    --rg-minimap-window-fill: var(--accent-soft);
+    --rg-minimap-window-stroke: var(--accent);
+    --rg-task-reveal-bg: var(--bg-panel);
+    --rg-task-reveal-shadow: 0 -10px 28px rgba(0, 0, 0, 0.18), inset 0 1px 0 var(--border-primary);
+    --rg-task-reveal-line: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 40%, transparent), transparent);
+    --rg-task-chip-bg: var(--bg-elevated);
+    --rg-task-chip-border: color-mix(in srgb, var(--accent) 30%, transparent);
+    --rg-task-chip-text: var(--text-accent);
     display: grid;
     gap: 14px;
     color: var(--rg-text);
-}
-
-html:not(.dark) .run-graph-redesign {
-    --rg-bg: #f8fafc;
-    --rg-panel: #ffffff;
-    --rg-panel-2: #f8fafc;
-    --rg-panel-3: #eef2f7;
-    --rg-canvas: #f8fafc;
-    --rg-border: #d8e0ec;
-    --rg-border-strong: #94a3b8;
-    --rg-text: #172033;
-    --rg-text-2: #334155;
-    --rg-muted: #64748b;
-    --rg-accent: #4f46e5;
-    --rg-accent-2: #7c3aed;
-    --rg-accent-soft: rgba(79, 70, 229, 0.1);
-    --rg-success-soft: rgba(20, 184, 166, 0.1);
-    --rg-danger-soft: rgba(220, 38, 38, 0.08);
-    --rg-running-soft: rgba(37, 99, 235, 0.1);
-    --rg-panel-bg: linear-gradient(180deg, #ffffff, #f8fafc);
-    --rg-chip-bg: rgba(15, 23, 42, 0.035);
-    --rg-field-bg: rgba(255, 255, 255, 0.88);
-    --rg-field-hover-bg: #ffffff;
-    --rg-control-bg: rgba(255, 255, 255, 0.92);
-    --rg-control-hover-bg: #eef2ff;
-    --rg-grid-dot: #cbd5e1;
-    --rg-node-fill: #ffffff;
-    --rg-node-stroke: #cbd5e1;
-    --rg-node-hover-fill: #f8fafc;
-    --rg-node-hover-stroke: #94a3b8;
-    --rg-node-selected-fill: #eef2ff;
-    --rg-node-selected-stroke: #4f46e5;
-    --rg-node-title: #1e293b;
-    --rg-node-meta: #64748b;
-    --rg-node-kicker: #5b21b6;
-    --rg-node-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-    --rg-detail-fill: #ffffff;
-    --rg-detail-stroke: rgba(79, 70, 229, 0.38);
-    --rg-detail-hover-fill: #eef2ff;
-    --rg-detail-hover-stroke: rgba(79, 70, 229, 0.7);
-    --rg-detail-text: #4f46e5;
-    --rg-include-fill: rgba(79, 70, 229, 0.08);
-    --rg-include-stroke: rgba(79, 70, 229, 0.28);
-    --rg-include-text: #4338ca;
-    --rg-task-pill-fill: rgba(20, 184, 166, 0.1);
-    --rg-task-pill-stroke: rgba(15, 118, 110, 0.28);
-    --rg-task-pill-text: #0f766e;
-    --rg-minimap-bg: rgba(255, 255, 255, 0.92);
-    --rg-minimap-border: rgba(148, 163, 184, 0.58);
-    --rg-minimap-edge: rgba(100, 116, 139, 0.5);
-    --rg-minimap-node-fill: rgba(226, 232, 240, 0.88);
-    --rg-minimap-node-stroke: rgba(100, 116, 139, 0.7);
-    --rg-minimap-selected-fill: rgba(79, 70, 229, 0.16);
-    --rg-minimap-selected-stroke: rgba(79, 70, 229, 0.82);
-    --rg-minimap-window-fill: rgba(79, 70, 229, 0.1);
-    --rg-minimap-window-stroke: rgba(79, 70, 229, 0.86);
-    --rg-task-reveal-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
-    --rg-task-reveal-shadow: 0 -10px 28px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.72);
-    --rg-task-reveal-line: linear-gradient(90deg, transparent, rgba(79, 70, 229, 0.28), rgba(20, 184, 166, 0.2), transparent);
-    --rg-task-chip-bg: rgba(255, 255, 255, 0.92);
-    --rg-task-chip-border: rgba(79, 70, 229, 0.26);
-    --rg-task-chip-text: #312e81;
 }
 
 .run-detail-workspace {
@@ -22489,9 +22441,9 @@ html:not(.dark) .run-graph-redesign {
 }
 
 .run-detail-workspace-tab.is-active {
-    border-color: rgba(139, 92, 246, 0.42);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
     color: var(--text-primary);
-    background: rgba(139, 92, 246, 0.14);
+    background: var(--accent-soft);
 }
 
 .run-detail-workspace-tab b {
