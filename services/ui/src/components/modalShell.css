@@ -398,6 +398,14 @@ html.dark .workflow-dialog-shell::after {
 
 /* The name field takes the dialog's opening focus, so its placeholder has to
    survive being focused: it is the only thing telling the user what to type. */
+/* A sentence under the hero that explains what the dialog will do. */
+.modal-hero-note {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
 .modal-hero-input::placeholder {
     color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
 }
@@ -550,6 +558,12 @@ html.dark .workflow-dialog-shell::after {
     max-width: 100%;
 }
 
+/* A control only grows past the standard width when its values genuinely need
+   the room — a pipeline path, a timezone name — never to fill the row. */
+.modal-property-row--wide .modal-property-control {
+    width: 16rem;
+}
+
 /* Controls in a property row are the compact size: the row's label is what the
    reader scans, and the control only has to be legible next to it. */
 .modal-property-control .pipelines-input {
@@ -564,6 +578,22 @@ html.dark .workflow-dialog-shell::after {
 
 .modal-property-control .pipelines-input {
     width: 100%;
+}
+
+/*
+ * A dialog body that is a form: the hero, the divider, and the property
+ * sections it holds are spaced on the same rhythm as the canvas padding.
+ */
+.modal-form-body {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(20px, 2.4vw, 36px);
+}
+
+.modal-property-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
 }
 
 /*

@@ -83,7 +83,7 @@ describe('SchedulesPage modal flows', () => {
     expect(dialog).toHaveClass(
       'pipelines-modal-card',
       'workflow-form-dialog',
-      'workflow-form-dialog--wide'
+      'workflow-form-dialog--xwide'
     );
     expect(dialog.querySelector('.pipelines-modal-header')).not.toBeNull();
     expect(dialog.querySelector('.pipelines-modal-body')).not.toBeNull();

@@ -47,7 +47,7 @@ test('edits, traps focus, and restores focus for a shared resource workflow form
   expect(dialog.querySelector('.pipelines-modal-header')).not.toBeNull();
   expect(dialog.querySelector('.pipelines-modal-body')).not.toBeNull();
   expect(dialog.querySelector('.pipelines-modal-footer')).not.toBeNull();
-  expect(screen.getByLabelText('Pipeline Path')).toHaveFocus();
+  expect(screen.getByLabelText('Pipeline Name')).toHaveFocus();
 
   await user.type(screen.getByLabelText('Pipeline Path'), 'platform/build');
   await user.type(screen.getByLabelText('Pipeline Name'), 'release');

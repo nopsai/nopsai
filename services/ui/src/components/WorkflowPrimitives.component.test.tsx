@@ -166,3 +166,31 @@ test('reports the chosen option from the segmented control', async () => {
   await user.click(screen.getByRole('radio', { name: 'External page' }));
   expect(onChange).toHaveBeenCalledWith('external');
 });
+
+test('names a control that brought no id of its own, without folding in the hint', () => {
+  render(
+    <WorkflowPropertyRow label="Run team" hint="Owning team">
+      <select>
+        <option value="platform">platform</option>
+      </select>
+    </WorkflowPropertyRow>
+  );
+
+  // The accessible name is the label alone: a wrapping label would have made it
+  // "Run team Owning team" and broken every getByLabelText in the product.
+  const control = screen.getByLabelText('Run team');
+  expect(control.tagName).toBe('SELECT');
+  expect(control.id).not.toBe('');
+});
+
+test('leaves an id the caller already set alone', () => {
+  render(
+    <WorkflowPropertyRow label="Scope" hint="Variables and secrets" htmlFor="scope-field">
+      <select id="scope-field">
+        <option value="default">default</option>
+      </select>
+    </WorkflowPropertyRow>
+  );
+
+  expect(screen.getByLabelText('Scope')).toHaveAttribute('id', 'scope-field');
+});

@@ -376,7 +376,7 @@ test('audits shared workflow dialogs and keyboard-accessible YAML editing', asyn
   await createButton.click();
   const dialog = page.getByRole('dialog', { name: 'Create pipeline' });
   await expect(dialog).toBeVisible();
-  await expect(page.getByLabel('Pipeline Path')).toBeFocused();
+  await expect(page.getByLabel('Pipeline Name')).toBeFocused();
   await expectNoBlockingAxeViolations(page, '#pipelines-new-modal');
 
   await dialog.getByRole('button', { name: 'Create', exact: true }).focus();

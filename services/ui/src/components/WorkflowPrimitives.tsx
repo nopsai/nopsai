@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useDialogFocus } from './useDialogFocus';
 
@@ -183,6 +183,7 @@ export function WorkflowPropertyRow({
   htmlFor,
   span = 'half',
   layout = 'inline',
+  control = 'default',
   children,
 }: {
   label: ReactNode;
@@ -190,25 +191,36 @@ export function WorkflowPropertyRow({
   htmlFor?: string;
   span?: 'half' | 'full';
   layout?: 'inline' | 'stacked';
+  /** 'wide' is for values that need the room, such as a path or a timezone. */
+  control?: 'default' | 'wide';
   children: ReactNode;
 }) {
   const classes = [
     'modal-property-row',
     span === 'full' ? 'modal-property-row--full' : '',
     layout === 'stacked' ? 'modal-property-row--stacked' : '',
+    control === 'wide' ? 'modal-property-row--wide' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
+  // The label names the control by id. A caller that has no id to give gets one
+  // here, so the row's accessible name is the label alone — never the label plus
+  // its hint, which is what a wrapping label would have produced.
+  const generatedId = useId();
+  const single = isValidElement<{ id?: string }>(children) ? children : null;
+  const controlId = htmlFor ?? (single && !single.props.id ? generatedId : undefined);
+  const control_ = single && !htmlFor && !single.props.id ? cloneElement(single, { id: controlId }) : children;
+
   return (
     <div className={classes}>
       <div className="min-w-0">
-        <label className="modal-property-label" htmlFor={htmlFor}>
+        <label className="modal-property-label" htmlFor={controlId}>
           {label}
         </label>
         {hint ? <span className="modal-property-hint">{hint}</span> : null}
       </div>
-      <div className="modal-property-control">{children}</div>
+      <div className="modal-property-control">{control_}</div>
     </div>
   );
 }
