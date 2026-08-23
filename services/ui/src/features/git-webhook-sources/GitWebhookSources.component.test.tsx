@@ -171,7 +171,7 @@ test('creates a source through the feature-owned form and API', async () => {
   expect(dialog).toHaveClass(
     'pipelines-modal-card',
     'workflow-form-dialog',
-    'workflow-form-dialog--wide'
+    'workflow-form-dialog--xwide'
   );
   expect(dialog).not.toHaveClass('glass-card');
   expect(dialog.querySelector('.pipelines-modal-header')).not.toBeNull();
@@ -221,7 +221,7 @@ test('renders solid edit, validation, and saving states for source forms', () =>
   expect(dialog).toHaveClass(
     'pipelines-modal-card',
     'workflow-form-dialog',
-    'workflow-form-dialog--wide'
+    'workflow-form-dialog--xwide'
   );
   expect(dialog).not.toHaveClass('glass-card');
   expect(dialog).toHaveAccessibleDescription('Repository allowlist is required.');

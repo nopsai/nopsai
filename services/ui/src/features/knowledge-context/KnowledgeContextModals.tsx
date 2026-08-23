@@ -479,12 +479,22 @@ export function KnowledgeContextModals({
             </div>
             <WorkflowDialogCloseButton onClose={onCloseConnection} disabled={connectionModal.pending} />
           </header>
-          <div className="pipelines-modal-body space-y-4">
-            <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
-              <label className="modal-property-label">
-                Provider
+          <div className="pipelines-modal-body modal-form-body">
+            <div className="modal-hero">
+              <input
+                className="modal-hero-input"
+                aria-label="Display name"
+                placeholder="Team Notion"
+                value={connectionModal.display_name}
+                onChange={event => onUpdateConnection({ display_name: event.target.value })}
+                data-dialog-initial-focus
+              />
+            </div>
+            <hr className="modal-divider" />
+            <div className="modal-property-grid">
+              <WorkflowPropertyRow label="Provider" hint="External page host">
                 <select
-                  className="pipelines-input w-full mt-1"
+                  className="pipelines-input w-full"
                   value={connectionModal.provider}
                   onChange={event => onUpdateConnection({ provider: event.target.value as KnowledgeConnectionModalState['provider'] })}
                 >
@@ -492,11 +502,10 @@ export function KnowledgeContextModals({
                     <option key={provider.value} value={provider.value}>{provider.label}</option>
                   ))}
                 </select>
-              </label>
-              <label className="modal-property-label">
-                Team
+              </WorkflowPropertyRow>
+              <WorkflowPropertyRow label="Team" hint="Owning team">
                 <select
-                  className="pipelines-input w-full mt-1"
+                  className="pipelines-input w-full"
                   value={connectionModal.team}
                   onChange={event => onUpdateConnection({ team: event.target.value })}
                   disabled={isEditingConnection}
@@ -505,49 +514,39 @@ export function KnowledgeContextModals({
                     <option key={team} value={team}>{team}</option>
                   ))}
                 </select>
-              </label>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-              <label className="modal-property-label">
-                Display name
+              </WorkflowPropertyRow>
+              <WorkflowPropertyRow label="ID" hint="Stable reference name">
                 <input
-                  className="pipelines-input w-full mt-1"
-                  placeholder="Team Notion"
-                  value={connectionModal.display_name}
-                  onChange={event => onUpdateConnection({ display_name: event.target.value })}
-                  data-dialog-initial-focus
-                />
-              </label>
-              <label className="modal-property-label">
-                ID
-                <input
-                  className="pipelines-input w-full mt-1"
+                  className="pipelines-input w-full font-mono"
                   placeholder="team-notion"
                   value={connectionModal.name}
                   onChange={event => onUpdateConnection({ name: event.target.value })}
                   disabled={isEditingConnection}
                 />
-              </label>
-            </div>
-            <label className="modal-property-label">
-              Base URL
-              <input
-                className="pipelines-input w-full mt-1"
-                placeholder="https://www.notion.so/acme"
-                value={connectionModal.base_url}
-                onChange={event => onUpdateConnection({ base_url: event.target.value })}
-              />
-            </label>
-            <div className="modal-property-label">
-              <label htmlFor="knowledge-connection-credential-ref">Credential reference</label>
-              <input
-                id="knowledge-connection-credential-ref"
-                className="pipelines-input w-full mt-1"
-                placeholder={isEditingConnection ? 'Leave empty to keep the stored credential' : 'credential namespace/name'}
-                value={connectionModal.credential_ref}
-                onChange={event => onUpdateConnection({ credential_ref: event.target.value })}
-              />
-              <span className="mt-1 block text-xs text-[var(--text-secondary)]">Expected type: api_key</span>
+              </WorkflowPropertyRow>
+              <WorkflowPropertyRow label="Base URL" hint="Workspace the pages live in" control="wide">
+                <input
+                  className="pipelines-input w-full"
+                  placeholder="https://www.notion.so/acme"
+                  value={connectionModal.base_url}
+                  onChange={event => onUpdateConnection({ base_url: event.target.value })}
+                />
+              </WorkflowPropertyRow>
+              <WorkflowPropertyRow
+                label="Credential reference"
+                hint="Expected type: api_key"
+                htmlFor="knowledge-connection-credential-ref"
+                span="full"
+                control="wide"
+              >
+                <input
+                  id="knowledge-connection-credential-ref"
+                  className="pipelines-input w-full font-mono"
+                  placeholder={isEditingConnection ? 'Leave empty to keep the stored credential' : 'credential namespace/name'}
+                  value={connectionModal.credential_ref}
+                  onChange={event => onUpdateConnection({ credential_ref: event.target.value })}
+                />
+              </WorkflowPropertyRow>
             </div>
             {connectionModal.error ? <WorkflowInlineAlert id={connectionErrorId}>{connectionModal.error}</WorkflowInlineAlert> : null}
           </div>

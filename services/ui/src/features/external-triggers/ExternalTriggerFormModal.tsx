@@ -1,5 +1,6 @@
 import { Plus, X } from 'lucide-react';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
+import { WorkflowPropertyRow } from '../../components/WorkflowPrimitives';
 import { GLOBAL_RESOURCE_TEAM_LABEL, isGlobalResourceTeamPath } from '../../lib/resourceTeams';
 import type {
   AllowedCaller,
@@ -62,7 +63,8 @@ export function ExternalTriggerFormModal({
       onClose={onClose}
       onSubmit={onSubmit}
       closeDisabled={saving}
-      size="wide"
+      size="xwide"
+      bodyClassName="modal-form-body"
       kicker={isCreate ? 'Create external trigger' : 'Edit external trigger'}
       title={isCreate ? 'New authenticated endpoint' : form.name || form.id}
       actions={(
@@ -87,88 +89,91 @@ export function ExternalTriggerFormModal({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Name</span>
-              <input
-                className="pipelines-input"
-                value={form.name}
-                onChange={event => onFormChange({ name: event.target.value })}
-                required
-                data-dialog-initial-focus
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>ID</span>
-              <input
-                className="pipelines-input"
-                value={form.id}
-                onChange={event => onFormChange({ id: event.target.value })}
-                disabled={!isCreate}
-                placeholder="deploy-prod"
-                required
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm md:col-span-2">
-              <span>Description</span>
-              <input
-                className="pipelines-input"
-                value={form.description}
-                onChange={event => onFormChange({ description: event.target.value })}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Pipeline</span>
-              <select
-                className="pipelines-input"
-                value={form.pipeline}
-                onChange={event => onPipelineChange(event.target.value)}
-                required
-              >
-                <option value="" disabled>Select pipeline</option>
-                {pipelineOptions.map(pipeline => (
-                  <option key={pipeline} value={pipeline}>{pipeline}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Scope</span>
-              <select
-                className="pipelines-input"
-                value={form.scope}
-                onChange={event => onFormChange({ scope: event.target.value })}
-              >
-                {scopeOptions.map(scope => (
-                  <option key={scope || '__default__'} value={scope}>{scope || 'default'}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span>Run team</span>
-              <select
-                className="pipelines-input"
-                value={form.runTeamPath}
-                onChange={event => onFormChange({ runTeamPath: event.target.value })}
-              >
-                {runTeamOptions.map(team => (
-                  <option key={team} value={team}>{isGlobalResourceTeamPath(team) ? GLOBAL_RESOURCE_TEAM_LABEL : team}</option>
-                ))}
-              </select>
-            </label>
+      <div className="modal-hero">
+        <input
+          className="modal-hero-input"
+          aria-label="Name"
+          placeholder="Deploy production"
+          value={form.name}
+          onChange={event => onFormChange({ name: event.target.value })}
+          required
+          data-dialog-initial-focus
+        />
+        <input
+          className="modal-hero-summary"
+          aria-label="Description"
+          placeholder="Add an optional summary for this endpoint."
+          value={form.description}
+          onChange={event => onFormChange({ description: event.target.value })}
+        />
+      </div>
+      <hr className="modal-divider" />
+      <div className="modal-property-grid">
+        <WorkflowPropertyRow label="ID" hint="Used in the endpoint URL" htmlFor="external-trigger-id" control="wide">
+          <input
+            id="external-trigger-id"
+            className="pipelines-input w-full font-mono"
+            value={form.id}
+            onChange={event => onFormChange({ id: event.target.value })}
+            disabled={!isCreate}
+            placeholder="deploy-prod"
+            required
+          />
+        </WorkflowPropertyRow>
+        <WorkflowPropertyRow label="Pipeline" hint="Pipeline to run" htmlFor="external-trigger-pipeline" control="wide">
+          <select
+            id="external-trigger-pipeline"
+            className="pipelines-input w-full"
+            value={form.pipeline}
+            onChange={event => onPipelineChange(event.target.value)}
+            required
+          >
+            <option value="" disabled>Select pipeline</option>
+            {pipelineOptions.map(pipeline => (
+              <option key={pipeline} value={pipeline}>{pipeline}</option>
+            ))}
+          </select>
+        </WorkflowPropertyRow>
+        <WorkflowPropertyRow label="Scope" hint="Variables and secrets" htmlFor="external-trigger-scope">
+          <select
+            id="external-trigger-scope"
+            className="pipelines-input w-full"
+            value={form.scope}
+            onChange={event => onFormChange({ scope: event.target.value })}
+          >
+            {scopeOptions.map(scope => (
+              <option key={scope || '__default__'} value={scope}>{scope || 'default'}</option>
+            ))}
+          </select>
+        </WorkflowPropertyRow>
+        <WorkflowPropertyRow label="Run team" hint="Owning team" htmlFor="external-trigger-run-team">
+          <select
+            id="external-trigger-run-team"
+            className="pipelines-input w-full"
+            value={form.runTeamPath}
+            onChange={event => onFormChange({ runTeamPath: event.target.value })}
+          >
+            {runTeamOptions.map(team => (
+              <option key={team} value={team}>{isGlobalResourceTeamPath(team) ? GLOBAL_RESOURCE_TEAM_LABEL : team}</option>
+            ))}
+          </select>
+        </WorkflowPropertyRow>
+        <WorkflowPropertyRow label="Enabled" hint="Reject calls without deleting" htmlFor="external-trigger-enabled">
+          <label className="modal-toggle">
+            <input
+              id="external-trigger-enabled"
+              type="checkbox"
+              checked={form.enabled}
+              onChange={event => onFormChange({ enabled: event.target.checked })}
+            />
+            <span />
+          </label>
+        </WorkflowPropertyRow>
       </div>
 
       <section className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Allowed callers</h3>
-              <label className="dispatcher-toggle">
-                <input
-                  type="checkbox"
-                  checked={form.enabled}
-                  onChange={event => onFormChange({ enabled: event.target.checked })}
-                />
-                <span className="dispatcher-toggle__control"><span /></span>
-                <span className="dispatcher-toggle__label">Enabled</span>
-              </label>
+            <div className="modal-section-heading">
+              <h3 className="modal-section-heading__title">Allowed callers</h3>
             </div>
             <div className="flex flex-wrap gap-2">
               <select
