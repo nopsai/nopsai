@@ -4,7 +4,7 @@ import type { WikiApiRoute } from '../../types.js';
  * First-install setup.
  *
  * `/v1/setup/preflight` is public so a stuck install can be diagnosed without a
- * token, and `GET /v1/setup/license` is public so the proprietary notice can be
+ * token, and `GET /v1/setup/license` is public so the licence notice can be
  * read before anyone is asked to accept it. The rest of the surface stays reachable while the workspace
  * is locked but still requires authentication: the bootstrap administrator signs
  * in with the seeded credentials and then runs the wizard. Normal routes stay
@@ -197,7 +197,7 @@ export const first_install_setupRoutes: WikiApiRoute[] = [
     path: '/v1/setup/license',
     area: 'First-install setup',
     access: 'public',
-    purpose: 'The proprietary notice, its version and digest, and whether this installation has accepted it.',
+    purpose: 'The licence notice, its version and digest, and whether this installation has accepted it.',
     depth: 'full',
     parameters: [],
     requestSample: {
@@ -212,7 +212,7 @@ export const first_install_setupRoutes: WikiApiRoute[] = [
         description: 'The notice text, its identity, and the current acceptance record.',
         contentType: 'application/json',
         sample:
-          '{\n  "text": "NopsAI Proprietary Software Notice\\n...",\n  "document_version": "2026-01",\n  "document_sha256": "13173227932dbde8...",\n  "accepted": false\n}',
+          '{\n  "text": "NopsAI Licence\\n...",\n  "document_version": "2026-02",\n  "document_sha256": "13173227932dbde8...",\n  "accepted": false\n}',
       },
     ],
     errors: [
@@ -232,7 +232,7 @@ export const first_install_setupRoutes: WikiApiRoute[] = [
     path: '/v1/setup/license/accept',
     area: 'First-install setup',
     access: 'authenticated',
-    purpose: 'Record an administrator’s acceptance of the proprietary notice, which setup completion requires.',
+    purpose: 'Record an administrator’s acceptance of the licence notice, which setup completion requires.',
     depth: 'full',
     parameters: [],
     requestSample: {

@@ -20,15 +20,19 @@ import (
 	"time"
 )
 
-// Tier names the commercial shape of an installation. Evaluation is the floor:
-// it is what an installation gets when it presents no key, and what it falls
-// back to when a key cannot be trusted.
+// Tier names the commercial shape of an installation. Non-commercial is the
+// floor: it is what an installation gets when it presents no key, and what it
+// falls back to when a key cannot be trusted.
+//
+// The floor is not a restriction. NopsAI is free for any non-commercial purpose
+// under the licence shipped with it, so an installation with no key is a
+// complete, uncapped product. A key exists to record a commercial entitlement
+// and whatever scope was agreed for it.
 type Tier string
 
 const (
-	TierEvaluation Tier = "evaluation"
-	TierTeam       Tier = "team"
-	TierEnterprise Tier = "enterprise"
+	TierNonCommercial Tier = "noncommercial"
+	TierCommercial    Tier = "commercial"
 )
 
 // Claims is the signed payload of a licence key.
@@ -50,16 +54,18 @@ type Claims struct {
 	Features []string `json:"features,omitempty"`
 }
 
-// EvaluationClaims are the limits an unlicensed installation runs under. They
-// are deliberately usable: the point is to let someone evaluate NopsAI without
-// talking to sales, not to cripple it.
-func EvaluationClaims() Claims {
+// NonCommercialClaims are what an installation with no commercial key runs
+// under. Every limit is zero, which means unlimited: the non-commercial licence
+// grants the whole product, so there is nothing here to cap.
+//
+// Commercial use is a licence question, not a runtime one. The software has no
+// way to observe whether a purpose is commercial and never phones home to ask,
+// so the boundary is self-certified against the licence rather than enforced by
+// a ceiling.
+func NonCommercialClaims() Claims {
 	return Claims{
-		Licensee:          "Unlicensed evaluation",
-		Tier:              TierEvaluation,
-		MaxUsers:          5,
-		MaxTeams:          2,
-		MaxConcurrentRuns: 2,
+		Licensee: "Non-commercial use",
+		Tier:     TierNonCommercial,
 	}
 }
 

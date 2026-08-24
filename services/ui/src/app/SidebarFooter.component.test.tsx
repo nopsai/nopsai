@@ -83,7 +83,7 @@ describe('SidebarFooter', () => {
     expect(dialog).toHaveTextContent('dev');
     expect(dialog).toHaveTextContent('abc1234');
     expect(dialog).toHaveTextContent('sha256:feed');
-    expect(dialog).toHaveTextContent('NopsAI Proprietary Software Notice');
+    expect(dialog).toHaveTextContent('NopsAI Licence');
     expect(dialog).toHaveTextContent('contact@nopsai.com');
     expect(screen.getByRole('link', { name: 'nopsai.com/security' })).toHaveAttribute(
       'href',
@@ -108,7 +108,7 @@ describe('SidebarFooter', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'About NopsAI' });
     expect(dialog).toHaveTextContent('Build information is unavailable from this server.');
-    expect(dialog).toHaveTextContent('NopsAI Proprietary Software Notice');
+    expect(dialog).toHaveTextContent('NopsAI Licence');
   });
 
   it('closes the about dialog on Escape', async () => {

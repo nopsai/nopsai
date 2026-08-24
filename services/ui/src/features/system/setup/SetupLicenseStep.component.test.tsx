@@ -10,7 +10,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('./api', () => apiMocks);
 
-const noticeText = 'NopsAI Proprietary Software Notice\n\nNo licence or other right is granted merely by possession.';
+const noticeText = 'NopsAI Licence\n\nFree for any noncommercial purpose. Commercial use requires a written agreement.';
 const digest = 'a'.repeat(64);
 
 const unaccepted = {
@@ -35,7 +35,7 @@ beforeEach(() => {
 
 test('shows the full notice rather than a link to it', async () => {
   render(<SetupLicenseStep canManage onAccepted={vi.fn()} />);
-  expect(await screen.findByText(/No licence or other right is granted/)).toBeInTheDocument();
+  expect(await screen.findByText(/Commercial use requires a written agreement/)).toBeInTheDocument();
 });
 
 test('acceptance requires ticking the box first', async () => {

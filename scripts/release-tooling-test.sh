@@ -66,9 +66,9 @@ chart_file="$temp_dir/chart/nopsai-$actual.tgz"
 helm show chart "$chart_file" >"$temp_dir/chart-metadata.yaml"
 require_text "version: $actual" "$temp_dir/chart-metadata.yaml" "the chart version"
 require_text "appVersion: $actual" "$temp_dir/chart-metadata.yaml" "the chart application version"
-require_text "nopsai.com/license: LicenseRef-NopsAI-Proprietary" "$temp_dir/chart-metadata.yaml" "the proprietary licence annotation"
+require_text "nopsai.com/license: PolyForm-Noncommercial-1.0.0" "$temp_dir/chart-metadata.yaml" "the licence annotation"
 tar -tzf "$chart_file" >"$temp_dir/chart-contents.txt"
-require_text "nopsai/LICENSE" "$temp_dir/chart-contents.txt" "the packaged proprietary notice"
+require_text "nopsai/LICENSE" "$temp_dir/chart-contents.txt" "the packaged licence notice"
 require_text "nopsai/THIRD_PARTY_NOTICES.md" "$temp_dir/chart-contents.txt" "the packaged third-party notice index"
 helm show values "$chart_file" >"$temp_dir/chart-values.yaml"
 require_text "repository: ghcr.io/nopsai/nopsai-api" "$temp_dir/chart-values.yaml" "the API image repository"
@@ -126,9 +126,9 @@ container_dockerfiles=(
 )
 for dockerfile in "${container_dockerfiles[@]}"; do
   require_text \
-    "org.opencontainers.image.licenses=\"LicenseRef-NopsAI-Proprietary\"" \
+    "org.opencontainers.image.licenses=\"PolyForm-Noncommercial-1.0.0\"" \
     "$ROOT_DIR/$dockerfile" \
-    "the proprietary OCI licence label"
+    "the OCI licence label"
   require_text \
     "/usr/share/licenses/nopsai" \
     "$ROOT_DIR/$dockerfile" \

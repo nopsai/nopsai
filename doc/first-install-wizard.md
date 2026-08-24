@@ -26,8 +26,8 @@ The authenticated setup page is a system administration surface:
 - `GET /v1/setup/preflight` is public so the UI can explain missing initial
   configuration before authentication is available.
 - `GET /v1/setup/license` is public for the same reason: an administrator has to
-  be able to read the proprietary notice before being asked to accept it, and
-  the notice is the same text already shipped in every artifact.
+  be able to read the licence before being asked to accept it, and the notice is
+  the same text already shipped in every artifact.
 - `POST /v1/setup/license/accept` requires `system.update` on `system:config`,
   because recording acceptance is an administrator action even though reading
   the notice is not.
@@ -373,10 +373,10 @@ Important response fields:
 
 ## Licence Acceptance
 
-NopsAI is proprietary software, and possession of a binary, image, or chart
-grants no right to use it. Container images are publicly pullable, so the
-wizard is where an anonymous puller becomes an installation that has agreed to
-terms.
+NopsAI is free for any non-commercial purpose under the licence shipped with it,
+and commercial use requires a separate written agreement. Container images are
+publicly pullable, so the wizard is where an anonymous puller becomes an
+installation that has read those terms and agreed to them.
 
 The first wizard step shows the full notice — not a link to it — with an
 explicit checkbox and a disabled continue button until it is ticked. Acceptance

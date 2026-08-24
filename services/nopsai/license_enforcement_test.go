@@ -6,13 +6,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"nopsai/config"
 	"nopsai/pkg/buildinfo"
 	"nopsai/pkg/license"
 )
 
-// A build with no verification key cannot tell a licensed installation from an
-// unlicensed one, so it must not apply evaluation ceilings. Otherwise every
+// newAppWithLicenseKey builds the smallest App that resolves an entitlement:
+// a config snapshot carrying the key, and no database, so any count lookup
+// fails and the fail-closed path is the one under test.
+func newAppWithLicenseKey(key string) *App {
+	return &App{cfg: &config.Config{LicenseKey: key}}
+}
+
+// A build with no verification key cannot tell a commercially licensed
+// installation from any other, so it must not apply ceilings. Otherwise every
 // installation that predates licensing is silently capped.
 func TestEnforcementIsInertOnBuildsThatCannotVerify(t *testing.T) {
 	original := buildinfo.LicensePublicKey
@@ -30,9 +39,44 @@ func TestEnforcementIsInertOnBuildsThatCannotVerify(t *testing.T) {
 	}
 }
 
-// Within a verifying build, a count that cannot be read must block rather than
-// pass: being unable to evaluate a limit is not the same as being under it.
+// Where a commercial licence records a limit, a count that cannot be read must
+// block rather than pass: being unable to evaluate a limit is not the same as
+// being under it.
 func TestEnforcementFailsClosedWhenUsageCannotBeRead(t *testing.T) {
+	original := buildinfo.LicensePublicKey
+	t.Cleanup(func() { buildinfo.LicensePublicKey = original })
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate keypair: %v", err)
+	}
+	buildinfo.LicensePublicKey = base64.StdEncoding.EncodeToString(publicKey)
+
+	capped, err := license.Sign(license.Claims{
+		Licensee:  "Acme BV",
+		Tier:      license.TierCommercial,
+		IssuedAt:  time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().AddDate(1, 0, 0),
+		MaxUsers:  5,
+	}, privateKey)
+	if err != nil {
+		t.Fatalf("Sign() error = %v", err)
+	}
+
+	app := newAppWithLicenseKey(string(capped))
+	err = app.enforceUserEntitlement(t.Context())
+	if err == nil {
+		t.Fatal("enforcement must refuse when current usage cannot be read")
+	}
+	if _, ok := err.(entitlementError); !ok {
+		t.Fatalf("error = %T, want entitlementError so the handler answers 402", err)
+	}
+}
+
+// NopsAI is free and uncapped for non-commercial use, so an installation with
+// no commercial key has no ceiling to evaluate. Nothing is read, and nothing is
+// refused — not even when the database is unreachable, because there is no
+// limit to be unable to check.
+func TestNonCommercialUseIsNeverRefused(t *testing.T) {
 	original := buildinfo.LicensePublicKey
 	t.Cleanup(func() { buildinfo.LicensePublicKey = original })
 	publicKey, _, err := ed25519.GenerateKey(nil)
@@ -41,13 +85,12 @@ func TestEnforcementFailsClosedWhenUsageCannotBeRead(t *testing.T) {
 	}
 	buildinfo.LicensePublicKey = base64.StdEncoding.EncodeToString(publicKey)
 
-	app := &App{}
-	err = app.enforceUserEntitlement(t.Context())
-	if err == nil {
-		t.Fatal("enforcement must refuse when current usage cannot be read")
+	app := newAppWithLicenseKey("")
+	if err := app.enforceUserEntitlement(t.Context()); err != nil {
+		t.Fatalf("enforceUserEntitlement() = %v, want nil under the non-commercial licence", err)
 	}
-	if _, ok := err.(entitlementError); !ok {
-		t.Fatalf("error = %T, want entitlementError so the handler answers 402", err)
+	if err := app.enforceTeamEntitlement(t.Context()); err != nil {
+		t.Fatalf("enforceTeamEntitlement() = %v, want nil under the non-commercial licence", err)
 	}
 }
 
@@ -58,7 +101,7 @@ func TestEntitlementDenialAnswers402(t *testing.T) {
 
 	handled := app.writeEntitlementError(recorder, request, entitlementError{
 		resource: "team",
-		message:  "This installation has reached its team limit for the evaluation tier.",
+		message:  "This installation has reached the team limit recorded in its commercial licence.",
 	})
 	if !handled {
 		t.Fatal("an entitlement error must be handled")

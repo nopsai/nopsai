@@ -1,14 +1,5 @@
 # NopsAI Commercial Software Licence Agreement
 
-> **Draft for legal review.** This is a working first draft, written to be
-> internally consistent with how NopsAI is actually built and delivered — the
-> self-hosted deployment model, the absence of usage telemetry, and the fact
-> that the Licensor is currently a natural person rather than a registered
-> company. It has not been reviewed by a qualified lawyer. Have a Dutch
-> technology lawyer review it before it is put in front of a customer, and in
-> particular before relying on clauses 13 (Liability), 15 (Indemnity) and 20
-> (Governing law).
->
 > Bracketed values in `[BRACKETS]` are completed per deal in the Order Form.
 > The Order Form template is Schedule 1.
 
@@ -31,6 +22,19 @@ The Licensor is not presently registered with the Dutch Chamber of Commerce.
 Clause 18.2 governs what happens to this Agreement when the NopsAI business is
 transferred to a registered legal entity, and the Customer's consent to that
 transfer is given in advance under that clause.
+
+## Background
+
+(A) The Licensor makes the NopsAI platform available publicly under the PolyForm
+Noncommercial License 1.0.0 (the **"Public Licence"**), which permits use for
+any noncommercial purpose and expressly does not permit commercial use.
+
+(B) The Customer wishes to use the Software for commercial purposes, which the
+Public Licence does not grant. This Agreement is the written agreement the
+Public Licence requires for that use.
+
+(C) Nothing in this Agreement reduces any right the Customer or anyone else has
+under the Public Licence for noncommercial purposes.
 
 ## 1. Definitions
 
@@ -80,6 +84,13 @@ each renewal term under clause 8.
 
 1.12 **"Fees"** means the amounts stated in the Order Form.
 
+1.13 **"Public Licence"** means the PolyForm Noncommercial License 1.0.0 under
+which the Licensor makes the Software publicly available, as shipped in the
+`LICENSE` file of each Release.
+
+1.14 **"Commercial Use"** means any use of the Software that is not a permitted
+purpose under the Public Licence.
+
 ## 2. Licence grant
 
 2.1 Subject to the Customer's compliance with this Agreement and payment of the
@@ -111,11 +122,16 @@ that is:
 to make a reasonable number of copies for backup, disaster recovery, staging and
 testing purposes supporting the Licensed Scope.
 
-2.3 The Software is licensed, not sold. All rights not expressly granted are
-reserved. Possession of, or access to, any Software artifact confers no right to
-use it.
+2.3 This Agreement grants Commercial Use. That is what it adds: the Public
+Licence already permits noncommercial use of the same Software by anyone,
+without payment and without limit, and continues to do so alongside this
+Agreement.
 
-2.4 Non-production environments used solely for development, testing, staging or
+2.4 The Software is licensed, not sold. All rights not expressly granted are
+reserved. Beyond the Public Licence, possession of or access to a Software
+artifact confers no right to use it commercially.
+
+2.5 Non-production environments used solely for development, testing, staging or
 disaster-recovery standby do not consume Licensed Scope unless the Order Form
 states otherwise.
 
@@ -135,7 +151,7 @@ states otherwise.
       requesting the necessary interoperability information from the Licensor
       and allowing a reasonable period for a response;
 
-  (d) remove, obscure or alter any proprietary notice, licence identifier or
+  (d) remove, obscure or alter any copyright notice, licence identifier or
       third-party notice in or accompanying the Software;
 
   (e) exceed the Licensed Scope, or circumvent any technical or contractual
@@ -245,9 +261,11 @@ terminate immediately where the breach is not capable of remedy.
 8.4 Either Party may terminate immediately if the other is declared bankrupt,
 granted suspension of payments, or ceases to carry on business.
 
-8.5 On expiry or termination the licence ends. The Customer shall within 30 days
-cease all use of the Software, remove it from the Customer Environment, and
-confirm in writing that it has done so.
+8.5 On expiry or termination the licence granted by this Agreement ends. The
+Customer shall within 30 days cease all Commercial Use of the Software and
+confirm in writing that it has done so. This does not affect the Customer's
+rights under the Public Licence, which continue for any noncommercial purpose
+independently of this Agreement.
 
 8.6 Termination does not affect Customer Data, which is and remains in the
 Customer Environment. The Customer is solely responsible for extracting anything
@@ -345,8 +363,10 @@ deciding which automated actions are permitted to take effect.
 
 ## 14. Verification of scope
 
-14.1 The Software transmits no usage telemetry to the Licensor. Compliance with
-the Licensed Scope is therefore self-certified.
+14.1 The Software transmits no usage telemetry to the Licensor, contains no
+activation call, and does not detect whether a given use is commercial.
+Compliance with the Licensed Scope, and the distinction between Commercial Use
+and noncommercial use, are therefore self-certified.
 
 14.2 On the Licensor's written request, and no more than once in any twelve-month
 period, the Customer shall provide a written statement signed by an authorised

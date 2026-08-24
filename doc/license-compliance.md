@@ -4,6 +4,13 @@ This is the engineering policy for keeping NopsAI commercially distributable.
 It is not legal advice; legal/commercial counsel should sign off before a paid
 enterprise release.
 
+NopsAI itself ships under the PolyForm Noncommercial License 1.0.0, and
+commercial use is licensed separately — see
+[licensing-and-distribution.md](./licensing-and-distribution.md). That makes the
+dependency bar *higher*, not lower: every dependency must permit both the free
+noncommercial distribution and the commercial licensing, so a dependency that
+forbids either one is out. The rules below are unchanged by the licence model.
+
 ## Automated Gate
 
 Run the dependency license gate from the repository root:
@@ -63,6 +70,9 @@ why it is needed and how notices are preserved.
 Do not add dependencies under GPL, AGPL, LGPL, SSPL, Commons Clause, Business
 Source License, PolyForm Noncommercial, source-available-only terms, trial-only
 terms, or any license that restricts commercial sale without explicit approval.
+PolyForm Noncommercial appears on that list even though NopsAI ships under it:
+NopsAI is licensed commercially under a separate agreement, and a dependency
+that cannot be is what would break that.
 
 Do not copy third-party source, examples, documentation, datasets, images,
 icons, fonts, model prompts, or generated content into this repository unless

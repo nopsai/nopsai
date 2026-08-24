@@ -30,9 +30,9 @@ func main() {
 	var (
 		generateKeypair = flag.Bool("generate-keypair", false, "generate a new issuing keypair and exit")
 		privateKeyB64   = flag.String("private-key", os.Getenv("NOPSAI_LICENSE_PRIVATE_KEY"), "base64 Ed25519 private key (or NOPSAI_LICENSE_PRIVATE_KEY)")
-		licensee        = flag.String("licensee", "", "the organisation the licence is issued to")
+		licensee        = flag.String("licensee", "", "the organisation the commercial licence is issued to")
 		licenseID       = flag.String("license-id", "", "issuer-side identifier for this licence")
-		tier            = flag.String("tier", string(license.TierTeam), "evaluation, team, or enterprise")
+		tier            = flag.String("tier", string(license.TierCommercial), "commercial tier recorded in the key")
 		days            = flag.Int("days", 365, "validity in days from now")
 		maxUsers        = flag.Int("max-users", 0, "user ceiling, 0 for unlimited")
 		maxTeams        = flag.Int("max-teams", 0, "team ceiling, 0 for unlimited")

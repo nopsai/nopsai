@@ -20,8 +20,8 @@ Start here when you want to understand the system from different angles:
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
 - [performance-testing.md](./performance-testing.md): Backend load-test harness, request/auth/webhook/pipeline suites, concurrency ramps, per-service resource sampling, saturation analysis, and regression gating.
 - [license-compliance.md](./license-compliance.md): Commercial dependency-license policy, current language dependency audit, container/service review boundaries, and MCP/plugin obligations.
-- [licensing-enforcement-plan.md](./licensing-enforcement-plan.md): The staged plan for public artifact distribution, the third-party notice bundle, the release secret-scan gate, first-install licence acceptance, and the offline licence key and entitlement model.
-- [licensing-entitlements.md](./licensing-entitlements.md): Offline Ed25519 licence keys, GitOps key configuration, issuing, evaluation limits, and exactly where entitlement enforcement applies.
+- [public-distribution-controls.md](./public-distribution-controls.md): What open artifact distribution puts on the critical path — the third-party notice bundle, the release secret-scan gate, first-install licence acceptance, and the offline commercial licence key.
+- [licensing-entitlements.md](./licensing-entitlements.md): Offline Ed25519 commercial licence keys, GitOps key configuration, issuing, the uncapped non-commercial default, and exactly where entitlement enforcement applies.
 - [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): Enterprise feature ownership, SSO follow-up status, and remaining refactor targets.
 - [credential-management.md](./credential-management.md): Implemented single credential interface, encrypted registry, bootstrap boundary, GitOps references and encrypted envelopes, AAA, rotation, and migration behavior.
 - [package-ownership.md](./package-ownership.md): Handler, service, store, domain, DTO, provider-client, and bootstrap ownership rules.

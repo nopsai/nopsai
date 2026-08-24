@@ -57,9 +57,9 @@ export function SetupLicenseStep({ canManage, onAccepted }: SetupLicenseStepProp
   return (
     <div className="space-y-4">
       <StepIntro title="Licence acceptance" icon={<ScrollText className="h-4 w-4" />}>
-        NopsAI is proprietary software. Having a copy of the software, an image, or a chart does not by
-        itself grant a right to use it. An administrator must accept the notice below before setup can
-        complete.
+        NopsAI is free for any non-commercial purpose under the licence below. Commercial use — running
+        NopsAI in or for a business — is not granted by it and requires a separate written agreement. An
+        administrator must accept the licence before setup can complete.
       </StepIntro>
 
       {document?.reacceptance_required && (
@@ -82,7 +82,7 @@ export function SetupLicenseStep({ canManage, onAccepted }: SetupLicenseStepProp
         <>
           <div
             tabIndex={0}
-            aria-label="NopsAI proprietary software notice"
+            aria-label="NopsAI licence notice"
             className="max-h-80 overflow-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4"
           >
             <pre className="whitespace-pre-wrap font-mono text-sm leading-6 text-[var(--text-primary)]">

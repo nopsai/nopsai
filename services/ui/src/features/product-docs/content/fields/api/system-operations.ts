@@ -849,7 +849,7 @@ export const system_operationsRoutes: WikiApiRoute[] = [
       title: 'Check the entitlement',
       language: 'bash',
       code: 'curl -s -H "Authorization: Bearer $NOPSAI_TOKEN" "$NOPSAI_URL/v1/system/license" | jq \'{licensed, tier, limits, usage, reason}\'',
-      expectedOutput: 'On an unlicensed install, `licensed: false` with evaluation limits and a reason naming what to fix.',
+      expectedOutput: 'Without a commercial key, `licensed: false` on the noncommercial tier, with no limits and a reason stating the licence position.',
     },
     responses: [
       {
@@ -857,7 +857,7 @@ export const system_operationsRoutes: WikiApiRoute[] = [
         description: 'Entitlement, limits, current usage against them, and the reason for any non-licensed state.',
         contentType: 'application/json',
         sample:
-          '{\n  "licensed": false,\n  "tier": "evaluation",\n  "reason": "No licence key is configured. Running under evaluation limits.",\n  "limits": { "max_users": 5, "max_teams": 2, "max_concurrent_runs": 2 },\n  "usage": { "users": 1, "teams": 0 }\n}',
+          '{\n  "licensed": false,\n  "tier": "noncommercial",\n  "reason": "No commercial licence key is configured. Running under the non-commercial licence, which is free and uncapped for any non-commercial purpose.",\n  "limits": { "max_users": 0, "max_teams": 0, "max_concurrent_runs": 0 },\n  "usage": { "users": 1, "teams": 0 }\n}',
       },
     ],
     errors: [],

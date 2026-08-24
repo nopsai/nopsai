@@ -49,7 +49,7 @@ LABEL org.opencontainers.image.version="${VERSION}" \
   org.opencontainers.image.revision="${COMMIT}" \
   org.opencontainers.image.created="${BUILD_DATE}" \
   org.opencontainers.image.source="${SOURCE_URL}" \
-  org.opencontainers.image.licenses="LicenseRef-NopsAI-Proprietary" \
+  org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0" \
   org.opencontainers.image.vendor="NopsAI"
 
 RUN apk add --no-cache ca-certificates && \

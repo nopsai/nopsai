@@ -10,5 +10,5 @@ icon: https://raw.githubusercontent.com/nopsai/nopsai/main/services/ui/public/br
 sources:
   - https://github.com/nopsai/nopsai
 annotations:
-  nopsai.com/license: LicenseRef-NopsAI-Proprietary
+  nopsai.com/license: PolyForm-Noncommercial-1.0.0
   nopsai.com/copyright-owner: Hossein Yousefi

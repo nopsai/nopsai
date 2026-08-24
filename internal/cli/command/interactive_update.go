@@ -138,11 +138,11 @@ func updateResultScreenOptions(options *updateOptions, state homeState) interact
 	}
 }
 
-// runInteractiveLicense shows the proprietary notice on a scrollable screen so
+// runInteractiveLicense shows the licence notice on a scrollable screen so
 // the interactive console covers the same ground as `nopsai license`.
 func runInteractiveLicense(command *cobra.Command, prompter *interactive.Prompter, state homeState) error {
 	if err := showInteractiveCommandPreview(prompter, "License command preview", []string{"nopsai", "license"}, []string{
-		"Print the NopsAI proprietary software notice.",
+		"Print the NopsAI licence notice.",
 		"Show what this installation is entitled to run, the same as `nopsai license status`.",
 	}, commandPreviewScreenOptions([]string{"Home", "License", "Preview"}, "License Preview", sessionHeaderLines(state))); err != nil {
 		return err
@@ -156,7 +156,7 @@ func runInteractiveLicense(command *cobra.Command, prompter *interactive.Prompte
 	// best-effort: an unreachable or unauthenticated API leaves the notice
 	// readable instead of failing the screen.
 	lines := interactiveLicenseEntitlementLines(command, state)
-	lines = append(lines, strings.Split(proprietaryLicenseNotice, "\n")...)
+	lines = append(lines, strings.Split(licenseNotice, "\n")...)
 
 	err := prompter.ShowTextScreen("License", lines, interactive.ScreenOptions{
 		Breadcrumb: []string{"Home", "License"},
@@ -197,12 +197,12 @@ func interactiveLicenseEntitlementLines(command *cobra.Command, state homeState)
 
 	lines := []string{}
 	if status.Licensed {
-		lines = append(lines, fmt.Sprintf("Entitlement: licensed to %s (%s tier)", status.Licensee, status.Tier))
+		lines = append(lines, fmt.Sprintf("Entitlement: commercially licensed to %s (%s tier)", status.Licensee, status.Tier))
 		if status.ExpiresAt != "" {
 			lines = append(lines, "Expires:     "+status.ExpiresAt)
 		}
 	} else {
-		lines = append(lines, fmt.Sprintf("Entitlement: not licensed (%s tier)", status.Tier))
+		lines = append(lines, fmt.Sprintf("Entitlement: non-commercial use (%s)", status.Tier))
 		if status.Reason != "" {
 			lines = append(lines, "Reason:      "+status.Reason)
 		}

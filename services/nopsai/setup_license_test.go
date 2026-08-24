@@ -92,14 +92,18 @@ func TestSetupLicenseDocumentIdentityIsRecordable(t *testing.T) {
 	if len(licensenotice.SHA256()) != 64 {
 		t.Fatalf("document digest = %q, want a 64-character hex sha256", licensenotice.SHA256())
 	}
-	if !strings.Contains(licensenotice.Text, "NopsAI Proprietary Software Notice") {
-		t.Fatal("the served notice must be the proprietary notice")
+	for _, expected := range []string{"NopsAI Licence", "PolyForm Noncommercial License 1.0.0", "Commercial use is not granted by this licence"} {
+		if !strings.Contains(licensenotice.Text, expected) {
+			t.Fatalf("the served notice must be the shipped licence; missing %q", expected)
+		}
 	}
 }
 
-// The production gate must distinguish "this operator has not licensed the
-// installation" from "this build cannot check licences at all".
-func TestLicenseEntitlementGateOnlyBlocksBuildsThatCanVerify(t *testing.T) {
+// The licence check states a position; it never blocks. NopsAI is free for any
+// non-commercial purpose, so an installation with no commercial key is entitled
+// to run in production, and whether a purpose is commercial is something the
+// software cannot observe and never asks.
+func TestLicenseEntitlementCheckNeverBlocksStartup(t *testing.T) {
 	original := buildinfo.LicensePublicKey
 	t.Cleanup(func() { buildinfo.LicensePublicKey = original })
 
@@ -111,7 +115,7 @@ func TestLicenseEntitlementGateOnlyBlocksBuildsThatCanVerify(t *testing.T) {
 
 	validKey, err := license.Sign(license.Claims{
 		Licensee:  "Acme BV",
-		Tier:      license.TierEnterprise,
+		Tier:      license.TierCommercial,
 		IssuedAt:  time.Now().UTC(),
 		ExpiresAt: time.Now().UTC().AddDate(1, 0, 0),
 	}, privateKey)
@@ -120,39 +124,41 @@ func TestLicenseEntitlementGateOnlyBlocksBuildsThatCanVerify(t *testing.T) {
 	}
 
 	cases := []struct {
-		name         string
-		buildKey     string
-		licenseKey   string
-		strict       bool
-		wantRequired bool
-		wantStatus   string
+		name        string
+		buildKey    string
+		licenseKey  string
+		strict      bool
+		wantStatus  string
+		wantMessage string
 	}{
 		{
-			name:       "a build with no verification key never blocks, even in production",
-			buildKey:   "",
-			strict:     true,
-			wantStatus: "warning",
+			name:        "outside production the non-commercial licence needs no prompting",
+			buildKey:    encodedPublic,
+			strict:      false,
+			wantStatus:  "success",
+			wantMessage: "non-commercial licence",
 		},
 		{
-			name:       "outside production an unlicensed install is advisory",
-			buildKey:   encodedPublic,
-			strict:     false,
-			wantStatus: "warning",
+			name:        "in production the commercial boundary is named, not enforced",
+			buildKey:    encodedPublic,
+			strict:      true,
+			wantStatus:  "warning",
+			wantMessage: "contact@nopsai.com",
 		},
 		{
-			name:         "in production a verifying build with no key blocks",
-			buildKey:     encodedPublic,
-			strict:       true,
-			wantRequired: true,
-			wantStatus:   "error",
+			name:        "a build with no verification key still reports its position",
+			buildKey:    "",
+			strict:      true,
+			wantStatus:  "warning",
+			wantMessage: "non-commercial licence",
 		},
 		{
-			name:         "in production a valid key passes",
-			buildKey:     encodedPublic,
-			licenseKey:   string(validKey),
-			strict:       true,
-			wantRequired: true,
-			wantStatus:   "success",
+			name:        "a valid commercial key names its licensee",
+			buildKey:    encodedPublic,
+			licenseKey:  string(validKey),
+			strict:      true,
+			wantStatus:  "success",
+			wantMessage: "Acme BV",
 		},
 	}
 
@@ -163,11 +169,11 @@ func TestLicenseEntitlementGateOnlyBlocksBuildsThatCanVerify(t *testing.T) {
 			if check.Status != testCase.wantStatus {
 				t.Errorf("status = %q, want %q (message: %s)", check.Status, testCase.wantStatus, check.Message)
 			}
-			if check.Required != testCase.wantRequired {
-				t.Errorf("required = %v, want %v", check.Required, testCase.wantRequired)
+			if check.Required {
+				t.Error("the licence check must never be required, so it can never block startup")
 			}
-			if strings.TrimSpace(check.Message) == "" {
-				t.Error("the gate must always explain itself")
+			if !strings.Contains(check.Message, testCase.wantMessage) {
+				t.Errorf("message = %q, want it to mention %q", check.Message, testCase.wantMessage)
 			}
 		})
 	}

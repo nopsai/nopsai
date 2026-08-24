@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestLicenseCommandPrintsOwnershipAndLicenceRequirement(t *testing.T) {
+func TestLicenseCommandPrintsTheNonCommercialGrantAndTheCommercialBoundary(t *testing.T) {
 	command := newLicenseCommand(&rootOptions{})
 	command.SetArgs([]string{})
 	var output bytes.Buffer
@@ -18,8 +18,11 @@ func TestLicenseCommandPrintsOwnershipAndLicenceRequirement(t *testing.T) {
 
 	for _, expected := range []string{
 		"Hossein Yousefi",
-		"proprietary software",
+		"PolyForm Noncommercial License 1.0.0",
+		"free",
+		"Commercial use is not granted by this licence",
 		"written agreement",
+		"contact@nopsai.com",
 		"THIRD_PARTY_NOTICES.md",
 	} {
 		if !strings.Contains(output.String(), expected) {
@@ -45,19 +48,22 @@ func TestLicenseStatusRendersUnlimitedRatherThanZero(t *testing.T) {
 	}
 }
 
-func TestLicenseStatusExplainsAnUnlicensedInstallation(t *testing.T) {
+func TestLicenseStatusExplainsANonCommercialInstallation(t *testing.T) {
 	command := newLicenseCommand(&rootOptions{})
 	var output bytes.Buffer
 	command.SetOut(&output)
 
-	status := licenseStatusResponse{Tier: "evaluation", Reason: "No licence key is configured."}
-	status.Limits.MaxUsers = 5
+	status := licenseStatusResponse{
+		Tier:   "noncommercial",
+		Reason: "No commercial licence key is configured. Running under the non-commercial licence, which is free and uncapped for any non-commercial purpose.",
+	}
 	status.Usage.Users = 1
 
 	if err := renderLicenseStatus(command, status, "text"); err != nil {
 		t.Fatalf("renderLicenseStatus: %v", err)
 	}
-	for _, expected := range []string{"Not licensed", "evaluation", "No licence key is configured.", "1 of 5"} {
+	// An uncapped limit must read as unlimited, never as a ceiling of nothing.
+	for _, expected := range []string{"Non-commercial use", "noncommercial", "free and uncapped", "1 of unlimited"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Errorf("licence status output is missing %q:\n%s", expected, output.String())
 		}

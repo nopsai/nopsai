@@ -122,7 +122,7 @@ func homeChoices() []interactive.Choice {
 		{Label: "update", Description: "Update this CLI to an exact release version", SearchText: "update selfupdate cli binary version release download upgrade"},
 		{Label: "completion", Description: "Generate shell completion files or raw scripts", SearchText: "completion bash zsh fish powershell shell output stdout"},
 		{Label: "guide", Description: "Read CLI examples for common operator topics", SearchText: "help sample example config gitops mcp"},
-		{Label: "license", Description: "Show the proprietary notice and what this installation is entitled to run", SearchText: "license notice legal copyright proprietary terms entitlement key tier limits status"},
+		{Label: "license", Description: "Show the licence notice and what this installation is entitled to run", SearchText: "license licence notice legal copyright noncommercial commercial terms entitlement key tier limits status"},
 		{Label: "help", Description: "Show command help", SearchText: "help commands flags"},
 		{Label: "exit", Description: "Close the interactive session", SearchText: "quit back exit"},
 	}

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The About dialog in the web UI quotes the proprietary notice verbatim. So does
+// The About dialog in the web UI quotes the licence notice verbatim. So does
 // `nopsai license`, and so does the LICENSE file shipped in every artifact. A
 // legal notice that says three different things depending on where a user reads
 // it is worse than one that is only in one place, so this test fails if the UI
@@ -27,8 +27,10 @@ func TestAboutDialogQuotesTheShippedLicenseNotice(t *testing.T) {
 	if cliNotice != uiNotice {
 		t.Fatalf("the About dialog notice differs from `nopsai license`:\nCLI:\n%s\n\nUI:\n%s", cliNotice, uiNotice)
 	}
-	if !strings.Contains(cliNotice, "NopsAI Proprietary Software Notice") {
-		t.Fatalf("expected the proprietary notice, got: %s", cliNotice)
+	for _, expected := range []string{"NopsAI Licence", "PolyForm Noncommercial License 1.0.0", "Commercial use is not granted by this licence"} {
+		if !strings.Contains(cliNotice, expected) {
+			t.Fatalf("licence notice is missing %q, got: %s", expected, cliNotice)
+		}
 	}
 
 	// The same first line has to survive in the file shipped beside the binaries.
@@ -42,14 +44,14 @@ func TestAboutDialogQuotesTheShippedLicenseNotice(t *testing.T) {
 	}
 }
 
-// Reads the backtick-quoted string assigned to proprietaryLicenseNotice, which
+// Reads the backtick-quoted string assigned to licenseNotice, which
 // both files declare under that name.
 func noticeLiteral(t *testing.T, source string) string {
 	t.Helper()
-	const marker = "proprietaryLicenseNotice = "
+	const marker = "licenseNotice = "
 	declaration := strings.LastIndex(source, marker)
 	if declaration < 0 {
-		t.Fatalf("no proprietaryLicenseNotice declaration found")
+		t.Fatalf("no licenseNotice declaration found")
 	}
 	source = source[declaration+len(marker):]
 	start := strings.Index(source, "`")

@@ -10,24 +10,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const proprietaryLicenseNotice = `NopsAI Proprietary Software Notice
+const licenseNotice = `NopsAI Licence
 
 Copyright (c) 2026 Hossein Yousefi. All rights reserved.
 
-NopsAI is proprietary software. Possession of or access to this binary does not
-grant a licence to use it. Use is permitted only under a written agreement
-signed by Hossein Yousefi or by a successor entity to which the relevant rights
-have been assigned.
+NopsAI is licensed under the PolyForm Noncommercial License 1.0.0. It is free
+for any noncommercial purpose: personal use, study, research, experimentation,
+hobby projects, and use by charitable organizations, educational institutions,
+public research organizations, public safety or health organizations,
+environmental protection organizations and government institutions.
+
+Commercial use is not granted by this licence. Using NopsAI in or for a
+business, or for any other commercial purpose, requires a separate
+written agreement.
 
 Third-party components remain subject to their applicable licence terms. See the
 LICENSE and THIRD_PARTY_NOTICES.md files supplied with the NopsAI release.
 
-Licensing enquiries: contact@nopsai.com`
+Commercial licensing enquiries: contact@nopsai.com`
 
 func newLicenseCommand(options *rootOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "license",
-		Short: "Show the NopsAI proprietary software notice",
+		Short: "Show the NopsAI licence notice",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return renderLicenseNotice(command)
@@ -103,7 +108,7 @@ func renderLicenseStatus(command *cobra.Command, status licenseStatusResponse, o
 
 	writer := command.OutOrStdout()
 	if status.Licensed {
-		if _, err := fmt.Fprintf(writer, "Licensed to %s (%s tier)\n", status.Licensee, status.Tier); err != nil {
+		if _, err := fmt.Fprintf(writer, "Commercially licensed to %s (%s tier)\n", status.Licensee, status.Tier); err != nil {
 			return err
 		}
 		if status.LicenseID != "" {
@@ -113,7 +118,9 @@ func renderLicenseStatus(command *cobra.Command, status licenseStatusResponse, o
 			fmt.Fprintf(writer, "Expires:     %s\n", status.ExpiresAt)
 		}
 	} else {
-		if _, err := fmt.Fprintf(writer, "Not licensed (%s tier)\n", status.Tier); err != nil {
+		// Not a fault state: the non-commercial licence is a complete grant, so
+		// this reads as a position rather than as something to fix.
+		if _, err := fmt.Fprintf(writer, "Non-commercial use (%s)\n", status.Tier); err != nil {
 			return err
 		}
 		if status.Reason != "" {
@@ -146,6 +153,6 @@ func ceilingLine(limit int) string {
 }
 
 func renderLicenseNotice(command *cobra.Command) error {
-	_, err := fmt.Fprintln(command.OutOrStdout(), proprietaryLicenseNotice)
+	_, err := fmt.Fprintln(command.OutOrStdout(), licenseNotice)
 	return err
 }

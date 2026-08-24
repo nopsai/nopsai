@@ -1,8 +1,8 @@
 # Third-Party Software Notices
 
 NopsAI includes, links to, packages, or depends on third-party software. Those
-components are not licensed under the NopsAI proprietary notice and remain
-subject to their own copyright notices and licence terms.
+components are not licensed under the NopsAI licence and remain subject to their
+own copyright notices and licence terms.
 
 ## Authoritative dependency sources
 

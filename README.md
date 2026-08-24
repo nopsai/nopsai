@@ -307,9 +307,19 @@ repository-side source map that keeps it honest.
 
 ## License
 
-Proprietary. Copyright (c) 2026 Hossein Yousefi. All rights reserved. See
-[LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+NopsAI is published under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+Copyright (c) 2026 Hossein Yousefi.
 
-Customer use requires a signed agreement; the licence grant, Order Form and
-support data processing terms are in [legal/](legal/). Security issues go to
+**Free for any non-commercial purpose** — personal use, study, research,
+experimentation, hobby projects, and use by charitable, educational, public
+research, public safety, health, environmental and government organizations. No
+key, no registration, no limits on users, teams or runs.
+
+**Commercial use requires a written agreement.** Running NopsAI in or for a
+business, or for any other commercial purpose, is not granted by the public
+licence. Email contact@nopsai.com and we will sort it out; the agreement, Order
+Form and support data processing terms are in [legal/](legal/).
+
+Third-party components keep their own terms — see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Security issues go to
 contact@nopsai.com — see [SECURITY.md](SECURITY.md).

@@ -73,11 +73,11 @@ clause 4 for the contractual position on updates.
 
 NopsAI runs inside customer infrastructure. We have no access to any deployment,
 receive no telemetry from one, and cannot patch anyone's installation ourselves.
-A fix is therefore not the end of the process — it is a Release, plus a notice to
-licensed customers that they should upgrade, plus whatever mitigation is
-available to those who cannot upgrade immediately.
+A fix is therefore not the end of the process — it is a Release, plus a notice
+that operators should upgrade, plus whatever mitigation is available to those
+who cannot upgrade immediately.
 
-That shapes our disclosure timing. We aim to give licensed customers advance
-notice and an available Release before any public detail, because a public
-advisory against software the operator has not yet patched helps an attacker
-more than it helps the operator.
+That shapes our disclosure timing. We aim to publish an available Release before
+any public detail, and to give commercial customers advance notice where we have
+a contact for them, because a public advisory against software the operator has
+not yet patched helps an attacker more than it helps the operator.

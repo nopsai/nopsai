@@ -25,7 +25,7 @@ func validClaims() Claims {
 	return Claims{
 		Licensee:          "Acme BV",
 		LicenseID:         "lic-001",
-		Tier:              TierEnterprise,
+		Tier:              TierCommercial,
 		IssuedAt:          now,
 		ExpiresAt:         now.AddDate(1, 0, 0),
 		MaxUsers:          50,
@@ -117,7 +117,7 @@ func TestSignRefusesAKeyThatNamesNobody(t *testing.T) {
 }
 
 // An untrustworthy key must never grant more than no key at all.
-func TestResolveFallsBackToEvaluationRatherThanTrustingABadKey(t *testing.T) {
+func TestResolveFallsBackToNonCommercialRatherThanTrustingABadKey(t *testing.T) {
 	public, private := testKeypair(t)
 	otherPublic, _ := testKeypair(t)
 	claims := validClaims()
@@ -125,7 +125,7 @@ func TestResolveFallsBackToEvaluationRatherThanTrustingABadKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sign() error = %v", err)
 	}
-	evaluation := EvaluationClaims()
+	nonCommercial := NonCommercialClaims()
 
 	cases := []struct {
 		name   string
@@ -145,8 +145,8 @@ func TestResolveFallsBackToEvaluationRatherThanTrustingABadKey(t *testing.T) {
 			if got.Licensed {
 				t.Fatal("an unverified key must never be reported as licensed")
 			}
-			if got.Claims.MaxUsers != evaluation.MaxUsers || got.Claims.Tier != TierEvaluation {
-				t.Fatalf("claims = %#v, want evaluation limits", got.Claims)
+			if got.Claims.MaxUsers != nonCommercial.MaxUsers || got.Claims.Tier != TierNonCommercial {
+				t.Fatalf("claims = %#v, want the non-commercial claims", got.Claims)
 			}
 			if strings.TrimSpace(got.Reason) == "" {
 				t.Fatal("a non-licensed entitlement must explain itself to the operator")
@@ -196,13 +196,16 @@ func TestLimitsBlockAtTheCeilingNotBeforeIt(t *testing.T) {
 	}
 }
 
-func TestEvaluationLimitsAreUsableNotCrippling(t *testing.T) {
-	claims := EvaluationClaims()
-	if claims.MaxUsers < 2 || claims.MaxTeams < 1 || claims.MaxConcurrentRuns < 1 {
-		t.Fatalf("evaluation limits %#v must allow a real trial", claims)
+// NopsAI is free for any non-commercial purpose, so the floor an installation
+// lands on with no key is the whole product. A cap here would be a cap on the
+// licence the software actually ships under.
+func TestNonCommercialUseIsUncapped(t *testing.T) {
+	claims := NonCommercialClaims()
+	if !Unlimited(claims.MaxUsers) || !Unlimited(claims.MaxTeams) || !Unlimited(claims.MaxConcurrentRuns) {
+		t.Fatalf("non-commercial claims %#v must carry no ceiling", claims)
 	}
-	if claims.Tier != TierEvaluation {
-		t.Fatalf("tier = %q, want %q", claims.Tier, TierEvaluation)
+	if claims.Tier != TierNonCommercial {
+		t.Fatalf("tier = %q, want %q", claims.Tier, TierNonCommercial)
 	}
 }
 
@@ -215,9 +218,9 @@ func TestExpiredReportsAKeyThatLapsedWhileRunning(t *testing.T) {
 	if !entitlement.Expired(claims.ExpiresAt.Add(time.Hour)) {
 		t.Fatal("a lapsed key must report expired without a restart")
 	}
-	unlicensed := Entitlement{Claims: EvaluationClaims()}
-	if unlicensed.Expired(time.Now()) {
-		t.Fatal("evaluation mode never expires into something worse")
+	nonCommercial := Entitlement{Claims: NonCommercialClaims()}
+	if nonCommercial.Expired(time.Now()) {
+		t.Fatal("the non-commercial licence never expires into something worse")
 	}
 }
 

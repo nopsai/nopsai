@@ -257,26 +257,25 @@ func githubAppConfigured(cfg *config.Config) bool {
 		strings.TrimSpace(cfg.GitHubWebhookCredentialRef) != ""
 }
 
-// licenseEntitlementCheck blocks production startup on an installation that is
-// not licensed. Outside production mode it is advisory: an evaluator must be
-// able to run NopsAI without talking to anyone, and refusing to start would
-// make the product unevaluable rather than protected.
+// licenseEntitlementCheck reports the licence position of the installation. It
+// never blocks startup, in production or anywhere else.
 //
-// In production mode it is required, because an administrator declaring an
-// installation production while running under evaluation limits is running
-// unlicensed by accident, which is exactly what the gate exists to prevent.
+// NopsAI is free and uncapped for any non-commercial purpose, so an
+// installation with no commercial key is fully entitled to run, including in
+// production. Whether a purpose is commercial is a fact about the operator, not
+// about the deployment, and the software has no way to observe it: there is no
+// activation call and no usage reporting. Refusing to start would block
+// legitimate non-commercial production use while doing nothing to a commercial
+// operator who simply declines to declare themselves.
+//
+// So the boundary is self-certified against the licence, and this check exists
+// to state the position plainly rather than to enforce it.
 func licenseEntitlementCheck(cfg *config.Config, strict bool) setupPreflightCheck {
-	publicKey, buildCanVerify := license.ParsePublicKey(buildinfo.LicensePublicKey)
+	publicKey, _ := license.ParsePublicKey(buildinfo.LicensePublicKey)
 	entitlement := license.Resolve(cfg.LicenseKey, publicKey, time.Now().UTC())
 
-	// A build compiled without a verification key cannot check any licence, so
-	// blocking on it would punish the build configuration rather than the
-	// operator, and would stop a build that predates licensing from starting at
-	// all. Such a build reports the situation and never blocks.
-	blocking := strict && buildCanVerify
-
 	if entitlement.Licensed {
-		message := fmt.Sprintf("Licensed to %s (%s tier).", entitlement.Claims.Licensee, entitlement.Claims.Tier)
+		message := fmt.Sprintf("Commercially licensed to %s (%s tier).", entitlement.Claims.Licensee, entitlement.Claims.Tier)
 		if !entitlement.Claims.ExpiresAt.IsZero() {
 			message += fmt.Sprintf(" Expires %s.", entitlement.Claims.ExpiresAt.UTC().Format("2006-01-02"))
 		}
@@ -284,21 +283,30 @@ func licenseEntitlementCheck(cfg *config.Config, strict bool) setupPreflightChec
 			ID:       "license_entitlement",
 			Label:    "Licence entitlement",
 			Status:   "success",
-			Required: blocking,
+			Required: false,
 			Message:  message,
 		}
 	}
 
-	status := "warning"
-	if blocking {
-		status = "error"
+	// Outside production the position needs no prompting: a non-commercial
+	// installation is simply running under the licence it shipped with.
+	if !strict {
+		return setupPreflightCheck{
+			ID:       "license_entitlement",
+			Label:    "Licence entitlement",
+			Status:   "success",
+			Required: false,
+			Message:  "Running under the non-commercial licence, which is free and uncapped for any non-commercial purpose.",
+		}
 	}
+
+	// In production it is worth saying out loud, because a business running
+	// NopsAI in production is the case that needs an agreement.
 	return setupPreflightCheck{
-		ID:           "license_entitlement",
-		Label:        "Licence entitlement",
-		Status:       status,
-		Required:     blocking,
-		Message:      entitlement.Reason + " Set license_key in setting/system/runner.yaml, or NOPSAI_LICENSE_KEY, to license this installation.",
-		SuggestedEnv: map[string]string{"NOPSAI_LICENSE_KEY": ""},
+		ID:       "license_entitlement",
+		Label:    "Licence entitlement",
+		Status:   "warning",
+		Required: false,
+		Message:  "Running under the non-commercial licence. If this installation is used in or for a business, or for any other commercial purpose, commercial use requires a written agreement: contact@nopsai.com. Set license_key in setting/system/runner.yaml, or NOPSAI_LICENSE_KEY, once one is in place.",
 	}
 }

@@ -13,13 +13,14 @@ import (
 type Entitlement struct {
 	Claims Claims
 
-	// Licensed is true only when a key verified. It is false for an
-	// unlicensed installation and false when a key was present but could not
-	// be trusted.
+	// Licensed is true only when a commercial key verified. It is false for an
+	// installation running under the non-commercial licence, and false when a
+	// key was present but could not be trusted.
 	Licensed bool
 
-	// Reason explains a non-licensed state in operator language. It is shown
-	// in the UI banner and in `nopsai license status`.
+	// Reason explains a non-commercial state in operator language. It is shown
+	// in the UI banner and in `nopsai license status`. It describes a licence
+	// position, not a fault: running non-commercially is a supported state.
 	Reason string
 }
 
@@ -27,33 +28,32 @@ type Entitlement struct {
 //
 // It fails closed in the sense that matters: a key that cannot be verified
 // never grants more than no key at all. It does not fail closed by refusing to
-// run, because an installation that cannot read its key must still be able to
-// start, so an operator can log in and fix it. Refusing to boot is the job of
-// the production startup gate, where an administrator has explicitly declared
-// the installation to be production.
+// run. NopsAI is free for non-commercial use, so an installation with no usable
+// key is entitled to the product; a commercial key adds a named licensee and
+// whatever scope was agreed, and nothing else.
 func Resolve(rawKey string, publicKey ed25519.PublicKey, now time.Time) Entitlement {
-	evaluation := func(reason string) Entitlement {
-		return Entitlement{Claims: EvaluationClaims(), Licensed: false, Reason: reason}
+	nonCommercial := func(reason string) Entitlement {
+		return Entitlement{Claims: NonCommercialClaims(), Licensed: false, Reason: reason}
 	}
 
 	if strings.TrimSpace(rawKey) == "" {
-		return evaluation("No licence key is configured. Running under evaluation limits.")
+		return nonCommercial("No commercial licence key is configured. Running under the non-commercial licence, which is free and uncapped for any non-commercial purpose. Commercial use requires a written agreement: contact@nopsai.com.")
 	}
 	if len(publicKey) != ed25519.PublicKeySize {
-		return evaluation("This build has no licence verification key, so the configured key cannot be checked. Running under evaluation limits.")
+		return nonCommercial("This build has no licence verification key, so the configured key cannot be checked. Running under the non-commercial licence.")
 	}
 
 	claims, err := Verify(Key(rawKey), publicKey, now)
 	if err != nil {
 		switch {
 		case errorIs(err, ErrExpired):
-			return evaluation("The licence key expired. Running under evaluation limits until it is renewed.")
+			return nonCommercial("The commercial licence key expired. Running under the non-commercial licence until it is renewed: contact@nopsai.com.")
 		case errorIs(err, ErrNotYetValid):
-			return evaluation("The licence key is not valid yet. Running under evaluation limits.")
+			return nonCommercial("The commercial licence key is not valid yet. Running under the non-commercial licence.")
 		case errorIs(err, ErrBadSignature):
-			return evaluation("The licence key signature does not verify. Running under evaluation limits.")
+			return nonCommercial("The commercial licence key signature does not verify. Running under the non-commercial licence.")
 		default:
-			return evaluation("The licence key could not be read. Running under evaluation limits.")
+			return nonCommercial("The commercial licence key could not be read. Running under the non-commercial licence.")
 		}
 	}
 	return Entitlement{Claims: claims, Licensed: true}
@@ -70,9 +70,9 @@ func (e Entitlement) AllowsConcurrentRuns(current int) bool {
 	return Allows(e.Claims.MaxConcurrentRuns, current)
 }
 
-// Expired reports whether a licensed entitlement has passed its expiry. A key
+// Expired reports whether a commercial entitlement has passed its expiry. A key
 // that expires while the process is running stops being valid without a
-// restart.
+// restart, and the installation falls back to the non-commercial licence.
 func (e Entitlement) Expired(now time.Time) bool {
 	if !e.Licensed || e.Claims.ExpiresAt.IsZero() {
 		return false

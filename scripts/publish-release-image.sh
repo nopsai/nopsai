@@ -52,7 +52,7 @@ oci_annotation_args=(
   --annotation "index,manifest:org.opencontainers.image.version=$VERSION"
   --annotation "index,manifest:org.opencontainers.image.revision=$SOURCE_COMMIT"
   --annotation "index,manifest:org.opencontainers.image.created=$BUILD_DATE"
-  --annotation "index,manifest:org.opencontainers.image.licenses=LicenseRef-NopsAI-Proprietary"
+  --annotation "index,manifest:org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0"
   --annotation "index,manifest:org.opencontainers.image.vendor=NopsAI"
   --annotation "index,manifest:org.opencontainers.image.title=$image_name"
 )

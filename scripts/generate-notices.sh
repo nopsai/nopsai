@@ -179,7 +179,7 @@ cat >"$OUTPUT" <<HEADER
 # NopsAI Third-Party Notices — $VERSION
 
 NopsAI includes, links to, packages, or depends on the third-party software
-listed below. Those components are not licensed under the NopsAI proprietary
+listed below. Those components are not licensed under the NopsAI licence
 notice in \`LICENSE\`; each remains subject to its own copyright notice and
 licence terms, reproduced here in full.
 

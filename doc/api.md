@@ -490,14 +490,13 @@ payload; they do not save product state directly.
 The UI setup wizard uses `/v1/setup/*` to bootstrap an empty database. The
 public preflight endpoint is available before login so the UI can explain
 missing database, master-key, or JWT configuration. `GET /v1/setup/license` is
-public for the same reason: the proprietary notice must be readable before
-anyone is asked to accept it, and it is the same text already shipped in every
-artifact. Other `GET` setup routes require `system.read` on `system:config`;
+public for the same reason: the licence must be readable before anyone is asked
+to accept it, and it is the same text already shipped in every artifact. Other `GET` setup routes require `system.read` on `system:config`;
 `POST` setup routes require `system.update` on `system:config`.
 
 ### Licence Acceptance
 
-Setup cannot complete until an administrator accepts the proprietary notice.
+Setup cannot complete until an administrator accepts the licence notice.
 `POST /v1/setup/bootstrap` answers `412 Precondition Failed` while acceptance is
 missing, and an installation that accepted an earlier notice version counts as
 not accepted once the wording changes.
