@@ -26,6 +26,12 @@ release_env="$("$ROOT_DIR/scripts/release-version.sh" --format env)"
 require_text "VERSION=$expected" <(printf '%s\n' "$release_env") "the exact release version"
 require_text "MAJOR_TAG=${expected%%.*}" <(printf '%s\n' "$release_env") "the major release tag"
 require_text "MAJOR_MINOR_TAG=$base_version" <(printf '%s\n' "$release_env") "the major.minor release tag"
+expected_range=">=$base_version.0,<$(( ${expected%%.*} + 1 )).0.0"
+actual_range="$("$ROOT_DIR/scripts/release-version.sh" --format compatibility-range)"
+if [[ "$actual_range" != "$expected_range" ]]; then
+  printf 'compatibility range = %s, want %s\n' "$actual_range" "$expected_range" >&2
+  exit 1
+fi
 # The version is read, never computed, so nothing about history may leak into it.
 if printf '%s\n' "$release_env" | grep -qE 'COMMIT_COUNT|VERSION_COMMIT_OFFSET'; then
   printf 'release version output still carries a commit-derived patch number\n' >&2

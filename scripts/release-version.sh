@@ -41,9 +41,18 @@ major="${version%%.*}"
 minor="${version#*.}"
 minor="${minor%%.*}"
 
+# The compatibility range is derived here and nowhere else. Anything that needs
+# it — the release pipeline, the linker flags — asks for it rather than working
+# it out again, because a second implementation is a second thing to forget when
+# the version format changes.
+compatibility_range=">=${major}.${minor}.0,<$((major + 1)).0.0"
+
 case "$format" in
   version)
     printf '%s\n' "$version"
+    ;;
+  compatibility-range)
+    printf '%s\n' "$compatibility_range"
     ;;
   env)
     printf 'VERSION=%s\n' "$version"
@@ -52,6 +61,7 @@ case "$format" in
     printf 'SHORT_COMMIT=%s\n' "$short_commit"
     printf 'MAJOR_TAG=%s\n' "$major"
     printf 'MAJOR_MINOR_TAG=%s.%s\n' "$major" "$minor"
+    printf 'COMPATIBILITY_RANGE=%q\n' "$compatibility_range"
     ;;
   github)
     printf 'version=%s\n' "$version"
@@ -60,6 +70,7 @@ case "$format" in
     printf 'short_commit=%s\n' "$short_commit"
     printf 'major_tag=%s\n' "$major"
     printf 'major_minor_tag=%s.%s\n' "$major" "$minor"
+    printf 'compatibility_range=%s\n' "$compatibility_range"
     ;;
   *)
     printf 'unsupported output format: %s\n' "$format" >&2

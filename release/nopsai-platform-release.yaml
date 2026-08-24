@@ -154,6 +154,7 @@ steps:
       fi
 
       version="$(scripts/release-version.sh --ref "$source_commit")"
+      compatibility_range="$(scripts/release-version.sh --ref "$source_commit" --format compatibility-range)"
       release_tags=()
       while IFS= read -r release_tag; do
         release_tags+=("$release_tag")
@@ -209,16 +210,6 @@ steps:
             text
           end
 
-          # The ranges follow version.txt, never the contract file. NopsAI
-          # releases every component at one version, so one series decides the
-          # CLI, platform and runner ranges alike, and moving the series needs
-          # no edit anywhere else.
-          def series_range
-            series = File.read("version.txt").strip
-            abort "version.txt must contain major.minor" unless series =~ /\A(\d+)\.(\d+)\z/
-            ">=#{series}.0,<#{Regexp.last_match(1).to_i + 1}.0.0"
-          end
-
           def emit(key, value)
             puts "#{key}=#{value}"
           end
@@ -231,9 +222,6 @@ steps:
 
           emit "API_VERSION", api_versions.first
           emit "RUNNER_PROTOCOL_VERSION", value(contract, "runnerProtocolVersion")
-          emit "CLI_COMPATIBILITY", series_range
-          emit "PLATFORM_COMPATIBILITY", series_range
-          emit "RUNNER_COMPATIBILITY", series_range
           emit "CAPABILITIES", capabilities.join(",")
         '
       )"
@@ -252,10 +240,16 @@ steps:
         printf 'ALLOW_EXISTING_RELEASE=%q\n' "$allow_existing"
         printf 'SHOULD_RELEASE=%q\n' "$should_release"
         printf 'RELEASE_TAGS=%q\n' "$release_tags_csv"
+        # NopsAI releases every component at one version, so the CLI, platform
+        # and runner all take the same range, derived once by
+        # scripts/release-version.sh from version.txt.
+        printf 'CLI_COMPATIBILITY=%q\n' "$compatibility_range"
+        printf 'PLATFORM_COMPATIBILITY=%q\n' "$compatibility_range"
+        printf 'RUNNER_COMPATIBILITY=%q\n' "$compatibility_range"
         while IFS='=' read -r key value; do
           [[ -n "$key" ]] || continue
           case "$key" in
-            API_VERSION|RUNNER_PROTOCOL_VERSION|CLI_COMPATIBILITY|PLATFORM_COMPATIBILITY|RUNNER_COMPATIBILITY|CAPABILITIES) ;;
+            API_VERSION|RUNNER_PROTOCOL_VERSION|CAPABILITIES) ;;
             *)
               echo "Unexpected compatibility env key $key" >&2
               exit 1

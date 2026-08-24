@@ -2,6 +2,7 @@ package release
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -533,10 +534,10 @@ func TestReleasePipelineInjectsCompatibilityContract(t *testing.T) {
 	pipeline := readNopsAIReleasePath(t)
 	for _, required := range []string{
 		"release/compatibility.yaml",
-		`emit "CLI_COMPATIBILITY", series_range`,
-		`emit "PLATFORM_COMPATIBILITY", series_range`,
-		`emit "RUNNER_COMPATIBILITY", series_range`,
-		`series = File.read("version.txt").strip`,
+		`compatibility_range="$(scripts/release-version.sh --ref "$source_commit" --format compatibility-range)"`,
+		`printf 'CLI_COMPATIBILITY=%q\n' "$compatibility_range"`,
+		`printf 'PLATFORM_COMPATIBILITY=%q\n' "$compatibility_range"`,
+		`printf 'RUNNER_COMPATIBILITY=%q\n' "$compatibility_range"`,
 		`printf '%s=%q\n' "$key" "$value"`,
 		"--build-arg \"API_VERSION=$API_VERSION\"",
 		"--build-arg \"RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION\"",
@@ -559,6 +560,10 @@ func TestReleasePipelineInjectsCompatibilityContract(t *testing.T) {
 		"nopsai/pkg/buildinfo.RunnerCompatibility=>=",
 		"nopsai/pkg/buildinfo.PlatformCompatibility=>=",
 		`capabilities="api.v1,cli.api-catalog.v1`,
+		// The pipeline must never work the range out for itself. A second
+		// implementation in a second language is what broke when version.txt
+		// changed shape, so reading version.txt here is forbidden outright.
+		`File.read("version.txt")`,
 	} {
 		if strings.Contains(pipeline, forbidden) {
 			t.Errorf("NopsAI platform release pipeline embeds stale compatibility contract %q", forbidden)
@@ -759,5 +764,36 @@ func TestReleasePipelineGeneratesThirdPartyNoticeBundle(t *testing.T) {
 		if !strings.Contains(string(generator), required) {
 			t.Errorf("notice generator is missing fail-closed contract %q", required)
 		}
+	}
+}
+
+// scripts/release-version.sh and package nopsai each derive the compatibility
+// range, one for the release pipeline and one for a plain `go build`. They must
+// agree: a release whose linker flags disagree with the binary's own fallback
+// is a release that reports two different answers depending on how it was
+// built. This is the check that was missing when the pipeline's own derivation
+// went stale.
+func TestScriptAndPackageDeriveTheSameCompatibilityRange(t *testing.T) {
+	output, err := exec.Command("../scripts/release-version.sh", "--format", "compatibility-range").Output()
+	if err != nil {
+		t.Fatalf("release-version.sh --format compatibility-range: %v", err)
+	}
+	// The script emits the comma form the linker needs; the package emits the
+	// spaced form. Compare them on the only thing that matters, the bounds.
+	fromScript := strings.NewReplacer(",", " ").Replace(strings.TrimSpace(string(output)))
+	if fromScript != nopsai.CompatibilityRange() {
+		t.Fatalf("release-version.sh derived %q, package nopsai derived %q", fromScript, nopsai.CompatibilityRange())
+	}
+}
+
+// The release version the script reports is the one written in version.txt, and
+// the one the package embeds. Nothing may compute it.
+func TestScriptReportsTheVersionFileVerbatim(t *testing.T) {
+	output, err := exec.Command("../scripts/release-version.sh").Output()
+	if err != nil {
+		t.Fatalf("release-version.sh: %v", err)
+	}
+	if got := strings.TrimSpace(string(output)); got != nopsai.Version() {
+		t.Fatalf("release-version.sh reported %q, version.txt holds %q", got, nopsai.Version())
 	}
 }
