@@ -685,6 +685,21 @@ func TestReleasePipelineScansForCredentialsBeforePublication(t *testing.T) {
 	if strings.Contains(string(scan), "| scan_stream") {
 		t.Error("secret scan must not pipe into scan_stream, because the finding count is lost to the subshell")
 	}
+	// The scan must grep the whole file list once per pattern. Grepping each
+	// file for each pattern spawned a subshell per combination -- about
+	// nineteen thousand on this repository -- and killed the shell with a bus
+	// error partway through, which reported a clean scan for a dirty tree.
+	if !strings.Contains(string(scan), "scan_file_list") {
+		t.Error("secret scan must scan the file list per pattern rather than per file")
+	}
+	if strings.Contains(string(scan), `grep -nEI -- "$regex" "$base/$entry"`) {
+		t.Error("secret scan must not grep once per file per pattern; that form exhausts the shell on a repository this size")
+	}
+	// -H keeps the filename prefix when xargs hands grep a single-file batch.
+	// Without it a finding can be reported with no path at all.
+	if !strings.Contains(string(scan), "grep -nEIH") {
+		t.Error("secret scan must force filename prefixes so no finding is reported without its path")
+	}
 	for _, required := range []string{"findings=$((findings + 1))", "exit 1"} {
 		if !strings.Contains(string(scan), required) {
 			t.Errorf("secret scan is missing fail-closed contract %q", required)

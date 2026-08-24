@@ -2020,7 +2020,7 @@ export const pipelinesSection: WikiSection = {
       related: ['directive-index', 'final-deliverables', 'first-script-pipeline', 'gitops-and-config-repositories'],
       sources: [
         { repositoryPath: 'examples/gitops-quickstart/team-repo/pipelines/platform/release-service.yaml', purpose: 'The assembled manifest as a runnable example.' },
-        { repositoryPath: 'examples_pipeline_validation_test.go', purpose: 'Test that validates every example pipeline against the pipeline validator.' },
+        { repositoryPath: 'contract/examples_pipeline_validation_test.go', purpose: 'Test that validates every example pipeline against the pipeline validator.' },
       ],
     },
   ],

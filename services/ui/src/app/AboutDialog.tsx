@@ -7,7 +7,7 @@ import type { PlatformVersionInfo } from './platformVersion';
  * The proprietary notice shipped with the product.
  *
  * This is the same text `nopsai license` prints, and a Go test
- * (about_dialog_license_test.go) fails if the two drift apart. It is quoted
+ * (contract/about_dialog_license_test.go) fails if the two drift apart. It is quoted
  * rather than paraphrased because it is a legal notice: nothing here is drafted
  * by the UI.
  */

@@ -5,7 +5,10 @@ NUM_RUNS=$1
 NOPSAI_API_URL="http://localhost:8080"
 WEBHOOK_URL="http://localhost:8081/webhook"
 PAYLOAD_FILE="../doc/sample-git-event.json"
-TEST_GITHUB_WEBHOOK_SECRET="vsfdverguhuyi3287467324ujfbsaihufb"
+# Must match the webhook secret your local git-bot is configured with, so it
+# is read from the environment rather than pinned here:
+#   export TEST_GITHUB_WEBHOOK_SECRET=...
+TEST_GITHUB_WEBHOOK_SECRET="${TEST_GITHUB_WEBHOOK_SECRET:?export TEST_GITHUB_WEBHOOK_SECRET to the secret your local git-bot uses}"
 FIND_RUN_TIMEOUT=30
 PIPELINE_RUN_TIMEOUT=600 # 10 minutes
 # --- End Configuration ---

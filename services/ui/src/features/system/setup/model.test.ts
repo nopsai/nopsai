@@ -16,9 +16,16 @@ import {
 test('defines setup wizard steps and skip warning copy', () => {
   assert.deepEqual(
     WIZARD_STEPS.map(step => step.id),
-    ['readiness', 'runtime', 'github', 'gitops', 'repositories', 'ai', 'users', 'review']
+    ['license', 'readiness', 'runtime', 'github', 'gitops', 'repositories', 'ai', 'users', 'review']
   );
   assert.match(LLM_SKIP_WARNING, /LLM profile setup was skipped/);
+});
+
+test('licence acceptance is the first step and cannot be skipped', () => {
+  // Possession of an artifact grants no right to use it, so nothing else in the
+  // wizard may be reachable before the notice is accepted.
+  assert.equal(WIZARD_STEPS[0].id, 'license');
+  assert.equal(WIZARD_STEPS[0].required, true);
 });
 
 test('normalizes setup repository input', () => {

@@ -40,7 +40,7 @@ PATTERNS=(
   'Slack token|xox[baprs]-[A-Za-z0-9-]{10,}'
   'Google API key|AIza[0-9A-Za-z_-]{35}'
   'Private key block|-----BEGIN[[:space:]]+([A-Z]+[[:space:]]+)?PRIVATE KEY-----'
-  'Generic long secret assignment|(SECRET|PASSWORD|TOKEN|API_KEY|AUTHTOKEN|ACCESS_KEY)[A-Z_]*[[:space:]]*=[[:space:]]*[\"'"'"']?[A-Za-z0-9/+_-]{24,}'
+  'Generic long secret assignment|(SECRET|PASSWORD|TOKEN|API_KEY|AUTHTOKEN|ACCESS_KEY)[A-Z_]*[[:space:]]*=[[:space:]]*[\"'"'"']?[A-Za-z0-9+_-][A-Za-z0-9/+_-]{23,}'
 )
 
 # Paths that must never appear inside a published image layer.
@@ -52,50 +52,71 @@ FORBIDDEN_IMAGE_PATHS=(
   '/root/.ssh'
 )
 
-allowlisted() {
-  local line="$1"
-  [[ -f "$ALLOWLIST" ]] || return 1
+# The allowlist is read once into memory. Re-reading it per candidate line was
+# measurably worse and, combined with the per-file scanning below, crashed the
+# shell outright on a repository of this size.
+ALLOWLIST_PATTERNS=()
+load_allowlist() {
+  [[ -f "$ALLOWLIST" ]] || return 0
   local pattern
-  while IFS= read -r pattern; do
+  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
     [[ -z "$pattern" || "$pattern" == \#* ]] && continue
+    ALLOWLIST_PATTERNS+=("$pattern")
+  done <"$ALLOWLIST"
+}
+
+allowlisted() {
+  local line="$1" pattern
+  for pattern in ${ALLOWLIST_PATTERNS+"${ALLOWLIST_PATTERNS[@]}"}; do
     if printf '%s' "$line" | grep -qE -- "$pattern"; then
       return 0
     fi
-  done <"$ALLOWLIST"
+  done
   return 1
 }
 
 findings=0
 
-scan_stream() {
-  # Reads NUL-separated file paths on stdin and greps each for every pattern.
-  local base="$1"
-  local entry label regex hit
-  while IFS= read -r -d '' entry; do
-    for spec in "${PATTERNS[@]}"; do
-      label="${spec%%|*}"
-      regex="${spec#*|}"
-      while IFS= read -r hit; do
-        [[ -z "$hit" ]] && continue
-        if allowlisted "$base/$entry:$hit"; then
-          continue
-        fi
-        printf 'FINDING [%s] %s:%s\n' "$label" "$entry" "$hit" >&2
-        findings=$((findings + 1))
-      done < <(grep -nEI -- "$regex" "$base/$entry" 2>/dev/null || true)
-    done
+# scan_file_list greps the whole file list once per pattern rather than once per
+# file per pattern. The per-file form spawned a process substitution for every
+# file and every pattern -- roughly nineteen thousand subshells here -- which
+# exhausted the shell and died with a bus error partway through the scan.
+#
+# -H forces the filename prefix: xargs may hand grep a batch containing a single
+# file, and grep omits the name in that case, which would silently produce a
+# finding with no path.
+scan_file_list() {
+  local base="$1" list_file="$2"
+  local spec label regex hits hit
+  hits="$TEMP_DIR/hits"
+
+  for spec in "${PATTERNS[@]}"; do
+    label="${spec%%|*}"
+    regex="${spec#*|}"
+    : >"$hits"
+    ( cd "$base" && xargs -0 grep -nEIH -e "$regex" -- <"$list_file" ) >"$hits" 2>/dev/null || true
+    while IFS= read -r hit; do
+      [[ -z "$hit" ]] && continue
+      if allowlisted "$hit"; then
+        continue
+      fi
+      printf 'FINDING [%s] %s\n' "$label" "$hit" >&2
+      findings=$((findings + 1))
+    done <"$hits"
   done
 }
 
 scan_worktree() {
   echo "Scanning git-tracked files in $ROOT_DIR"
-  scan_stream "$ROOT_DIR" < <( cd "$ROOT_DIR" && git ls-files -z )
+  ( cd "$ROOT_DIR" && git ls-files -z ) >"$TEMP_DIR/paths"
+  scan_file_list "$ROOT_DIR" "$TEMP_DIR/paths"
 }
 
 scan_directory() {
   local dir="$1"
   echo "Scanning directory $dir"
-  scan_stream "$dir" < <( cd "$dir" && find . -type f -size -2M -print0 )
+  ( cd "$dir" && find . -type f -size -2M -print0 ) >"$TEMP_DIR/paths"
+  scan_file_list "$dir" "$TEMP_DIR/paths"
 
   local forbidden
   for forbidden in "${FORBIDDEN_IMAGE_PATHS[@]}"; do
@@ -109,14 +130,18 @@ scan_directory() {
 scan_image() {
   local image="$1"
   local workdir container
-  workdir="$(mktemp -d)"
-  trap 'rm -rf "$workdir"' RETURN
+  workdir="$TEMP_DIR/rootfs"
+  mkdir -p "$workdir"
   echo "Exporting image $image"
   container="$(docker create "$image")"
   docker export "$container" | tar -C "$workdir" -xf - 2>/dev/null || true
   docker rm -f "$container" >/dev/null
   scan_directory "$workdir"
 }
+
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIR"' EXIT
+load_allowlist
 
 if [[ -n "$SCAN_IMAGE" ]]; then
   scan_image "$SCAN_IMAGE"
