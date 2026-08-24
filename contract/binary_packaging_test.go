@@ -17,6 +17,7 @@ func TestBaseImageBuildsSeparateCLIAndAPIBinaries(t *testing.T) {
 		"nopsai/pkg/buildinfo.Version=${VERSION}",
 		"nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY}",
 		"nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}",
+		"COPY version.go version.txt ./",
 		"COPY db db",
 		"-o /out/nopsai ./cmd/nopsai-cli",
 		"-o /out/nopsai-api ./services/nopsai/cmd/nopsai",
