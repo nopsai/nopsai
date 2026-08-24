@@ -785,7 +785,7 @@ export const gitAppEnvironmentFields: WikiField[] = [
     required: false,
     defaultValue: 'None',
     description: 'Legacy inline private key.',
-    example: 'GITHUB_PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----...',
+    example: 'GITHUB_PRIVATE_KEY=<legacy inline PEM private key>',
     deprecatedIn: 'Superseded by GITHUB_PRIVATE_KEY_CREDENTIAL_REF',
     evidence: 'config/config.go',
   },
