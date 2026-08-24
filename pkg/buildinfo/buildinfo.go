@@ -6,16 +6,28 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"nopsai"
 )
 
 const (
 	DevelopmentVersion           = "dev"
 	DefaultAPIVersion            = "v1"
 	DefaultRunnerProtocolVersion = 1
-	DefaultCLICompatibility      = ">=0.22.0 <1.0.0"
-	DefaultRunnerCompatibility   = ">=0.22.0 <1.0.0"
-	DefaultPlatformCompatibility = ">=0.22.0 <1.0.0"
 	DefaultCapabilities          = "api.v1,cli.api-catalog.v1,config-sync.v1,dashboard-refresh.v1,dashboards.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes,runner.local-registry-auth.v1,runner.registry-auth.v1"
+)
+
+// The compatibility defaults are derived from the release series in the
+// repository root, never written out here. A release overrides them through
+// the linker anyway; these are what a plain `go build` falls back to, and a
+// hand-copied range would be one more thing to forget when the series moves.
+//
+// They are vars rather than consts only because a derived value cannot be a
+// const. Nothing assigns to them.
+var (
+	DefaultCLICompatibility      = nopsai.CompatibilityRange()
+	DefaultRunnerCompatibility   = nopsai.CompatibilityRange()
+	DefaultPlatformCompatibility = nopsai.CompatibilityRange()
 )
 
 // These variables are release-linker inputs. Keep names stable for GoReleaser
@@ -36,7 +48,8 @@ var (
 	// against, set at build time with -ldflags. It is a public key: shipping it
 	// in every binary is the point, and it is what lets verification work with
 	// no network access. A build without it verifies nothing, so every
-	// installation of that build runs under evaluation limits.
+	// installation of that build enforces nothing and runs under the
+	// non-commercial licence.
 	LicensePublicKey = ""
 )
 

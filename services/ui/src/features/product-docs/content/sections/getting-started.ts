@@ -118,7 +118,7 @@ export const gettingStartedSection: WikiSection = {
       related: ['install-local-docker-compose', 'architecture-and-networking', 'deployment-models', 'production-hardening'],
       sources: [
         { repositoryPath: 'docker-compose.yaml', purpose: 'Required variables, published ports, bind address, and network name.' },
-        { repositoryPath: 'release/version.txt', purpose: 'The product version that image tags follow.' },
+        { repositoryPath: 'version.txt', purpose: 'The single release series every image tag, chart version and compatibility range follows.' },
       ],
     },
     {

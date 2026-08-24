@@ -48,11 +48,12 @@ type DatabaseContract struct {
 	RollbackPolicy   string `json:"rollbackPolicy" yaml:"rollbackPolicy"`
 }
 
+// CompatibilityFile is what a release declares that cannot be computed from
+// the version series. The compatibility ranges are deliberately absent: they
+// are derived from the series at build time, so there is nothing here to keep
+// in step when the series moves.
 type CompatibilityFile struct {
-	CLIVersion            string   `yaml:"cliVersion" json:"cliVersion"`
-	PlatformCompatibility string   `yaml:"platformCompatibility" json:"platformCompatibility"`
 	APICompatibility      []string `yaml:"apiCompatibility" json:"apiCompatibility"`
-	RunnerCompatibility   string   `yaml:"runnerCompatibility" json:"runnerCompatibility"`
 	RunnerProtocolVersion int      `yaml:"runnerProtocolVersion" json:"runnerProtocolVersion"`
 	Capabilities          []string `yaml:"capabilities" json:"capabilities"`
 }
@@ -63,15 +64,6 @@ func DecodeCompatibility(reader io.Reader) (CompatibilityFile, error) {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&contract); err != nil {
 		return CompatibilityFile{}, fmt.Errorf("decode compatibility contract: %w", err)
-	}
-	if _, err := ParseVersion(contract.CLIVersion); err != nil {
-		return CompatibilityFile{}, fmt.Errorf("invalid CLI version: %w", err)
-	}
-	if _, err := ParseRange(contract.PlatformCompatibility); err != nil {
-		return CompatibilityFile{}, fmt.Errorf("invalid platform compatibility: %w", err)
-	}
-	if _, err := ParseRange(contract.RunnerCompatibility); err != nil {
-		return CompatibilityFile{}, fmt.Errorf("invalid runner compatibility: %w", err)
 	}
 	if len(contract.APICompatibility) == 0 {
 		return CompatibilityFile{}, errors.New("API compatibility must not be empty")

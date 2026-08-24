@@ -209,8 +209,14 @@ steps:
             text
           end
 
-          def normalized_range(contract, key)
-            value(contract, key).split.join(",")
+          # The ranges follow version.txt, never the contract file. NopsAI
+          # releases every component at one version, so one series decides the
+          # CLI, platform and runner ranges alike, and moving the series needs
+          # no edit anywhere else.
+          def series_range
+            series = File.read("version.txt").strip
+            abort "version.txt must contain major.minor" unless series =~ /\A(\d+)\.(\d+)\z/
+            ">=#{series}.0,<#{Regexp.last_match(1).to_i + 1}.0.0"
           end
 
           def emit(key, value)
@@ -225,9 +231,9 @@ steps:
 
           emit "API_VERSION", api_versions.first
           emit "RUNNER_PROTOCOL_VERSION", value(contract, "runnerProtocolVersion")
-          emit "CLI_COMPATIBILITY", normalized_range(contract, "platformCompatibility")
-          emit "PLATFORM_COMPATIBILITY", normalized_range(contract, "platformCompatibility")
-          emit "RUNNER_COMPATIBILITY", normalized_range(contract, "runnerCompatibility")
+          emit "CLI_COMPATIBILITY", series_range
+          emit "PLATFORM_COMPATIBILITY", series_range
+          emit "RUNNER_COMPATIBILITY", series_range
           emit "CAPABILITIES", capabilities.join(",")
         '
       )"

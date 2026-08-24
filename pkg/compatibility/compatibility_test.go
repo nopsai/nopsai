@@ -1,7 +1,6 @@
 package compatibility
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -132,18 +131,21 @@ func TestCLICompatibilityValidation(t *testing.T) {
 }
 
 func TestDecodeCompatibility(t *testing.T) {
-	contract, err := DecodeCompatibility(strings.NewReader(fmt.Sprintf(`
-cliVersion: %s
-platformCompatibility: %q
+	contract, err := DecodeCompatibility(strings.NewReader(`
 apiCompatibility: [v1]
-runnerCompatibility: %q
 runnerProtocolVersion: 1
 capabilities: [platform.helm, api.v1]
-`, testManifestVersion, buildinfo.DefaultPlatformCompatibility, buildinfo.DefaultRunnerCompatibility)))
-	if err != nil || contract.CLIVersion != testManifestVersion || contract.Capabilities[0] != "api.v1" {
+`))
+	if err != nil || contract.RunnerProtocolVersion != 1 || contract.Capabilities[0] != "api.v1" {
 		t.Fatalf("DecodeCompatibility = %#v, %v", contract, err)
 	}
-	if _, err := DecodeCompatibility(strings.NewReader("cliVersion: nope\nunknown: true\n")); err == nil {
+
+	// The version ranges are derived from the release series, so a contract
+	// that tries to declare one is a stale file, not a valid override.
+	if _, err := DecodeCompatibility(strings.NewReader("apiCompatibility: [v1]\nrunnerProtocolVersion: 1\ncapabilities: [api.v1]\nplatformCompatibility: \">=1.0.0 <2.0.0\"\n")); err == nil {
+		t.Fatal("a contract declaring a derived compatibility range must be rejected")
+	}
+	if _, err := DecodeCompatibility(strings.NewReader("unknown: true\n")); err == nil {
 		t.Fatal("invalid compatibility contract succeeded")
 	}
 }

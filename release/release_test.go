@@ -2,52 +2,71 @@ package release
 
 import (
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
+	"nopsai"
 	"nopsai/pkg/buildinfo"
 	"nopsai/pkg/compatibility"
 )
 
-func TestCompatibilityContract(t *testing.T) {
-	contract := readCompatibilityContract(t)
-	releaseSeries := readReleaseVersionSeries(t)
-	baselineVersion := releaseSeries + ".0"
-	expectedCompatibility := ">=" + baselineVersion + " <" + nextMajorVersion(releaseSeries)
-	if contract.CLIVersion != baselineVersion ||
-		contract.PlatformCompatibility != expectedCompatibility ||
-		contract.RunnerCompatibility != expectedCompatibility ||
-		contract.RunnerProtocolVersion != 1 ||
-		!compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) ||
-		!compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformCompose) {
-		t.Fatalf("contract = %#v", contract)
+// version.txt is the one place a version is written, so the thing worth
+// asserting is that it is an exact version and that everything downstream is
+// still derived from it rather than copied beside it.
+func TestVersionIsExactAndDrivesTheSeries(t *testing.T) {
+	version := nopsai.Version()
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(version) {
+		t.Fatalf("version.txt = %q, want an exact major.minor.patch version", version)
+	}
+	if want := version[:strings.LastIndex(version, ".")]; nopsai.Series() != want {
+		t.Fatalf("Series() = %q, want %q", nopsai.Series(), want)
+	}
+	// A patch release must not move what an artifact is compatible with.
+	if !strings.HasPrefix(nopsai.CompatibilityRange(), ">="+nopsai.Series()+".0 ") {
+		t.Fatalf("CompatibilityRange() = %q, want it anchored at the series baseline", nopsai.CompatibilityRange())
 	}
 }
 
-func TestCommitCountVersionSeriesMatchesCompatibilityBaseline(t *testing.T) {
-	contract := readCompatibilityContract(t)
-	releaseSeries := readReleaseVersionSeries(t)
-	if !strings.HasPrefix(contract.CLIVersion, releaseSeries+".") {
-		t.Fatalf("release version series = %q, compatibility baseline = %q", releaseSeries, contract.CLIVersion)
+// The compatibility ranges are derived from the release series, so there is no
+// longer a second copy for a test to hold in step. What remains worth asserting
+// is that the derivation itself produces the range the linker stamps in.
+func TestCompatibilityRangeFollowsTheReleaseSeries(t *testing.T) {
+	series := nopsai.Series()
+	if series == "" {
+		t.Fatal("version.txt must name a release series")
 	}
-}
-
-func TestBuildInfoDefaultsMatchReleaseCompatibilityContract(t *testing.T) {
-	contract := readCompatibilityContract(t)
-	if buildinfo.DefaultPlatformCompatibility != contract.PlatformCompatibility {
-		t.Fatalf("default platform compatibility = %q, want %q", buildinfo.DefaultPlatformCompatibility, contract.PlatformCompatibility)
+	want := ">=" + series + ".0 <" + nextMajorVersion(series)
+	if got := nopsai.CompatibilityRange(); got != want {
+		t.Fatalf("CompatibilityRange() = %q, want %q", got, want)
 	}
-	if buildinfo.DefaultCLICompatibility != contract.PlatformCompatibility {
-		t.Fatalf("default CLI compatibility = %q, want %q", buildinfo.DefaultCLICompatibility, contract.PlatformCompatibility)
-	}
-	if buildinfo.DefaultRunnerCompatibility != contract.RunnerCompatibility {
-		t.Fatalf("default runner compatibility = %q, want %q", buildinfo.DefaultRunnerCompatibility, contract.RunnerCompatibility)
-	}
-	for _, capability := range contract.Capabilities {
-		if !strings.Contains(buildinfo.DefaultCapabilities, capability) {
-			t.Errorf("buildinfo defaults missing capability %q", capability)
+	for name, got := range map[string]string{
+		"platform": buildinfo.DefaultPlatformCompatibility,
+		"CLI":      buildinfo.DefaultCLICompatibility,
+		"runner":   buildinfo.DefaultRunnerCompatibility,
+	} {
+		if got != want {
+			t.Errorf("default %s compatibility = %q, want %q", name, got, want)
 		}
+	}
+}
+
+// A release ships every component at one version, so the contract file must not
+// reintroduce a per-component range for someone to forget.
+func TestCompatibilityContractCarriesNoDerivedVersion(t *testing.T) {
+	contents, err := os.ReadFile("compatibility.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"cliVersion", "platformCompatibility", "runnerCompatibility"} {
+		if strings.Contains(string(contents), forbidden) {
+			t.Errorf("compatibility.yaml declares %q, which is derived from version.txt", forbidden)
+		}
+	}
+	contract := readCompatibilityContract(t)
+	if len(contract.APICompatibility) == 0 || contract.RunnerProtocolVersion < 1 || len(contract.Capabilities) == 0 {
+		t.Fatalf("contract = %#v", contract)
 	}
 }
 
@@ -63,15 +82,6 @@ func readCompatibilityContract(t *testing.T) compatibility.CompatibilityFile {
 		t.Fatal(err)
 	}
 	return contract
-}
-
-func readReleaseVersionSeries(t *testing.T) string {
-	t.Helper()
-	contents, err := os.ReadFile("version.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.TrimSpace(string(contents))
 }
 
 func nextMajorVersion(series string) string {
@@ -523,9 +533,10 @@ func TestReleasePipelineInjectsCompatibilityContract(t *testing.T) {
 	pipeline := readNopsAIReleasePath(t)
 	for _, required := range []string{
 		"release/compatibility.yaml",
-		`emit "CLI_COMPATIBILITY", normalized_range(contract, "platformCompatibility")`,
-		`emit "PLATFORM_COMPATIBILITY", normalized_range(contract, "platformCompatibility")`,
-		`emit "RUNNER_COMPATIBILITY", normalized_range(contract, "runnerCompatibility")`,
+		`emit "CLI_COMPATIBILITY", series_range`,
+		`emit "PLATFORM_COMPATIBILITY", series_range`,
+		`emit "RUNNER_COMPATIBILITY", series_range`,
+		`series = File.read("version.txt").strip`,
 		`printf '%s=%q\n' "$key" "$value"`,
 		"--build-arg \"API_VERSION=$API_VERSION\"",
 		"--build-arg \"RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION\"",

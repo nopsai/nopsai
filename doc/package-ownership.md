@@ -99,10 +99,11 @@ release model logic.
 
 ## Release Automation Ownership
 
-- `release/version.txt` owns the release major/minor series; Git history owns
-  the patch number.
-- `scripts/release-version.sh` owns version calculation, including PR forecast
-  offsets.
+- `version.txt` in the repository root owns the exact release version. It is the
+  only file in the repository that spells a version out; the compatibility
+  ranges, image tags and chart version are all derived from it.
+- `scripts/release-version.sh` owns reading and validating that version and
+  deriving the tag aliases from it. It computes nothing from history.
 - `scripts/release-tags.sh` owns release tag alias calculation for exact,
   `latest`, major, and major.minor publication.
 - `scripts/generate-changelog.sh` owns deterministic history-to-Markdown

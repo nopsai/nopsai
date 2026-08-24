@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(tr -d ' \n\r' <"$ROOT_DIR/release/version.txt" 2>/dev/null || echo dev)"
+  VERSION="$(tr -d ' \n\r' <"$ROOT_DIR/version.txt" 2>/dev/null || echo dev)"
 fi
 if [[ -z "$OUTPUT" ]]; then
   OUTPUT="$ROOT_DIR/dist/license-report/THIRD-PARTY-NOTICES-$VERSION.md"

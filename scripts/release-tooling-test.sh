@@ -15,19 +15,24 @@ require_text() {
   fi
 }
 
-commit_count="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
-base_version="$(tr -d '[:space:]' <"$ROOT_DIR/release/version.txt")"
-expected="$base_version.$((commit_count + 2))"
-actual="$("$ROOT_DIR/scripts/release-version.sh" --offset 2)"
+expected="$(tr -d '[:space:]' <"$ROOT_DIR/version.txt")"
+base_version="${expected%.*}"
+actual="$("$ROOT_DIR/scripts/release-version.sh")"
 if [[ "$actual" != "$expected" ]]; then
   printf 'version = %s, want %s\n' "$actual" "$expected" >&2
   exit 1
 fi
-release_env="$("$ROOT_DIR/scripts/release-version.sh" --offset 2 --format env)"
-require_text "MAJOR_TAG=${base_version%%.*}" <(printf '%s\n' "$release_env") "the major release tag"
+release_env="$("$ROOT_DIR/scripts/release-version.sh" --format env)"
+require_text "VERSION=$expected" <(printf '%s\n' "$release_env") "the exact release version"
+require_text "MAJOR_TAG=${expected%%.*}" <(printf '%s\n' "$release_env") "the major release tag"
 require_text "MAJOR_MINOR_TAG=$base_version" <(printf '%s\n' "$release_env") "the major.minor release tag"
-if "$ROOT_DIR/scripts/release-version.sh" --offset invalid >/dev/null 2>&1; then
-  printf 'invalid version offset succeeded\n' >&2
+# The version is read, never computed, so nothing about history may leak into it.
+if printf '%s\n' "$release_env" | grep -qE 'COMMIT_COUNT|VERSION_COMMIT_OFFSET'; then
+  printf 'release version output still carries a commit-derived patch number\n' >&2
+  exit 1
+fi
+if "$ROOT_DIR/scripts/release-version.sh" --offset 2 >/dev/null 2>&1; then
+  printf 'the removed --offset flag was accepted\n' >&2
   exit 1
 fi
 release_tags=()

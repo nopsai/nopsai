@@ -1,17 +1,25 @@
 # Versioned Release Artifacts
 
-NopsAI releases are versioned by the commit-count series in
-`release/version.txt`. A release publishes container images, a Helm chart, CLI
+NopsAI releases are versioned by the exact version in `version.txt` in the
+repository root. A release publishes container images, a Helm chart, CLI
 archives, a changelog, and checksums. It does not publish a release index,
 release manifest, Docker Compose asset, or deployment bundle in the default
 pipeline.
 
 ## Version Identity
 
-`release/version.txt` owns the `major.minor` series. The patch number is the
-repository commit count for the released main-branch commit, so a `<major>.<minor>` series
-with commit count `<n>` becomes `<major>.<minor>.<n>`. That same semantic version is used
-for:
+`version.txt` in the repository root owns the exact version, written out in
+full as `<major>.<minor>.<patch>`. Bumping a release is editing that one line.
+Nothing is computed from history, so rewriting history cannot move a version and
+two builds of one commit cannot disagree about it.
+
+Forgetting to bump is caught at publication rather than silently overwriting: if
+the tag for the version already exists on a different commit, the release
+pipeline stops.
+
+The `<major>.<minor>` part is the compatibility series, and a patch release
+never changes what an artifact is compatible with. That same semantic version is
+used for:
 
 - Git tag `v<version>`
 - NopsAI container image tags
@@ -312,7 +320,7 @@ helm upgrade --install nopsai \
 
 ## Release Boundary
 
-The repository now owns commit-count image, CLI, and Helm publication,
+The repository now owns versioned image, CLI, and Helm publication,
 release-tag aliases, CLI self-update from exact releases, SBOM/provenance
 generation, deployment image locks, and changelog generation.
 Release-manifest signing, release-candidate promotion, package-manager
