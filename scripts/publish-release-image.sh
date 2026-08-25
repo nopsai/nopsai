@@ -30,19 +30,30 @@ if [[ ! "$base_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   exit 1
 fi
 
-printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-builder_suffix="$(printf '%s-%s-%s' "$VERSION" "$image_name" "$$" | tr -c 'A-Za-z0-9_.-' '-')"
-builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}-${builder_suffix}"
-if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
-  docker buildx create --name "$builder" --driver docker-container --use
-else
-  docker buildx use "$builder"
+registry_host="${REGISTRY%%/*}"
+docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+docker_login_required=true
+if [[ -s "$docker_config" ]] && jq -e --arg host "$registry_host" '(.auths[$host]? // .credHelpers[$host]? // empty)' "$docker_config" >/dev/null; then
+  docker_login_required=false
 fi
-trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
-docker buildx inspect --bootstrap
+if [[ "$docker_login_required" == "true" ]]; then
+  printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | docker login "$registry_host" --username "$GHCR_USERNAME" --password-stdin
+fi
+
+builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}"
+created_builder=false
+if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
+  docker buildx create --name "$builder" --driver docker-container
+  docker buildx inspect --bootstrap --builder "$builder"
+  created_builder=true
+fi
+if [[ "$created_builder" == "true" ]]; then
+  trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
+fi
 
 mkdir -p dist/digests dist/docker-metadata
 metadata_file="dist/docker-metadata/${image_name}.json"
+cache_ref="$REGISTRY/$image_name:buildcache"
 release_tag_args=()
 while IFS= read -r release_tag; do
   release_tag_args+=(--tag "$REGISTRY/$image_name:$release_tag")
@@ -58,6 +69,7 @@ oci_annotation_args=(
 )
 echo "Building and publishing $image_name"
 docker buildx build \
+  --builder "$builder" \
   --file "$dockerfile_path" \
   --platform "$PLATFORMS" \
   --push \
@@ -74,6 +86,8 @@ docker buildx build \
   --build-arg "RUNNER_COMPATIBILITY=$RUNNER_COMPATIBILITY" \
   --build-arg "PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY" \
   --build-arg "CAPABILITIES=$CAPABILITIES" \
+  --cache-from "type=registry,ref=$cache_ref" \
+  --cache-to "type=registry,ref=$cache_ref,mode=max" \
   --provenance=mode=max \
   --sbom=true \
   --metadata-file "$metadata_file" \

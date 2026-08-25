@@ -1,0 +1,29 @@
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG SOURCE_URL=https://github.com/nopsai/nopsai
+ARG NOPSAI_RELEASE_HELM_VERSION=3.17.3
+ARG NOPSAI_RELEASE_HELM_SHA256_AMD64
+ARG NOPSAI_RELEASE_HELM_SHA256_ARM64
+ARG NOPSAI_RELEASE_ORAS_VERSION=1.2.3
+ARG NOPSAI_RELEASE_ORAS_SHA256_AMD64
+ARG NOPSAI_RELEASE_ORAS_SHA256_ARM64
+ARG NOPSAI_RELEASE_GH_VERSION=2.74.2
+ARG NOPSAI_RELEASE_GH_SHA256_AMD64
+ARG NOPSAI_RELEASE_GH_SHA256_ARM64
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT}" \
+  org.opencontainers.image.created="${BUILD_DATE}" \
+  org.opencontainers.image.source="${SOURCE_URL}" \
+  org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0" \
+  org.opencontainers.image.vendor="NopsAI" \
+  org.opencontainers.image.title="nopsai-release-core"
+
+RUN apk add --no-cache bash coreutils curl findutils git grep jq perl-utils ruby tar gzip zip
+COPY scripts/install-release-tools.sh /tmp/install-release-tools.sh
+RUN bash -lc '. /tmp/install-release-tools.sh && install_helm && install_oras && install_gh' && \
+  rm -f /tmp/install-release-tools.sh
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/

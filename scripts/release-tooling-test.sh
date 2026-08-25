@@ -132,6 +132,10 @@ container_dockerfiles=(
   container/Dockerfile.k8s-runner
   container/Dockerfile.nopsai
   container/Dockerfile.pipeline
+  container/Dockerfile.release-core
+  container/Dockerfile.release-docker
+  container/Dockerfile.release-go
+  container/Dockerfile.release-node
   container/Dockerfile.socket-proxy
   services/ui/Dockerfile
 )

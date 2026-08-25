@@ -67,8 +67,8 @@ before anything is published rather than after.
   (`--path`), or a container image (`--image`). It uses a built-in
   provider-shaped pattern set rather than a downloaded scanner, so it adds no
   unpinned third-party binary to the release path and runs offline. Swapping in
-  gitleaks later only requires pinning it in
-  `scripts/install-release-tools.sh` alongside the other tools.
+  gitleaks later requires pinning it in the prepared release toolchain images
+  alongside the other release tools.
 - `scripts/secret-scan-allowlist.txt` holds documentation placeholders and test
   fixtures, matched against `<path>:<line>:<content>`.
 - Image scanning also fails on forbidden paths in a published layer: `/.git`,

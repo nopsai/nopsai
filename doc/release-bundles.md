@@ -82,22 +82,32 @@ self-update; this is separate from repository release visibility.
 
 ## Release Pipeline Supply Chain
 
-The GitOps release pipeline pins its job images by digest and verifies Helm,
-ORAS, and GitHub CLI archives with SHA-256 before extracting or executing them.
-The shared installer lives in `scripts/install-release-tools.sh`, and
-`release-metadata` copies that checked-in script into the release workspace so
-later jobs reuse the same reviewed logic. Release images are built by the
-checked-in `scripts/publish-release-image.sh`, which the `publish-images` step
-calls once per image as parallel tasks; the pipeline installs the image
-toolchain once for all of them and no longer writes that publisher at run time. The default tool versions have
-built-in checksums. If a release overrides
-`NOPSAI_RELEASE_HELM_VERSION`, `NOPSAI_RELEASE_ORAS_VERSION`, or
+The GitOps release pipeline runs on prepared release toolchain images instead
+of installing packages and downloaded CLIs during every run. The checked-in
+Dockerfiles are `container/Dockerfile.release-core`,
+`container/Dockerfile.release-go`, `container/Dockerfile.release-node`, and
+`container/Dockerfile.release-docker`. Publish them before adopting a new
+toolchain tag:
+
+```bash
+NOPSAI_RELEASE_GHCR_TOKEN=... \
+NOPSAI_RELEASE_GHCR_USERNAME=nopsai \
+scripts/publish-release-toolchain-images.sh 2026.08.25
+```
+
+The shared installer still lives in `scripts/install-release-tools.sh`; the
+release-core and release-go images source it at image-build time and verify
+Helm, ORAS, and GitHub CLI archives with SHA-256 before extracting them. The
+default tool versions have built-in checksums. If a toolchain image build
+overrides `NOPSAI_RELEASE_HELM_VERSION`, `NOPSAI_RELEASE_ORAS_VERSION`, or
 `NOPSAI_RELEASE_GH_VERSION`, set the matching architecture checksum variable:
 `NOPSAI_RELEASE_HELM_SHA256_AMD64`, `NOPSAI_RELEASE_HELM_SHA256_ARM64`,
 `NOPSAI_RELEASE_ORAS_SHA256_AMD64`, `NOPSAI_RELEASE_ORAS_SHA256_ARM64`,
-`NOPSAI_RELEASE_GH_SHA256_AMD64`, or `NOPSAI_RELEASE_GH_SHA256_ARM64`.
-The QEMU/binfmt helper image used for multi-architecture builds is also pinned
-by digest.
+`NOPSAI_RELEASE_GH_SHA256_AMD64`, or `NOPSAI_RELEASE_GH_SHA256_ARM64`. Release
+images are built by the checked-in `scripts/publish-release-image.sh`, which the
+`publish-images` step calls once per image as parallel tasks against one shared
+BuildKit builder. The QEMU/binfmt helper image used for multi-architecture
+builds is also pinned by digest.
 
 GitHub Release asset uploads retry transient GitHub CLI failures such as 5xx
 responses, service-unavailable responses, gateway timeouts, and connection

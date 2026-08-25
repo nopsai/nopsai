@@ -445,13 +445,14 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"cli_assets=(dist/cli/*)",
 		"No CLI release artifacts were built into dist/cli",
 		`helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1`,
-		"cp scripts/install-release-tools.sh dist/release/install-release-tools.sh",
-		". dist/release/install-release-tools.sh",
 		`oras_chart_reference="${chart_reference#oci://}"`,
 		`oras copy "$oras_chart_reference:$VERSION" "$oras_chart_reference:$release_tag"`,
 		`grep -Eo 'sha256:[a-f0-9]{64}'`,
 		`tail -1 || true`,
-		"apk add --no-cache bash coreutils perl-utils tar gzip",
+		"ghcr.io/nopsai/nopsai-release-core:2026.08.25",
+		"ghcr.io/nopsai/nopsai-release-go:2026.08.25",
+		"ghcr.io/nopsai/nopsai-release-node:2026.08.25",
+		"ghcr.io/nopsai/nopsai-release-docker:2026.08.25",
 		"helm_chart_asset=\"nopsai-helm-chart-$VERSION.tgz\"",
 		"changelog_asset=\"nopsai-changelog-$VERSION.md\"",
 		`cp "${cli_assets[@]}" dist/assets/`,
@@ -467,7 +468,6 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		`oras push "$cli_package_reference:$VERSION" "${oras_args[@]}"`,
 		`oras copy "$cli_package_reference:$VERSION" "$cli_package_reference:$release_tag"`,
 		`published_cli_package_alias=$cli_package_reference:$release_tag`,
-		"apk add --no-cache bash curl git tar gzip",
 		"legacy_assets=(",
 		`gh release delete-asset "v$VERSION" "$asset"`,
 		`update_release "v$VERSION" --title "NopsAI $VERSION" --latest`,
@@ -494,6 +494,11 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"deployment_bundle_asset=",
 		"tar -C dist/release -czf",
 		"cat >dist/release/install-release-tools.sh",
+		"apk add --no-cache",
+		". dist/release/install-release-tools.sh",
+		"go install github.com/golangci",
+		"go install github.com/securego",
+		"go install golang.org/x/vuln",
 	} {
 		if strings.Contains(pipeline, forbidden) {
 			t.Errorf("NopsAI platform release pipeline should not contain %q", forbidden)
@@ -502,15 +507,11 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 }
 
 func TestReleaseToolInstallerIsCheckedInAndVerified(t *testing.T) {
-	pipeline := readNopsAIReleasePipeline(t)
 	installerBytes, err := os.ReadFile("../scripts/install-release-tools.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	installer := string(installerBytes)
-	if !strings.Contains(pipeline, "cp scripts/install-release-tools.sh dist/release/install-release-tools.sh") {
-		t.Fatal("release pipeline must copy the checked-in release tool installer")
-	}
 	for _, required := range []string{
 		"verify_release_download helm",
 		"verify_release_download oras",
@@ -524,6 +525,22 @@ func TestReleaseToolInstallerIsCheckedInAndVerified(t *testing.T) {
 	} {
 		if !strings.Contains(installer, required) {
 			t.Errorf("release tool installer is missing %q", required)
+		}
+	}
+	for _, dockerfile := range []string{"../container/Dockerfile.release-core", "../container/Dockerfile.release-go"} {
+		contents, err := os.ReadFile(dockerfile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, required := range []string{
+			"COPY scripts/install-release-tools.sh",
+			"install_helm",
+			"install_oras",
+			"install_gh",
+		} {
+			if !strings.Contains(string(contents), required) {
+				t.Errorf("%s is missing release toolchain installer contract %q", dockerfile, required)
+			}
 		}
 	}
 }
@@ -631,6 +648,7 @@ func readNopsAIReleasePath(t *testing.T) string {
 	for _, path := range []string{
 		"../scripts/build-release-base-image.sh",
 		"../scripts/publish-release-image.sh",
+		"../scripts/publish-release-toolchain-images.sh",
 		"../scripts/install-release-tools.sh",
 		"../scripts/release-tags.sh",
 	} {
@@ -655,6 +673,10 @@ func dockerfilesContain(t *testing.T, required string) bool {
 		"../container/Dockerfile.k8s-runner",
 		"../container/Dockerfile.nopsai",
 		"../container/Dockerfile.pipeline",
+		"../container/Dockerfile.release-core",
+		"../container/Dockerfile.release-docker",
+		"../container/Dockerfile.release-go",
+		"../container/Dockerfile.release-node",
 		"../container/Dockerfile.socket-proxy",
 		"../services/ui/Dockerfile",
 	} {

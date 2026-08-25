@@ -1,0 +1,17 @@
+FROM docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG SOURCE_URL=https://github.com/nopsai/nopsai
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT}" \
+  org.opencontainers.image.created="${BUILD_DATE}" \
+  org.opencontainers.image.source="${SOURCE_URL}" \
+  org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0" \
+  org.opencontainers.image.vendor="NopsAI" \
+  org.opencontainers.image.title="nopsai-release-docker"
+
+RUN apk add --no-cache bash coreutils docker-cli-buildx findutils git grep jq tar gzip
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/

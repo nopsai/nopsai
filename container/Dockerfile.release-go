@@ -1,0 +1,32 @@
+FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG SOURCE_URL=https://github.com/nopsai/nopsai
+ARG NOPSAI_RELEASE_HELM_VERSION=3.17.3
+ARG NOPSAI_RELEASE_HELM_SHA256_AMD64
+ARG NOPSAI_RELEASE_HELM_SHA256_ARM64
+ARG NOPSAI_RELEASE_ORAS_VERSION=1.2.3
+ARG NOPSAI_RELEASE_ORAS_SHA256_AMD64
+ARG NOPSAI_RELEASE_ORAS_SHA256_ARM64
+ARG NOPSAI_RELEASE_GH_VERSION=2.74.2
+ARG NOPSAI_RELEASE_GH_SHA256_AMD64
+ARG NOPSAI_RELEASE_GH_SHA256_ARM64
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT}" \
+  org.opencontainers.image.created="${BUILD_DATE}" \
+  org.opencontainers.image.source="${SOURCE_URL}" \
+  org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0" \
+  org.opencontainers.image.vendor="NopsAI" \
+  org.opencontainers.image.title="nopsai-release-go"
+
+RUN apk add --no-cache bash build-base coreutils curl docker-cli docker-cli-compose findutils git grep jq nodejs npm perl-utils ruby tar gzip zip
+COPY scripts/install-release-tools.sh /tmp/install-release-tools.sh
+RUN bash -lc '. /tmp/install-release-tools.sh && install_helm && install_oras && install_gh' && \
+  GOBIN=/usr/local/bin go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 && \
+  GOBIN=/usr/local/bin go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1 && \
+  GOBIN=/usr/local/bin go install golang.org/x/vuln/cmd/govulncheck@v1.6.0 && \
+  rm -rf /go/pkg /root/.cache/go-build /tmp/install-release-tools.sh
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/nopsai/

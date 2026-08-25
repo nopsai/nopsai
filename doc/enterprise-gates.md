@@ -164,8 +164,9 @@ Set `SKIP_DOCKER_BUILDS=1` when validating Go/lint/security gates without
 local Docker builds.
 
 Helm 3.17 or newer is required for release chart linting, packaging, and
-template validation. The `.nopsai` release pipeline installs Helm from
-`NOPSAI_RELEASE_HELM_VERSION`, defaulting to 3.17.3.
+template validation. The `.nopsai` release pipeline gets Helm from the prepared
+release toolchain images; update `container/Dockerfile.release-core` and
+`container/Dockerfile.release-go` when the pinned Helm version changes.
 
 `golangci-lint` must be built with the same Go major/minor version as the
 module target in `go.mod` or newer. If the local binary was built with an older
@@ -181,14 +182,17 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 workflow. It runs the same backend categories as the local gate before any
 publication step:
 
-- `quality-gates` installs Helm plus pinned Go gate tools, then runs
+- `quality-gates` runs on `ghcr.io/nopsai/nopsai-release-go:2026.08.25`, which
+  already contains Helm plus the pinned Go gate tools, then runs
   `SKIP_DOCKER_BUILDS=1 scripts/enterprise-gates.sh` for Go tests, race tests,
   release tooling, license compatibility, vet, lint, gosec, and govulncheck.
-- `ui-gates` runs in `node:22-alpine` and performs `npm ci`, lint, UI boundary
-  checks, unit/component tests, and the production build.
+- `ui-gates` runs on `ghcr.io/nopsai/nopsai-release-node:2026.08.25`, based on
+  Node 22, and performs `npm ci`, lint, UI boundary checks, unit/component
+  tests, and the production build.
 - Docker build checks are enforced by the subsequent buildx publication stages,
-  which publish digest-pinned service, runner, socket-proxy, pipeline, and UI
-  images with SBOM and provenance metadata.
+  which run on `ghcr.io/nopsai/nopsai-release-docker:2026.08.25` and publish
+  digest-pinned service, runner, socket-proxy, pipeline, and UI images with SBOM
+  and provenance metadata.
 - Helm lint/package, OCI chart publication, CLI archives, changelog, checksums,
   and GitHub Release publication run only after backend, UI, and image gates
   succeed.
@@ -206,11 +210,13 @@ build from the local `nopsai-base:ci` image instead of pulling a published base.
 AAA and agent images copy their binaries from that shared artifact path. The
 Docker socket proxy intentionally remains a separate scratch-based image because
 it exposes only the minimal read-only Docker API surface for System Logs.
-The `.nopsai` quality gate pins `golangci-lint` to `v2.12.2`, `gosec` to
-`v2.27.1`, and `govulncheck` to `v1.6.0`, installing each with the Go 1.26.6
-toolchain from `golang:1.26.6-alpine`. The pinned Go patch release tracks the
-`go` directive in `go.mod`; `govulncheck` fails the gate when the toolchain falls
-behind a standard-library security release, so both move together.
+The prepared `nopsai-release-go` image pins `golangci-lint` to `v2.12.2`,
+`gosec` to `v2.27.1`, and `govulncheck` to `v1.6.0`, building each with the Go
+1.26.6 toolchain from `golang:1.26.6-alpine`. The pinned Go patch release tracks
+the `go` directive in `go.mod`; `govulncheck` fails the gate when the toolchain
+falls behind a standard-library security release, so both move together. Rebuild
+the prepared release images with `scripts/publish-release-toolchain-images.sh`
+when any of these versions changes.
 
 ## Current Baseline Decision
 

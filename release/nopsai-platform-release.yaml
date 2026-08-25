@@ -1,7 +1,7 @@
 name: nopsai-platform-release
 version: "1.0.0"
 description: Build and publish NopsAI container images, versioned Helm chart, CLI archives, changelog, and checksums from a NopsAI pipeline run.
-container_image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+container_image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
 working_directory: /workspace
 timeout: 3h
 llm_enabled: false
@@ -24,25 +24,15 @@ variables:
   - NOPSAI_RELEASE_PLATFORMS
   - NOPSAI_RELEASE_ENABLE_QEMU
   - NOPSAI_RELEASE_BUILDX_NAME
-  - NOPSAI_RELEASE_HELM_VERSION
-  - NOPSAI_RELEASE_HELM_SHA256_AMD64
-  - NOPSAI_RELEASE_HELM_SHA256_ARM64
-  - NOPSAI_RELEASE_GH_VERSION
-  - NOPSAI_RELEASE_GH_SHA256_AMD64
-  - NOPSAI_RELEASE_GH_SHA256_ARM64
   - NOPSAI_RELEASE_GITHUB_RETRY_DELAYS
-  - NOPSAI_RELEASE_ORAS_VERSION
-  - NOPSAI_RELEASE_ORAS_SHA256_AMD64
-  - NOPSAI_RELEASE_ORAS_SHA256_ARM64
   - DOCKER_HOST
 steps:
   - name: checkout-repository
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     secrets:
       - NOPSAI_RELEASE_GITHUB_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash git
       bash <<'BASH'
       set -euo pipefail
 
@@ -104,14 +94,13 @@ steps:
       BASH
 
   - name: release-metadata
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     depends_on:
       - checkout-repository
     secrets:
       - NOPSAI_RELEASE_GITHUB_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash coreutils git ruby
       bash <<'BASH'
       set -euo pipefail
 
@@ -259,9 +248,6 @@ steps:
         done <<< "$compatibility_env"
       } >dist/release/env
 
-      cp scripts/install-release-tools.sh dist/release/install-release-tools.sh
-      chmod 755 dist/release/install-release-tools.sh
-
       echo "release_version=$version"
       echo "release_tags=$release_tags_csv"
       echo "source_commit=$source_commit"
@@ -271,41 +257,29 @@ steps:
       BASH
 
   - name: quality-gates
-    image: golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+    image: ghcr.io/nopsai/nopsai-release-go:2026.08.25
     depends_on:
       - release-metadata
     script: |
       set -eu
-      apk add --no-cache bash build-base coreutils curl docker-cli docker-cli-compose git jq perl-utils ruby tar gzip
       bash <<'BASH'
       set -euo pipefail
 
-      install_go_gate_tools() {
-        export GOBIN=/usr/local/bin
-        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
-        go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
-        go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
-      }
-
       . dist/release/env
-      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping quality gates"
         exit 0
       fi
 
-      install_helm
-      install_go_gate_tools
       SKIP_DOCKER_BUILDS=1 scripts/enterprise-gates.sh
       BASH
 
   - name: ui-gates
-    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+    image: ghcr.io/nopsai/nopsai-release-node:2026.08.25
     depends_on:
       - release-metadata
     script: |
       set -eu
-      apk add --no-cache bash
       bash <<'BASH'
       set -euo pipefail
 
@@ -359,12 +333,11 @@ steps:
   # bundle with the actual licence texts before external distribution. The
   # generator fails closed when a distributed component ships no licence text.
   - name: release-notices
-    image: golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+    image: ghcr.io/nopsai/nopsai-release-go:2026.08.25
     depends_on:
       - release-metadata
     script: |
       set -eu
-      apk add --no-cache bash coreutils findutils git jq nodejs npm
       bash <<'BASH'
       set -euo pipefail
       RELEASE_PHASE=release-notices
@@ -395,18 +368,17 @@ steps:
       BASH
 
   - name: build-base-image
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    image: ghcr.io/nopsai/nopsai-release-docker:2026.08.25
     depends_on:
       - release-metadata
     secrets:
       - NOPSAI_RELEASE_GHCR_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash docker-cli-buildx jq
       bash scripts/build-release-base-image.sh cache
 
   - name: publish-base-image
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    image: ghcr.io/nopsai/nopsai-release-docker:2026.08.25
     depends_on:
       - quality-gates
       - ui-gates
@@ -416,17 +388,16 @@ steps:
       - NOPSAI_RELEASE_GHCR_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash docker-cli-buildx jq
       bash scripts/build-release-base-image.sh push
 
   # Every release image is built and pushed by the same script and differs only
   # in name, build context, and Dockerfile. They run as parallel tasks in one
-  # step, so the release installs the image toolchain once instead of ten times,
-  # logs in to GHCR once, and shares a single BuildKit builder. Sharing the
-  # builder is what lets the base image be pulled once for all ten and lets the
-  # layers these Dockerfiles have in common be built once rather than ten times.
+  # step with a prepared Docker toolchain image, so the release logs in to GHCR
+  # once and shares a single BuildKit builder. Sharing the builder is what lets
+  # the base image be pulled once for all ten and lets the layers these
+  # Dockerfiles have in common be built once rather than ten times.
   - name: publish-images
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    image: ghcr.io/nopsai/nopsai-release-docker:2026.08.25
     depends_on:
       - publish-base-image
     secrets:
@@ -435,7 +406,6 @@ steps:
       - name: prepare-image-tools
         script: |
           set -eu
-          apk add --no-cache bash docker-cli-buildx jq
           bash <<'BASH'
           set -euo pipefail
 
@@ -538,12 +508,11 @@ steps:
           docker buildx rm --force "${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}" >/dev/null 2>&1 || true
 
   - name: verify-image-digests
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     depends_on:
       - publish-images
     script: |
       set -eu
-      apk add --no-cache bash
       bash <<'BASH'
       set -euo pipefail
 
@@ -586,7 +555,7 @@ steps:
   # the chart and the GitHub release make the version discoverable. A finding
   # fails the release while the version is still unannounced.
   - name: scan-published-images
-    image: docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c
+    image: ghcr.io/nopsai/nopsai-release-docker:2026.08.25
     depends_on:
       - verify-image-digests
     secrets:
@@ -595,7 +564,6 @@ steps:
       DOCKER_HOST: ${DOCKER_HOST}
     script: |
       set -eu
-      apk add --no-cache bash git grep coreutils findutils tar
       bash <<'BASH'
       set -euo pipefail
 
@@ -636,27 +604,23 @@ steps:
   # runs beside the image builds instead of waiting for them. Publication still
   # waits for verified image digests.
   - name: package-helm-chart
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     depends_on:
       - quality-gates
       - ui-gates
       - release-notices
     script: |
       set -eu
-      apk add --no-cache bash curl git ruby tar gzip
       bash <<'BASH'
       set -euo pipefail
       RELEASE_PHASE=package-helm-chart
       trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
 
       . dist/release/env
-      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping Helm chart packaging"
         exit 0
       fi
-
-      install_helm
 
       echo "release_phase=package-helm-chart"
       rm -rf dist/release/chart
@@ -680,7 +644,7 @@ steps:
       BASH
 
   - name: publish-helm-chart
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     depends_on:
       - package-helm-chart
       - verify-image-digests
@@ -689,14 +653,12 @@ steps:
       - NOPSAI_RELEASE_GHCR_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash curl tar gzip
       bash <<'BASH'
       set -euo pipefail
       RELEASE_PHASE=publish-helm-chart
       trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
 
       . dist/release/env
-      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping Helm chart publication"
         exit 0
@@ -713,8 +675,6 @@ steps:
         exit 1
       fi
 
-      install_helm
-      install_oras
       echo "release_phase=publish-helm-chart"
       # Both logins stay on one line. A wrapped command loses its flags if any
       # layer between this file and the agent drops the continuations, and a
@@ -747,14 +707,13 @@ steps:
   # Cross-compiling the CLI needs the source and dist/release/env only, so it runs
   # beside the image and chart work rather than after it.
   - name: build-cli-archives
-    image: golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+    image: ghcr.io/nopsai/nopsai-release-go:2026.08.25
     depends_on:
       - quality-gates
       - ui-gates
       - release-notices
     script: |
       set -eu
-      apk add --no-cache bash git tar gzip zip
       bash <<'BASH'
       set -euo pipefail
 
@@ -797,14 +756,13 @@ steps:
       BASH
 
   - name: package-release-assets
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     depends_on:
       - build-cli-archives
       - publish-helm-chart
       - release-notices
     script: |
       set -eu
-      apk add --no-cache bash coreutils perl-utils tar gzip
       bash <<'BASH'
       set -euo pipefail
       RELEASE_PHASE=package-release-assets
@@ -836,21 +794,19 @@ steps:
       BASH
 
   - name: publish-cli-package
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     depends_on:
       - package-release-assets
     secrets:
       - NOPSAI_RELEASE_GHCR_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash curl tar gzip
       bash <<'BASH'
       set -euo pipefail
       RELEASE_PHASE=publish-cli-package
       trap 'status=$?; echo "release_phase=${RELEASE_PHASE:-unknown} failed line=$LINENO command=$BASH_COMMAND exit_code=$status" >&2; exit $status' ERR
 
       . dist/release/env
-      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping CLI package publication"
         exit 0
@@ -864,7 +820,6 @@ steps:
         exit 1
       fi
 
-      install_oras
       printf '%s' "$NOPSAI_RELEASE_GHCR_TOKEN" | oras login ghcr.io --username "$GHCR_USERNAME" --password-stdin
       cli_package_reference="${NOPSAI_RELEASE_CLI_PACKAGE:-$REGISTRY/nopsai-cli}"
       shopt -s nullglob
@@ -907,7 +862,7 @@ steps:
       BASH
 
   - name: publish-release
-    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    image: ghcr.io/nopsai/nopsai-release-core:2026.08.25
     depends_on:
       - package-release-assets
       - publish-cli-package
@@ -915,7 +870,6 @@ steps:
       - NOPSAI_RELEASE_GITHUB_TOKEN
     script: |
       set -eu
-      apk add --no-cache bash curl git tar gzip
       bash <<'BASH'
       set -euo pipefail
       RELEASE_PHASE=publish-github-release
@@ -1161,7 +1115,6 @@ steps:
       }
 
       . dist/release/env
-      . dist/release/install-release-tools.sh
       if [[ "$SHOULD_RELEASE" != "true" ]]; then
         echo "Release v$VERSION already exists; skipping GitHub release publication"
         exit 0
@@ -1171,7 +1124,6 @@ steps:
         exit 1
       fi
 
-      install_gh
       configure_git_auth
       export GH_TOKEN="$NOPSAI_RELEASE_GITHUB_TOKEN"
       echo "release_phase=publish-github-release"

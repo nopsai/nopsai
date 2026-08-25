@@ -43,14 +43,13 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 		"NOPSAI_RELEASE_PLATFORMS",
 		"NOPSAI_RELEASE_ENABLE_QEMU",
 		"NOPSAI_RELEASE_BUILDX_NAME",
-		"NOPSAI_RELEASE_HELM_VERSION",
-		"NOPSAI_RELEASE_GH_VERSION",
 		"DOCKER_HOST",
 	)
 
 	steps := stepsByName(pipeline.Steps)
 	// Release images are parallel tasks inside publish-images rather than one
-	// step each, so the toolchain is installed once for all of them.
+	// step each. A prepared Docker toolchain image is used for the whole fan-out
+	// and one shared BuildKit builder does the multi-architecture work.
 	imageTaskNames := []string{
 		"nopsai-api",
 		"nopsai-aaa",
@@ -86,7 +85,7 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 		imageTasks[task.Name] = task
 	}
 	if _, ok := imageTasks["prepare-image-tools"]; !ok {
-		t.Fatal("publish-images must install the image toolchain once in prepare-image-tools")
+		t.Fatal("publish-images must prepare the shared image toolchain in prepare-image-tools")
 	}
 	// One BuildKit builder is bootstrapped for the whole step. A builder per
 	// task meant ten cold instances that each re-pulled the base image and
@@ -145,10 +144,30 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["release-metadata"].GetScript(), "git rev-parse --absolute-git-dir")
 	requireContains(t, steps["publish-release"].GetScript(), "git rev-parse --absolute-git-dir")
 	requireContains(t, steps["checkout-repository"].GetScript(), "git fetch --force --tags origin")
-	requireContains(t, steps["quality-gates"].GetScript(), "apk add --no-cache bash build-base")
-	requireContains(t, steps["quality-gates"].GetScript(), "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2")
-	requireContains(t, steps["quality-gates"].GetScript(), "go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1")
-	requireContains(t, steps["quality-gates"].GetScript(), "go install golang.org/x/vuln/cmd/govulncheck@v1.6.0")
+	if pipeline.ContainerImage != "ghcr.io/nopsai/nopsai-release-core:2026.08.25" {
+		t.Fatalf("release pipeline default image = %q, want the prepared core toolchain image", pipeline.ContainerImage)
+	}
+	for name, wantImage := range map[string]string{
+		"quality-gates":         "ghcr.io/nopsai/nopsai-release-go:2026.08.25",
+		"ui-gates":              "ghcr.io/nopsai/nopsai-release-node:2026.08.25",
+		"release-notices":       "ghcr.io/nopsai/nopsai-release-go:2026.08.25",
+		"build-base-image":      "ghcr.io/nopsai/nopsai-release-docker:2026.08.25",
+		"publish-base-image":    "ghcr.io/nopsai/nopsai-release-docker:2026.08.25",
+		"publish-images":        "ghcr.io/nopsai/nopsai-release-docker:2026.08.25",
+		"scan-published-images": "ghcr.io/nopsai/nopsai-release-docker:2026.08.25",
+	} {
+		if got := steps[name].GetImage(); got != wantImage {
+			t.Fatalf("step %q image = %q, want %q", name, got, wantImage)
+		}
+	}
+	if strings.Contains(string(raw), "apk add --no-cache") {
+		t.Fatal("release pipeline must use prepared toolchain images instead of installing apk packages at runtime")
+	}
+	if strings.Contains(string(raw), "go install github.com/golangci") ||
+		strings.Contains(string(raw), "go install github.com/securego") ||
+		strings.Contains(string(raw), "go install golang.org/x/vuln") {
+		t.Fatal("release pipeline must use prebuilt Go gate tools instead of installing them at runtime")
+	}
 	requireContains(t, steps["quality-gates"].GetScript(), "SKIP_DOCKER_BUILDS=1 scripts/enterprise-gates.sh")
 	requireContains(t, steps["ui-gates"].GetScript(), "NPM_CONFIG_FOREGROUND_SCRIPTS=true")
 	requireContains(t, steps["ui-gates"].GetScript(), "node --version")
@@ -162,10 +181,6 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["release-metadata"].GetScript(), "printf 'SOURCE_URL=%q\\n' \"$source_url\"")
 	requireContains(t, steps["release-metadata"].GetScript(), "scripts/release-tags.sh \"$version\"")
 	requireContains(t, steps["release-metadata"].GetScript(), "printf 'RELEASE_TAGS=%q\\n' \"$release_tags_csv\"")
-	requireContains(t, steps["release-metadata"].GetScript(), "cp scripts/install-release-tools.sh dist/release/install-release-tools.sh")
-	if strings.Contains(steps["release-metadata"].GetScript(), "cat >dist/release/install-release-tools.sh") {
-		t.Fatal("release-metadata must copy the checked-in release tool installer instead of embedding a generated copy")
-	}
 	// The base image build lives in a checked-in script shared by the cache
 	// warm-up and the publishing step, so its contract is asserted there.
 	requireContains(t, steps["build-base-image"].GetScript(), "scripts/build-release-base-image.sh cache")
@@ -206,13 +221,11 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 		`"${oci_annotation_args[@]}"`,
 		"--build-arg \"BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest\"",
 		"--build-arg \"SOURCE_URL=$SOURCE_URL\"",
+		`--builder "$builder"`,
+		`--cache-from "type=registry,ref=$cache_ref"`,
+		`--cache-to "type=registry,ref=$cache_ref,mode=max"`,
 		`printf '%s\n' "$digest" >"dist/digests/${image_name}.digest"`,
-		// Each image task builds on a builder named after the image and the
-		// process that runs it, so parallel tasks never share BuildKit state.
-		`builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}-${builder_suffix}"`,
-		// The builder is removed however the task ends, so a failed publish
-		// cannot leave one behind for the next release.
-		`trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT`,
+		`builder="${NOPSAI_RELEASE_BUILDX_NAME:-nopsai-release-builder}"`,
 	} {
 		requireContains(t, imagePublisher, required)
 	}
@@ -246,14 +259,12 @@ func TestNopsAIGitOpsPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["publish-helm-chart"].GetScript(), `oras copy "$oras_chart_reference:$VERSION" "$oras_chart_reference:$release_tag"`)
 	requireContains(t, steps["publish-helm-chart"].GetScript(), "tail -1 || true")
 	requireContains(t, steps["publish-helm-chart"].GetScript(), "release_phase=publish-helm-chart")
-	requireContains(t, steps["package-release-assets"].GetScript(), "apk add --no-cache bash coreutils perl-utils tar gzip")
 	requireContains(t, steps["package-release-assets"].GetScript(), "helm_chart_asset=\"nopsai-helm-chart-$VERSION.tgz\"")
 	requireContains(t, steps["package-release-assets"].GetScript(), "changelog_asset=\"nopsai-changelog-$VERSION.md\"")
 	requireContains(t, steps["package-release-assets"].GetScript(), "cp \"dist/release/nopsai-$VERSION.tgz\" \"dist/assets/$helm_chart_asset\"")
 	requireContains(t, steps["package-release-assets"].GetScript(), "release_phase=package-release-assets")
 	requireContains(t, steps["publish-release"].GetScript(), "release_phase=publish-github-release")
 	requireContains(t, steps["publish-release"].GetScript(), "failed line=$LINENO command=$BASH_COMMAND exit_code=$status")
-	requireContains(t, steps["publish-release"].GetScript(), "apk add --no-cache bash curl git tar gzip")
 	requireContains(t, steps["publish-release"].GetScript(), "configure_git_auth")
 	requireContains(t, steps["publish-release"].GetScript(), "publish_alias_release()")
 	requireContains(t, steps["publish-release"].GetScript(), `publish_alias_release "$release_tag" "v$release_tag"`)

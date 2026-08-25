@@ -111,12 +111,16 @@ release model logic.
 - `scripts/install-release-tools.sh` owns verified release-tool downloads for
   Helm, ORAS, and GitHub CLI. It extracts downloaded archives without preserving
   archive owners so it remains compatible with restricted runner or deployment
-  policies. Pipeline YAML should copy/source it instead of embedding duplicate
-  installer bodies.
+  policies. The release toolchain Dockerfiles source it at image-build time
+  instead of making the release pipeline download those tools at run time.
+- `container/Dockerfile.release-*` owns the prepared release execution images
+  for core shell/release work, Go gates, UI gates, and Docker/Buildx publishing.
+  `scripts/publish-release-toolchain-images.sh` owns publishing those toolchain
+  images before a release pipeline tag is adopted.
 - `scripts/publish-release-image.sh` owns the multi-architecture build, push,
   OCI annotation, and digest capture for every release image except the base
-  image. The release pipeline calls it once per image as parallel tasks instead
-  of repeating the logic per step or generating it at run time.
+  image. The release pipeline calls it once per image as parallel tasks against
+  the shared Buildx builder prepared by `publish-images`.
 - `internal/cli/selfupdate` owns CLI OCI package and legacy release asset
   resolution, checksum verification, archive extraction, and local binary
   replacement.
