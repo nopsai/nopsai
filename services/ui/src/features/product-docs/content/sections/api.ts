@@ -92,11 +92,12 @@ export const apiSection: WikiSection = {
         'A system that calls the API should hold a service account token, not a token minted from a person\'s account.',
         'Token values are returned once, at creation. There is no route that reads one back.',
         'The `nopsai` CLI drives the same routes with the same authorization: it adds no server behaviour of its own.',
+        'Install the CLI from the latest GitHub Release assets before using CLI examples; future CLI upgrades are `nopsai update --version <x.y.z>`.',
       ],
       prerequisites: [
         { label: 'A reachable API', value: 'The API address, `http://localhost:8080` on a local install', verification: 'curl -s "$NOPSAI_URL/livez"' },
         { label: 'Credentials', value: 'A local account, or an existing personal or service account token' },
-        { label: 'Tools', value: '`curl` and `jq`, or any HTTP client', verification: 'curl --version && jq --version' },
+        { label: 'Tools', value: '`curl` and `jq`, or the released `nopsai` CLI from `https://github.com/nopsai/nopsai/releases/latest`', verification: 'curl --version && jq --version' },
       ],
       steps: [
         {
@@ -160,7 +161,7 @@ export const apiSection: WikiSection = {
         },
         {
           title: 'Use the CLI when you would rather not hand-roll requests',
-          description: 'The CLI carries a generated route catalogue that is parity-tested against the registered routes, so it cannot drift from the API.',
+          description: 'The CLI carries a generated route catalogue that is parity-tested against the registered routes, so it cannot drift from the API. Install it from the latest GitHub Release archive, extract the binary onto PATH, and remove the archive before using these commands.',
           commands: [
             {
               title: 'The same calls through the CLI',

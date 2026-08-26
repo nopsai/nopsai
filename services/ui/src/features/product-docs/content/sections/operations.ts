@@ -453,8 +453,9 @@ export const operationsSection: WikiSection = {
       keyFacts: [
         '`scripts/release-tags.sh` publishes the stable tag set: exact version, `latest`, major, and major.minor.',
         'Container images and the Helm OCI chart publish all four aliases; installers keep exact versions in generated Compose, Helm values, and locks.',
+        'First-time CLI installs use the latest GitHub Release assets at `https://github.com/nopsai/nopsai/releases/latest`; extract the binary onto `PATH` and remove the downloaded archive.',
         'CLI archives and `SHA256SUMS` publish to the `nopsai-cli` GHCR OCI package, which must be public so `nopsai update --version <x.y.z>` does not need repository release access.',
-        '`nopsai update` downloads the exact OCI package archive and `SHA256SUMS`, verifies the checksum, then replaces the local binary.',
+        '`nopsai update --version <x.y.z>` is the upgrade path after first install; it downloads the exact OCI package archive and `SHA256SUMS`, verifies the checksum, then replaces the local binary.',
         '`nopsai platform upgrade` moves an installed platform forward: it reads the install or deployment lock, keeps generated secrets, and blocks a compatibility-series upgrade until the changelog is acknowledged with `--accept-series-upgrade`.',
         '`release/compatibility.yaml` is read into buildinfo linker flags and Docker build args so binaries advertise the current platform, runner, API, and capability contract.',
         'Enterprise mirrors can override the package, repository, or asset base URL without changing the archive naming contract.',

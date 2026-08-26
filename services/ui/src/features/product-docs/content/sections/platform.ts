@@ -108,7 +108,7 @@ export const platformSection: WikiSection = {
         'The Helm chart deploys PostgreSQL, API, AAA, dispatcher, git-bot, UI, Gotenberg, and the Kubernetes runner.',
       ],
       details: [
-        '`nopsai install kubernetes` generates non-secret Helm values, an `installation.md`, and a separate Secret manifest for new installations. Values and locks are GitOps-friendly; apply the Secret manifest directly for a first install, or seal and encrypt it before it enters GitOps.',
+        'Install the CLI from `https://github.com/nopsai/nopsai/releases/latest`, extract the binary onto `PATH`, and remove the archive before running install commands. `nopsai install kubernetes` generates non-secret Helm values, an `installation.md`, and a separate Secret manifest for new installations. Values and locks are GitOps-friendly; apply the Secret manifest directly for a first install, or seal and encrypt it before it enters GitOps.',
         'Managed PostgreSQL is supported by disabling the bundled StatefulSet and replacing the generated database URL.',
         '`topology.dispatcherGRPCAddress` controls the dispatcher endpoint injected into API and Kubernetes runner pods, and the same topology block carries the internal NopsAI, AAA, git-bot, and Gotenberg service URLs for custom DNS or split-service deployments.',
       ],
@@ -302,6 +302,7 @@ export const platformSection: WikiSection = {
       keywords: ['kubernetes', 'helm', 'chart', 'cluster', 'rbac', 'pvc', 'namespace'],
       keyFacts: [
         'The chart deploys PostgreSQL, API, AAA, dispatcher, git-bot, UI, Gotenberg, and the Kubernetes runner.',
+        'Install the CLI from the latest GitHub Release assets before running `nopsai install kubernetes`; remove the downloaded archive after extraction.',
         '`nopsai install kubernetes` generates non-secret values, `installation.md`, and a separate Secret manifest.',
         'The runner Deployment and agent pods use an RBAC-bearing runner ServiceAccount; step pods use a separate no-RBAC workload ServiceAccount.',
         '`topology.dispatcherGRPCAddress` defaults to `dispatcher:9090` and is injected into API and runner pods.',

@@ -5,7 +5,46 @@ server binary, `nopsai-api`. The CLI keeps platform and API operations under one
 context and authentication model while their implementation packages remain
 separate.
 
-## Build
+## Install
+
+Latest released CLI assets are linked from
+<https://github.com/nopsai/nopsai/releases/latest>. Linux and macOS archives
+contain the `nopsai` binary; Windows archives contain `nopsai.exe`. On Linux or
+macOS, install the current latest release with:
+
+```bash
+version="$(curl -fsSL https://api.github.com/repos/nopsai/nopsai/releases/latest | sed -nE 's/.*"tag_name": *"v?([^"]+)".*/\1/p' | head -1)"
+[ -n "$version" ] || { echo "Could not resolve latest NopsAI release" >&2; exit 1; }
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+arch="$(uname -m)"
+case "$os" in linux|darwin) ;; *) echo "Unsupported OS: $os" >&2; exit 1 ;; esac
+case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac
+archive="nopsai-cli_${version}_${os}_${arch}.tar.gz"
+base_url="https://github.com/nopsai/nopsai/releases/download/v${version}"
+
+curl -fL "$base_url/$archive" -o "$archive"
+curl -fL "$base_url/SHA256SUMS" -o SHA256SUMS
+checksum_line="$(awk -v asset="$archive" '{ name=$2; sub(/^\*/, "", name); sub(/^\.\//, "", name); if (name == asset) print $0 }' SHA256SUMS)"
+[ -n "$checksum_line" ] || { echo "Missing checksum for $archive" >&2; exit 1; }
+if command -v sha256sum >/dev/null 2>&1; then
+  printf '%s\n' "$checksum_line" | sha256sum -c -
+else
+  printf '%s\n' "$checksum_line" | shasum -a 256 -c -
+fi
+tar -xzf "$archive" nopsai
+sudo install -m 0755 nopsai /usr/local/bin/nopsai
+rm -f "$archive" SHA256SUMS nopsai
+nopsai --version
+```
+
+For Windows, download `nopsai-cli_<version>_windows_amd64.zip` from the same
+latest release page, extract `nopsai.exe` onto your `PATH`, and remove the zip
+after extraction.
+
+After this first install, upgrade the CLI with `nopsai update --version
+<version>` instead of manually downloading another archive.
+
+## Build From Source
 
 ```bash
 go build -o nopsai ./cmd/nopsai-cli

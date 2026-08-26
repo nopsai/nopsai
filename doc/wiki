@@ -313,7 +313,10 @@ raw API requests, route listing, route descriptions, context management,
 token login/logout, install generation, platform doctor, platform release,
 platform upgrade, completion generation, guide topics, help, and exit. Keep the in-app wiki,
 `doc/cli.md`, and `internal/cli/command/interactive_*.go` aligned when this
-surface changes. Repository-owned platform release automation lives in
+surface changes. First-use CLI documentation must point operators to the latest
+GitHub Release assets at `https://github.com/nopsai/nopsai/releases/latest`,
+show extracting `nopsai` or `nopsai.exe` onto `PATH`, and remove the downloaded
+archive after extraction. Repository-owned platform release automation lives in
 `release/nopsai-platform-release.yaml`; keep release pipeline docs and tests on
 that GitOps path. UI release gates should print UTC start/finish timestamps and
 durations for each npm stage so local-time log rendering cannot masquerade as a

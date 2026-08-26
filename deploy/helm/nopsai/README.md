@@ -27,8 +27,10 @@ example `postgres://nopsai_user:<postgres-password>@postgres:5432/nopsai_db?sslm
 For managed PostgreSQL, set `postgres.enabled=false` and point `database-url` at
 the external database instead.
 
-For a new installation, let the CLI generate non-secret values, an applyable
-Secret manifest, and the installation guide:
+For a new installation, install the latest CLI from
+<https://github.com/nopsai/nopsai/releases/latest>, extract the `nopsai` binary,
+put it on `PATH`, and remove the downloaded archive. Then let the CLI generate
+non-secret values, an applyable Secret manifest, and the installation guide:
 
 ```bash
 nopsai install kubernetes \

@@ -28,7 +28,9 @@ reject incompatible mutating requests before sending them. See
 browser favicon probes do not produce authentication errors.
 
 The `nopsai` CLI provides the same authenticated API surface without embedding
-server behavior:
+server behavior. Install it first from the latest release assets in
+[cli.md](./cli.md#install), then use `nopsai update --version <version>` for
+future CLI upgrades:
 
 ```bash
 nopsai context add local --api http://localhost:8080

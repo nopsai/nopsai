@@ -7,11 +7,22 @@
 
 # NopsAI
 
-NopsAI is a self-hosted automation control plane. You define pipelines in YAML,
-mix deterministic shell steps with LLM-backed goals and human approval gates,
-and NopsAI resolves the configuration, authorizes the caller against every
-resource the run touches, and executes the work on Docker or Kubernetes runners
-— recording the whole lifecycle.
+NopsAI is a self-hosted platform for building, governing, and running AI-assisted engineering and operational workflows.
+
+It enables platform, DevOps, and Engineering teams to combine:
+
+- Deterministic scripts and commands
+- LLM models
+- MCP tools
+- Agent roles
+- Knowledge context synced from Notion and Confluence (Guardrails, ADRs, Policies, Docs, and etc.)
+- Team level managed resources
+- pipeline in pipeline calls
+- Create and update Dashboards and files from pipeline by prompt
+- Gitops Oriented
+- Docker and Kubernetes runners
+
+NopsAI controls which models, tools, credentials, resources, and environments a workflow can access and preserves a durable, auditable record of each execution.
 
 It is CI/CD-shaped, but the configuration, access, and AI controls are built for
 production operations: encrypted secrets, scoped variables, governed knowledge
@@ -73,13 +84,43 @@ and SSO fixtures under [examples/sso](examples/sso/README.md).
 
 ### From a published release
 
+Install the latest published CLI from
+<https://github.com/nopsai/nopsai/releases/latest>, then run the installer:
+
 ```bash
+version="$(curl -fsSL https://api.github.com/repos/nopsai/nopsai/releases/latest | sed -nE 's/.*"tag_name": *"v?([^"]+)".*/\1/p' | head -1)"
+[ -n "$version" ] || { echo "Could not resolve latest NopsAI release" >&2; exit 1; }
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+arch="$(uname -m)"
+case "$os" in linux|darwin) ;; *) echo "Unsupported OS: $os" >&2; exit 1 ;; esac
+case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac
+archive="nopsai-cli_${version}_${os}_${arch}.tar.gz"
+base_url="https://github.com/nopsai/nopsai/releases/download/v${version}"
+
+curl -fL "$base_url/$archive" -o "$archive"
+curl -fL "$base_url/SHA256SUMS" -o SHA256SUMS
+checksum_line="$(awk -v asset="$archive" '{ name=$2; sub(/^\*/, "", name); sub(/^\.\//, "", name); if (name == asset) print $0 }' SHA256SUMS)"
+[ -n "$checksum_line" ] || { echo "Missing checksum for $archive" >&2; exit 1; }
+if command -v sha256sum >/dev/null 2>&1; then
+  printf '%s\n' "$checksum_line" | sha256sum -c -
+else
+  printf '%s\n' "$checksum_line" | shasum -a 256 -c -
+fi
+tar -xzf "$archive" nopsai
+sudo install -m 0755 nopsai /usr/local/bin/nopsai
+rm -f "$archive" SHA256SUMS nopsai
+
 nopsai install
 ```
 
+Windows users can download `nopsai-cli_<version>_windows_amd64.zip` from the
+same latest release page, extract `nopsai.exe` onto `PATH`, and delete the zip.
+
 The wizard asks for Docker Compose or Kubernetes and generates the install files
 for the version you select — a Compose file, `.env`, and database seed, or Helm
-values referencing the versioned OCI chart. See [doc/cli.md](doc/cli.md).
+values referencing the versioned OCI chart. After the first install, upgrade the
+CLI with `nopsai update --version <version>` so the CLI verifies the downloaded
+archive and checksum before replacing itself. See [doc/cli.md](doc/cli.md).
 
 ### From this checkout
 

@@ -117,6 +117,11 @@ release environment needs shorter or longer retries.
 
 ## CLI Self-Update
 
+First-time CLI installs can download the latest GitHub Release asset from
+<https://github.com/nopsai/nopsai/releases/latest>, extract `nopsai` or
+`nopsai.exe`, place it on `PATH`, and remove the downloaded archive after
+extraction. After that, upgrades should be performed by the CLI itself.
+
 Released CLIs can replace themselves from the public CLI OCI package for an
 exact version:
 
