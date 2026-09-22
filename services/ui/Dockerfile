@@ -1,4 +1,4 @@
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
+FROM node:26-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS build
 
 ARG VERSION=dev
 ARG COMMIT=unknown
@@ -17,7 +17,7 @@ ENV VITE_NOPSAI_COMMIT=${COMMIT}
 ENV VITE_NOPSAI_BUILD_DATE=${BUILD_DATE}
 RUN npm run build
 
-FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+FROM nginx:1.31-alpine@sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
 
 ARG VERSION=dev
 ARG COMMIT=unknown
